@@ -22,6 +22,8 @@ import {
   logResults,
   addQuestion,
   resetProgress,
+  getAllQuestions,
+  bulkUpdateQuestions,
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
@@ -31,6 +33,7 @@ import {
   generateExplanation,
   generateReview,
   generateAnalysis,
+  latexifyQuestions,
 } from './lib/gemini.js';
 import { runMigration } from './lib/migrate.js';
 import {
@@ -533,6 +536,67 @@ app.post('/api/admin/reset', requireAuth, async (_req, res, next) => {
     // Best-effort: refresh the BigQuery topics snapshot to mirror the wipe.
     getTopicsRows().then(replaceTopics).catch(() => {});
     res.json({ ok: true, ...report });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: one-time migration that converts the existing question bank's informal
+// math notation (x^2, cos^-1, x->3, ...) into KaTeX LaTeX so it renders. Safe
+// and resumable: processes up to `max` un-converted questions per call, skips
+// any whose converted answer no longer matches an option (keeps the original),
+// and reports how many remain. Call repeatedly until remaining = 0.
+const MATH_HINT = /[\^_√→×÷≤≥≠∞∑∫π]|\\[a-zA-Z]/;
+const hasDollar = (q) =>
+  String(q.question || '').includes('$') || (q.options || []).some((o) => String(o).includes('$'));
+const needsLatex = (q) =>
+  !hasDollar(q) && (MATH_HINT.test(q.question || '') || (q.options || []).some((o) => MATH_HINT.test(String(o))));
+
+app.post('/api/admin/latexify', requireAuth, async (req, res, next) => {
+  try {
+    const max = Math.min(parseInt(req.query.max, 10) || 200, 800);
+    const all = await getAllQuestions();
+    const pending = all.filter(needsLatex);
+    const todo = pending.slice(0, max);
+
+    let converted = 0;
+    let skipped = 0;
+    const updates = [];
+    const BATCH = 12;
+    for (let i = 0; i < todo.length; i += BATCH) {
+      const chunk = todo.slice(i, i + BATCH).map((q) => ({
+        id: q.id, question: q.question, options: q.options, answer: q.answer,
+      }));
+      let out;
+      try {
+        out = await latexifyQuestions(chunk);
+      } catch {
+        skipped += chunk.length;
+        continue;
+      }
+      const byId = new Map((out || []).map((o) => [o.id, o]));
+      for (const q of chunk) {
+        const o = byId.get(q.id);
+        const okShape =
+          o && typeof o.question === 'string' && Array.isArray(o.options) &&
+          o.options.length === q.options.length && typeof o.answer === 'string';
+        const answerMatches =
+          okShape && o.options.map((s) => String(s).trim()).includes(String(o.answer).trim());
+        if (okShape && answerMatches) {
+          updates.push({
+            id: q.id,
+            question: o.question,
+            options: o.options.map(String),
+            answer: String(o.answer),
+          });
+          converted += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+    }
+    await bulkUpdateQuestions(updates);
+    res.json({ ok: true, converted, skipped, remaining: Math.max(0, pending.length - converted) });
   } catch (e) {
     next(e);
   }
