@@ -561,7 +561,6 @@ app.post('/api/admin/latexify', requireAuth, async (req, res, next) => {
 
     let converted = 0;
     let skipped = 0;
-    const updates = [];
     const BATCH = 12;
     for (let i = 0; i < todo.length; i += BATCH) {
       const chunk = todo.slice(i, i + BATCH).map((q) => ({
@@ -575,6 +574,7 @@ app.post('/api/admin/latexify', requireAuth, async (req, res, next) => {
         continue;
       }
       const byId = new Map((out || []).map((o) => [o.id, o]));
+      const updates = [];
       for (const q of chunk) {
         const o = byId.get(q.id);
         const okShape =
@@ -594,8 +594,10 @@ app.post('/api/admin/latexify', requireAuth, async (req, res, next) => {
           skipped += 1;
         }
       }
+      // Commit each batch immediately so progress persists and is resumable
+      // even if the request later times out.
+      await bulkUpdateQuestions(updates);
     }
-    await bulkUpdateQuestions(updates);
     res.json({ ok: true, converted, skipped, remaining: Math.max(0, pending.length - converted) });
   } catch (e) {
     next(e);
