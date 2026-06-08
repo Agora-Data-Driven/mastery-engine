@@ -561,6 +561,7 @@ const App = (() => {
     try {
       const r = await api('/api/review', { method: 'POST', body: JSON.stringify(scope) });
       $('reviewBody').innerHTML = renderMarkdown(r.review);
+      typeset($('reviewBody'));
     } catch (e) {
       $('reviewBody').innerHTML = '<span class="err">Couldn\'t build a review: ' + esc(e.message) + '</span>';
     }
@@ -583,6 +584,7 @@ const App = (() => {
     try {
       const r = await api('/api/analyze', { method: 'POST' });
       box.innerHTML = '<div class="ai-head">🧠 Progress analysis</div>' + renderMarkdown(r.analysis);
+      typeset(box);
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t analyze your progress: ' + esc(e.message) + '</span>';
     } finally {
@@ -612,6 +614,7 @@ const App = (() => {
     $('progressScore').textContent = `Score ${state.score}`;
     $('qCrumb').textContent = [q.course, q.topic].filter(Boolean).join('  ›  ');
     $('qText').textContent = q.question;
+    typeset($('qText'));
     $('reviewFlag').checked = false;
     hide('postAnswer');
 
@@ -630,10 +633,14 @@ const App = (() => {
     shuffle([...q.options]).forEach((opt, i) => {
       const b = document.createElement('button');
       b.className = 'option';
-      b.innerHTML = `<span class="key">${KEYS[i] || '•'}</span><span>${esc(opt)}</span>`;
+      // Keep the raw option text on the node so answer-matching survives LaTeX
+      // typesetting (which rewrites the rendered text).
+      b.dataset.opt = opt;
+      b.innerHTML = `<span class="key">${KEYS[i] || '•'}</span><span class="opt-text">${esc(opt)}</span>`;
       b.onclick = () => handleAnswer(opt, q, b);
       area.appendChild(b);
     });
+    typeset(area);
   }
 
   function handleAnswer(choice, q, btn) {
@@ -642,13 +649,22 @@ const App = (() => {
 
     document.querySelectorAll('.option').forEach((el) => {
       el.disabled = true;
-      const txt = el.querySelector('span:last-child').textContent.trim();
-      if (txt === q.answer.trim()) el.classList.add('correct');
+      const raw = (el.dataset.opt || '').trim();
+      if (raw === q.answer.trim()) el.classList.add('correct');
       else if (el === btn) el.classList.add('wrong');
     });
 
     const f = $('feedback');
-    f.textContent = correct ? 'Correct ✨' : `Incorrect. Answer: ${q.answer}`;
+    if (correct) {
+      f.textContent = 'Correct ✨';
+    } else {
+      f.textContent = '';
+      f.appendChild(document.createTextNode('Incorrect. Answer: '));
+      const ans = document.createElement('span');
+      ans.textContent = q.answer;
+      f.appendChild(ans);
+      typeset(ans);
+    }
     f.className = 'feedback ' + (correct ? 'ok' : 'no');
     $('progressScore').textContent = `Score ${state.score}`;
     show('postAnswer');
@@ -668,6 +684,7 @@ const App = (() => {
         body: JSON.stringify({ question: q.question, options: q.options, answer: q.answer }),
       });
       box.innerHTML = '<div class="ai-head">💡 Hint</div>' + renderMarkdown(r.hint);
+      typeset(box);
       btn.textContent = '💡 Hint shown';
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t get a hint: ' + esc(e.message) + '</span>';
@@ -691,6 +708,7 @@ const App = (() => {
         }),
       });
       box.innerHTML = '<div class="ai-head">✨ Explanation</div>' + renderMarkdown(r.explanation);
+      typeset(box);
       btn.classList.add('hidden');
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t load explanation: ' + esc(e.message) + '</span>';
@@ -716,6 +734,29 @@ const App = (() => {
     }
     if (inList) html += '</ul>';
     return html;
+  }
+
+  /**
+   * Render LaTeX inside an element with KaTeX auto-render (loaded from CDN).
+   * Supports $...$ / $$...$$ inline & display, and \(...\) / \[...\]. Safe to
+   * call before KaTeX has loaded (no-op until it's available).
+   */
+  function typeset(el) {
+    if (!el || !window.renderMathInElement) return;
+    try {
+      window.renderMathInElement(el, {
+        delimiters: [
+          { left: '$$', right: '$$', display: true },
+          { left: '$', right: '$', display: false },
+          { left: '\\(', right: '\\)', display: false },
+          { left: '\\[', right: '\\]', display: true },
+        ],
+        throwOnError: false,
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'option'],
+      });
+    } catch (e) {
+      /* never let a malformed expression break the UI */
+    }
   }
 
   function nextQuestion() {

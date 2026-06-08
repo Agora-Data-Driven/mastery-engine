@@ -107,7 +107,7 @@ function rateLimitAI(req, res, next) {
     return next();
   }
   if (rec.count >= AI_MAX) {
-    return res.status(429).json({ error: 'Too many AI requests — give it a minute.' });
+    return res.status(429).json({ error: 'Too many AI requests. Give it a minute.' });
   }
   rec.count++;
   next();
