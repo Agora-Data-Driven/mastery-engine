@@ -158,18 +158,27 @@ const App = (() => {
 
   function configureSetupForMode() {
     const mastery = state.authed && !state.guest;
-    $('priorityBtn').classList.toggle('hidden', !mastery);
     $('genModeWrap').classList.toggle('hidden', !mastery);
-    if (!mastery) setMode('QUIZ');
-    updateSetupCopy();
+    setMode('QUIZ'); // always reset to the quiz builder when (re)entering setup
   }
 
   function setMode(mode) {
     state.mode = mode;
+    const mastery = state.authed && !state.guest;
+    const isProgress = mode === 'PROGRESS';
+
     document.querySelectorAll('#modeSegment button').forEach((b) =>
       b.classList.toggle('active', b.dataset.mode === mode)
     );
-    updateSetupCopy();
+
+    // Toggle the two panels of the setup card.
+    $('quizBuilder').classList.toggle('hidden', isProgress);
+    $('progressPanel').classList.toggle('hidden', !isProgress);
+    // Priority CTA only makes sense in mastery quiz/gen flows.
+    $('priorityBtn').classList.toggle('hidden', !mastery || isProgress);
+
+    if (isProgress) renderProgressTree();
+    else updateSetupCopy();
   }
 
   function updateSetupCopy() {
@@ -377,6 +386,110 @@ const App = (() => {
     }
   }
 
+  /* --------------------------- Progress tree ----------------------------- */
+  // Builds a Track > Course > Unit > Topic tree from the catalog and rolls
+  // accuracy up each level (weighted by attempts). Each row is a progress bar.
+
+  function upsertChild(parent, name) {
+    if (!parent.children.has(name)) {
+      parent.children.set(name, {
+        name, children: new Map(), attempts: 0, correct: 0, leaf: false,
+      });
+    }
+    return parent.children.get(name);
+  }
+
+  function rollupNode(node) {
+    if (node.leaf) {
+      node.topicCount = 1;
+      node.attemptedCount = node.attempts > 0 ? 1 : 0;
+      return;
+    }
+    node.attempts = 0; node.correct = 0; node.topicCount = 0; node.attemptedCount = 0;
+    for (const child of node.children.values()) {
+      rollupNode(child);
+      node.attempts += child.attempts;
+      node.correct += child.correct;
+      node.topicCount += child.topicCount;
+      node.attemptedCount += child.attemptedCount;
+    }
+  }
+
+  function buildProgressTree(catalog) {
+    const root = { children: new Map() };
+    for (const r of catalog) {
+      const track = upsertChild(root, r.track || 'Unknown Track');
+      const course = upsertChild(track, r.course || 'Unknown Course');
+      const lesson = upsertChild(course, r.lesson || 'Unknown Unit');
+      const topic = upsertChild(lesson, r.topic || 'Unknown Topic');
+      topic.leaf = true;
+      topic.attempts = r.totalAttempts || 0;
+      topic.correct = r.correctCount || 0;
+    }
+    for (const node of root.children.values()) rollupNode(node);
+    return root;
+  }
+
+  function nodeAccuracy(node) {
+    return node.attempts ? Math.round((node.correct / node.attempts) * 100) : null;
+  }
+
+  // Weakest practised first, then untouched, then alphabetical.
+  function byProgress(a, b) {
+    const aa = a.attempts ? a.correct / a.attempts : null;
+    const bb = b.attempts ? b.correct / b.attempts : null;
+    if (aa == null && bb == null) return a.name.localeCompare(b.name);
+    if (aa == null) return 1;
+    if (bb == null) return -1;
+    if (aa !== bb) return aa - bb;
+    return a.name.localeCompare(b.name);
+  }
+
+  function renderProgressNode(node, level) {
+    const acc = nodeAccuracy(node);
+    const color = accColor(acc);
+    const pct = acc == null ? 0 : acc;
+    const kids = [...node.children.values()].sort(byProgress);
+    const hasKids = kids.length > 0 && !node.leaf;
+    const sub = node.leaf
+      ? (node.attempts ? `${node.attempts} attempt${node.attempts === 1 ? '' : 's'}` : 'Not started')
+      : `${node.attemptedCount}/${node.topicCount} topics practised`;
+    const pctLabel = acc == null ? '—' : acc + '%';
+
+    const childHtml = hasKids
+      ? `<div class="prog-children">${kids.map((k) => renderProgressNode(k, level + 1)).join('')}</div>`
+      : '';
+
+    return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}">
+      <div class="prog-row" style="padding-left:${level * 18}px">
+        <span class="prog-caret">${hasKids ? '▸' : ''}</span>
+        <div class="prog-info">
+          <span class="prog-name">${esc(node.name)}</span>
+          <span class="prog-sub">${esc(sub)}</span>
+        </div>
+        <div class="prog-bar-wrap">
+          <span class="mini-bar"><span class="mini-fill" style="width:${pct}%;background:${color}"></span></span>
+          <span class="prog-pct" style="color:${acc == null ? 'var(--faint)' : color}">${pctLabel}</span>
+        </div>
+      </div>
+      ${childHtml}
+    </div>`;
+  }
+
+  function renderProgressTree() {
+    const tree = $('progressTree');
+    const empty = $('progressEmpty');
+    if (!state.catalog.length) {
+      tree.innerHTML = '';
+      empty.classList.remove('hidden');
+      return;
+    }
+    empty.classList.add('hidden');
+    const root = buildProgressTree(state.catalog);
+    const tracks = [...root.children.values()].sort(byProgress);
+    tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0)).join('');
+  }
+
   /* -------------------------------- Quiz --------------------------------- */
   function startQuiz(qs) {
     if (!qs || !qs.length) {
@@ -564,6 +677,15 @@ const App = (() => {
     $('trackSel').addEventListener('change', filterCourses);
     $('courseSel').addEventListener('change', filterLessons);
     $('lessonSel').addEventListener('change', filterTopics);
+
+    // Expand/collapse rows in the progress tree (event delegation).
+    $('progressTree').addEventListener('click', (e) => {
+      const row = e.target.closest('.prog-row');
+      if (!row) return;
+      const node = row.parentElement;
+      if (node.classList.contains('has-children')) node.classList.toggle('open');
+    });
+
     init();
   });
 

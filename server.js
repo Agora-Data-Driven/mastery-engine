@@ -138,6 +138,7 @@ app.get('/api/catalog', async (_req, res, next) => {
         accuracy: t.totalAttempts ? Math.round((t.correctCount / t.totalAttempts) * 100) : null,
         priority: t.priority ?? null,
         totalAttempts: t.totalAttempts ?? 0,
+        correctCount: t.correctCount ?? 0,
       }))
     );
   } catch (e) {
