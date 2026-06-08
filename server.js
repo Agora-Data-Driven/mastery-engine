@@ -105,6 +105,32 @@ function aiChoice(req) {
   return { provider, model };
 }
 
+/**
+ * Stream a text response. `produce(onToken)` should call onToken with chunks.
+ * Headers are set lazily on the first chunk so that an error before any output
+ * can still be returned as a clean JSON 500.
+ */
+async function streamText(res, produce) {
+  let wrote = false;
+  const onToken = (t) => {
+    if (!wrote) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache, no-transform');
+      res.setHeader('X-Accel-Buffering', 'no'); // don't buffer the stream
+      wrote = true;
+    }
+    res.write(t);
+  };
+  try {
+    await produce(onToken);
+    if (!wrote) res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.end();
+  } catch (e) {
+    if (!wrote) res.status(500).json({ error: e.message || 'AI request failed' });
+    else { try { res.end(); } catch { /* already closed */ } }
+  }
+}
+
 /* Lightweight per-IP rate limiter for the public AI endpoints (cost guard). */
 const aiHits = new Map(); // ip -> { count, resetAt }
 const AI_WINDOW_MS = 60 * 1000;
@@ -176,6 +202,33 @@ app.get('/api/models', async (_req, res, next) => {
     const ollama = await listOllamaModels();
     if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
     res.json({ providers, ollamaAvailable: ollama.length > 0 });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Public: the whole question bank with hierarchy, for offline caching in the
+// browser. Lets the app serve quizzes and render menus without a connection.
+app.get('/api/questions/all', async (_req, res, next) => {
+  try {
+    const [catalog, questions] = await Promise.all([getCatalog(), getAllQuestions()]);
+    const idx = metaIndex(catalog);
+    res.json(
+      questions
+        .filter((q) => q.question && Array.isArray(q.options))
+        .map((q) => {
+          const m = idx.get(q.topic) || {};
+          return {
+            track: m.track || '',
+            course: m.course || '',
+            lesson: m.lesson || '',
+            topic: q.topic,
+            question: q.question,
+            options: q.options,
+            answer: q.answer,
+          };
+        })
+    );
   } catch (e) {
     next(e);
   }
@@ -502,53 +555,43 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
       : !isAll(track) ? track
       : 'Your selection';
 
-    const review = await generateReview({ scopeLabel, topics, questions }, aiChoice(req));
-    res.json({ review });
+    await streamText(res, (onToken) =>
+      generateReview({ scopeLabel, topics, questions }, aiChoice(req), onToken));
   } catch (e) {
-    next(e);
+    if (!res.headersSent) next(e);
   }
 });
 
-// Auth: AI analysis of the learner's overall progress dashboard.
+// Auth: AI analysis of the learner's overall progress dashboard (streamed).
 app.post('/api/analyze', requireAuth, async (req, res, next) => {
   try {
     const catalog = await getCatalog();
-    const analysis = await generateAnalysis(buildProgressSummary(catalog), aiChoice(req));
-    res.json({ analysis });
+    const summary = buildProgressSummary(catalog);
+    await streamText(res, (onToken) => generateAnalysis(summary, aiChoice(req), onToken));
   } catch (e) {
-    next(e);
+    if (!res.headersSent) next(e);
   }
 });
 
 /* ------------------------------- AI tutor --------------------------------- */
-// Public (rate-limited): a hint that does NOT reveal the answer.
-app.post('/api/hint', rateLimitAI, async (req, res, next) => {
-  try {
-    const { question, options, answer } = req.body || {};
-    if (!question || !Array.isArray(options)) {
-      return res.status(400).json({ error: 'question and options are required' });
-    }
-    const hint = await generateHint({ question, options, answer: answer || '' }, aiChoice(req));
-    res.json({ hint });
-  } catch (e) {
-    next(e);
+// Public (rate-limited): a hint that does NOT reveal the answer (streamed).
+app.post('/api/hint', rateLimitAI, async (req, res) => {
+  const { question, options, answer } = req.body || {};
+  if (!question || !Array.isArray(options)) {
+    return res.status(400).json({ error: 'question and options are required' });
   }
+  await streamText(res, (onToken) =>
+    generateHint({ question, options, answer: answer || '' }, aiChoice(req), onToken));
 });
 
-// Public (rate-limited): a from-scratch explanation, shown after answering.
-app.post('/api/explain', rateLimitAI, async (req, res, next) => {
-  try {
-    const { question, options, answer, userAnswer, isCorrect } = req.body || {};
-    if (!question || !Array.isArray(options) || !answer) {
-      return res.status(400).json({ error: 'question, options and answer are required' });
-    }
-    const explanation = await generateExplanation({
-      question, options, answer, userAnswer, isCorrect: !!isCorrect,
-    }, aiChoice(req));
-    res.json({ explanation });
-  } catch (e) {
-    next(e);
+// Public (rate-limited): a from-scratch explanation, shown after answering (streamed).
+app.post('/api/explain', rateLimitAI, async (req, res) => {
+  const { question, options, answer, userAnswer, isCorrect } = req.body || {};
+  if (!question || !Array.isArray(options) || !answer) {
+    return res.status(400).json({ error: 'question, options and answer are required' });
   }
+  await streamText(res, (onToken) =>
+    generateExplanation({ question, options, answer, userAnswer, isCorrect: !!isCorrect }, aiChoice(req), onToken));
 });
 
 /* -------------------------------- admin ----------------------------------- */

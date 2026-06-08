@@ -138,9 +138,13 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-ollama.ps1
 into Mastery Mode (password defaults to `local`, change with `-Password`).
 
 `GET /api/models` lists Gemini plus any locally pulled models. Tunables:
-`OLLAMA_HOST` (default `http://127.0.0.1:11434`), `OLLAMA_MODEL`, and
+`OLLAMA_HOST` (default `http://127.0.0.1:11434`), `OLLAMA_MODEL`,
 `OLLAMA_NUM_CTX` (default `8192` - raise the context so long prompts aren't
-truncated). Note: smaller local models are fine for hints/explanations/reviews,
+truncated), and `OLLAMA_KEEP_ALIVE` (default `30m` - keeps the model resident
+so there's no cold-start reload between questions). Tutor responses
+(hints/explanations/reviews/analysis) stream token-by-token; the app also caches
+the question bank and queues quiz results locally, syncing to Firestore when you
+reconnect. Note: smaller local models are fine for hints/explanations/reviews,
 but JSON-heavy paths (question generation, LaTeX conversion) need a capable
 model to match Gemini's reliability.
 

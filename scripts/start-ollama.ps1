@@ -16,7 +16,7 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password',
   Justification = 'Local dev helper: a throwaway local Mastery-Mode password, not a stored secret.')]
 param(
-  [string]$Model    = 'qwen3.6:35b-a3b',                 # best of the local models for this app
+  [string]$Model    = 'qwen3.5:9b',                      # fast default that fits most GPUs; pass -Model "qwen3.6:35b-a3b" for max quality
   [string]$Password = 'local',                           # the Mastery Mode password you'll type
   [string]$Project  = 'agora-data-driven',               # GCP project that holds the Firestore data
   [int]   $Port     = 8080,

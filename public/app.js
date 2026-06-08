@@ -30,6 +30,95 @@ const App = (() => {
     return res.json();
   }
 
+  /** POST that streams a text/plain response; calls onText(accumulated) per chunk. */
+  async function apiStream(path, body, onText) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+    });
+    if (!res.ok || !res.body) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error || `Request failed (${res.status})`);
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let acc = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      acc += dec.decode(value, { stream: true });
+      onText(acc);
+    }
+    return acc;
+  }
+
+  /* ---------------------- Offline cache + sync queue --------------------- */
+  const LS = { catalog: 'agora.catalog', qbank: 'agora.qbank', qbankTs: 'agora.qbank.ts', queue: 'agora.logqueue' };
+  const lsGet = (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
+  const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
+  const isNetworkError = (e) => !navigator.onLine || /Failed to fetch|NetworkError|load failed/i.test(e && e.message || '');
+
+  // Cache the full question bank (once per day) so quizzes work offline.
+  async function prefetchQuestionBank() {
+    try {
+      const ts = Number(localStorage.getItem(LS.qbankTs) || 0);
+      if (lsGet(LS.qbank) && Date.now() - ts < 24 * 60 * 60 * 1000) return;
+      const bank = await api('/api/questions/all');
+      if (Array.isArray(bank) && lsSet(LS.qbank, bank)) localStorage.setItem(LS.qbankTs, String(Date.now()));
+    } catch { /* offline or failed - keep any existing cache */ }
+  }
+
+  // Pick questions from the cached bank for a scope (offline fallback).
+  function offlineSelect(scope, count) {
+    const bank = lsGet(LS.qbank) || [];
+    const all = (v) => !v || v === 'Review All' || v === '-- N/A --';
+    let pool = bank;
+    if (!all(scope.topic)) pool = bank.filter((q) => q.topic === scope.topic);
+    else if (!all(scope.lesson)) pool = bank.filter((q) => q.lesson === scope.lesson);
+    else if (!all(scope.course)) pool = bank.filter((q) => q.course === scope.course);
+    else if (!all(scope.track)) pool = bank.filter((q) => q.track === scope.track);
+    const n = Math.min(50, Math.max(1, parseInt(count, 10) || 5));
+    return shuffle([...pool]).slice(0, n);
+  }
+
+  // Try the server for a quiz; on a network failure fall back to the cache.
+  async function getQuiz(path, body) {
+    try {
+      return await api(path, { method: 'POST', body: JSON.stringify(body) });
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const qs = offlineSelect(body, body.count);
+        if (qs.length) { state.offline = true; return qs; }
+      }
+      throw e;
+    }
+  }
+
+  function enqueueResults(results) {
+    const q = lsGet(LS.queue) || [];
+    q.push({ results, at: Date.now() });
+    lsSet(LS.queue, q);
+  }
+
+  // Send any locally-queued results once we're back online + authed.
+  async function flushQueue() {
+    if (!state.authed) return;
+    const q = lsGet(LS.queue) || [];
+    if (!q.length) return;
+    const remaining = [];
+    for (const item of q) {
+      try { await api('/api/quiz/log', { method: 'POST', body: JSON.stringify({ results: item.results }) }); }
+      catch { remaining.push(item); }
+    }
+    lsSet(LS.queue, remaining);
+    if (!remaining.length) {
+      loadStreak();
+      try { state.catalog = await api('/api/catalog'); lsSet(LS.catalog, state.catalog); } catch { /* ignore */ }
+    }
+  }
+
   /* ------------------------------- Boot ---------------------------------- */
   async function init() {
     tickClock();
@@ -41,13 +130,21 @@ const App = (() => {
       ]);
       state.authed = !!status.authed;
       state.catalog = catalog;
+      lsSet(LS.catalog, catalog);
+      localStorage.setItem('agora.authed', status.authed ? '1' : '0');
     } catch (e) {
+      // Offline / server unreachable: fall back to cached catalog + auth.
       console.error(e);
+      state.catalog = lsGet(LS.catalog) || [];
+      state.authed = localStorage.getItem('agora.authed') === '1';
     }
     refreshModeChip();
     populateTracks();
     loadStreak();
     loadModels();
+    prefetchQuestionBank();
+    flushQueue();
+    window.addEventListener('online', flushQueue);
   }
 
   /* ----------------------------- AI engine ------------------------------- */
@@ -312,7 +409,7 @@ const App = (() => {
         alert(msg);
       } else {
         const path = state.guest ? '/api/quiz/guest' : '/api/quiz/select';
-        const qs = await api(path, { method: 'POST', body: JSON.stringify(selection()) });
+        const qs = await getQuiz(path, selection());
         startQuiz(qs);
       }
     } catch (e) {
@@ -325,7 +422,7 @@ const App = (() => {
   async function launchPriority() {
     setLoading(true);
     try {
-      const qs = await api('/api/quiz/priority', { method: 'POST', body: JSON.stringify(selection()) });
+      const qs = await getQuiz('/api/quiz/priority', selection());
       startQuiz(qs);
     } catch (e) {
       alert('Error: ' + e.message);
@@ -444,14 +541,12 @@ const App = (() => {
   }
 
   async function priorityFromStats() {
-    showOnly('quizView');
     try {
       // Broad priority quiz across everything - server ranks by weakness.
-      const qs = await api('/api/quiz/priority', { method: 'POST', body: JSON.stringify({ count: 10 }) });
+      const qs = await getQuiz('/api/quiz/priority', { count: 10 });
       startQuiz(qs);
     } catch (e) {
       alert('Error: ' + e.message);
-      showOnly('statsView');
     }
   }
 
@@ -584,10 +679,7 @@ const App = (() => {
   async function quizFromScope(scope) {
     try {
       const count = clampCountClient($('count').value);
-      const qs = await api('/api/quiz/select', {
-        method: 'POST',
-        body: JSON.stringify({ ...scope, count }),
-      });
+      const qs = await getQuiz('/api/quiz/select', { ...scope, count });
       if (!qs || !qs.length) {
         alert('No questions found for this section yet.');
         return;
@@ -603,15 +695,14 @@ const App = (() => {
   async function reviewFromScope(scope, label) {
     reviewScope = scope;
     $('reviewTitle').textContent = '📖 Review: ' + (label || 'Section');
-    $('reviewBody').innerHTML =
-      '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your review…</div>';
+    const box = $('reviewBody');
+    box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your review…</div>';
     show('reviewModal');
     try {
-      const r = await api('/api/review', { method: 'POST', body: JSON.stringify(scope) });
-      $('reviewBody').innerHTML = renderMarkdown(r.review);
-      typeset($('reviewBody'));
+      await apiStream('/api/review', scope, (acc) => { box.innerHTML = renderMarkdown(acc); });
+      typeset(box);
     } catch (e) {
-      $('reviewBody').innerHTML = '<span class="err">Couldn\'t build a review: ' + esc(e.message) + '</span>';
+      box.innerHTML = '<span class="err">Couldn\'t build a review: ' + esc(e.message) + '</span>';
     }
   }
 
@@ -629,9 +720,9 @@ const App = (() => {
     box.classList.remove('hidden');
     box.innerHTML =
       '<div class="ai-head">🧠 Progress analysis</div><div class="ai-loading"><div class="spinner"></div> Analyzing your progress…</div>';
+    const head = '<div class="ai-head">🧠 Progress analysis</div>';
     try {
-      const r = await api('/api/analyze', { method: 'POST' });
-      box.innerHTML = '<div class="ai-head">🧠 Progress analysis</div>' + renderMarkdown(r.analysis);
+      await apiStream('/api/analyze', {}, (acc) => { box.innerHTML = head + renderMarkdown(acc); });
       typeset(box);
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t analyze your progress: ' + esc(e.message) + '</span>';
@@ -726,12 +817,10 @@ const App = (() => {
     btn.disabled = true;
     box.classList.remove('hidden');
     box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Thinking of a hint…</div>';
+    const head = '<div class="ai-head">💡 Hint</div>';
     try {
-      const r = await api('/api/hint', {
-        method: 'POST',
-        body: JSON.stringify({ question: q.question, options: q.options, answer: q.answer }),
-      });
-      box.innerHTML = '<div class="ai-head">💡 Hint</div>' + renderMarkdown(r.hint);
+      await apiStream('/api/hint', { question: q.question, options: q.options, answer: q.answer },
+        (acc) => { box.innerHTML = head + renderMarkdown(acc); });
       typeset(box);
       btn.textContent = '💡 Hint shown';
     } catch (e) {
@@ -747,15 +836,12 @@ const App = (() => {
     btn.disabled = true;
     box.classList.remove('hidden');
     box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Teaching from scratch…</div>';
+    const head = '<div class="ai-head">✨ Explanation</div>';
     try {
-      const r = await api('/api/explain', {
-        method: 'POST',
-        body: JSON.stringify({
-          question: q.question, options: q.options, answer: q.answer,
-          userAnswer: rec.userAnswer, isCorrect: rec.isCorrect,
-        }),
-      });
-      box.innerHTML = '<div class="ai-head">✨ Explanation</div>' + renderMarkdown(r.explanation);
+      await apiStream('/api/explain', {
+        question: q.question, options: q.options, answer: q.answer,
+        userAnswer: rec.userAnswer, isCorrect: rec.isCorrect,
+      }, (acc) => { box.innerHTML = head + renderMarkdown(acc); });
       typeset(box);
       btn.classList.add('hidden');
     } catch (e) {
@@ -838,14 +924,23 @@ const App = (() => {
       note.textContent = 'Guest mode: results were not saved.';
     } else {
       note.textContent = 'Saving results…';
-      api('/api/quiz/log', { method: 'POST', body: JSON.stringify({ results: state.log }) })
+      const results = state.log.slice();
+      api('/api/quiz/log', { method: 'POST', body: JSON.stringify({ results }) })
         .then(() => {
           note.textContent = '✅ Results saved & mastery updated.';
           // refresh catalog so priorities reflect the new attempt, and bump the streak.
           loadStreak();
-          return api('/api/catalog').then((c) => { state.catalog = c; });
+          return api('/api/catalog').then((c) => { state.catalog = c; lsSet(LS.catalog, c); });
         })
-        .catch((e) => { note.textContent = '⚠️ Could not save: ' + e.message; });
+        .catch((e) => {
+          // Offline (or save failed): keep results locally and sync when back online.
+          if (isNetworkError(e)) {
+            enqueueResults(results);
+            note.textContent = '📦 Saved on this device — will sync when you\'re back online.';
+          } else {
+            note.textContent = '⚠️ Could not save: ' + e.message;
+          }
+        });
     }
   }
 
