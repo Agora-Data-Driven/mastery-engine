@@ -1,4 +1,4 @@
-/* AGORA Mastery Engine — frontend controller */
+/* AGORA Mastery Engine - frontend controller */
 const App = (() => {
   const $ = (id) => document.getElementById(id);
   const show = (id) => $(id).classList.remove('hidden');
@@ -46,12 +46,32 @@ const App = (() => {
     }
     refreshModeChip();
     populateTracks();
+    loadStreak();
   }
 
   function tickClock() {
     $('clock').textContent = new Date().toLocaleTimeString([], {
       hour: 'numeric', minute: '2-digit', second: '2-digit',
     });
+  }
+
+  /* ------------------------------- Streak -------------------------------- */
+  // A motivating "N day streak" badge: consecutive days with logged activity.
+  async function loadStreak() {
+    if (!state.authed) { $('streakChip').classList.add('hidden'); return; }
+    try {
+      const r = await api('/api/streak');
+      renderStreak(r.streak);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function renderStreak(days) {
+    const chip = $('streakChip');
+    if (!days || days < 1) { chip.classList.add('hidden'); return; }
+    chip.textContent = (days === 1 ? '1 day streak' : days + ' day streak');
+    chip.classList.remove('hidden');
   }
 
   function refreshModeChip() {
@@ -99,7 +119,7 @@ const App = (() => {
     const t = $('trackSel').value;
     const courses = uniqSorted(state.catalog.filter((r) => r.track === t).map((r) => r.course));
     $('courseSel').innerHTML =
-      '<option value="Review All">— Review Full Track —</option>' +
+      '<option value="Review All">Review Full Track</option>' +
       courses.map((c) => `<option>${esc(c)}</option>`).join('');
     filterLessons();
   }
@@ -109,10 +129,10 @@ const App = (() => {
     if (c !== 'Review All') {
       const ls = uniqSorted(state.catalog.filter((r) => r.course === c).map((r) => r.lesson));
       $('lessonSel').innerHTML =
-        '<option value="Review All">— Review Full Course —</option>' +
+        '<option value="Review All">Review Full Course</option>' +
         ls.map((l) => `<option>${esc(l)}</option>`).join('');
     } else {
-      $('lessonSel').innerHTML = '<option value="-- N/A --">— N/A —</option>';
+      $('lessonSel').innerHTML = '<option value="-- N/A --">N/A</option>';
     }
     filterTopics();
   }
@@ -122,10 +142,10 @@ const App = (() => {
     if (l !== 'Review All' && l !== '-- N/A --') {
       const ts = uniqSorted(state.catalog.filter((r) => r.lesson === l).map((r) => r.topic));
       $('topicSel').innerHTML =
-        '<option value="Review All">— Review Full Lesson —</option>' +
+        '<option value="Review All">Review Full Lesson</option>' +
         ts.map((t) => `<option>${esc(t)}</option>`).join('');
     } else {
-      $('topicSel').innerHTML = '<option value="-- N/A --">— N/A —</option>';
+      $('topicSel').innerHTML = '<option value="-- N/A --">N/A</option>';
     }
   }
 
@@ -188,7 +208,7 @@ const App = (() => {
       $('launchBtn').textContent = 'Generate Questions';
     } else {
       $('setupTitle').textContent = '🎯 Build your quiz';
-      $('setupSub').textContent = 'Drill down as far as you like — leave lower levels on "Review All" to widen the net.';
+      $('setupSub').textContent = 'Drill down as far as you like. Leave lower levels on "Review All" to widen the net.';
       $('launchBtn').textContent = 'Launch Engine';
     }
   }
@@ -218,6 +238,7 @@ const App = (() => {
       });
       state.authed = true;
       closeAuth();
+      loadStreak();
       enterMastery();
     } catch (e) {
       $('authError').textContent = e.message;
@@ -296,7 +317,7 @@ const App = (() => {
     </div>`;
   }
 
-  // Accuracy → colour: red (weak) ramps to green (strong).
+  // Accuracy to colour: red (weak) ramps to green (strong).
   function accColor(pct) {
     if (pct == null) return 'var(--faint)';
     if (pct >= 80) return 'var(--green)';
@@ -308,10 +329,10 @@ const App = (() => {
     const o = s.overview;
     $('statsSub').textContent = o.attempted
       ? `You've practised ${o.attempted} of ${o.topics} topics. Here's where to focus next.`
-      : 'No attempts logged yet — run a Mastery quiz and your progress will appear here.';
+      : 'No attempts logged yet. Run a Mastery quiz and your progress will appear here.';
 
     $('statTiles').innerHTML = [
-      tile(o.overallAccuracy == null ? '—' : o.overallAccuracy + '%', 'Overall accuracy',
+      tile(o.overallAccuracy == null ? '-' : o.overallAccuracy + '%', 'Overall accuracy',
         o.totalAttempts ? `${o.totalAttempts} questions answered` : 'no attempts yet'),
       tile(o.coverage + '%', 'Topic coverage', `${o.attempted} of ${o.topics} practised`),
       tile(o.neverAttempted, 'Untouched topics', 'never attempted'),
@@ -324,13 +345,13 @@ const App = (() => {
       wb.innerHTML = `<tr><td colspan="6" style="color:var(--muted);text-align:center;padding:24px">Nothing practised yet.</td></tr>`;
     } else {
       wb.innerHTML = s.weakest.map((t) => {
-        const last = t.daysSince == null ? '—'
+        const last = t.daysSince == null ? '-'
           : t.daysSince < 1 ? 'today'
           : `${Math.round(t.daysSince)}d`;
         return `<tr>
           <td><strong>${esc(t.topic)}</strong></td>
           <td style="color:var(--muted)">${esc(t.course)}</td>
-          <td style="color:${accColor(t.accuracy)};font-weight:700">${t.accuracy == null ? '—' : t.accuracy + '%'}</td>
+          <td style="color:${accColor(t.accuracy)};font-weight:700">${t.accuracy == null ? '-' : t.accuracy + '%'}</td>
           <td style="color:var(--muted)">${t.attempts}</td>
           <td style="color:var(--muted)">${last}</td>
           <td>${bar(t.priority, 'var(--error)')}</td>
@@ -377,7 +398,7 @@ const App = (() => {
   async function priorityFromStats() {
     showOnly('quizView');
     try {
-      // Broad priority quiz across everything — server ranks by weakness.
+      // Broad priority quiz across everything - server ranks by weakness.
       const qs = await api('/api/quiz/priority', { method: 'POST', body: JSON.stringify({ count: 10 }) });
       startQuiz(qs);
     } catch (e) {
@@ -437,7 +458,7 @@ const App = (() => {
     return node.topicCount ? Math.round(node.progressSum / node.topicCount) : 0;
   }
 
-  // Stable, deterministic order — by lesson/unit number (and natural name order
+  // Stable, deterministic order - by lesson/unit number (and natural name order
   // everywhere else). NEVER depends on progress, so the tree never reshuffles.
   function byName(a, b) {
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
@@ -533,7 +554,7 @@ const App = (() => {
 
   async function reviewFromScope(scope, label) {
     reviewScope = scope;
-    $('reviewTitle').textContent = '📖 Review — ' + (label || 'Section');
+    $('reviewTitle').textContent = '📖 Review: ' + (label || 'Section');
     $('reviewBody').innerHTML =
       '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your review…</div>';
     show('reviewModal');
@@ -627,7 +648,7 @@ const App = (() => {
     });
 
     const f = $('feedback');
-    f.textContent = correct ? 'Correct ✨' : `Incorrect — answer: ${q.answer}`;
+    f.textContent = correct ? 'Correct ✨' : `Incorrect. Answer: ${q.answer}`;
     f.className = 'feedback ' + (correct ? 'ok' : 'no');
     $('progressScore').textContent = `Score ${state.score}`;
     show('postAnswer');
@@ -679,7 +700,8 @@ const App = (() => {
 
   /** Minimal, safe Markdown -> HTML (bold, bullets, paragraphs). */
   function renderMarkdown(md) {
-    const lines = String(md || '').split('\n');
+    // Normalise em/en dashes to plain hyphens in AI output (no em dashes anywhere).
+    const lines = String(md || '').replace(/[—–]/g, '-').split('\n');
     let html = '', inList = false;
     for (const raw of lines) {
       const trimmed = raw.trim();
@@ -724,13 +746,14 @@ const App = (() => {
 
     const note = $('syncNote');
     if (state.guest || !state.authed) {
-      note.textContent = 'Guest mode — results were not saved.';
+      note.textContent = 'Guest mode: results were not saved.';
     } else {
       note.textContent = 'Saving results…';
       api('/api/quiz/log', { method: 'POST', body: JSON.stringify({ results: state.log }) })
         .then(() => {
           note.textContent = '✅ Results saved & mastery updated.';
-          // refresh catalog so priorities reflect the new attempt.
+          // refresh catalog so priorities reflect the new attempt, and bump the streak.
+          loadStreak();
           return api('/api/catalog').then((c) => { state.catalog = c; });
         })
         .catch((e) => { note.textContent = '⚠️ Could not save: ' + e.message; });

@@ -18,8 +18,10 @@ import {
   getRecentActivity,
   getQuizLogRows,
   getTopicsRows,
+  getStreak,
   logResults,
   addQuestion,
+  resetProgress,
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
@@ -239,6 +241,15 @@ app.get('/api/stats', requireAuth, async (_req, res, next) => {
   }
 });
 
+// Auth: current activity streak (consecutive days with a logged attempt).
+app.get('/api/streak', requireAuth, async (_req, res, next) => {
+  try {
+    res.json({ streak: await getStreak() });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /**
  * "Progress" summary using the tree metric the dashboard shows:
  * a topic's progress = its accuracy, or 0 if never attempted; a parent's
@@ -333,23 +344,62 @@ app.post('/api/quiz/select', requireAuth, async (req, res, next) => {
   }
 });
 
-// Auth: the weakest topics across an optional scope (priority quiz).
-// Selection is done in-memory over the (~540-row) catalog, so no Firestore
-// composite index is required for the where+orderBy combination.
+// Auth: the priority quiz. It ALWAYS mixes across every Track/Path (interleaving)
+// so a daily run practises all areas, weakest topics first within each track.
+// Selection is in-memory over the (~540-row) catalog, so no composite index.
 app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    // Priority quiz ignores topic-level scope; it ranks across the chosen breadth.
-    const scope = { ...(req.body || {}), topic: 'Review All' };
     const catalog = await getCatalog();
-    const weakest = scopeCatalog(catalog, scope)
-      .filter((r) => r.topic && r.priority != null)
-      .sort((a, b) => (b.priority - a.priority) || (Math.random() - 0.5))
-      .slice(0, 15)
-      .map((r) => r.topic);
+    const idx = metaIndex(catalog);
 
-    const pool = await getQuestionsForTopics([...new Set(weakest)]);
-    res.json(packageQuestions(shuffle(pool), metaIndex(catalog), count));
+    // Rank each track's topics by priority (weakest/stalest first).
+    const byTrack = new Map();
+    for (const r of catalog) {
+      if (!r.topic || r.priority == null) continue;
+      if (!byTrack.has(r.track)) byTrack.set(r.track, []);
+      byTrack.get(r.track).push(r);
+    }
+    for (const list of byTrack.values()) {
+      list.sort((a, b) => (b.priority - a.priority) || (Math.random() - 0.5));
+    }
+
+    // Round-robin across tracks so every track is represented in the topic pool.
+    const tracks = shuffle([...byTrack.keys()]);
+    const orderedTopics = [];
+    for (let i = 0, added = true; added; i++) {
+      added = false;
+      for (const t of tracks) {
+        const list = byTrack.get(t);
+        if (i < list.length) { orderedTopics.push(list[i].topic); added = true; }
+      }
+    }
+    const topicNames = [...new Set(orderedTopics)].slice(0, 90);
+    const pool = await getQuestionsForTopics(topicNames);
+
+    // Group available questions by track, then interleave round-robin across
+    // tracks so consecutive questions come from different paths.
+    const qByTrack = new Map();
+    for (const q of shuffle(pool)) {
+      const tr = (idx.get(q.topic) || {}).track || 'Unknown';
+      if (!qByTrack.has(tr)) qByTrack.set(tr, []);
+      qByTrack.get(tr).push(q);
+    }
+    const qTracks = shuffle([...qByTrack.keys()]);
+    const interleaved = [];
+    for (let more = true; more && interleaved.length < count; ) {
+      more = false;
+      for (const tr of qTracks) {
+        const list = qByTrack.get(tr);
+        if (list.length) {
+          interleaved.push(list.shift());
+          more = true;
+          if (interleaved.length >= count) break;
+        }
+      }
+    }
+
+    res.json(packageQuestions(interleaved, idx, count));
   } catch (e) {
     next(e);
   }
@@ -475,6 +525,19 @@ app.post('/api/explain', rateLimitAI, async (req, res, next) => {
 });
 
 /* -------------------------------- admin ----------------------------------- */
+// Auth: wipe all progress (reset topic stats + delete quiz history). Keeps the
+// catalog and the question bank. Start-from-scratch.
+app.post('/api/admin/reset', requireAuth, async (_req, res, next) => {
+  try {
+    const report = await resetProgress();
+    // Best-effort: refresh the BigQuery topics snapshot to mirror the wipe.
+    getTopicsRows().then(replaceTopics).catch(() => {});
+    res.json({ ok: true, ...report });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Auth: one-time CSV -> Firestore import (idempotent).
 app.post('/api/admin/migrate', requireAuth, async (_req, res, next) => {
   try {
