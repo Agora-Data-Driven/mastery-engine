@@ -117,20 +117,32 @@ server reads on each request (`aiProvider` / `aiModel`).
   (`127.0.0.1:11434`), this works when you **run the app locally**, not from the
   Cloud Run URL.
 
-Run it locally with Ollama:
+Run it locally with Ollama using the helper scripts in `scripts/`:
 
 ```powershell
-ollama serve            # if not already running
-ollama pull llama3.1    # or any model you like
-npm install
-npm start               # http://localhost:8080
+# First time on a machine: installs Node + Ollama + gcloud, logs into Google
+# Cloud, pulls a starter model if you have none, and runs npm install.
+.\scripts\setup.ps1
+
+# Every time: starts Ollama if needed and launches the app on :8080.
+.\scripts\start-ollama.ps1
+.\scripts\start-ollama.ps1 -Model "qwen3.5:9b"   # pick a specific local model
+
+# If PowerShell blocks scripts:
+powershell -ExecutionPolicy Bypass -File .\scripts\start-ollama.ps1
 ```
 
-`GET /api/models` lists Gemini plus any locally pulled models. Override the host
-with `OLLAMA_HOST` (default `http://127.0.0.1:11434`) and the fallback model with
-`OLLAMA_MODEL` (default `llama3.1`). Note: smaller local models are fine for
-hints/explanations/reviews, but JSON-heavy paths (question generation, LaTeX
-conversion) need a capable model to match Gemini's reliability.
+`start-ollama.ps1` sets the env the server needs (`APP_PASSWORD`, a generated
+`SESSION_SECRET`, `GOOGLE_CLOUD_PROJECT`, `OLLAMA_*`) and starts on
+`http://localhost:8080`; pick the local model in the home-page dropdown and sign
+into Mastery Mode (password defaults to `local`, change with `-Password`).
+
+`GET /api/models` lists Gemini plus any locally pulled models. Tunables:
+`OLLAMA_HOST` (default `http://127.0.0.1:11434`), `OLLAMA_MODEL`, and
+`OLLAMA_NUM_CTX` (default `8192` - raise the context so long prompts aren't
+truncated). Note: smaller local models are fine for hints/explanations/reviews,
+but JSON-heavy paths (question generation, LaTeX conversion) need a capable
+model to match Gemini's reliability.
 
 ---
 
