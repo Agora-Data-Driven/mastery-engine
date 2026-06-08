@@ -16,7 +16,10 @@ param(
   [string]$Model   = 'qwen2.5:7b'                   # portable starter model (only pulled if you have none)
 )
 
-$ErrorActionPreference = 'Stop'
+# gcloud/ollama/npm/winget are native commands that legitimately write progress
+# to stderr; under 'Stop' PowerShell turns that into a fatal NativeCommandError.
+# Use 'Continue' and check $LASTEXITCODE where it actually matters.
+$ErrorActionPreference = 'Continue'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $RepoRoot
 

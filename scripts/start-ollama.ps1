@@ -13,6 +13,8 @@
   Local models only work because the server runs on THIS machine and reaches
   Ollama at 127.0.0.1:11434. Pick the model in the home-page dropdown.
 #>
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingPlainTextForPassword', 'Password',
+  Justification = 'Local dev helper: a throwaway local Mastery-Mode password, not a stored secret.')]
 param(
   [string]$Model    = 'qwen3.6:35b-a3b',                 # best of the local models for this app
   [string]$Password = 'local',                           # the Mastery Mode password you'll type
@@ -21,7 +23,10 @@ param(
   [int]   $NumCtx   = 8192                                # Ollama context window (bigger = no prompt truncation)
 )
 
-$ErrorActionPreference = 'Stop'
+# ollama/npm/gcloud are native commands that write progress to stderr; under
+# 'Stop' PowerShell turns that into a fatal NativeCommandError. Use 'Continue'
+# and check $LASTEXITCODE where it matters.
+$ErrorActionPreference = 'Continue'
 $RepoRoot = Split-Path $PSScriptRoot -Parent
 Set-Location $RepoRoot
 
