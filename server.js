@@ -35,6 +35,7 @@ import {
   generateAnalysis,
   latexifyQuestions,
 } from './lib/gemini.js';
+import { listOllamaModels } from './lib/ollama.js';
 import { runMigration } from './lib/migrate.js';
 import {
   checkPassword,
@@ -97,6 +98,13 @@ function scopeCatalog(catalog, { track, course, lesson, topic }) {
 
 const clampCount = (c) => Math.min(50, Math.max(1, parseInt(c, 10) || 5));
 
+/** The AI engine the client picked (cookies set by the home-page dropdown). */
+function aiChoice(req) {
+  const provider = req.cookies?.aiProvider === 'ollama' ? 'ollama' : 'gemini';
+  const model = req.cookies?.aiModel ? decodeURIComponent(req.cookies.aiModel) : undefined;
+  return { provider, model };
+}
+
 /* Lightweight per-IP rate limiter for the public AI endpoints (cost guard). */
 const aiHits = new Map(); // ip -> { count, resetAt }
 const AI_WINDOW_MS = 60 * 1000;
@@ -152,6 +160,22 @@ app.get('/api/catalog', async (_req, res, next) => {
         correctCount: t.correctCount ?? 0,
       }))
     );
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* --------------------------------- models --------------------------------- */
+// Public: which AI engines are available. Gemini (cloud) always; Ollama (local)
+// only when this server can reach a running Ollama (i.e. run locally).
+app.get('/api/models', async (_req, res, next) => {
+  try {
+    const providers = [
+      { id: 'gemini', label: 'Cloud', models: [process.env.GEMINI_MODEL || 'gemini-2.5-flash'] },
+    ];
+    const ollama = await listOllamaModels();
+    if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
+    res.json({ providers, ollamaAvailable: ollama.length > 0 });
   } catch (e) {
     next(e);
   }
@@ -441,7 +465,7 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
       try {
         const existing = await getQuestionsForTopics([topic]);
         const baseline = existing.slice(0, 8).map((q) => ({ q: q.question, a: q.answer }));
-        const generated = await generateQuestions(topic, baseline, count);
+        const generated = await generateQuestions(topic, baseline, count, aiChoice(req));
         for (const g of generated) {
           await addQuestion(g);
           created++;
@@ -478,7 +502,7 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
       : !isAll(track) ? track
       : 'Your selection';
 
-    const review = await generateReview({ scopeLabel, topics, questions });
+    const review = await generateReview({ scopeLabel, topics, questions }, aiChoice(req));
     res.json({ review });
   } catch (e) {
     next(e);
@@ -486,10 +510,10 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
 });
 
 // Auth: AI analysis of the learner's overall progress dashboard.
-app.post('/api/analyze', requireAuth, async (_req, res, next) => {
+app.post('/api/analyze', requireAuth, async (req, res, next) => {
   try {
     const catalog = await getCatalog();
-    const analysis = await generateAnalysis(buildProgressSummary(catalog));
+    const analysis = await generateAnalysis(buildProgressSummary(catalog), aiChoice(req));
     res.json({ analysis });
   } catch (e) {
     next(e);
@@ -504,7 +528,7 @@ app.post('/api/hint', rateLimitAI, async (req, res, next) => {
     if (!question || !Array.isArray(options)) {
       return res.status(400).json({ error: 'question and options are required' });
     }
-    const hint = await generateHint({ question, options, answer: answer || '' });
+    const hint = await generateHint({ question, options, answer: answer || '' }, aiChoice(req));
     res.json({ hint });
   } catch (e) {
     next(e);
@@ -520,7 +544,7 @@ app.post('/api/explain', rateLimitAI, async (req, res, next) => {
     }
     const explanation = await generateExplanation({
       question, options, answer, userAnswer, isCorrect: !!isCorrect,
-    });
+    }, aiChoice(req));
     res.json({ explanation });
   } catch (e) {
     next(e);
@@ -568,7 +592,7 @@ app.post('/api/admin/latexify', requireAuth, async (req, res, next) => {
       }));
       let out;
       try {
-        out = await latexifyQuestions(chunk);
+        out = await latexifyQuestions(chunk, aiChoice(req));
       } catch {
         skipped += chunk.length;
         continue;

@@ -47,6 +47,54 @@ const App = (() => {
     refreshModeChip();
     populateTracks();
     loadStreak();
+    loadModels();
+  }
+
+  /* ----------------------------- AI engine ------------------------------- */
+  // Lets the user pick the cloud (Gemini) or a local Ollama model. The choice
+  // is stored in cookies the server reads on every AI request.
+  function setAiChoice(provider, model) {
+    document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
+    document.cookie = `aiModel=${encodeURIComponent(model || '')}; path=/; max-age=31536000; samesite=lax`;
+    localStorage.setItem('aiProvider', provider);
+    localStorage.setItem('aiModel', model || '');
+  }
+
+  async function loadModels() {
+    const sel = $('aiEngineSel');
+    if (!sel) return;
+    try {
+      const r = await api('/api/models');
+      const opts = [];
+      for (const p of r.providers || []) {
+        for (const m of p.models || []) {
+          opts.push({ provider: p.id, model: m, label: `${p.label}: ${m}` });
+        }
+      }
+      if (!opts.length) return;
+      sel.innerHTML = opts
+        .map((o) => `<option value="${esc(o.provider)}::${esc(o.model)}">${esc(o.label)}</option>`)
+        .join('');
+
+      // Restore the saved choice, falling back to the first available option
+      // (so a previously-picked local model resets to cloud when unavailable).
+      const savedP = localStorage.getItem('aiProvider') || 'gemini';
+      const savedM = localStorage.getItem('aiModel') || '';
+      const match = opts.find((o) => o.provider === savedP && (!savedM || o.model === savedM)) || opts[0];
+      sel.value = `${match.provider}::${match.model}`;
+      setAiChoice(match.provider, match.model);
+
+      $('aiEngineHint').textContent = (r.ollamaAvailable)
+        ? 'Local Ollama detected. Pick a local model to keep everything on your machine.'
+        : 'Cloud uses Gemini. Local models appear here when Ollama is running and the app is run locally.';
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  function onAiEngineChange() {
+    const [provider, model] = $('aiEngineSel').value.split('::');
+    setAiChoice(provider, model);
   }
 
   function tickClock() {
@@ -820,6 +868,7 @@ const App = (() => {
     $('trackSel').addEventListener('change', filterCourses);
     $('courseSel').addEventListener('change', filterLessons);
     $('lessonSel').addEventListener('change', filterTopics);
+    $('aiEngineSel').addEventListener('change', onAiEngineChange);
 
     // Progress tree: action buttons + expand/collapse (event delegation).
     $('progressTree').addEventListener('click', (e) => {

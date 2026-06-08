@@ -102,6 +102,38 @@ bank and quiz history imported — confirmed live at the URL above.
 
 ---
 
+## AI engine: cloud (Gemini) or local (Ollama)
+
+Every AI feature (hints, explanations, question generation, section reviews,
+progress analysis, the LaTeX migration) goes through a single dispatcher in
+`lib/gemini.js` (`complete()`), which routes to either Gemini or a local
+[Ollama](https://ollama.com) instance based on the engine picked in the
+**AI engine** dropdown on the landing page. The choice is stored in cookies the
+server reads on each request (`aiProvider` / `aiModel`).
+
+- **Cloud (default):** Gemini, as deployed on Cloud Run. Always available.
+- **Local (Ollama):** only appears in the dropdown when the server can reach a
+  running Ollama. Because Ollama listens on the user's own machine
+  (`127.0.0.1:11434`), this works when you **run the app locally**, not from the
+  Cloud Run URL.
+
+Run it locally with Ollama:
+
+```powershell
+ollama serve            # if not already running
+ollama pull llama3.1    # or any model you like
+npm install
+npm start               # http://localhost:8080
+```
+
+`GET /api/models` lists Gemini plus any locally pulled models. Override the host
+with `OLLAMA_HOST` (default `http://127.0.0.1:11434`) and the fallback model with
+`OLLAMA_MODEL` (default `llama3.1`). Note: smaller local models are fine for
+hints/explanations/reviews, but JSON-heavy paths (question generation, LaTeX
+conversion) need a capable model to match Gemini's reliability.
+
+---
+
 ## Progress & analytics
 
 Two layers, by depth of analysis:
