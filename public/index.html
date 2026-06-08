@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AGORA · Mastery Engine</title>
+  <link rel="icon" href="agora-logo.png" type="image/png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============================== Header ============================== -->
+  <header class="site-header">
+    <a class="brand" href="/">
+      <img class="brand-logo" src="agora-logo.png" alt="AGORA — Data Driven" />
+    </a>
+    <div class="header-spacer"></div>
+    <span class="header-clock" id="clock"></span>
+    <span class="mode-chip guest" id="modeChip"><span class="dot"></span><span id="modeChipText">Guest</span></span>
+  </header>
+
+  <main class="container">
+    <!-- ============================ Landing ============================ -->
+    <section id="homeView">
+      <div class="hero">
+        <span class="eyebrow">✦ Spaced-repetition learning</span>
+        <h1>Master every <span class="accent">skill</span>.</h1>
+        <p>Adaptive practice across your tracks — powered by your own question bank and AI-generated mastery questions.</p>
+      </div>
+      <div class="mode-grid">
+        <div class="mode-card violet">
+          <div class="icon">🎯</div>
+          <h3>Guest Practice</h3>
+          <p>Pick any topic and run a quick quiz. Instant feedback and a final score. Nothing is saved.</p>
+          <button class="btn btn-ghost btn-block" onclick="App.startGuest()">Try a Quiz</button>
+        </div>
+        <div class="mode-card" id="masteryCard">
+          <span class="lock">🔒</span>
+          <div class="icon">🚀</div>
+          <h3>Mastery Mode</h3>
+          <p>Priority quizzes on your weakest topics, progress tracking, and AI question generation.</p>
+          <button class="btn btn-primary btn-block" id="masteryEntryBtn" onclick="App.enterMastery()">Sign in</button>
+          <button class="btn btn-ghost btn-block hidden" id="statsEntryBtn" onclick="App.openStats()">📊 View my progress</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================= Setup ============================= -->
+    <section id="setupView" class="hidden">
+      <div class="card">
+        <button class="btn btn-block btn-lg priority-cta hidden" id="priorityBtn" onclick="App.launchPriority()" style="margin-bottom: 24px;">
+          <span>🔥 Priority Quiz — your weakest topics</span>
+        </button>
+
+        <div id="genModeWrap" class="field hidden">
+          <span class="label">Mode</span>
+          <div class="segment" id="modeSegment">
+            <button class="active" data-mode="QUIZ" onclick="App.setMode('QUIZ')">Live Quiz</button>
+            <button data-mode="GEN" onclick="App.setMode('GEN')">Generate Questions</button>
+          </div>
+        </div>
+
+        <h2 class="section-title" id="setupTitle">🎯 Build your quiz</h2>
+        <p class="section-sub" id="setupSub">Drill down as far as you like — leave lower levels on "Review All" to widen the net.</p>
+
+        <div class="field">
+          <span class="label">Track / Path</span>
+          <div class="select-wrap"><select id="trackSel"></select></div>
+        </div>
+        <div class="row">
+          <div class="field">
+            <span class="label">Course</span>
+            <div class="select-wrap"><select id="courseSel"></select></div>
+          </div>
+          <div class="field">
+            <span class="label">Unit / Lesson</span>
+            <div class="select-wrap"><select id="lessonSel"></select></div>
+          </div>
+        </div>
+        <div class="field">
+          <span class="label">Sub-Lesson / Topic</span>
+          <div class="select-wrap"><select id="topicSel"></select></div>
+        </div>
+        <div class="field">
+          <span class="label">Number of Questions</span>
+          <input type="number" id="count" value="5" min="1" max="50" />
+        </div>
+
+        <button class="btn btn-primary btn-block btn-lg" id="launchBtn" onclick="App.launchManual()">Launch Engine</button>
+        <div class="loader hidden" id="setupLoader"><div class="spinner"></div> Connecting to engine…</div>
+        <hr class="divider" />
+        <button class="btn btn-neutral btn-block" onclick="App.goHome()">← Back to home</button>
+      </div>
+    </section>
+
+    <!-- ============================== Quiz ============================== -->
+    <section id="quizView" class="hidden">
+      <div class="card">
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="progress-meta">
+          <span id="progressCount">Question 1</span>
+          <span id="progressScore">Score 0</span>
+        </div>
+        <div class="q-crumb" id="qCrumb"></div>
+        <div class="q-text" id="qText"></div>
+
+        <div id="hintWrap">
+          <button class="btn-ai-link" id="hintBtn" onclick="App.askHint()">💡 Get a hint</button>
+          <div class="ai-box hint hidden" id="hintBox"></div>
+        </div>
+
+        <div class="options" id="optionsArea"></div>
+
+        <div id="postAnswer" class="hidden">
+          <div class="feedback" id="feedback"></div>
+
+          <button class="btn btn-ai btn-block" id="explainBtn" onclick="App.askExplain()">✨ Explain this — teach me from scratch</button>
+          <div class="ai-box explain hidden" id="explainBox"></div>
+
+          <div class="flag-box">
+            <input type="checkbox" id="reviewFlag" />
+            <label for="reviewFlag">🚩 Flag this question for review</label>
+          </div>
+          <button class="btn btn-primary btn-block btn-lg" id="nextBtn" style="margin-top: 16px;" onclick="App.nextQuestion()">Next →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ Results ============================ -->
+    <section id="resultView" class="hidden">
+      <div class="card">
+        <div class="score-ring">
+          <div class="score-num" id="scoreNum">0%</div>
+          <div class="score-label" id="scoreLabel"></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Track</th><th>Course</th><th>Topic</th><th>Result</th></tr>
+            </thead>
+            <tbody id="breakdownBody"></tbody>
+          </table>
+        </div>
+        <p class="sync-note" id="syncNote"></p>
+        <button class="btn btn-primary btn-block btn-lg" style="margin-top: 18px;" onclick="App.goHome()">Done</button>
+      </div>
+    </section>
+    <!-- ============================= Stats ============================ -->
+    <section id="statsView" class="hidden">
+      <div class="stats-head">
+        <div>
+          <h2 class="section-title">📊 Your Progress</h2>
+          <p class="section-sub" id="statsSub">Where you stand, and where to focus next.</p>
+        </div>
+        <button class="btn btn-neutral" onclick="App.goHome()">← Home</button>
+      </div>
+
+      <div class="loader hidden" id="statsLoader"><div class="spinner"></div> Crunching your numbers…</div>
+      <div id="statsError" class="error-text"></div>
+
+      <div id="statsBody" class="hidden">
+        <!-- Overview tiles -->
+        <div class="stat-grid" id="statTiles"></div>
+
+        <!-- Weakest topics -->
+        <div class="card">
+          <h3 class="block-title">🎯 Focus areas <span class="block-hint">— ranked by mastery priority</span></h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Topic</th><th>Course</th><th>Acc.</th><th>Tries</th><th>Last</th><th>Priority</th></tr>
+              </thead>
+              <tbody id="weakBody"></tbody>
+            </table>
+          </div>
+          <button class="btn btn-block priority-cta btn-lg" style="margin-top:20px;" onclick="App.priorityFromStats()">
+            <span>🔥 Drill these now</span>
+          </button>
+        </div>
+
+        <!-- By course -->
+        <div class="card">
+          <h3 class="block-title">📚 Accuracy by course <span class="block-hint">— weakest first</span></h3>
+          <div id="courseBars"></div>
+        </div>
+
+        <!-- Activity -->
+        <div class="card">
+          <h3 class="block-title">📈 Last 14 days <span class="block-hint">— questions answered &amp; accuracy</span></h3>
+          <div class="activity" id="activityChart"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ============================ Auth modal ============================ -->
+  <div class="overlay hidden" id="authModal">
+    <div class="modal">
+      <h3>🔒 Mastery Mode</h3>
+      <p>Enter your password to unlock priority quizzes, progress tracking and AI generation.</p>
+      <input type="password" id="passwordInput" placeholder="Password" autocomplete="current-password"
+             onkeydown="if(event.key==='Enter') App.submitPassword()" />
+      <div class="error-text" id="authError"></div>
+      <div class="modal-actions">
+        <button class="btn btn-neutral" onclick="App.closeAuth()">Cancel</button>
+        <button class="btn btn-primary btn-block" id="authSubmit" onclick="App.submitPassword()">Unlock</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

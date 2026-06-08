@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <style>
+    :root { --primary: #1a73e8; --bg: #f8f9fa; --success: #1e8e3e; --error: #d93025; --warning: #fbbc04; }
+    body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); display: flex; flex-direction: column; align-items: center; padding: 20px; margin: 0; }
+    .card { background: white; padding: 30px; border-radius: 16px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); width: 100%; max-width: 650px; box-sizing: border-box; }
+    h2 { color: var(--primary); text-align: center; margin-top: 0; }
+    .label { font-size: 12px; font-weight: bold; color: #5f6368; margin-top: 12px; display: block; }
+    select, input, button { width: 100%; padding: 12px; margin: 8px 0; border-radius: 8px; border: 1px solid #ddd; font-size: 15px; box-sizing: border-box; outline: none; }
+    button { background: var(--primary); color: white; border: none; font-weight: bold; cursor: pointer; transition: 0.2s; }
+    button:hover { background: #1557b0; }
+    .priority-btn { background: var(--warning); color: #202124; margin-bottom: 20px; }
+    .priority-btn:hover { background: #f9ab00; }
+    #progressBar { width: 100%; height: 6px; background: #eee; border-radius: 10px; margin-bottom: 25px; overflow: hidden; }
+    #progressFill { height: 100%; background: var(--primary); width: 0%; transition: 0.4s ease; }
+    .option-btn { background: #fff; color: #3c4043; text-align: left; border: 1px solid #dadce0; margin-bottom: 10px; }
+    .option-btn:hover:not(:disabled) { border-color: var(--primary); background: #f8fbff; }
+    .option-btn.correct { background: #e6f4ea; border-color: var(--success); color: var(--success); font-weight: bold; }
+    .option-btn.wrong { background: #fce8e6; border-color: var(--error); color: var(--error); }
+    .flag-container { display: flex; align-items: center; justify-content: center; background: #fff8e1; padding: 10px; border-radius: 8px; margin-top: 15px; border: 1px solid #ffe082; }
+    .flag-container input { width: auto; margin-right: 10px; cursor: pointer; }
+    .hidden { display: none; }
+    #loader { text-align: center; color: var(--primary); font-weight: bold; margin-top: 10px; }
+
+    /* Breakdown Table Styles */
+    .breakdown-table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 12px; }
+    .breakdown-table th { background: #f1f3f4; padding: 8px; text-align: left; border-bottom: 2px solid #ccc; }
+    .breakdown-table td { padding: 8px; border-bottom: 1px solid #eee; }
+    .res-tag { padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 11px; text-align: center; display: block; }
+    .res-correct { background: #e6f4ea; color: #1e8e3e; }
+    .res-wrong { background: #fce8e6; color: #d93025; }
+  </style>
+</head>
+<body>
+
+  <div class="card">
+    <div id="setupView">
+      <h2>🚀 Mastery Engine 3.3</h2>
+      <button class="priority-btn" onclick="launchPriority()">🔥 Start Priority Quiz (Weakest Topics)</button>
+      <hr style="border:0; border-top:1px solid #eee; margin: 15px 0;">
+      
+      <span class="label">Mode</span>
+      <select id="mode"><option value="QUIZ">Live Quiz</option><option value="GEN">Generate Mastery Questions</option></select>
+      
+      <span class="label">Track / Path</span>
+      <select id="trackSel" onchange="filterCourses()"></select>
+
+      <span class="label">Course</span>
+      <select id="courseSel" onchange="filterLessons()"></select>
+      
+      <span class="label">Unit / Lesson</span>
+      <select id="lessonSel" onchange="filterTopics()"></select>
+      
+      <span class="label">Sub-Lesson / Topic</span>
+      <select id="topicSel"></select>
+      
+      <span class="label">Question Quantity</span>
+      <input type="number" id="count" value="5" min="1">
+      
+      <button onclick="launchManual()">Launch Engine</button>
+      <div id="loader" class="hidden">Connecting to Engine...</div>
+    </div>
+
+    <div id="quizView" class="hidden">
+      <div id="progressBar"><div id="progressFill"></div></div>
+      <div id="qText" style="font-size: 18px; font-weight: 500; margin-bottom: 20px;"></div>
+      <div id="optionsArea"></div>
+      
+      <div id="postAnswerArea" class="hidden">
+        <div id="feedback" style="margin-top: 10px; font-weight: bold; text-align: center;"></div>
+        <div class="flag-container">
+          <input type="checkbox" id="reviewFlag">
+          <label for="reviewFlag" style="font-size: 14px; color: #856404; font-weight: bold; cursor: pointer;">🚩 Review Flag (Save to log)</label>
+        </div>
+        <button id="nextBtn" onclick="nextQ()" style="margin-top: 15px;">Next Question →</button>
+      </div>
+    </div>
+
+    <div id="resultView" class="hidden">
+      <div style="text-align: center;">
+        <h1 style="font-size: 40px; margin: 0;">📊 Report</h1>
+        <h2 id="finalScoreText" style="color: var(--primary);"></h2>
+      </div>
+      
+      <div style="max-height: 400px; overflow-y: auto; border: 1px solid #eee; border-radius: 8px;">
+        <table class="breakdown-table">
+          <thead>
+            <tr>
+              <th>Track</th>
+              <th>Course</th>
+              <th>Lesson</th>
+              <th>Topic</th>
+              <th>Result</th>
+            </tr>
+          </thead>
+          <tbody id="breakdownBody"></tbody>
+        </table>
+      </div>
+
+      <button onclick="location.reload()" style="background: #f1f3f4; color: #3c4043; margin-top: 20px;">Back to Menu</button>
+      <p id="syncStatus" style="font-size: 12px; color: #888; text-align: center; margin-top: 10px;">Syncing results...</p>
+    </div>
+  </div>
+
+<script>
+  // Front-end constants matching your new column structure
+  const COL_TRACK = 0;
+  const COL_COURSE = 1;
+  const COL_LESSON = 2;
+  const COL_TOPIC = 3;
+
+  let masterData = [], questions = [], curIdx = 0, score = 0, sessionLog = [];
+
+  window.onload = () => {
+    google.script.run.withSuccessHandler(res => { 
+      masterData = res; 
+      populateTracks(); 
+    }).getMasteryData();
+  };
+
+  function populateTracks() {
+    const tracks = [...new Set(masterData.map(r => r[COL_TRACK]))].filter(Boolean).sort();
+    document.getElementById('trackSel').innerHTML = tracks.map(t => `<option value="${t}">${t}</option>`).join('');
+    filterCourses();
+  }
+
+  function filterCourses() {
+    const t = document.getElementById('trackSel').value;
+    const courses = [...new Set(masterData.filter(r => r[COL_TRACK] === t).map(r => r[COL_COURSE]))].filter(Boolean).sort();
+    document.getElementById('courseSel').innerHTML = '<option value="Review All">-- Review Full Track --</option>' + courses.map(c => `<option value="${c}">${c}</option>`).join('');
+    filterLessons();
+  }
+
+  function filterLessons() {
+    const c = document.getElementById('courseSel').value;
+    let ls = [];
+    
+    if (c !== "Review All") {
+      ls = [...new Set(masterData.filter(r => r[COL_COURSE] === c).map(r => r[COL_LESSON]))].filter(Boolean).sort();
+      document.getElementById('lessonSel').innerHTML = '<option value="Review All">-- Review Full Course --</option>' + ls.map(l => `<option value="${l}">${l}</option>`).join('');
+    } else {
+      document.getElementById('lessonSel').innerHTML = '<option value="-- N/A --">-- N/A --</option>';
+    }
+    filterTopics();
+  }
+
+  function filterTopics() {
+    const l = document.getElementById('lessonSel').value;
+    let ts = [];
+    
+    if (l !== "Review All" && l !== "-- N/A --") {
+      ts = [...new Set(masterData.filter(r => r[COL_LESSON] === l).map(r => r[COL_TOPIC]))].filter(Boolean).sort();
+      document.getElementById('topicSel').innerHTML = '<option value="Review All">-- Review Full Lesson --</option>' + ts.map(t => `<option value="${t}">${t}</option>`).join('');
+    } else {
+      document.getElementById('topicSel').innerHTML = '<option value="-- N/A --">-- N/A --</option>';
+    }
+  }
+
+  function launchPriority() {
+    const count = document.getElementById('count').value;
+    document.getElementById('loader').classList.remove('hidden');
+    google.script.run.withSuccessHandler(startQuiz).handlePriorityQuiz(count);
+  }
+
+  function launchManual() {
+    const mode = document.getElementById('mode').value;
+    const count = document.getElementById('count').value;
+    
+    // Grabbing the 4 tiers of data from the frontend
+    const params = [
+      document.getElementById('trackSel').value, 
+      document.getElementById('courseSel').value, 
+      document.getElementById('lessonSel').value, 
+      document.getElementById('topicSel').value, 
+      count
+    ];
+    
+    document.getElementById('loader').classList.remove('hidden');
+    
+    if (mode === "GEN") {
+      google.script.run.withSuccessHandler(res => { 
+        alert(res); 
+        location.reload(); 
+      }).handleGenSelection(...params);
+    } else {
+      google.script.run.withSuccessHandler(startQuiz).handleQuizSelection(...params);
+    }
+  }
+
+  function startQuiz(qs) {
+    if (!qs || qs.length === 0) { alert("No questions found for this selection."); location.reload(); return; }
+    questions = qs;
+    document.getElementById('setupView').classList.add('hidden');
+    document.getElementById('quizView').classList.remove('hidden');
+    renderQ();
+  }
+
+  function renderQ() {
+    const q = questions[curIdx];
+    document.getElementById('progressFill').style.width = (curIdx / questions.length) * 100 + "%";
+    document.getElementById('qText').innerText = q.question;
+    document.getElementById('optionsArea').innerHTML = "";
+    document.getElementById('postAnswerArea').classList.add('hidden');
+    document.getElementById('reviewFlag').checked = false;
+
+    const shuffledOptions = [...q.options].sort(() => Math.random() - 0.5);
+
+    shuffledOptions.forEach(o => {
+      const b = document.createElement('button');
+      b.className = 'option-btn';
+      b.innerText = o;
+      b.onclick = () => handleAnswer(o, q);
+      document.getElementById('optionsArea').appendChild(b);
+    });
+  }
+
+  function handleAnswer(choice, q) {
+    const isCorrect = choice.trim() === q.answer.trim();
+    if (isCorrect) score++;
+    
+    document.querySelectorAll('.option-btn').forEach(btn => {
+      btn.disabled = true;
+      if (btn.innerText.trim() === q.answer.trim()) btn.classList.add('correct');
+      else if (btn.innerText.trim() === choice.trim()) btn.classList.add('wrong');
+    });
+
+    const f = document.getElementById('feedback');
+    f.innerText = isCorrect ? "Correct! ✨" : "Incorrect. Answer: " + q.answer;
+    f.style.color = isCorrect ? "var(--success)" : "var(--error)";
+    
+    document.getElementById('postAnswerArea').classList.remove('hidden');
+    sessionLog[curIdx] = { ...q, isCorrect: isCorrect, reviewFlag: false };
+  }
+
+  function nextQ() {
+    sessionLog[curIdx].reviewFlag = document.getElementById('reviewFlag').checked;
+    curIdx++;
+    if (curIdx < questions.length) renderQ();
+    else finish();
+  }
+
+  function finish() {
+    document.getElementById('quizView').classList.add('hidden');
+    document.getElementById('resultView').classList.remove('hidden');
+    document.getElementById('finalScoreText').innerText = `Score: ${score} / ${questions.length} (${Math.round((score/questions.length)*100)}%)`;
+
+    const tbody = document.getElementById('breakdownBody');
+    tbody.innerHTML = "";
+
+    sessionLog.forEach(res => {
+      const row = document.createElement('tr');
+      const statusClass = res.isCorrect ? 'res-correct' : 'res-wrong';
+      
+      row.innerHTML = `
+        <td style="color:#666">${res.track}</td>
+        <td><strong>${res.course}</strong></td>
+        <td>${res.lesson}</td>
+        <td style="color:#666">${res.topic}</td>
+        <td><span class="res-tag ${statusClass}">${res.isCorrect ? 'PASS' : 'FAIL'}</span></td>
+      `;
+      tbody.appendChild(row);
+    });
+
+    google.script.run.withSuccessHandler(() => {
+      document.getElementById('syncStatus').innerText = "✅ Results synced to Google Sheets.";
+    }).logFinalResults(sessionLog);
+  }
+</script>
+</body>
+</html>
