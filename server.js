@@ -23,7 +23,13 @@ import {
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
-import { generateQuestions, generateHint, generateExplanation } from './lib/gemini.js';
+import {
+  generateQuestions,
+  generateHint,
+  generateExplanation,
+  generateReview,
+  generateAnalysis,
+} from './lib/gemini.js';
 import { runMigration } from './lib/migrate.js';
 import {
   checkPassword,
@@ -233,6 +239,58 @@ app.get('/api/stats', requireAuth, async (_req, res, next) => {
   }
 });
 
+/**
+ * "Progress" summary using the tree metric the dashboard shows:
+ * a topic's progress = its accuracy, or 0 if never attempted; a parent's
+ * progress = the unweighted average across all its topics. Aggregated to
+ * course/track and surfaced as weakest-topic and by-course lists for the AI
+ * progress analysis.
+ */
+function topicProgressPct(t) {
+  return t.totalAttempts ? Math.round((t.correctCount / t.totalAttempts) * 100) : 0;
+}
+
+function buildProgressSummary(catalog) {
+  const topics = catalog.map((t) => ({
+    track: t.track,
+    course: t.course,
+    lesson: t.lesson,
+    topic: t.topic,
+    attempts: t.totalAttempts || 0,
+    progress: topicProgressPct(t),
+  }));
+
+  const overallProgress = topics.length
+    ? Math.round(topics.reduce((s, t) => s + t.progress, 0) / topics.length)
+    : 0;
+  const attempted = topics.filter((t) => t.attempts > 0).length;
+
+  const cmap = new Map();
+  for (const t of topics) {
+    const key = `${t.track}||${t.course}`;
+    const c = cmap.get(key) || { track: t.track, course: t.course, sum: 0, n: 0, attempted: 0 };
+    c.sum += t.progress;
+    c.n += 1;
+    if (t.attempts > 0) c.attempted += 1;
+    cmap.set(key, c);
+  }
+  const byCourse = [...cmap.values()]
+    .map((c) => ({
+      track: c.track,
+      course: c.course,
+      progress: Math.round(c.sum / c.n),
+      topics: c.n,
+      attempted: c.attempted,
+    }))
+    .sort((a, b) => a.progress - b.progress);
+
+  const weakest = [...topics]
+    .sort((a, b) => a.progress - b.progress || b.attempts - a.attempts)
+    .slice(0, 15);
+
+  return { overall: { topics: topics.length, attempted, overallProgress }, byCourse, weakest };
+}
+
 /* ----------------------------- guest quiz --------------------------------- */
 // Public: random questions for the chosen scope. No history, no logging.
 app.post('/api/quiz/guest', async (req, res, next) => {
@@ -340,6 +398,46 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
       }
     }
     res.json({ ok: true, created, topics: topics.length, errors });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* --------------------------- progress AI features ------------------------- */
+// Auth: AI study guide for a scope — reads the existing questions and teaches
+// the concepts the learner needs BEFORE attempting that section.
+app.post('/api/review', requireAuth, async (req, res, next) => {
+  try {
+    const catalog = await getCatalog();
+    const scoped = scopeCatalog(catalog, req.body || {});
+    const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
+    if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
+
+    const pool = await getQuestionsForTopics(topics);
+    const questions = shuffle(pool)
+      .slice(0, 40)
+      .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
+
+    const { track, course, lesson, topic } = req.body || {};
+    const scopeLabel = !isAll(topic) ? topic
+      : !isAll(lesson) ? lesson
+      : !isAll(course) ? course
+      : !isAll(track) ? track
+      : 'Your selection';
+
+    const review = await generateReview({ scopeLabel, topics, questions });
+    res.json({ review });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: AI analysis of the learner's overall progress dashboard.
+app.post('/api/analyze', requireAuth, async (_req, res, next) => {
+  try {
+    const catalog = await getCatalog();
+    const analysis = await generateAnalysis(buildProgressSummary(catalog));
+    res.json({ analysis });
   } catch (e) {
     next(e);
   }

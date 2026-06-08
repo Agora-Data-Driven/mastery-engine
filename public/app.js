@@ -399,19 +399,22 @@ const App = (() => {
     return parent.children.get(name);
   }
 
+  // Progress metric: a topic's progress = its accuracy, or 0 if never attempted.
+  // A parent's progress = the unweighted average across ALL its topics. We carry
+  // a running progressSum + topicCount so any level is sum/count.
   function rollupNode(node) {
     if (node.leaf) {
       node.topicCount = 1;
       node.attemptedCount = node.attempts > 0 ? 1 : 0;
+      node.progressSum = node.attempts > 0 ? (node.correct / node.attempts) * 100 : 0;
       return;
     }
-    node.attempts = 0; node.correct = 0; node.topicCount = 0; node.attemptedCount = 0;
+    node.topicCount = 0; node.attemptedCount = 0; node.progressSum = 0;
     for (const child of node.children.values()) {
       rollupNode(child);
-      node.attempts += child.attempts;
-      node.correct += child.correct;
       node.topicCount += child.topicCount;
       node.attemptedCount += child.attemptedCount;
+      node.progressSum += child.progressSum;
     }
   }
 
@@ -430,38 +433,43 @@ const App = (() => {
     return root;
   }
 
-  function nodeAccuracy(node) {
-    return node.attempts ? Math.round((node.correct / node.attempts) * 100) : null;
+  function nodeProgress(node) {
+    return node.topicCount ? Math.round(node.progressSum / node.topicCount) : 0;
   }
 
-  // Weakest practised first, then untouched, then alphabetical.
-  function byProgress(a, b) {
-    const aa = a.attempts ? a.correct / a.attempts : null;
-    const bb = b.attempts ? b.correct / b.attempts : null;
-    if (aa == null && bb == null) return a.name.localeCompare(b.name);
-    if (aa == null) return 1;
-    if (bb == null) return -1;
-    if (aa !== bb) return aa - bb;
-    return a.name.localeCompare(b.name);
+  // Stable, deterministic order — by lesson/unit number (and natural name order
+  // everywhere else). NEVER depends on progress, so the tree never reshuffles.
+  function byName(a, b) {
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
   }
 
-  function renderProgressNode(node, level) {
-    const acc = nodeAccuracy(node);
-    const color = accColor(acc);
-    const pct = acc == null ? 0 : acc;
-    const kids = [...node.children.values()].sort(byProgress);
+  // The Track>Course>Unit>Topic keys, indexed by depth level.
+  const LEVEL_KEYS = ['track', 'course', 'lesson', 'topic'];
+
+  function renderProgressNode(node, level, scope) {
+    const pct = nodeProgress(node);
+    const color = accColor(pct);
+    const kids = [...node.children.values()].sort(byName);
     const hasKids = kids.length > 0 && !node.leaf;
     const sub = node.leaf
       ? (node.attempts ? `${node.attempts} attempt${node.attempts === 1 ? '' : 's'}` : 'Not started')
       : `${node.attemptedCount}/${node.topicCount} topics practised`;
-    const pctLabel = acc == null ? '—' : acc + '%';
 
+    // data-* carry this node's full scope so the action buttons know what to launch.
+    const dataAttrs = LEVEL_KEYS
+      .filter((k) => scope[k] != null)
+      .map((k) => `data-${k}="${esc(scope[k])}"`)
+      .join(' ');
+
+    const childKey = LEVEL_KEYS[level + 1];
     const childHtml = hasKids
-      ? `<div class="prog-children">${kids.map((k) => renderProgressNode(k, level + 1)).join('')}</div>`
+      ? `<div class="prog-children">${kids
+          .map((k) => renderProgressNode(k, level + 1, { ...scope, [childKey]: k.name }))
+          .join('')}</div>`
       : '';
 
-    return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}">
-      <div class="prog-row" style="padding-left:${level * 18}px">
+    return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}" data-label="${esc(node.name)}" ${dataAttrs}>
+      <div class="prog-row" style="padding-left:${level * 16}px">
         <span class="prog-caret">${hasKids ? '▸' : ''}</span>
         <div class="prog-info">
           <span class="prog-name">${esc(node.name)}</span>
@@ -469,7 +477,11 @@ const App = (() => {
         </div>
         <div class="prog-bar-wrap">
           <span class="mini-bar"><span class="mini-fill" style="width:${pct}%;background:${color}"></span></span>
-          <span class="prog-pct" style="color:${acc == null ? 'var(--faint)' : color}">${pctLabel}</span>
+          <span class="prog-pct" style="color:${color}">${pct}%</span>
+        </div>
+        <div class="prog-actions">
+          <button class="prog-btn" data-action="quiz" title="Live quiz on this section">▶ Quiz</button>
+          <button class="prog-btn review" data-action="review" title="AI teaches this section first">📖 Review</button>
         </div>
       </div>
       ${childHtml}
@@ -486,8 +498,75 @@ const App = (() => {
     }
     empty.classList.add('hidden');
     const root = buildProgressTree(state.catalog);
-    const tracks = [...root.children.values()].sort(byProgress);
-    tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0)).join('');
+    const tracks = [...root.children.values()].sort(byName);
+    tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name })).join('');
+  }
+
+  /* Read a node's scope from its data-* attributes. */
+  function nodeScope(el) {
+    const s = {};
+    for (const k of LEVEL_KEYS) if (el.dataset[k]) s[k] = el.dataset[k];
+    return s;
+  }
+
+  const clampCountClient = (c) => Math.min(50, Math.max(1, parseInt(c, 10) || 5));
+
+  /* ---- Per-node actions: live quiz / AI review / progress analysis ------ */
+  async function quizFromScope(scope) {
+    try {
+      const count = clampCountClient($('count').value);
+      const qs = await api('/api/quiz/select', {
+        method: 'POST',
+        body: JSON.stringify({ ...scope, count }),
+      });
+      if (!qs || !qs.length) {
+        alert('No questions found for this section yet.');
+        return;
+      }
+      startQuiz(qs);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
+  let reviewScope = null; // remember scope so "quiz me on this" works from the modal
+
+  async function reviewFromScope(scope, label) {
+    reviewScope = scope;
+    $('reviewTitle').textContent = '📖 Review — ' + (label || 'Section');
+    $('reviewBody').innerHTML =
+      '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your review…</div>';
+    show('reviewModal');
+    try {
+      const r = await api('/api/review', { method: 'POST', body: JSON.stringify(scope) });
+      $('reviewBody').innerHTML = renderMarkdown(r.review);
+    } catch (e) {
+      $('reviewBody').innerHTML = '<span class="err">Couldn\'t build a review: ' + esc(e.message) + '</span>';
+    }
+  }
+
+  function closeReview() { hide('reviewModal'); }
+
+  function quizFromReview() {
+    const scope = reviewScope;
+    closeReview();
+    if (scope) quizFromScope(scope);
+  }
+
+  async function analyzeProgress() {
+    const box = $('analysisBox'), btn = $('analyzeBtn');
+    btn.disabled = true;
+    box.classList.remove('hidden');
+    box.innerHTML =
+      '<div class="ai-head">🧠 Progress analysis</div><div class="ai-loading"><div class="spinner"></div> Analyzing your progress…</div>';
+    try {
+      const r = await api('/api/analyze', { method: 'POST' });
+      box.innerHTML = '<div class="ai-head">🧠 Progress analysis</div>' + renderMarkdown(r.analysis);
+    } catch (e) {
+      box.innerHTML = '<span class="err">Couldn\'t analyze your progress: ' + esc(e.message) + '</span>';
+    } finally {
+      btn.disabled = false;
+    }
   }
 
   /* -------------------------------- Quiz --------------------------------- */
@@ -678,8 +757,16 @@ const App = (() => {
     $('courseSel').addEventListener('change', filterLessons);
     $('lessonSel').addEventListener('change', filterTopics);
 
-    // Expand/collapse rows in the progress tree (event delegation).
+    // Progress tree: action buttons + expand/collapse (event delegation).
     $('progressTree').addEventListener('click', (e) => {
+      const actionBtn = e.target.closest('[data-action]');
+      if (actionBtn) {
+        const node = actionBtn.closest('.prog-node');
+        const scope = nodeScope(node);
+        if (actionBtn.dataset.action === 'quiz') quizFromScope(scope);
+        else if (actionBtn.dataset.action === 'review') reviewFromScope(scope, node.dataset.label);
+        return; // don't also toggle the row
+      }
       const row = e.target.closest('.prog-row');
       if (!row) return;
       const node = row.parentElement;
@@ -695,5 +782,6 @@ const App = (() => {
     launchManual, launchPriority, nextQuestion,
     askHint, askExplain,
     openStats, priorityFromStats,
+    analyzeProgress, closeReview, quizFromReview,
   };
 })();
