@@ -86,7 +86,9 @@ const App = (() => {
   // Try the server for a quiz; on a network failure fall back to the cache.
   async function getQuiz(path, body) {
     try {
-      return await api(path, { method: 'POST', body: JSON.stringify(body) });
+      const qs = await api(path, { method: 'POST', body: JSON.stringify(body) });
+      state.offline = false; // served live — clear any stale offline flag
+      return qs;
     } catch (e) {
       if (isNetworkError(e)) {
         const qs = offlineSelect(body, body.count);
@@ -767,6 +769,20 @@ const App = (() => {
     $('explainBox').classList.add('hidden');
     $('explainBox').innerHTML = '';
 
+    // reset the "drill deeper" UI — only in mastery mode (it banks a new
+    // question, needing auth) and only when online (it needs the AI + a write),
+    // so guests and offline quizzes never see it.
+    const canDrill = state.authed && !state.guest && !state.offline;
+    $('drillWrap').classList.toggle('hidden', !canDrill);
+    $('drillBtn').disabled = false;
+    $('drillPanel').classList.add('hidden');
+    $('confusionList').innerHTML = '';
+    $('confusionCustom').classList.add('hidden');
+    $('confusionSubmit').disabled = false; // re-arm after a prior drill disabled it
+    $('confusionText').value = '';
+    $('drillError').textContent = '';
+    $('drillLoader').classList.add('hidden');
+
     const area = $('optionsArea');
     area.innerHTML = '';
     shuffle([...q.options]).forEach((opt, i) => {
@@ -848,6 +864,108 @@ const App = (() => {
       box.innerHTML = '<span class="err">Couldn\'t load explanation: ' + esc(e.message) + '</span>';
       btn.disabled = false;
     }
+  }
+
+  /* ------------------------------- Drill --------------------------------- */
+  // "Master this question": diagnose what's confusing the learner, then generate
+  // (and bank) a fresh question that drills into that exact gap. The generated
+  // question carries the SAME topic, so it feeds the exact sub-lesson and updates
+  // its mastery once answered. Drilled questions are inserted into the running
+  // quiz, so the learner can answer one and immediately drill again — as deep as
+  // they need to go.
+  function setDrillLoading(on, text) {
+    $('drillLoader').classList.toggle('hidden', !on);
+    if (text) $('drillLoaderText').textContent = text;
+  }
+
+  async function startDrill() {
+    const q = state.questions[state.idx];
+    const rec = state.log[state.idx] || {};
+    const btn = $('drillBtn');
+    btn.disabled = true;
+    $('drillPanel').classList.remove('hidden');
+    $('drillError').textContent = '';
+    $('confusionCustom').classList.add('hidden');
+    $('confusionList').innerHTML = '';
+    setDrillLoading(true, 'Finding what might be confusing you…');
+    try {
+      const r = await api('/api/drill/confusions', {
+        method: 'POST',
+        body: JSON.stringify({
+          question: q.question, options: q.options, answer: q.answer, topic: q.topic,
+          userAnswer: rec.userAnswer, isCorrect: rec.isCorrect,
+        }),
+      });
+      renderConfusions(r.confusions || []);
+    } catch (e) {
+      $('drillError').textContent = "Couldn't load this: " + e.message;
+      btn.disabled = false;
+    } finally {
+      setDrillLoading(false);
+    }
+  }
+
+  // Render the AI-suggested confusions as pickable options, always adding a
+  // final "let me explain" choice that opens a free-text box for the learner.
+  function renderConfusions(list) {
+    const items = list.slice(0, 3);
+    const wrap = $('confusionList');
+    wrap.innerHTML =
+      items
+        .map((c, i) => `<button class="confusion-opt" data-i="${i}"><span class="key">${KEYS[i]}</span><span class="confusion-txt">${esc(c)}</span></button>`)
+        .join('') +
+      `<button class="confusion-opt custom" data-custom="1"><span class="key">${KEYS[items.length]}</span><span class="confusion-txt">✍️ Something else: let me explain</span></button>`;
+    wrap.querySelectorAll('.confusion-opt').forEach((b) => {
+      b.onclick = () => {
+        if (b.dataset.custom) {
+          $('confusionCustom').classList.remove('hidden');
+          $('confusionText').focus();
+        } else {
+          chooseConfusion(items[Number(b.dataset.i)]);
+        }
+      };
+    });
+    typeset(wrap); // confusions can contain math ("I mixed up $x^2$ and $2x$")
+  }
+
+  function submitCustomConfusion() {
+    const text = $('confusionText').value.trim();
+    if (!text) { $('confusionText').focus(); return; }
+    chooseConfusion(text);
+  }
+
+  async function chooseConfusion(confusion) {
+    const q = state.questions[state.idx];
+    $('drillError').textContent = '';
+    $('confusionList').querySelectorAll('.confusion-opt').forEach((b) => (b.disabled = true));
+    $('confusionSubmit').disabled = true;
+    setDrillLoading(true, 'Writing a question that targets this…');
+    try {
+      const nq = await api('/api/drill/question', {
+        method: 'POST',
+        body: JSON.stringify({
+          question: q.question, options: q.options, answer: q.answer,
+          topic: q.topic, confusion,
+        }),
+      });
+      if (!nq || !nq.question || !Array.isArray(nq.options)) throw new Error('No usable question came back');
+      insertDrillQuestion(nq);
+    } catch (e) {
+      $('drillError').textContent = "Couldn't build a question: " + e.message;
+      $('confusionList').querySelectorAll('.confusion-opt').forEach((b) => (b.disabled = false));
+      $('confusionSubmit').disabled = false;
+    } finally {
+      setDrillLoading(false);
+    }
+  }
+
+  // Insert the freshly-generated question right after the current one and jump
+  // to it (mirroring nextQuestion's bookkeeping) so the learner answers it now.
+  function insertDrillQuestion(nq) {
+    if (state.log[state.idx]) state.log[state.idx].reviewFlag = $('reviewFlag').checked;
+    state.questions.splice(state.idx + 1, 0, nq);
+    state.idx++;
+    renderQuestion();
   }
 
   /** Minimal, safe Markdown -> HTML (bold, bullets, paragraphs). */
@@ -989,6 +1107,7 @@ const App = (() => {
     openAuth, closeAuth, submitPassword,
     launchManual, launchPriority, nextQuestion,
     askHint, askExplain,
+    startDrill, submitCustomConfusion,
     openStats, priorityFromStats,
     analyzeProgress, closeReview, quizFromReview,
   };

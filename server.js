@@ -33,6 +33,8 @@ import {
   generateExplanation,
   generateReview,
   generateAnalysis,
+  generateConfusions,
+  generateDrillQuestion,
   latexifyQuestions,
 } from './lib/gemini.js';
 import { listOllamaModels } from './lib/ollama.js';
@@ -528,6 +530,63 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
       }
     }
     res.json({ ok: true, created, topics: topics.length, errors });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------------- drill deeper ----------------------------- */
+// Auth: "master this question" step 1 — given a question the learner just
+// answered (often without really understanding it), propose specific things
+// that might be confusing them. The UI adds its own 4th "let me explain"
+// free-text option, so this returns only the AI-suggested confusions.
+app.post('/api/drill/confusions', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const { question, options, answer, topic, userAnswer, isCorrect } = req.body || {};
+    if (!question || !Array.isArray(options)) {
+      return res.status(400).json({ error: 'question and options are required' });
+    }
+    const confusions = await generateConfusions(
+      { question, options, answer: answer || '', topic: topic || '', userAnswer, isCorrect: !!isCorrect },
+      aiChoice(req)
+    );
+    res.json({ confusions });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: "master this question" step 2 — generate ONE new question that drills
+// into the chosen confusion, SAVE it to the bank under the SAME topic, and
+// return it packaged with its full hierarchy so the client can serve it
+// immediately. Because it shares the topic, it feeds the exact sub-lesson:
+// future quizzes pick it up and answering it updates that topic's mastery.
+app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const { question, options, answer, topic } = req.body || {};
+    // Bound the free-text confusion before it reaches the prompt (injection surface).
+    const confusion = String(req.body?.confusion || '').slice(0, 500).trim();
+    if (!topic || !confusion) {
+      return res.status(400).json({ error: 'topic and confusion are required' });
+    }
+    const catalog = await getCatalog();
+    const idx = metaIndex(catalog);
+    if (!idx.has(topic)) {
+      return res.status(400).json({ error: 'Unknown topic; cannot drill into it' });
+    }
+    const meta = idx.get(topic);
+    const scopeLabel = [meta.course, meta.lesson, topic].filter(Boolean).join(' › ');
+
+    const drilled = await generateDrillQuestion(
+      { topic, scopeLabel, question: question || '', options: options || [], answer: answer || '', confusion },
+      aiChoice(req)
+    );
+    // Persist into the bank so it feeds future quizzes for this exact sub-lesson.
+    // Tag it `drill` so these can be audited/pruned separately from seeded ones.
+    await addQuestion({ ...drilled, source: 'drill' });
+
+    // Package with the topic's full hierarchy (same shape the quiz endpoints use).
+    res.json(packageQuestions([drilled], idx, 1)[0]);
   } catch (e) {
     next(e);
   }
