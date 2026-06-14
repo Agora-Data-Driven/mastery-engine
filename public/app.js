@@ -183,9 +183,9 @@ const App = (() => {
       sel.value = `${match.provider}::${match.model}`;
       setAiChoice(match.provider, match.model);
 
-      $('aiEngineHint').textContent = (r.ollamaAvailable)
-        ? 'Local Ollama detected. Pick a local model to keep everything on your machine.'
-        : 'Cloud uses Gemini. Local models appear here when Ollama is running and the app is run locally.';
+      $('aiEngineHint').textContent = (r.ollamaAvailable || r.lmstudioAvailable)
+        ? 'Local engine detected. Pick a local model to keep everything on your machine.'
+        : 'Cloud uses Gemini. Local models appear here when Ollama or LM Studio is running and the app is run locally.';
     } catch (e) {
       console.error(e);
     }

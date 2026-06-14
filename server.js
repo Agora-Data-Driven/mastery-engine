@@ -38,6 +38,7 @@ import {
   latexifyQuestions,
 } from './lib/gemini.js';
 import { listOllamaModels } from './lib/ollama.js';
+import { listLMStudioModels } from './lib/lmstudio.js';
 import { runMigration } from './lib/migrate.js';
 import {
   checkPassword,
@@ -102,7 +103,8 @@ const clampCount = (c) => Math.min(50, Math.max(1, parseInt(c, 10) || 5));
 
 /** The AI engine the client picked (cookies set by the home-page dropdown). */
 function aiChoice(req) {
-  const provider = req.cookies?.aiProvider === 'ollama' ? 'ollama' : 'gemini';
+  const p = req.cookies?.aiProvider;
+  const provider = p === 'ollama' || p === 'lmstudio' ? p : 'gemini';
   const model = req.cookies?.aiModel ? decodeURIComponent(req.cookies.aiModel) : undefined;
   return { provider, model };
 }
@@ -194,16 +196,21 @@ app.get('/api/catalog', async (_req, res, next) => {
 });
 
 /* --------------------------------- models --------------------------------- */
-// Public: which AI engines are available. Gemini (cloud) always; Ollama (local)
-// only when this server can reach a running Ollama (i.e. run locally).
+// Public: which AI engines are available. Gemini (cloud) always; local engines
+// (Ollama, LM Studio) only when this server can reach them (i.e. run locally).
 app.get('/api/models', async (_req, res, next) => {
   try {
     const providers = [
       { id: 'gemini', label: 'Cloud', models: [process.env.GEMINI_MODEL || 'gemini-2.5-flash'] },
     ];
-    const ollama = await listOllamaModels();
+    const [ollama, lmstudio] = await Promise.all([listOllamaModels(), listLMStudioModels()]);
     if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
-    res.json({ providers, ollamaAvailable: ollama.length > 0 });
+    if (lmstudio.length) providers.push({ id: 'lmstudio', label: 'Local (LM Studio)', models: lmstudio });
+    res.json({
+      providers,
+      ollamaAvailable: ollama.length > 0,
+      lmstudioAvailable: lmstudio.length > 0,
+    });
   } catch (e) {
     next(e);
   }

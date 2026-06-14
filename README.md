@@ -102,22 +102,26 @@ bank and quiz history imported — confirmed live at the URL above.
 
 ---
 
-## AI engine: cloud (Gemini) or local (Ollama)
+## AI engine: cloud (Gemini) or local (Ollama / LM Studio)
 
 Every AI feature (hints, explanations, question generation, section reviews,
 progress analysis, the LaTeX migration) goes through a single dispatcher in
-`lib/gemini.js` (`complete()`), which routes to either Gemini or a local
-[Ollama](https://ollama.com) instance based on the engine picked in the
+`lib/gemini.js` (`complete()`), which routes to Gemini, a local
+[Ollama](https://ollama.com) instance, or a local
+[LM Studio](https://lmstudio.ai) server based on the engine picked in the
 **AI engine** dropdown on the landing page. The choice is stored in cookies the
 server reads on each request (`aiProvider` / `aiModel`).
 
 - **Cloud (default):** Gemini, as deployed on Cloud Run. Always available.
 - **Local (Ollama):** only appears in the dropdown when the server can reach a
-  running Ollama. Because Ollama listens on the user's own machine
-  (`127.0.0.1:11434`), this works when you **run the app locally**, not from the
-  Cloud Run URL.
+  running Ollama (`127.0.0.1:11434`).
+- **Local (LM Studio):** only appears when the server can reach LM Studio's
+  OpenAI-compatible server (`127.0.0.1:1234`) with at least one model loaded.
 
-Run it locally with Ollama using the helper scripts in `scripts/`:
+Because the local engines listen on the user's own machine, they only work when
+you **run the app locally**, not from the Cloud Run URL.
+
+### Run it locally with Ollama
 
 ```powershell
 # First time on a machine: installs Node + Ollama + gcloud, logs into Google
@@ -133,12 +137,39 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-ollama.ps1
 ```
 
 `start-ollama.ps1` sets the env the server needs (`APP_PASSWORD`, a generated
-`SESSION_SECRET`, `GOOGLE_CLOUD_PROJECT`, `OLLAMA_*`) and starts on
-`http://localhost:8080`; pick the local model in the home-page dropdown and sign
-into Mastery Mode (password defaults to `local`, change with `-Password`).
+`SESSION_SECRET`, `GOOGLE_CLOUD_PROJECT`, `OLLAMA_*`).
 
-`GET /api/models` lists Gemini plus any locally pulled models. Tunables:
-`OLLAMA_HOST` (default `http://127.0.0.1:11434`), `OLLAMA_MODEL`,
+### Run it locally with LM Studio
+
+1. Install [LM Studio](https://lmstudio.ai) and, in its UI, **download a model**
+   (e.g. *Qwen2.5 7B Instruct*).
+2. Start its server: open the **Developer** (server) tab and click **Start
+   Server** (port `1234`), or run `lms bootstrap` once to enable the CLI and let
+   the script start it for you.
+3. Launch the app pointed at LM Studio:
+
+```powershell
+.\scripts\start-lmstudio.ps1
+.\scripts\start-lmstudio.ps1 -Model "qwen2.5-7b-instruct"   # JIT-load a specific model (needs the lms CLI)
+
+# If PowerShell blocks scripts:
+powershell -ExecutionPolicy Bypass -File .\scripts\start-lmstudio.ps1
+```
+
+`start-lmstudio.ps1` sets the env the server needs (`APP_PASSWORD`, a generated
+`SESSION_SECRET`, `GOOGLE_CLOUD_PROJECT`, `LMSTUDIO_*`). Tunables:
+`LMSTUDIO_HOST` (default `http://127.0.0.1:1234`), `LMSTUDIO_MODEL` (leave unset
+to use whatever model LM Studio has loaded), and `LMSTUDIO_MAX_TOKENS` (default
+`-1` = generate until the context is full, so long outputs aren't cut off).
+
+### Common notes
+
+Both scripts start on `http://localhost:8080`; pick the local model in the
+home-page dropdown and sign into Mastery Mode (password defaults to `local`,
+change with `-Password`).
+
+`GET /api/models` lists Gemini plus any locally available models. Ollama
+tunables: `OLLAMA_HOST` (default `http://127.0.0.1:11434`), `OLLAMA_MODEL`,
 `OLLAMA_NUM_CTX` (default `8192` - raise the context so long prompts aren't
 truncated), and `OLLAMA_KEEP_ALIVE` (default `30m` - keeps the model resident
 so there's no cold-start reload between questions). Tutor responses
