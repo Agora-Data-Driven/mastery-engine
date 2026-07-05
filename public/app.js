@@ -770,6 +770,10 @@ const App = (() => {
     $('reviewFlag').checked = false;
     hide('postAnswer');
 
+    // Skip control: shown until the learner answers or skips.
+    show('skipWrap');
+    $('skipBtn').disabled = false;
+
     // reset AI tutor UI for the new question
     $('hintBtn').disabled = false;
     $('hintBtn').textContent = 'Get a hint';
@@ -833,8 +837,31 @@ const App = (() => {
     }
     f.className = 'feedback ' + (correct ? 'ok' : 'no');
     $('progressScore').textContent = `Score ${state.score}`;
+    hide('skipWrap');
     show('postAnswer');
     state.log[state.idx] = { ...q, isCorrect: correct, reviewFlag: false, userAnswer: choice };
+  }
+
+  // Skip: reveal the answer without recording a guess. Logged as a miss
+  // (isCorrect false, skipped true) so mastery and priority bring it back.
+  function skipQuestion() {
+    const q = state.questions[state.idx];
+    document.querySelectorAll('.option').forEach((el) => {
+      el.disabled = true;
+      const raw = (el.dataset.opt || '').trim();
+      if (raw === q.answer.trim()) el.classList.add('correct');
+    });
+    const f = $('feedback');
+    f.textContent = '';
+    f.appendChild(document.createTextNode('Skipped. Answer: '));
+    const ans = document.createElement('span');
+    ans.textContent = q.answer;
+    f.appendChild(ans);
+    typeset(ans);
+    f.className = 'feedback skip';
+    hide('skipWrap');
+    show('postAnswer');
+    state.log[state.idx] = { ...q, isCorrect: false, skipped: true, reviewFlag: false, userAnswer: null };
   }
 
   /* ------------------------------ AI tutor ------------------------------- */
@@ -1044,7 +1071,7 @@ const App = (() => {
         <td style="color:var(--muted)">${esc(r.track)}</td>
         <td><strong>${esc(r.course)}</strong></td>
         <td style="color:var(--muted)">${esc(r.topic)}</td>
-        <td><span class="tag ${r.isCorrect ? 'pass' : 'fail'}">${r.isCorrect ? 'PASS' : 'FAIL'}</span></td>`;
+        <td><span class="tag ${r.skipped ? 'skip' : r.isCorrect ? 'pass' : 'fail'}">${r.skipped ? 'SKIP' : r.isCorrect ? 'PASS' : 'FAIL'}</span></td>`;
       body.appendChild(tr);
     });
 
@@ -1115,7 +1142,7 @@ const App = (() => {
   return {
     enterMastery, goHome, setMode,
     submitPassword,
-    launchManual, launchPriority, nextQuestion,
+    launchManual, launchPriority, nextQuestion, skipQuestion,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     openStats, priorityFromStats,
