@@ -48,6 +48,41 @@ function Ensure-Tool($cmd, $wingetId, $label) {
   else { Warn "$label installed but not on PATH yet - reopen the terminal afterwards." }
 }
 
+# Configure GitHub auth so `git push` NEVER opens a browser again. Prefer a pasted
+# Personal Access Token (durable, browser-free); fall back to the browser device flow.
+# No-op if already signed in (so re-running never re-prompts).
+function Set-GitHubAuth {
+  $__eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try {
+    if (-not (Have 'gh')) { Warn "gh not on PATH yet - skipping GitHub auth (reopen terminal + re-run)."; return }
+    gh auth status *> $null
+    if ($LASTEXITCODE -eq 0) { Ok "Already signed in to GitHub."; gh auth setup-git 2>$null | Out-Null; return }
+    Info "GitHub sign-in (so git push never opens a browser). Do ONE of:"
+    Info "  - copy your PAT to the clipboard, then press ENTER here to use it, or"
+    Info "  - paste the PAT on the line below and press Enter (it will be visible), or"
+    Info "  - type 'b' then Enter to sign in via browser instead."
+    Info "Create one: https://github.com/settings/tokens  (classic; scopes: repo, workflow, read:org)"
+    $tok = Read-Host "PAT (or ENTER=use clipboard, b=browser)"
+    if ($tok -match '^(b|browser)$') { gh auth login --web --git-protocol https }
+    else {
+      if ([string]::IsNullOrWhiteSpace($tok)) {
+        try { $tok = (Get-Clipboard -Raw 2>$null | Out-String) } catch { $tok = "" }
+        if (-not [string]::IsNullOrWhiteSpace($tok)) { Ok "Using the token from your clipboard." }
+      }
+      $tok = ($tok -replace '\s', '')
+      if ([string]::IsNullOrWhiteSpace($tok)) { Warn "No token found (clipboard empty?). Falling back to browser."; gh auth login --web --git-protocol https }
+      else {
+        $tok | gh auth login --with-token
+        if ($LASTEXITCODE -ne 0) { Warn "Token rejected (needs scopes: repo, workflow, read:org). Falling back to browser."; gh auth login --web --git-protocol https }
+      }
+    }
+    $tok = $null
+    gh auth setup-git 2>$null | Out-Null
+    gh auth status *> $null
+    if ($LASTEXITCODE -eq 0) { Ok "GitHub configured - git push will not prompt." } else { Warn "GitHub auth not confirmed - pushes may still prompt." }
+  } finally { $ErrorActionPreference = $__eap }
+}
+
 Write-Host ""
 Write-Host "  AGORA Mastery Engine - setup" -ForegroundColor White
 Write-Host "  ----------------------------" -ForegroundColor DarkGray
@@ -84,19 +119,8 @@ if (Have 'gcloud') {
   Warn "gcloud not on PATH yet. Reopen the terminal and re-run setup to finish the Google login."
 }
 
-# 2b. GitHub sign-in (so `git push` over HTTPS works without a password prompt) ---
-if (Have 'gh') {
-  gh auth status *> $null
-  if ($LASTEXITCODE -ne 0) {
-    Info "Signing in to GitHub (a browser will open)..."
-    gh auth login --web --git-protocol https
-  } else {
-    Ok "Already signed in to GitHub."
-  }
-  gh auth setup-git 2>$null | Out-Null   # point git's HTTPS credential helper at the gh token
-} else {
-  Warn "gh not on PATH yet - reopen the terminal and re-run setup to finish GitHub sign-in."
-}
+# 2b. GitHub sign-in (PAT preferred -> browser-free pushes) -----------------
+Set-GitHubAuth
 
 # 3. A starter Ollama model (only if you have none) -------------------------
 if (Have 'ollama') {
