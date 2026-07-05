@@ -131,6 +131,7 @@ const App = (() => {
         api('/api/catalog'),
       ]);
       state.authed = !!status.authed;
+      state.auth = status;
       state.catalog = catalog;
       lsSet(LS.catalog, catalog);
       localStorage.setItem('agora.authed', status.authed ? '1' : '0');
@@ -140,6 +141,7 @@ const App = (() => {
       state.catalog = lsGet(LS.catalog) || [];
       state.authed = localStorage.getItem('agora.authed') === '1';
     }
+    renderAuthUi();
     refreshModeChip();
     populateTracks();
     loadStreak();
@@ -386,6 +388,48 @@ const App = (() => {
   }
 
   /* -------------------------------- Auth --------------------------------- */
+  // Show the Google sign-in button when configured, and the admin "acting as" bar for admins.
+  async function renderAuthUi() {
+    try {
+      const g = await api('/api/auth/google/enabled');
+      if (g.enabled) $('googleWrap')?.classList.remove('hidden');
+    } catch {
+      /* ignore — button stays hidden */
+    }
+    const ctx = state.auth || {};
+    const bar = $('adminBar');
+    if (!bar) return;
+    if (ctx.admin) {
+      bar.classList.remove('hidden');
+      $('adminBarText').textContent = ctx.actingAs
+        ? `Acting as ${ctx.effective}`
+        : `Admin${ctx.email ? ' · ' + ctx.email : ''} — viewing ${ctx.effective}`;
+      $('adminStopActing').classList.toggle('hidden', !ctx.actingAs);
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  // Admin: act as another user (impersonation), or stop and return to the default account.
+  async function actAs() {
+    const email = window.prompt('Act as which user? Enter their Google email:');
+    if (!email) return;
+    try {
+      await api('/api/auth/act-as', { method: 'POST', body: JSON.stringify({ email: email.trim() }) });
+      window.location.reload();
+    } catch (e) {
+      window.alert(e.message);
+    }
+  }
+  async function stopActing() {
+    try {
+      await api('/api/auth/stop-acting', { method: 'POST' });
+      window.location.reload();
+    } catch (e) {
+      window.alert(e.message);
+    }
+  }
+
   async function submitPassword() {
     const btn = $('authSubmit');
     btn.disabled = true;
@@ -1141,7 +1185,7 @@ const App = (() => {
 
   return {
     enterMastery, goHome, setMode,
-    submitPassword,
+    submitPassword, actAs, stopActing,
     launchManual, launchPriority, nextQuestion, skipQuestion,
     askHint, askExplain,
     startDrill, submitCustomConfusion,

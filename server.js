@@ -44,9 +44,18 @@ import {
   checkPassword,
   setSessionCookie,
   clearSessionCookie,
+  clearUserCookie,
+  setUserCookie,
+  setActAs,
+  clearActAs,
   isAuthed,
+  effectiveUser,
+  authContext,
   requireAuth,
+  requireAdmin,
+  DEFAULT_ACCOUNT,
 } from './lib/auth.js';
+import * as googleauth from './lib/googleauth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -156,6 +165,10 @@ function rateLimitAI(req, res, next) {
 
 /* --------------------------------- auth ----------------------------------- */
 
+// The account whose progress a request reads/writes: the effective user when signed in, else null
+// (guest). Guests see the catalog with fresh/zero stats.
+const optionalUser = (req) => (isAuthed(req) ? effectiveUser(req) : null);
+
 app.post('/api/auth/login', (req, res) => {
   if (!checkPassword(req.body?.password)) {
     return res.status(401).json({ error: 'Incorrect password' });
@@ -166,18 +179,55 @@ app.post('/api/auth/login', (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   clearSessionCookie(res);
+  clearUserCookie(res);
+  clearActAs(res);
   res.json({ ok: true });
 });
 
-app.get('/api/auth/status', (req, res) => {
-  res.json({ authed: isAuthed(req) });
+// Rich auth context (used by the frontend to show who you are / who you're acting as).
+app.get('/api/auth/status', (req, res) => res.json(authContext(req)));
+app.get('/api/auth/whoami', (req, res) => res.json(authContext(req)));
+
+// Whether Google sign-in is wired (frontend hides the button when not).
+app.get('/api/auth/google/enabled', (_req, res) => res.json({ enabled: googleauth.isConfigured() }));
+
+// Google OAuth: start the flow (stash a CSRF state cookie), then handle the callback.
+app.get('/api/auth/google/login', (req, res) => {
+  if (!googleauth.isConfigured()) return res.redirect('/');
+  const state = googleauth.newState();
+  res.cookie('g_state', state, { httpOnly: true, secure: true, sameSite: 'lax', maxAge: 600000, path: '/' });
+  res.redirect(googleauth.authUrl(state));
+});
+
+app.get('/api/auth/google/callback', async (req, res) => {
+  if (!googleauth.isConfigured()) return res.redirect('/');
+  if (!req.query.state || req.query.state !== req.cookies?.g_state) {
+    return res.redirect('/?login=error');
+  }
+  res.clearCookie('g_state', { path: '/' });
+  const { email } = await googleauth.exchangeCode(req.query.code);
+  if (!email) return res.redirect('/?login=error');
+  setUserCookie(res, email);
+  res.redirect('/?login=ok');
+});
+
+// Impersonation (admins): act as any user, or stop.
+app.post('/api/auth/act-as', requireAdmin, (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  if (!email || email.indexOf('@') < 0) return res.status(400).json({ error: 'A valid email is required' });
+  setActAs(res, email);
+  res.json({ ok: true, actingAs: email });
+});
+app.post('/api/auth/stop-acting', requireAdmin, (req, res) => {
+  clearActAs(res);
+  res.json({ ok: true });
 });
 
 /* -------------------------------- catalog --------------------------------- */
 // Public: guests need the topic tree to pick what to practice.
-app.get('/api/catalog', async (_req, res, next) => {
+app.get('/api/catalog', async (req, res, next) => {
   try {
-    const catalog = await getCatalog();
+    const catalog = await getCatalog(optionalUser(req));
     res.json(
       catalog.map((t) => ({
         track: t.track,
@@ -220,7 +270,7 @@ app.get('/api/models', async (_req, res, next) => {
 // browser. Lets the app serve quizzes and render menus without a connection.
 app.get('/api/questions/all', async (_req, res, next) => {
   try {
-    const [catalog, questions] = await Promise.all([getCatalog(), getAllQuestions()]);
+    const [catalog, questions] = await Promise.all([getCatalog(null), getAllQuestions()]);
     const idx = metaIndex(catalog);
     res.json(
       questions
@@ -321,9 +371,12 @@ function buildStats(catalog, daily, now = new Date()) {
   return { overview, weakest, byCourse, daily };
 }
 
-app.get('/api/stats', requireAuth, async (_req, res, next) => {
+app.get('/api/stats', requireAuth, async (req, res, next) => {
   try {
-    const [catalog, daily] = await Promise.all([getCatalog(), getRecentActivity(14)]);
+    const [catalog, daily] = await Promise.all([
+      getCatalog(req.userEmail),
+      getRecentActivity(req.userEmail, 14),
+    ]);
     res.json(buildStats(catalog, daily));
   } catch (e) {
     next(e);
@@ -331,9 +384,9 @@ app.get('/api/stats', requireAuth, async (_req, res, next) => {
 });
 
 // Auth: current activity streak (consecutive days with a logged attempt).
-app.get('/api/streak', requireAuth, async (_req, res, next) => {
+app.get('/api/streak', requireAuth, async (req, res, next) => {
   try {
-    res.json({ streak: await getStreak() });
+    res.json({ streak: await getStreak(req.userEmail) });
   } catch (e) {
     next(e);
   }
@@ -396,7 +449,7 @@ function buildProgressSummary(catalog) {
 app.post('/api/quiz/guest', async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog();
+    const catalog = await getCatalog(optionalUser(req));
     const scoped = scopeCatalog(catalog, req.body || {});
     const topicNames = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
     if (!topicNames.length) return res.json([]);
@@ -413,8 +466,8 @@ app.post('/api/quiz/guest', async (req, res, next) => {
 app.post('/api/quiz/select', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog();
-    const seen = await getSeenQuestionTexts();
+    const catalog = await getCatalog(req.userEmail);
+    const seen = await getSeenQuestionTexts(req.userEmail);
 
     const scoped = scopeCatalog(catalog, req.body || {});
     const targetTopics = scoped
@@ -439,7 +492,7 @@ app.post('/api/quiz/select', requireAuth, async (req, res, next) => {
 app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog();
+    const catalog = await getCatalog(req.userEmail);
     const idx = metaIndex(catalog);
 
     // Rank each track's topics by priority (weakest/stalest first).
@@ -499,12 +552,13 @@ app.post('/api/quiz/log', requireAuth, async (req, res, next) => {
   try {
     const results = Array.isArray(req.body?.results) ? req.body.results : [];
     if (!results.length) return res.json({ ok: true, topicsUpdated: 0 });
-    const topicsUpdated = await logResults(results);
-    // Mirror into BigQuery for analytics (best-effort, non-blocking):
-    //  - append each attempt to quiz_log
-    //  - refresh the topics mastery snapshot (stats just changed)
-    streamAttempts(results).catch(() => {});
-    getTopicsRows().then(replaceTopics).catch(() => {});
+    const topicsUpdated = await logResults(req.userEmail, results);
+    // Mirror into BigQuery for analytics (best-effort). The BQ tables aren't per-user, so we mirror
+    // ONLY the default account (the one seeding the dashboards); other users stay in Firestore only.
+    if (req.userEmail === DEFAULT_ACCOUNT) {
+      streamAttempts(results).catch(() => {});
+      getTopicsRows(DEFAULT_ACCOUNT).then(replaceTopics).catch(() => {});
+    }
     res.json({ ok: true, topicsUpdated });
   } catch (e) {
     next(e);
@@ -516,7 +570,7 @@ app.post('/api/quiz/log', requireAuth, async (req, res, next) => {
 app.post('/api/generate', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog();
+    const catalog = await getCatalog(req.userEmail);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
     if (!topics.length) return res.status(400).json({ error: 'No topics in scope' });
@@ -576,7 +630,7 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
     if (!topic || !confusion) {
       return res.status(400).json({ error: 'topic and confusion are required' });
     }
-    const catalog = await getCatalog();
+    const catalog = await getCatalog(req.userEmail);
     const idx = metaIndex(catalog);
     if (!idx.has(topic)) {
       return res.status(400).json({ error: 'Unknown topic; cannot drill into it' });
@@ -604,7 +658,7 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
 // the concepts the learner needs BEFORE attempting that section.
 app.post('/api/review', requireAuth, async (req, res, next) => {
   try {
-    const catalog = await getCatalog();
+    const catalog = await getCatalog(req.userEmail);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
     if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
@@ -631,7 +685,7 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
 // Auth: AI analysis of the learner's overall progress dashboard (streamed).
 app.post('/api/analyze', requireAuth, async (req, res, next) => {
   try {
-    const catalog = await getCatalog();
+    const catalog = await getCatalog(req.userEmail);
     const summary = buildProgressSummary(catalog);
     await streamText(res, (onToken) => generateAnalysis(summary, aiChoice(req), onToken));
   } catch (e) {
@@ -663,11 +717,11 @@ app.post('/api/explain', rateLimitAI, async (req, res) => {
 /* -------------------------------- admin ----------------------------------- */
 // Auth: wipe all progress (reset topic stats + delete quiz history). Keeps the
 // catalog and the question bank. Start-from-scratch.
-app.post('/api/admin/reset', requireAuth, async (_req, res, next) => {
+app.post('/api/admin/reset', requireAuth, async (req, res, next) => {
   try {
-    const report = await resetProgress();
-    // Best-effort: refresh the BigQuery topics snapshot to mirror the wipe.
-    getTopicsRows().then(replaceTopics).catch(() => {});
+    const report = await resetProgress(req.userEmail);
+    // Best-effort: refresh the BQ topics snapshot to mirror the wipe (default account only).
+    if (req.userEmail === DEFAULT_ACCOUNT) getTopicsRows(DEFAULT_ACCOUNT).then(replaceTopics).catch(() => {});
     res.json({ ok: true, ...report });
   } catch (e) {
     next(e);
@@ -685,7 +739,7 @@ const hasDollar = (q) =>
 const needsLatex = (q) =>
   !hasDollar(q) && (MATH_HINT.test(q.question || '') || (q.options || []).some((o) => MATH_HINT.test(String(o))));
 
-app.post('/api/admin/latexify', requireAuth, async (req, res, next) => {
+app.post('/api/admin/latexify', requireAdmin, async (req, res, next) => {
   try {
     const max = Math.min(parseInt(req.query.max, 10) || 200, 800);
     const all = await getAllQuestions();
@@ -738,7 +792,7 @@ app.post('/api/admin/latexify', requireAuth, async (req, res, next) => {
 });
 
 // Auth: one-time CSV -> Firestore import (idempotent).
-app.post('/api/admin/migrate', requireAuth, async (_req, res, next) => {
+app.post('/api/admin/migrate', requireAdmin, async (_req, res, next) => {
   try {
     const report = await runMigration();
     res.json({ ok: true, report });
@@ -749,9 +803,9 @@ app.post('/api/admin/migrate', requireAuth, async (_req, res, next) => {
 
 // Auth: one-time backfill of historical quizLog into BigQuery. Idempotent only
 // in the sense of "re-runnable" — running twice duplicates rows, so call once.
-app.post('/api/admin/bq-backfill', requireAuth, async (_req, res, next) => {
+app.post('/api/admin/bq-backfill', requireAdmin, async (_req, res, next) => {
   try {
-    const rows = await getQuizLogRows();
+    const rows = await getQuizLogRows(DEFAULT_ACCOUNT);
     const inserted = await backfillRows(rows);
     res.json({ ok: true, inserted });
   } catch (e) {
@@ -762,9 +816,9 @@ app.post('/api/admin/bq-backfill', requireAuth, async (_req, res, next) => {
 // Auth: refresh the BigQuery `topics` mastery snapshot from live Firestore.
 // Full replace (WRITE_TRUNCATE) — safe to re-run anytime; also runs
 // automatically after every logged quiz.
-app.post('/api/admin/bq-sync-topics', requireAuth, async (_req, res, next) => {
+app.post('/api/admin/bq-sync-topics', requireAdmin, async (_req, res, next) => {
   try {
-    const rows = await getTopicsRows();
+    const rows = await getTopicsRows(DEFAULT_ACCOUNT);
     const synced = await replaceTopics(rows);
     res.json({ ok: true, synced });
   } catch (e) {

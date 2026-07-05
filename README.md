@@ -6,8 +6,16 @@ A spaced-repetition quiz web app. Formerly a Google Sheet + Apps Script tool
 - **Cloud Run** — single Node/Express service serving the frontend + JSON API
 - **Firestore** — replaces the 3 sheet tabs (`topics`, `questions`, `quizLog`)
 - **Gemini** — generates new "mastery-level" questions
-- **Two modes** — open *Guest* practice, password-gated *Mastery* mode (history,
-  priority quizzes, AI generation)
+- **Two modes** — open *Guest* practice, and *Mastery* mode (history, priority
+  quizzes, AI generation)
+- **Per-user accounts** — sign in with **Google** (or the shared portal `ag_sso` cookie once this
+  app is on a `*.agoradatadriven.com` domain; the legacy password still works). Each user's mastery
+  stats + attempt log are their own: the **legacy owner `ianfernandezctm@gmail.com`** maps to the
+  original `topics`/`quizLog` collections (so all pre-existing progress is his, no migration), while
+  every other user gets `users/{email}/…` subcollections. `info@agoradatadriven.com` is super admin
+  and can **act as any user**; admins default to the legacy owner's account. The question bank +
+  catalog stay shared. Data-layer detail: [lib/firestore.js](lib/firestore.js); auth resolution +
+  test: [lib/auth.js](lib/auth.js) / `node lib/_auth_test.js`.
 
 ## Live deployment
 
@@ -87,10 +95,18 @@ gcloud projects add-iam-policy-binding $PROJECT `
   --member="serviceAccount:$SA" --role="roles/datastore.user"
 
 # 4. Deploy from source (buildpacks; no Dockerfile required)
+#    SSO_SECRET (platform-sso-key) lets the app trust the portal's shared login cookie once this
+#    service is on a *.agoradatadriven.com custom domain (central auth). Google sign-in is OPT-IN:
+#    add the two GOOGLE_OAUTH_* secrets (same OAuth client as the portal, with this app's
+#    /api/auth/google/callback added to its redirect URIs) to turn the "Sign in with Google" button
+#    on. MASTERY_BASE_URL builds the Google redirect URI; the account/admin env vars have safe
+#    defaults baked in (ianfernandezctm@gmail.com owns the pre-existing progress; info@ is super admin).
 gcloud run deploy mastery-engine `
   --source . --region $REGION --allow-unauthenticated `
-  --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,SESSION_SECRET=SESSION_SECRET:latest,APP_PASSWORD=APP_PASSWORD:latest" `
-  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash"
+  --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,SESSION_SECRET=SESSION_SECRET:latest,APP_PASSWORD=APP_PASSWORD:latest,SSO_SECRET=platform-sso-key:latest" `
+  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash,MASTERY_BASE_URL=https://mastery-engine-c732u7m57a-uc.a.run.app,MASTERY_DEFAULT_ACCOUNT=ianfernandezctm@gmail.com,MASTERY_SUPER_ADMIN=info@agoradatadriven.com"
+# To enable Google sign-in later, after creating the two secrets, add to --set-secrets:
+#   ,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest
 
 # 5. One-time data import: open the app URL, click "Mastery Mode", sign in,
 #    then run the migration (uses your session cookie):
