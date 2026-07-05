@@ -87,7 +87,7 @@ const App = (() => {
   async function getQuiz(path, body) {
     try {
       const qs = await api(path, { method: 'POST', body: JSON.stringify(body) });
-      state.offline = false; // served live — clear any stale offline flag
+      state.offline = false; // served live - clear any stale offline flag
       return qs;
     } catch (e) {
       if (isNetworkError(e)) {
@@ -143,10 +143,13 @@ const App = (() => {
     refreshModeChip();
     populateTracks();
     loadStreak();
-    loadModels();
     prefetchQuestionBank();
     flushQueue();
     window.addEventListener('online', flushQueue);
+    // Login-first: no landing page. Authed users go straight to the quiz
+    // builder; everyone else sees the sign-in screen.
+    if (state.authed) enterMastery();
+    else showLogin();
   }
 
   /* ----------------------------- AI engine ------------------------------- */
@@ -197,7 +200,9 @@ const App = (() => {
   }
 
   function tickClock() {
-    $('clock').textContent = new Date().toLocaleTimeString([], {
+    const el = $('clock');
+    if (!el) return;
+    el.textContent = new Date().toLocaleTimeString([], {
       hour: 'numeric', minute: '2-digit', second: '2-digit',
     });
   }
@@ -205,7 +210,9 @@ const App = (() => {
   /* ------------------------------- Streak -------------------------------- */
   // A motivating "N day streak" badge: consecutive days with logged activity.
   async function loadStreak() {
-    if (!state.authed) { $('streakChip').classList.add('hidden'); return; }
+    const chip = $('streakChip');
+    if (!chip) return;
+    if (!state.authed) { chip.classList.add('hidden'); return; }
     try {
       const r = await api('/api/streak');
       renderStreak(r.streak);
@@ -216,6 +223,7 @@ const App = (() => {
 
   function renderStreak(days) {
     const chip = $('streakChip');
+    if (!chip) return;
     if (!days || days < 1) { chip.classList.add('hidden'); return; }
     chip.textContent = (days === 1 ? '1 day streak' : days + ' day streak');
     chip.classList.remove('hidden');
@@ -223,6 +231,7 @@ const App = (() => {
 
   function refreshModeChip() {
     const chip = $('modeChip');
+    if (!chip) return;
     if (state.authed && !state.guest && currentView() !== 'home') {
       chip.className = 'mode-chip mastery';
       $('modeChipText').textContent = 'Mastery';
@@ -237,13 +246,13 @@ const App = (() => {
     if (statsBtn) statsBtn.classList.toggle('hidden', !state.authed);
   }
 
-  const VIEWS = ['homeView', 'setupView', 'quizView', 'resultView', 'statsView'];
+  const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView'];
 
   function currentView() {
     for (const v of VIEWS) {
       if (!$(v).classList.contains('hidden')) return v.replace('View', '');
     }
-    return 'home';
+    return 'login';
   }
 
   function showOnly(view) {
@@ -319,7 +328,7 @@ const App = (() => {
       configureSetupForMode();
       showOnly('setupView');
     } else {
-      openAuth();
+      showLogin();
     }
   }
 
@@ -350,11 +359,11 @@ const App = (() => {
 
   function updateSetupCopy() {
     if (state.mode === 'GEN') {
-      $('setupTitle').textContent = '🤖 Generate mastery questions';
+      $('setupTitle').textContent = 'Generate mastery questions';
       $('setupSub').textContent = 'Pick a scope and let the Wise Teacher write harder questions into your bank.';
       $('launchBtn').textContent = 'Generate Questions';
     } else {
-      $('setupTitle').textContent = '🎯 Build your quiz';
+      $('setupTitle').textContent = 'Build your quiz';
       $('setupSub').textContent = 'Drill down as far as you like. Leave lower levels on "Review All" to widen the net.';
       $('launchBtn').textContent = 'Launch Engine';
     }
@@ -362,18 +371,21 @@ const App = (() => {
 
   function goHome() {
     state.guest = false;
-    showOnly('homeView');
+    if (state.authed) {
+      configureSetupForMode();
+      showOnly('setupView');
+    } else {
+      showLogin();
+    }
+  }
+
+  function showLogin() {
+    showOnly('loginView');
+    const p = $('passwordInput');
+    if (p) setTimeout(() => p.focus(), 50);
   }
 
   /* -------------------------------- Auth --------------------------------- */
-  function openAuth() {
-    $('authError').textContent = '';
-    $('passwordInput').value = '';
-    show('authModal');
-    setTimeout(() => $('passwordInput').focus(), 50);
-  }
-  function closeAuth() { hide('authModal'); }
-
   async function submitPassword() {
     const btn = $('authSubmit');
     btn.disabled = true;
@@ -384,7 +396,6 @@ const App = (() => {
         body: JSON.stringify({ password: $('passwordInput').value }),
       });
       state.authed = true;
-      closeAuth();
       loadStreak();
       enterMastery();
     } catch (e) {
@@ -406,8 +417,8 @@ const App = (() => {
     try {
       if (state.mode === 'GEN') {
         const r = await api('/api/generate', { method: 'POST', body: JSON.stringify(selection()) });
-        let msg = `✅ Generated ${r.created} question(s) across ${r.topics} topic(s).`;
-        if (r.errors && r.errors.length) msg += `\n\n⚠️ Some failed:\n` + r.errors.join('\n');
+        let msg = `Generated ${r.created} question(s) across ${r.topics} topic(s).`;
+        if (r.errors && r.errors.length) msg += `\n\nSome failed:\n` + r.errors.join('\n');
         alert(msg);
       } else {
         const path = state.guest ? '/api/quiz/guest' : '/api/quiz/select';
@@ -435,7 +446,7 @@ const App = (() => {
 
   /* ------------------------------- Stats --------------------------------- */
   function openStats() {
-    if (!state.authed) { openAuth(); return; }
+    if (!state.authed) { showLogin(); return; }
     state.guest = false;
     showOnly('statsView');
     loadStats();
@@ -646,8 +657,8 @@ const App = (() => {
           <span class="prog-pct" style="color:${color}">${pct}%</span>
         </div>
         <div class="prog-actions">
-          <button class="prog-btn" data-action="quiz" title="Live quiz on this section">▶ Quiz</button>
-          <button class="prog-btn review" data-action="review" title="AI teaches this section first">📖 Review</button>
+          <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
+          <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
         </div>
       </div>
       ${childHtml}
@@ -696,7 +707,7 @@ const App = (() => {
 
   async function reviewFromScope(scope, label) {
     reviewScope = scope;
-    $('reviewTitle').textContent = '📖 Review: ' + (label || 'Section');
+    $('reviewTitle').textContent = 'Review: ' + (label || 'Section');
     const box = $('reviewBody');
     box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your review…</div>';
     show('reviewModal');
@@ -721,8 +732,8 @@ const App = (() => {
     btn.disabled = true;
     box.classList.remove('hidden');
     box.innerHTML =
-      '<div class="ai-head">🧠 Progress analysis</div><div class="ai-loading"><div class="spinner"></div> Analyzing your progress…</div>';
-    const head = '<div class="ai-head">🧠 Progress analysis</div>';
+      '<div class="ai-head">Progress analysis</div><div class="ai-loading"><div class="spinner"></div> Analyzing your progress…</div>';
+    const head = '<div class="ai-head">Progress analysis</div>';
     try {
       await apiStream('/api/analyze', {}, (acc) => { box.innerHTML = head + renderMarkdown(acc); });
       typeset(box);
@@ -761,7 +772,7 @@ const App = (() => {
 
     // reset AI tutor UI for the new question
     $('hintBtn').disabled = false;
-    $('hintBtn').textContent = '💡 Get a hint';
+    $('hintBtn').textContent = 'Get a hint';
     $('hintBox').classList.add('hidden');
     $('hintBox').innerHTML = '';
     $('explainBtn').disabled = false;
@@ -769,7 +780,7 @@ const App = (() => {
     $('explainBox').classList.add('hidden');
     $('explainBox').innerHTML = '';
 
-    // reset the "drill deeper" UI — only in mastery mode (it banks a new
+    // reset the "drill deeper" UI - only in mastery mode (it banks a new
     // question, needing auth) and only when online (it needs the AI + a write),
     // so guests and offline quizzes never see it.
     const canDrill = state.authed && !state.guest && !state.offline;
@@ -811,7 +822,7 @@ const App = (() => {
 
     const f = $('feedback');
     if (correct) {
-      f.textContent = 'Correct ✨';
+      f.textContent = 'Correct';
     } else {
       f.textContent = '';
       f.appendChild(document.createTextNode('Incorrect. Answer: '));
@@ -833,12 +844,12 @@ const App = (() => {
     btn.disabled = true;
     box.classList.remove('hidden');
     box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Thinking of a hint…</div>';
-    const head = '<div class="ai-head">💡 Hint</div>';
+    const head = '<div class="ai-head">Hint</div>';
     try {
       await apiStream('/api/hint', { question: q.question, options: q.options, answer: q.answer },
         (acc) => { box.innerHTML = head + renderMarkdown(acc); });
       typeset(box);
-      btn.textContent = '💡 Hint shown';
+      btn.textContent = 'Hint shown';
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t get a hint: ' + esc(e.message) + '</span>';
       btn.disabled = false;
@@ -852,7 +863,7 @@ const App = (() => {
     btn.disabled = true;
     box.classList.remove('hidden');
     box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Teaching from scratch…</div>';
-    const head = '<div class="ai-head">✨ Explanation</div>';
+    const head = '<div class="ai-head">Explanation</div>';
     try {
       await apiStream('/api/explain', {
         question: q.question, options: q.options, answer: q.answer,
@@ -871,7 +882,7 @@ const App = (() => {
   // (and bank) a fresh question that drills into that exact gap. The generated
   // question carries the SAME topic, so it feeds the exact sub-lesson and updates
   // its mastery once answered. Drilled questions are inserted into the running
-  // quiz, so the learner can answer one and immediately drill again — as deep as
+  // quiz, so the learner can answer one and immediately drill again - as deep as
   // they need to go.
   function setDrillLoading(on, text) {
     $('drillLoader').classList.toggle('hidden', !on);
@@ -914,7 +925,7 @@ const App = (() => {
       items
         .map((c, i) => `<button class="confusion-opt" data-i="${i}"><span class="key">${KEYS[i]}</span><span class="confusion-txt">${esc(c)}</span></button>`)
         .join('') +
-      `<button class="confusion-opt custom" data-custom="1"><span class="key">${KEYS[items.length]}</span><span class="confusion-txt">✍️ Something else: let me explain</span></button>`;
+      `<button class="confusion-opt custom" data-custom="1"><span class="key">${KEYS[items.length]}</span><span class="confusion-txt">Something else: let me explain</span></button>`;
     wrap.querySelectorAll('.confusion-opt').forEach((b) => {
       b.onclick = () => {
         if (b.dataset.custom) {
@@ -1045,7 +1056,7 @@ const App = (() => {
       const results = state.log.slice();
       api('/api/quiz/log', { method: 'POST', body: JSON.stringify({ results }) })
         .then(() => {
-          note.textContent = '✅ Results saved & mastery updated.';
+          note.textContent = 'Results saved & mastery updated.';
           // refresh catalog so priorities reflect the new attempt, and bump the streak.
           loadStreak();
           return api('/api/catalog').then((c) => { state.catalog = c; lsSet(LS.catalog, c); });
@@ -1054,9 +1065,9 @@ const App = (() => {
           // Offline (or save failed): keep results locally and sync when back online.
           if (isNetworkError(e)) {
             enqueueResults(results);
-            note.textContent = '📦 Saved on this device — will sync when you\'re back online.';
+            note.textContent = 'Saved on this device. It will sync when you\'re back online.';
           } else {
-            note.textContent = '⚠️ Could not save: ' + e.message;
+            note.textContent = 'Could not save: ' + e.message;
           }
         });
     }
@@ -1081,7 +1092,6 @@ const App = (() => {
     $('trackSel').addEventListener('change', filterCourses);
     $('courseSel').addEventListener('change', filterLessons);
     $('lessonSel').addEventListener('change', filterTopics);
-    $('aiEngineSel').addEventListener('change', onAiEngineChange);
 
     // Progress tree: action buttons + expand/collapse (event delegation).
     $('progressTree').addEventListener('click', (e) => {
@@ -1103,8 +1113,8 @@ const App = (() => {
   });
 
   return {
-    startGuest, enterMastery, goHome, setMode,
-    openAuth, closeAuth, submitPassword,
+    enterMastery, goHome, setMode,
+    submitPassword,
     launchManual, launchPriority, nextQuestion,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
