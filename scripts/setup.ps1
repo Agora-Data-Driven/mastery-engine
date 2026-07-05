@@ -53,7 +53,9 @@ Write-Host "  AGORA Mastery Engine - setup" -ForegroundColor White
 Write-Host "  ----------------------------" -ForegroundColor DarkGray
 
 # 1. Prerequisites ----------------------------------------------------------
+Ensure-Tool 'git'    'Git.Git'           'Git'
 Ensure-Tool 'node'   'OpenJS.NodeJS.LTS' 'Node.js (LTS)'
+Ensure-Tool 'gh'     'GitHub.cli'        'GitHub CLI'
 Ensure-Tool 'ollama' 'Ollama.Ollama'     'Ollama'
 Ensure-Tool 'gcloud' 'Google.CloudSDK'   'Google Cloud CLI'
 
@@ -80,6 +82,20 @@ if (Have 'gcloud') {
   Ok "Google Cloud configured (account=$Account, project=$Project)."
 } else {
   Warn "gcloud not on PATH yet. Reopen the terminal and re-run setup to finish the Google login."
+}
+
+# 2b. GitHub sign-in (so `git push` over HTTPS works without a password prompt) ---
+if (Have 'gh') {
+  gh auth status *> $null
+  if ($LASTEXITCODE -ne 0) {
+    Info "Signing in to GitHub (a browser will open)..."
+    gh auth login --web --git-protocol https
+  } else {
+    Ok "Already signed in to GitHub."
+  }
+  gh auth setup-git 2>$null | Out-Null   # point git's HTTPS credential helper at the gh token
+} else {
+  Warn "gh not on PATH yet - reopen the terminal and re-run setup to finish GitHub sign-in."
 }
 
 # 3. A starter Ollama model (only if you have none) -------------------------
