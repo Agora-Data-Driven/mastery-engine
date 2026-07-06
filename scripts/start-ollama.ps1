@@ -109,7 +109,19 @@ $env:PORT                 = "$Port"
 if (-not $env:SESSION_SECRET) {
   $env:SESSION_SECRET = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
 }
-# Optional: set $env:GEMINI_API_KEY before running if you also want the Cloud option.
+# Pull the cloud AI keys from Secret Manager so the Cloud (Gemini) and DeepSeek
+# options also appear locally. Best-effort: skipped if gcloud is missing or a
+# secret isn't set / not accessible. Pre-set the env var to override.
+if (Have 'gcloud') {
+  if (-not $env:GEMINI_API_KEY) {
+    $g = (gcloud secrets versions access latest --secret=GEMINI_API_KEY --project=$Project 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $g) { $env:GEMINI_API_KEY = $g.Trim() }
+  }
+  if (-not $env:DEEPSEEK_API_KEY) {
+    $d = (gcloud secrets versions access latest --secret=DEEPSEEK_API_KEY --project=$Project 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $d) { $env:DEEPSEEK_API_KEY = $d.Trim() }
+  }
+}
 
 # 6. Dependencies + launch --------------------------------------------------
 if (-not (Test-Path 'node_modules')) { Info "Installing npm dependencies (first run)..."; npm install }
