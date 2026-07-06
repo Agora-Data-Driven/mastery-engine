@@ -121,7 +121,7 @@ const clampCount = (c) => Math.min(50, Math.max(1, parseInt(c, 10) || 5));
 /** The AI engine the client picked (cookies set by the home-page dropdown). */
 function aiChoice(req) {
   const p = req.cookies?.aiProvider;
-  const provider = p === 'ollama' || p === 'lmstudio' ? p : 'gemini';
+  const provider = ['deepseek', 'ollama', 'lmstudio'].includes(p) ? p : 'gemini';
   const model = req.cookies?.aiModel ? decodeURIComponent(req.cookies.aiModel) : undefined;
   return { provider, model };
 }
