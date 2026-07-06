@@ -197,6 +197,39 @@ model to match Gemini's reliability.
 
 ---
 
+## Flashcards (Course & Lesson level)
+
+AI-written study decks that sit **above** the quiz: mastering a deck should mean
+you can answer any quiz question in that section. Reach them from **My Progress →**
+expand a section **→ Cards** (the button shows on **Course** and **Lesson** rows;
+there are none per sub-lesson). Each card has two labelled parts — **Intuition**
+(plain-language, visual) and **Formula** (the rule to memorise) — and flips on
+click.
+
+- **Visual explainers.** A card may carry a declarative plot spec that the app
+  draws with a small, dependency-free SVG plotter (`renderVisual` /`compileExpr`
+  in `public/app.js`): tangent lines (derivatives), shaded areas (integrals),
+  secants, points and asymptote lines. The model never emits SVG — it describes
+  the plot, and a hand-rolled expression parser (no `eval`) evaluates the
+  functions, so a bad/hostile `fn` simply renders nothing.
+- **Highway mode.** A toggle that filters the deck to the smallest high-impact
+  set (foundational + cross-lesson concepts) for a rapid review.
+- **Labels.** Each card can be marked **Mastered / Still learning / Important**;
+  these are per-user (`users/{email}/flashcardStatus/{cardId}`) and private.
+- **Quiz me on this.** Generates one real MCQ for the card's topic, banks it
+  (`source: 'flashcard'`), and runs it as a normal 1-question quiz — so it is
+  logged, updates that topic's mastery, counts to the streak, and mirrors to
+  BigQuery exactly like any other question.
+
+Decks are generated on first open and cached in the shared `flashcards`
+collection (regenerate from the toolbar). **Rollout is gated to Calculus** for
+now via `FLASHCARD_COURSE_RE` in `server.js` (mirrored by `FLASHCARDS_RE` in
+`public/app.js`) — it matches "Calculus" and "Calculus for ML" but not
+"Precalculus". Widen the regex to roll out to more courses. Endpoints:
+`GET /api/flashcards`, `POST /api/flashcards/{generate,status,quiz}`
+(`server.js`); generators `generateFlashcards` / `generateFlashcardQuestion`
+(`lib/gemini.js`); data layer in `lib/firestore.js`.
+
 ## Progress & analytics
 
 Two layers, by depth of analysis:

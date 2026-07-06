@@ -250,8 +250,9 @@ const App = (() => {
 
   const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView'];
 
-  // Flashcards roll out per-course; Calculus first (matches "Calculus" & "Calculus for ML").
-  const FLASHCARDS_RE = /calculus/i;
+  // Flashcards roll out per-course; Calculus first (matches "Calculus" & "Calculus for ML",
+  // but not "Precalculus"). Must stay in sync with server.js FLASHCARD_COURSE_RE.
+  const FLASHCARDS_RE = /\bcalculus\b/i;
 
   function currentView() {
     for (const v of VIEWS) {
@@ -1382,8 +1383,10 @@ const App = (() => {
     const toks = src.match(/[0-9]*\.?[0-9]+|[a-z]+|[-+*/^(),]/gi);
     if (!toks) return null;
     const out = [], ops = [];
-    const prec = { '+': 1, '-': 1, '*': 2, '/': 2, '^': 3, u: 4 };
-    const right = { '^': true, u: true };
+    // Two unary-minus precedences so both conventions hold: normally unary binds
+    // BELOW ^ (so -x^2 = -(x^2)), but in an exponent it binds ABOVE ^ (so 2^-x = 2^(-x)).
+    const prec = { '+': 1, '-': 1, '*': 2, '/': 2, u: 3, '^': 4, U: 5 };
+    const right = { '^': true, u: true, U: true };
     let prev = null;
     for (let tk of toks) {
       if (/^[0-9.]/.test(tk)) { out.push({ n: parseFloat(tk) }); prev = 'num'; }
@@ -1406,7 +1409,10 @@ const App = (() => {
       } else {
         let op = tk;
         if (op === '+' && (prev === null || prev === 'op')) { prev = 'op'; continue; }
-        if (op === '-' && (prev === null || prev === 'op')) op = 'u';
+        if (op === '-' && (prev === null || prev === 'op')) {
+          // In exponent position (right after ^) unary binds tighter than ^.
+          op = (ops.length && ops[ops.length - 1].op === '^') ? 'U' : 'u';
+        }
         while (ops.length) {
           const top = ops[ops.length - 1];
           if (top.paren || top.f) break;
@@ -1424,7 +1430,7 @@ const App = (() => {
         if ('n' in t) st.push(t.n);
         else if (t.x) st.push(xVal);
         else if (t.f) st.push(FN[t.f](st.pop()));
-        else if (t.op === 'u') st.push(-st.pop());
+        else if (t.op === 'u' || t.op === 'U') st.push(-st.pop());
         else {
           const b = st.pop(), a = st.pop();
           st.push(t.op === '+' ? a + b : t.op === '-' ? a - b : t.op === '*' ? a * b
