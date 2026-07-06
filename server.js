@@ -24,6 +24,11 @@ import {
   resetProgress,
   getAllQuestions,
   bulkUpdateQuestions,
+  getFlashcards,
+  getFlashcardById,
+  saveFlashcards,
+  getFlashcardStatuses,
+  setFlashcardStatus,
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
@@ -35,6 +40,8 @@ import {
   generateAnalysis,
   generateConfusions,
   generateDrillQuestion,
+  generateFlashcards,
+  generateFlashcardQuestion,
   latexifyQuestions,
 } from './lib/gemini.js';
 import { listOllamaModels } from './lib/ollama.js';
@@ -648,6 +655,138 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
 
     // Package with the topic's full hierarchy (same shape the quiz endpoints use).
     res.json(packageQuestions([drilled], idx, 1)[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* -------------------------------- flashcards ------------------------------ */
+// Flashcards are enabled per-course during rollout. Start with Calculus only
+// (matches both "Calculus" and "Calculus for ML"); widen by editing this test.
+const FLASHCARD_COURSE_RE = /calculus/i;
+const flashcardsEnabledFor = (course) => FLASHCARD_COURSE_RE.test(course || '');
+
+// Normalise a {track,course,lesson} request into a scope + level (course|lesson).
+// Flashcards exist at Course level (highest) and Lesson level (one below) only.
+function flashcardScope(src = {}) {
+  const track = String(src.track || '').trim();
+  const course = String(src.course || '').trim();
+  const lesson = isAll(src.lesson) ? '' : String(src.lesson || '').trim();
+  return { track, course, lesson, level: lesson ? 'lesson' : 'course' };
+}
+const flashcardScopeLabel = (s) => [s.course, s.lesson].filter(Boolean).join(' › ');
+
+// Merge a user's private status labels onto shared card definitions.
+async function packageFlashcards(cards, userEmail) {
+  const statuses = await getFlashcardStatuses(userEmail, cards.map((c) => c.id));
+  return cards.map((c) => ({
+    id: c.id,
+    concept: c.concept,
+    intuition: c.intuition,
+    formula: c.formula,
+    visual: c.visual || null,
+    highway: !!c.highway,
+    topic: c.topic || '',
+    status: statuses[c.id] || null,
+  }));
+}
+
+// Auth: fetch the (cached) deck for a Course/Lesson scope, with this user's labels.
+// `generated:false` tells the client to offer a "Generate flashcards" action.
+app.get('/api/flashcards', requireAuth, async (req, res, next) => {
+  try {
+    const scope = flashcardScope(req.query);
+    if (!scope.course) return res.status(400).json({ error: 'A course is required' });
+    const enabled = flashcardsEnabledFor(scope.course);
+    if (!enabled) return res.json({ enabled: false, level: scope.level, cards: [], generated: false });
+
+    const cards = await getFlashcards(scope);
+    res.json({
+      enabled: true,
+      level: scope.level,
+      generated: cards.length > 0,
+      cards: await packageFlashcards(cards, req.userEmail),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: (re)generate the deck for a scope from the questions/topics it contains,
+// bank it, and return it. Rate-limited (an AI call). Gated to enabled courses.
+app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const scope = flashcardScope(req.body);
+    if (!scope.course) return res.status(400).json({ error: 'A course is required' });
+    if (!flashcardsEnabledFor(scope.course)) {
+      return res.status(403).json({ error: 'Flashcards are not enabled for this course yet' });
+    }
+    const catalog = await getCatalog(req.userEmail);
+    const scoped = scopeCatalog(catalog, scope);
+    const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
+    if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
+
+    // Sample the section's questions so the deck is comprehensive enough to cover them.
+    const pool = await getQuestionsForTopics(topics.slice(0, 60));
+    const questions = shuffle(pool).slice(0, 40)
+      .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
+
+    const cards = await generateFlashcards(
+      { scopeLabel: flashcardScopeLabel(scope), level: scope.level, topics, questions },
+      aiChoice(req),
+    );
+    if (!cards.length) return res.status(502).json({ error: 'No flashcards were generated; try again' });
+
+    await saveFlashcards(scope, cards);
+    const saved = await getFlashcards(scope);
+    res.json({
+      enabled: true,
+      level: scope.level,
+      generated: true,
+      cards: await packageFlashcards(saved, req.userEmail),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: set/clear this user's label on a card (mastered | learning | important).
+app.post('/api/flashcards/status', requireAuth, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    const status = req.body?.status ? String(req.body.status).trim() : null;
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    await setFlashcardStatus(req.userEmail, cardId, status);
+    res.json({ ok: true, status });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: "quiz me on this" — generate ONE MCQ for a card's concept, bank it under
+// the card's real topic (source 'flashcard'), and return it packaged so the
+// client runs it as a normal 1-question quiz (logged, mastery + streak updated).
+app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const catalog = await getCatalog(req.userEmail);
+    const idx = metaIndex(catalog);
+    if (!card.topic || !idx.has(card.topic)) {
+      return res.status(400).json({ error: 'This card is not linked to a known topic' });
+    }
+    const meta = idx.get(card.topic);
+    const scopeLabel = [meta.course, meta.lesson, card.topic].filter(Boolean).join(' › ');
+
+    const q = await generateFlashcardQuestion(
+      { topic: card.topic, scopeLabel, concept: card.concept, intuition: card.intuition, formula: card.formula },
+      aiChoice(req),
+    );
+    await addQuestion({ ...q, source: 'flashcard' });
+    res.json(packageQuestions([q], idx, 1)[0]);
   } catch (e) {
     next(e);
   }
