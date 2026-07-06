@@ -136,6 +136,10 @@ if (-not (Have 'gcloud')) {
 # 5. Environment for the server --------------------------------------------
 $env:LMSTUDIO_HOST        = $LmHost
 if ($Model) { $env:LMSTUDIO_MODEL = $Model }
+# Only these models are offered in the picker (case-insensitive substring match).
+$AllowModels              = 'gemma-4,ornith-1.0-9b,qwen3.5-9b'
+$env:LMSTUDIO_MODELS      = $AllowModels
+$env:LMSTUDIO_PROBE_MS    = '5000'
 $env:APP_PASSWORD         = $Password
 $env:GOOGLE_CLOUD_PROJECT = $Project
 $env:PORT                 = "$Port"
@@ -156,6 +160,52 @@ if (Have 'gcloud') {
   }
 }
 
+# 5b. Expose THIS LM Studio to the DEPLOYED app via a Cloudflare quick tunnel and
+#     point the live Cloud Run service at it, so "Local (LM Studio)" also works on
+#     the live app WHILE this script runs. Best-effort: needs cloudflared + gcloud;
+#     the local app on :$Port works regardless. The live app is detached on exit.
+$Service   = 'mastery-engine'
+$Region    = 'us-central1'
+$CfProc    = $null
+$TunnelUrl = $null
+function Find-Cloudflared {
+  $c = (Get-Command cloudflared -ErrorAction SilentlyContinue).Source
+  if ($c) { return $c }
+  $p = 'C:\Program Files (x86)\cloudflared\cloudflared.exe'
+  if (Test-Path $p) { return $p }
+  return $null
+}
+$cf = Find-Cloudflared
+if (-not $cf) {
+  Warn "cloudflared not found - the LIVE app won't see this LM Studio (local :$Port still works)."
+  Warn "Install it once:  winget install Cloudflare.cloudflared"
+} elseif (-not (Have 'gcloud')) {
+  Warn "gcloud not found - can't point the live app here (local :$Port still works)."
+} else {
+  $log = Join-Path $env:TEMP 'agora-lmstudio-tunnel.log'
+  Remove-Item $log, "$log.err" -ErrorAction SilentlyContinue
+  Info "Opening a Cloudflare tunnel so the live app can reach this LM Studio..."
+  $CfProc = Start-Process -FilePath $cf `
+    -ArgumentList 'tunnel', '--url', 'http://localhost:1234', '--no-autoupdate' `
+    -RedirectStandardOutput $log -RedirectStandardError "$log.err" -PassThru -WindowStyle Hidden
+  for ($i = 0; $i -lt 25 -and -not $TunnelUrl; $i++) {
+    Start-Sleep -Seconds 1
+    $hit = Select-String -Path $log, "$log.err" -Pattern 'https://[a-z0-9-]+\.trycloudflare\.com' -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($hit) { $TunnelUrl = $hit.Matches[0].Value }
+  }
+  if (-not $TunnelUrl) {
+    Warn "Tunnel URL didn't appear in time - skipping live hookup (local :$Port still works)."
+    if ($CfProc) { Stop-Process -Id $CfProc.Id -Force -ErrorAction SilentlyContinue; $CfProc = $null }
+  } else {
+    Ok "Tunnel up: $($TunnelUrl)"
+    Info "Pointing the live app's LM Studio at this machine..."
+    gcloud run services update $Service --region $Region --project $Project --quiet `
+      --update-env-vars ("^@^LMSTUDIO_HOST={0}@LMSTUDIO_PROBE_MS=5000@LMSTUDIO_MODELS={1}" -f $TunnelUrl, $AllowModels) 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) { Ok "Live app now uses this LM Studio (while this script runs)." }
+    else { Warn "Couldn't update the live app via gcloud (logged in as $Account?). Local :$Port still works." }
+  }
+}
+
 # 6. Dependencies + launch --------------------------------------------------
 if (-not (Test-Path 'node_modules')) { Info "Installing npm dependencies (first run)..."; npm install }
 
@@ -163,8 +213,20 @@ Write-Host ""
 Ok  "Starting on http://localhost:$Port"
 Info "  Mastery Mode password : $Password"
 Info "  AI engine             : Local (LM Studio)$(if ($Model) { " / $Model" })"
-Info "  Pick 'Local (LM Studio): ...' in the home-page dropdown, then sign in."
-Write-Host "  (Ctrl+C to stop)" -ForegroundColor DarkGray
+Info "  Local:  pick 'Local (LM Studio): ...' on http://localhost:$Port"
+if ($TunnelUrl) { Info "  Live:   also available on the deployed app now (via tunnel)" }
+Write-Host "  (Ctrl+C to stop - this also detaches LM Studio from the live app)" -ForegroundColor DarkGray
 Write-Host ""
 
-npm start
+# Run the local app; on exit, tear down the tunnel and detach the live app so it
+# isn't left pointing at a dead URL.
+try {
+  npm start
+} finally {
+  Write-Host ""
+  if ($CfProc) { Info "Stopping the Cloudflare tunnel..."; Stop-Process -Id $CfProc.Id -Force -ErrorAction SilentlyContinue }
+  if ($TunnelUrl -and (Have 'gcloud')) {
+    Info "Detaching LM Studio from the live app..."
+    gcloud run services update $Service --region $Region --project $Project --quiet --remove-env-vars LMSTUDIO_HOST 2>$null | Out-Null
+  }
+}
