@@ -114,7 +114,7 @@ gcloud run deploy mastery-engine `
 #   gcloud secrets create DEEPSEEK_API_KEY --data-file="C:\path\to\deepseek-key.txt"; Remove-Item "C:\path\to\deepseek-key.txt"
 #   gcloud secrets add-iam-policy-binding DEEPSEEK_API_KEY --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
 #   then add to --set-secrets:  ,DEEPSEEK_API_KEY=DEEPSEEK_API_KEY:latest
-# (optional env: DEEPSEEK_MODEL default deepseek-chat, DEEPSEEK_BASE_URL default https://api.deepseek.com)
+# (optional env: DEEPSEEK_MODEL default deepseek-v4-flash, DEEPSEEK_BASE_URL default https://api.deepseek.com)
 
 # 5. One-time data import: open the app URL, click "Mastery Mode", sign in,
 #    then run the migration (uses your session cookie):

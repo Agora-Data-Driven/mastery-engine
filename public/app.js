@@ -169,8 +169,8 @@ const App = (() => {
   const MODEL_LABELS = {
     'gemini-2.5-flash': 'Cloud · Gemini 2.5 Flash (fast)',
     'gemini-2.5-pro': 'Cloud · Gemini 2.5 Pro (best quality)',
-    'deepseek-chat': 'DeepSeek · Chat (V3)',
-    'deepseek-reasoner': 'DeepSeek · Reasoner (R1)',
+    'deepseek-v4-flash': 'DeepSeek · V4 Flash (fast)',
+    'deepseek-v4-pro': 'DeepSeek · V4 Pro (best quality)',
   };
   function prettyModel(providerLabel, model) {
     return MODEL_LABELS[model] || `${providerLabel}: ${model}`;
