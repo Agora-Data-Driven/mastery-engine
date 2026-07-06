@@ -46,6 +46,7 @@ import {
 } from './lib/gemini.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
+import { deepseekConfigured, listDeepSeekModels } from './lib/deepseek.js';
 import { runMigration } from './lib/migrate.js';
 import {
   checkPassword,
@@ -257,14 +258,22 @@ app.get('/api/catalog', async (req, res, next) => {
 // (Ollama, LM Studio) only when this server can reach them (i.e. run locally).
 app.get('/api/models', async (_req, res, next) => {
   try {
-    const providers = [
-      { id: 'gemini', label: 'Cloud', models: [process.env.GEMINI_MODEL || 'gemini-2.5-flash'] },
-    ];
+    // Cloud (Gemini): offer both the fast and the higher-quality Pro variant.
+    const geminiModels = [...new Set([
+      process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-pro',
+    ])];
+    const providers = [{ id: 'gemini', label: 'Cloud', models: geminiModels }];
+    // DeepSeek (hosted): available whenever an API key is configured.
+    if (deepseekConfigured()) providers.push({ id: 'deepseek', label: 'DeepSeek', models: listDeepSeekModels() });
+    // Local engines only when this server can reach them (i.e. run locally).
     const [ollama, lmstudio] = await Promise.all([listOllamaModels(), listLMStudioModels()]);
     if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
     if (lmstudio.length) providers.push({ id: 'lmstudio', label: 'Local (LM Studio)', models: lmstudio });
     res.json({
       providers,
+      deepseekAvailable: deepseekConfigured(),
       ollamaAvailable: ollama.length > 0,
       lmstudioAvailable: lmstudio.length > 0,
     });
@@ -661,10 +670,12 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
 });
 
 /* -------------------------------- flashcards ------------------------------ */
-// Flashcards are enabled per-course during rollout. Start with Calculus only
-// (matches both "Calculus" and "Calculus for ML"); widen by editing this test.
-const FLASHCARD_COURSE_RE = /\bcalculus\b/i; // matches "Calculus" & "Calculus for ML", not "Precalculus"
-const flashcardsEnabledFor = (course) => FLASHCARD_COURSE_RE.test(course || '');
+// Flashcards are enabled for EVERY course/lesson. Decks are still only created
+// on demand (when a user clicks "Generate"), so nothing is pre-built. To scope
+// the feature back to specific courses, return a regex test here instead, e.g.
+//   const FLASHCARD_COURSE_RE = /\bcalculus\b/i;
+//   const flashcardsEnabledFor = (course) => FLASHCARD_COURSE_RE.test(course || '');
+const flashcardsEnabledFor = (course) => !!String(course || '').trim();
 
 // Normalise a {track,course,lesson} request into a scope + level (course|lesson).
 // Flashcards exist at Course level (highest) and Lesson level (one below) only.

@@ -108,6 +108,14 @@ gcloud run deploy mastery-engine `
 # To enable Google sign-in later, after creating the two secrets, add to --set-secrets:
 #   ,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest
 
+# DeepSeek (optional AI engine, selectable from the "AI model" dropdown). Create the secret
+# from a file so the key never lands in shell history, grant the SA access, then redeploy
+# with the secret added. Once present, "DeepSeek · Chat/Reasoner" appear in the model picker.
+#   gcloud secrets create DEEPSEEK_API_KEY --data-file="C:\path\to\deepseek-key.txt"; Remove-Item "C:\path\to\deepseek-key.txt"
+#   gcloud secrets add-iam-policy-binding DEEPSEEK_API_KEY --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
+#   then add to --set-secrets:  ,DEEPSEEK_API_KEY=DEEPSEEK_API_KEY:latest
+# (optional env: DEEPSEEK_MODEL default deepseek-chat, DEEPSEEK_BASE_URL default https://api.deepseek.com)
+
 # 5. One-time data import: open the app URL, click "Mastery Mode", sign in,
 #    then run the migration (uses your session cookie):
 #    POST <URL>/api/admin/migrate    (or use the browser console / curl with cookie)
@@ -118,24 +126,31 @@ bank and quiz history imported — confirmed live at the URL above.
 
 ---
 
-## AI engine: cloud (Gemini) or local (Ollama / LM Studio)
+## AI engine: cloud (Gemini / DeepSeek) or local (Ollama / LM Studio)
 
-Every AI feature (hints, explanations, question generation, section reviews,
-progress analysis, the LaTeX migration) goes through a single dispatcher in
-`lib/gemini.js` (`complete()`), which routes to Gemini, a local
-[Ollama](https://ollama.com) instance, or a local
+Every AI feature (flashcards, hints, explanations, question generation, section
+reviews, progress analysis, the LaTeX migration) goes through a single
+dispatcher in `lib/gemini.js` (`complete()` / `completeStream()`), which routes
+to Gemini, DeepSeek, a local [Ollama](https://ollama.com) instance, or a local
 [LM Studio](https://lmstudio.ai) server based on the engine picked in the
-**AI engine** dropdown on the landing page. The choice is stored in cookies the
-server reads on each request (`aiProvider` / `aiModel`).
+**AI model** dropdown (top of the Mastery setup card). The choice is stored in
+cookies the server reads on each request (`aiProvider` / `aiModel`), so it
+governs flashcards, explanations, and question generation alike.
 
-- **Cloud (default):** Gemini, as deployed on Cloud Run. Always available.
-- **Local (Ollama):** only appears in the dropdown when the server can reach a
-  running Ollama (`127.0.0.1:11434`).
+- **Cloud — Gemini (default):** always available. Two variants in the picker:
+  **2.5 Flash** (fast, the default) and **2.5 Pro** (best quality — worth it for
+  flashcard decks). The `model` in the choice selects the variant.
+- **Cloud — DeepSeek:** appears when `DEEPSEEK_API_KEY` is set (see deploy
+  runbook). Offers **Chat (V3)** and **Reasoner (R1)** via DeepSeek's
+  OpenAI-compatible API (`lib/deepseek.js`).
+- **Local (Ollama):** only appears when the server can reach a running Ollama
+  (`127.0.0.1:11434`).
 - **Local (LM Studio):** only appears when the server can reach LM Studio's
   OpenAI-compatible server (`127.0.0.1:1234`) with at least one model loaded.
 
 Because the local engines listen on the user's own machine, they only work when
-you **run the app locally**, not from the Cloud Run URL.
+you **run the app locally**, not from the Cloud Run URL. Gemini and DeepSeek are
+hosted, so they work from the deployed app.
 
 ### Run it locally with Ollama
 
@@ -222,10 +237,11 @@ click.
   BigQuery exactly like any other question.
 
 Decks are generated on first open and cached in the shared `flashcards`
-collection (regenerate from the toolbar). **Rollout is gated to Calculus** for
-now via `FLASHCARD_COURSE_RE` in `server.js` (mirrored by `FLASHCARDS_RE` in
-`public/app.js`) — it matches "Calculus" and "Calculus for ML" but not
-"Precalculus". Widen the regex to roll out to more courses. Endpoints:
+collection (regenerate from the toolbar). **Enabled for every course/lesson** —
+decks are still only built on demand (when a user clicks "Generate"), so nothing
+is pre-generated. To scope the feature back to specific courses, make
+`flashcardsEnabledFor` in `server.js` a regex test (mirrored by `flashcardsEnabled`
+in `public/app.js`), e.g. `/\bcalculus\b/i`. Endpoints:
 `GET /api/flashcards`, `POST /api/flashcards/{generate,status,quiz}`
 (`server.js`); generators `generateFlashcards` / `generateFlashcardQuestion`
 (`lib/gemini.js`); data layer in `lib/firestore.js`.

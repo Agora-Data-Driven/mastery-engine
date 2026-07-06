@@ -144,6 +144,7 @@ const App = (() => {
     renderAuthUi();
     refreshModeChip();
     populateTracks();
+    loadModels();
     loadStreak();
     prefetchQuestionBank();
     flushQueue();
@@ -164,6 +165,17 @@ const App = (() => {
     localStorage.setItem('aiModel', model || '');
   }
 
+  // Friendly names for the known cloud models (falls back to "Provider: id").
+  const MODEL_LABELS = {
+    'gemini-2.5-flash': 'Cloud · Gemini 2.5 Flash (fast)',
+    'gemini-2.5-pro': 'Cloud · Gemini 2.5 Pro (best quality)',
+    'deepseek-chat': 'DeepSeek · Chat (V3)',
+    'deepseek-reasoner': 'DeepSeek · Reasoner (R1)',
+  };
+  function prettyModel(providerLabel, model) {
+    return MODEL_LABELS[model] || `${providerLabel}: ${model}`;
+  }
+
   async function loadModels() {
     const sel = $('aiEngineSel');
     if (!sel) return;
@@ -172,7 +184,7 @@ const App = (() => {
       const opts = [];
       for (const p of r.providers || []) {
         for (const m of p.models || []) {
-          opts.push({ provider: p.id, model: m, label: `${p.label}: ${m}` });
+          opts.push({ provider: p.id, model: m, label: prettyModel(p.label, m) });
         }
       }
       if (!opts.length) return;
@@ -181,16 +193,18 @@ const App = (() => {
         .join('');
 
       // Restore the saved choice, falling back to the first available option
-      // (so a previously-picked local model resets to cloud when unavailable).
+      // (so a previously-picked model resets to cloud when unavailable).
       const savedP = localStorage.getItem('aiProvider') || 'gemini';
       const savedM = localStorage.getItem('aiModel') || '';
       const match = opts.find((o) => o.provider === savedP && (!savedM || o.model === savedM)) || opts[0];
       sel.value = `${match.provider}::${match.model}`;
       setAiChoice(match.provider, match.model);
 
-      $('aiEngineHint').textContent = (r.ollamaAvailable || r.lmstudioAvailable)
-        ? 'Local engine detected. Pick a local model to keep everything on your machine.'
-        : 'Cloud uses Gemini. Local models appear here when Ollama or LM Studio is running and the app is run locally.';
+      $('aiEngineHint').textContent = r.deepseekAvailable
+        ? 'Cloud (Gemini) and DeepSeek are connected. Pick the engine for flashcards, explanations & question generation.'
+        : (r.ollamaAvailable || r.lmstudioAvailable)
+          ? 'Local engine detected. Pick a local model to keep everything on your machine.'
+          : 'Cloud uses Gemini. DeepSeek appears when its API key is configured; local models appear when run locally.';
     } catch (e) {
       console.error(e);
     }
@@ -250,9 +264,10 @@ const App = (() => {
 
   const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView'];
 
-  // Flashcards roll out per-course; Calculus first (matches "Calculus" & "Calculus for ML",
-  // but not "Precalculus"). Must stay in sync with server.js FLASHCARD_COURSE_RE.
-  const FLASHCARDS_RE = /\bcalculus\b/i;
+  // Flashcards are enabled for every course/lesson (must stay in sync with
+  // server.js flashcardsEnabledFor). To scope back to specific courses, make this
+  // a regex test, e.g. (c) => /\bcalculus\b/i.test(c || '').
+  const flashcardsEnabled = (course) => !!(course && course.trim());
 
   function currentView() {
     for (const v of VIEWS) {
@@ -341,6 +356,8 @@ const App = (() => {
   function configureSetupForMode() {
     const mastery = state.authed && !state.guest;
     $('genModeWrap').classList.toggle('hidden', !mastery);
+    // The AI-model switcher governs flashcards, explanations & generation — show it in mastery.
+    $('aiEngineWrap').classList.toggle('hidden', !mastery);
     setMode('QUIZ'); // always reset to the quiz builder when (re)entering setup
   }
 
@@ -707,7 +724,7 @@ const App = (() => {
         <div class="prog-actions">
           <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
           <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
-          ${(level === 1 || level === 2) && FLASHCARDS_RE.test(scope.course || '')
+          ${(level === 1 || level === 2) && flashcardsEnabled(scope.course)
             ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
             : ''}
         </div>
@@ -1592,7 +1609,7 @@ const App = (() => {
     launchManual, launchPriority, nextQuestion, skipQuestion,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
-    openStats, priorityFromStats,
+    openStats, priorityFromStats, onAiEngineChange,
     analyzeProgress, closeReview, quizFromReview,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, setCardStatus, quizMeOnCard,
