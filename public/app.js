@@ -250,8 +250,9 @@ const App = (() => {
 
   const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView'];
 
-  // Flashcards roll out per-course; Calculus first (matches "Calculus" & "Calculus for ML").
-  const FLASHCARDS_RE = /calculus/i;
+  // Flashcards roll out per-course; Calculus first (matches "Calculus" & "Calculus for ML",
+  // but not "Precalculus"). Must stay in sync with server.js FLASHCARD_COURSE_RE.
+  const FLASHCARDS_RE = /\bcalculus\b/i;
 
   function currentView() {
     for (const v of VIEWS) {
@@ -1150,6 +1151,401 @@ const App = (() => {
     }
   }
 
+  /* ----------------------------- Flashcards ------------------------------ */
+  // A Course/Lesson-level deck of AI-written Intuition + Formula cards (with
+  // visual explainers). Cards flip on click, carry a personal label
+  // (mastered / still learning / important), have a Highway rapid-review filter,
+  // and a "quiz me" that banks + serves one real question for the card's topic.
+  const fc = {
+    scope: null, label: '', level: 'course',
+    cards: [], view: [], idx: 0, flipped: false, highway: false,
+  };
+
+  function fcSetLoading(on, text) {
+    $('fcLoader').classList.toggle('hidden', !on);
+    if (text) $('fcLoaderText').textContent = text;
+  }
+
+  async function openFlashcards(scope, label) {
+    if (!state.authed) { showLogin(); return; }
+    fc.scope = { track: scope.track, course: scope.course, lesson: scope.lesson || '' };
+    fc.level = scope.lesson ? 'lesson' : 'course';
+    fc.label = label || scope.course || 'Flashcards';
+    fc.highway = false;
+    $('fcHighway').checked = false;
+    showOnly('flashcardView');
+    $('fcTitle').textContent = 'Flashcards: ' + fc.label;
+    $('fcSub').textContent = fc.level === 'course'
+      ? 'A comprehensive deck for the whole course. Intuition first, then the formula.'
+      : 'Focused cards for this lesson. Intuition first, then the formula.';
+    await loadFlashcards();
+  }
+
+  function fcQuery() {
+    const p = new URLSearchParams();
+    p.set('track', fc.scope.track || '');
+    p.set('course', fc.scope.course || '');
+    if (fc.scope.lesson) p.set('lesson', fc.scope.lesson);
+    return p.toString();
+  }
+
+  async function loadFlashcards() {
+    $('fcError').textContent = '';
+    $('fcDeck').classList.add('hidden');
+    $('fcEmpty').classList.add('hidden');
+    fcSetLoading(true, 'Loading your deck…');
+    try {
+      const r = await api('/api/flashcards?' + fcQuery());
+      if (!r.enabled) {
+        $('fcError').textContent = 'Flashcards are not enabled for this course yet.';
+        return;
+      }
+      if (r.generated && r.cards.length) renderDeck(r.cards);
+      else $('fcEmpty').classList.remove('hidden');
+    } catch (e) {
+      $('fcError').textContent = 'Could not load flashcards: ' + e.message;
+    } finally {
+      fcSetLoading(false);
+    }
+  }
+
+  async function generateFlashcards() {
+    $('fcError').textContent = '';
+    $('fcEmpty').classList.add('hidden');
+    $('fcGenerateBtn').disabled = true;
+    fcSetLoading(true, 'Writing your deck — this can take up to a minute…');
+    try {
+      const r = await api('/api/flashcards/generate', {
+        method: 'POST', body: JSON.stringify(fc.scope),
+      });
+      if (r.cards && r.cards.length) renderDeck(r.cards);
+      else { $('fcEmpty').classList.remove('hidden'); $('fcError').textContent = 'No cards came back. Try again.'; }
+    } catch (e) {
+      $('fcEmpty').classList.remove('hidden');
+      $('fcError').textContent = 'Could not generate flashcards: ' + e.message;
+    } finally {
+      fcSetLoading(false);
+      $('fcGenerateBtn').disabled = false;
+    }
+  }
+
+  function regenerateFlashcards() {
+    if (!confirm('Regenerate this deck? Your current cards for this section will be replaced (your labels reset).')) return;
+    generateFlashcards();
+  }
+
+  function renderDeck(cards) {
+    fc.cards = cards;
+    applyHighwayFilter();
+    fc.idx = 0;
+    fc.flipped = false;
+    $('fcEmpty').classList.add('hidden');
+    $('fcDeck').classList.remove('hidden');
+    renderCard();
+  }
+
+  function applyHighwayFilter() {
+    const hw = fc.cards.filter((c) => c.highway);
+    fc.view = fc.highway && hw.length ? hw : fc.cards;
+    if (fc.idx >= fc.view.length) fc.idx = 0;
+  }
+
+  function toggleHighway() {
+    fc.highway = $('fcHighway').checked;
+    const hw = fc.cards.filter((c) => c.highway);
+    if (fc.highway && !hw.length) {
+      $('fcHighway').checked = false;
+      fc.highway = false;
+      alert('No highway cards in this deck yet.');
+      return;
+    }
+    applyHighwayFilter();
+    fc.idx = 0;
+    fc.flipped = false;
+    renderCard();
+  }
+
+  const STATUS_LABEL = { mastered: 'Mastered', learning: 'Still learning', important: 'Important' };
+
+  function renderCard() {
+    const card = fc.view[fc.idx];
+    const stage = $('flashcard');
+    if (!card) {
+      $('fcFront').innerHTML = '<div class="fc-concept">No cards to show.</div>';
+      $('fcBack').innerHTML = '';
+      updateCounter();
+      return;
+    }
+    stage.classList.toggle('flipped', fc.flipped);
+
+    const badges =
+      (card.highway ? '<span class="fc-badge highway">Highway</span>' : '') +
+      (card.status ? `<span class="fc-badge ${card.status}">${STATUS_LABEL[card.status]}</span>` : '');
+
+    // Front: the concept prompt.
+    $('fcFront').innerHTML = `
+      <div class="fc-badges">${badges}</div>
+      <div class="fc-topic">${esc(card.topic || '')}</div>
+      <div class="fc-concept">${esc(card.concept)}</div>
+      <div class="fc-flip-hint">Click to reveal</div>`;
+    typeset($('fcFront'));
+
+    // Back: Intuition (+ optional visual) then Formula.
+    const visualHtml = card.visual ? `<div class="fc-visual">${renderVisual(card.visual)}</div>` : '';
+    $('fcBack').innerHTML = `
+      <div class="fc-back-inner">
+        <div class="fc-section">
+          <div class="fc-label intuition">Intuition</div>
+          <div class="fc-body">${renderMarkdown(card.intuition)}</div>
+        </div>
+        ${visualHtml}
+        <div class="fc-section">
+          <div class="fc-label formula">Formula</div>
+          <div class="fc-body fc-formula">${esc(card.formula || '—')}</div>
+        </div>
+      </div>
+      <div class="fc-flip-hint">Click to flip back</div>`;
+    typeset($('fcBack'));
+
+    // Status buttons reflect this card's label.
+    document.querySelectorAll('#fcStatus .fc-status-btn').forEach((b) =>
+      b.classList.toggle('active', b.dataset.status === card.status));
+
+    updateCounter();
+    $('fcQuizErr').textContent = '';
+    $('fcPrev').disabled = fc.idx === 0;
+    $('fcNext').disabled = fc.idx >= fc.view.length - 1;
+  }
+
+  function updateCounter() {
+    const mastered = fc.cards.filter((c) => c.status === 'mastered').length;
+    const total = fc.view.length;
+    const pos = total ? fc.idx + 1 : 0;
+    $('fcCounter').textContent =
+      `Card ${pos} of ${total}${fc.highway ? ' (highway)' : ''} · ${mastered}/${fc.cards.length} mastered`;
+  }
+
+  function flipCard() { fc.flipped = !fc.flipped; $('flashcard').classList.toggle('flipped', fc.flipped); }
+  function nextCard() { if (fc.idx < fc.view.length - 1) { fc.idx++; fc.flipped = false; renderCard(); } }
+  function prevCard() { if (fc.idx > 0) { fc.idx--; fc.flipped = false; renderCard(); } }
+
+  async function setCardStatus(status) {
+    const card = fc.view[fc.idx];
+    if (!card) return;
+    const next = card.status === status ? null : status; // toggle off if re-clicked
+    card.status = next; // optimistic (fc.view holds the same object refs as fc.cards)
+    renderCard();
+    try {
+      await api('/api/flashcards/status', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id, status: next }),
+      });
+    } catch (e) {
+      $('fcQuizErr').textContent = 'Could not save label: ' + e.message;
+    }
+  }
+
+  async function quizMeOnCard() {
+    const card = fc.view[fc.idx];
+    if (!card) return;
+    const btn = $('fcQuizBtn');
+    btn.disabled = true;
+    const label = btn.textContent;
+    btn.textContent = 'Writing a question…';
+    $('fcQuizErr').textContent = '';
+    try {
+      const q = await api('/api/flashcards/quiz', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id }),
+      });
+      if (!q || !q.question || !Array.isArray(q.options)) throw new Error('No usable question came back');
+      state.guest = false;
+      startQuiz([q]); // logs + updates mastery/streak like any other quiz on finish
+    } catch (e) {
+      $('fcQuizErr').textContent = "Couldn't build a question: " + e.message;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = label;
+    }
+  }
+
+  /* -------------------- Card visuals: safe function plots ----------------- */
+  // A tiny, dependency-free plotter. The AI supplies a declarative spec (never
+  // SVG); we evaluate the function expressions with a hand-rolled parser (no
+  // eval/Function) and draw a clean SVG graph — tangent lines, shaded areas,
+  // secants, points and vertical lines — so a visual learner sees the idea.
+
+  // Compile "expr in x" to a numeric fn, or null if it uses anything unsupported.
+  function compileExpr(src) {
+    const FN = {
+      sin: Math.sin, cos: Math.cos, tan: Math.tan, exp: Math.exp,
+      ln: Math.log, log: (v) => Math.log(v) / Math.LN10, sqrt: Math.sqrt, abs: Math.abs,
+    };
+    const CONST = { pi: Math.PI, e: Math.E };
+    const toks = src.match(/[0-9]*\.?[0-9]+|[a-z]+|[-+*/^(),]/gi);
+    if (!toks) return null;
+    const out = [], ops = [];
+    // Two unary-minus precedences so both conventions hold: normally unary binds
+    // BELOW ^ (so -x^2 = -(x^2)), but in an exponent it binds ABOVE ^ (so 2^-x = 2^(-x)).
+    const prec = { '+': 1, '-': 1, '*': 2, '/': 2, u: 3, '^': 4, U: 5 };
+    const right = { '^': true, u: true, U: true };
+    let prev = null;
+    for (let tk of toks) {
+      if (/^[0-9.]/.test(tk)) { out.push({ n: parseFloat(tk) }); prev = 'num'; }
+      else if (/^[a-z]+$/i.test(tk)) {
+        const low = tk.toLowerCase();
+        if (FN[low]) { ops.push({ f: low }); prev = 'fn'; }
+        else if (low === 'x') { out.push({ x: true }); prev = 'num'; }
+        else if (CONST[low] !== undefined) { out.push({ n: CONST[low] }); prev = 'num'; }
+        else return null;
+      } else if (tk === ',') {
+        while (ops.length && !ops[ops.length - 1].paren) out.push(ops.pop());
+        prev = 'op';
+      } else if (tk === '(') { ops.push({ paren: true }); prev = 'op'; }
+      else if (tk === ')') {
+        while (ops.length && !ops[ops.length - 1].paren) out.push(ops.pop());
+        if (!ops.length) return null;
+        ops.pop();
+        if (ops.length && ops[ops.length - 1].f) out.push(ops.pop());
+        prev = 'num';
+      } else {
+        let op = tk;
+        if (op === '+' && (prev === null || prev === 'op')) { prev = 'op'; continue; }
+        if (op === '-' && (prev === null || prev === 'op')) {
+          // In exponent position (right after ^) unary binds tighter than ^.
+          op = (ops.length && ops[ops.length - 1].op === '^') ? 'U' : 'u';
+        }
+        while (ops.length) {
+          const top = ops[ops.length - 1];
+          if (top.paren || top.f) break;
+          if (right[op] ? prec[op] < prec[top.op] : prec[op] <= prec[top.op]) out.push(ops.pop());
+          else break;
+        }
+        ops.push({ op });
+        prev = 'op';
+      }
+    }
+    while (ops.length) { const o = ops.pop(); if (o.paren) return null; out.push(o); }
+    return (xVal) => {
+      const st = [];
+      for (const t of out) {
+        if ('n' in t) st.push(t.n);
+        else if (t.x) st.push(xVal);
+        else if (t.f) st.push(FN[t.f](st.pop()));
+        else if (t.op === 'u' || t.op === 'U') st.push(-st.pop());
+        else {
+          const b = st.pop(), a = st.pop();
+          st.push(t.op === '+' ? a + b : t.op === '-' ? a - b : t.op === '*' ? a * b
+            : t.op === '/' ? a / b : Math.pow(a, b));
+        }
+      }
+      const v = st.pop();
+      return typeof v === 'number' && isFinite(v) ? v : NaN;
+    };
+  }
+
+  const PLOT_COLOR = { green: '#2fa14a', violet: '#7c6ff0', red: '#d6453f', muted: '#9aa39e' };
+
+  function renderVisual(spec) {
+    try {
+      const W = 460, H = 250, pad = 26;
+      const [x0, x1] = spec.domain;
+      const compiled = spec.curves.map((c) => ({ ...c, f: compileExpr(c.fn) })).filter((c) => c.f);
+      if (!compiled.length) return '';
+
+      const N = 200;
+      const xs = [];
+      for (let i = 0; i <= N; i++) xs.push(x0 + (i / N) * (x1 - x0));
+
+      // Collect finite y-values (robustly bounded) to auto-scale the y-axis.
+      const ally = [];
+      for (const c of compiled) for (const x of xs) {
+        const y = c.f(x);
+        if (isFinite(y) && Math.abs(y) < 1e4) ally.push(y);
+      }
+      if (spec.area) ally.push(0);
+      if (!ally.length) return '';
+      let ymin = Math.min(...ally), ymax = Math.max(...ally);
+      if (ymin === ymax) { ymin -= 1; ymax += 1; }
+      const padY = (ymax - ymin) * 0.12;
+      ymin -= padY; ymax += padY;
+      if (ymin > 0) ymin = 0; if (ymax < 0) ymax = 0; // keep the x-axis visible
+
+      const sx = (x) => pad + ((x - x0) / (x1 - x0)) * (W - 2 * pad);
+      const sy = (y) => H - pad - ((y - ymin) / (ymax - ymin)) * (H - 2 * pad);
+
+      const parts = [];
+      // Axes.
+      if (0 >= ymin && 0 <= ymax) parts.push(`<line x1="${pad}" y1="${sy(0)}" x2="${W - pad}" y2="${sy(0)}" class="fcax"/>`);
+      if (0 >= x0 && 0 <= x1) parts.push(`<line x1="${sx(0)}" y1="${pad}" x2="${sx(0)}" y2="${H - pad}" class="fcax"/>`);
+
+      // Shaded area under the first curve.
+      if (spec.area) {
+        const f = compiled[0].f;
+        const [a, b] = spec.area;
+        let d = `M ${sx(a)} ${sy(0)}`;
+        for (let i = 0; i <= 60; i++) {
+          const x = a + (i / 60) * (b - a); const y = f(x);
+          if (isFinite(y)) d += ` L ${sx(x)} ${sy(Math.max(ymin, Math.min(ymax, y)))}`;
+        }
+        d += ` L ${sx(b)} ${sy(0)} Z`;
+        parts.push(`<path d="${d}" fill="${PLOT_COLOR[compiled[0].color] || PLOT_COLOR.green}" opacity="0.16"/>`);
+      }
+
+      // Curves (breaking the path across asymptotes / out-of-range points).
+      compiled.forEach((c) => {
+        const col = PLOT_COLOR[c.color] || PLOT_COLOR.green;
+        let d = '', pen = false;
+        for (const x of xs) {
+          const y = c.f(x);
+          if (!isFinite(y) || y < ymin - (ymax - ymin) || y > ymax + (ymax - ymin)) { pen = false; continue; }
+          d += `${pen ? 'L' : 'M'} ${sx(x).toFixed(1)} ${sy(y).toFixed(1)} `;
+          pen = true;
+        }
+        parts.push(`<path d="${d}" fill="none" stroke="${col}" stroke-width="2.4" stroke-linejoin="round"/>`);
+      });
+
+      // Tangent line to curve[0] at x0.
+      if (spec.tangentAt !== undefined) {
+        const f = compiled[0].f, xt = spec.tangentAt, h = (x1 - x0) / 1000;
+        const yt = f(xt), slope = (f(xt + h) - f(xt - h)) / (2 * h);
+        if (isFinite(yt) && isFinite(slope)) {
+          const ya = yt + slope * (x0 - xt), yb = yt + slope * (x1 - xt);
+          parts.push(`<line x1="${sx(x0)}" y1="${sy(ya)}" x2="${sx(x1)}" y2="${sy(yb)}" stroke="${PLOT_COLOR.violet}" stroke-width="1.8" stroke-dasharray="5 4"/>`);
+          parts.push(`<circle cx="${sx(xt)}" cy="${sy(yt)}" r="4.5" fill="${PLOT_COLOR.violet}"/>`);
+        }
+      }
+
+      // Secant line through curve[0] at a,b.
+      if (spec.secant) {
+        const f = compiled[0].f, [a, b] = spec.secant;
+        const ya = f(a), yb = f(b);
+        if (isFinite(ya) && isFinite(yb)) {
+          parts.push(`<line x1="${sx(a)}" y1="${sy(ya)}" x2="${sx(b)}" y2="${sy(yb)}" stroke="${PLOT_COLOR.red}" stroke-width="1.8" stroke-dasharray="5 4"/>`);
+          parts.push(`<circle cx="${sx(a)}" cy="${sy(ya)}" r="4" fill="${PLOT_COLOR.red}"/><circle cx="${sx(b)}" cy="${sy(yb)}" r="4" fill="${PLOT_COLOR.red}"/>`);
+        }
+      }
+
+      // Vertical reference lines (limits / asymptotes).
+      for (const v of spec.vlines || []) {
+        if (v.x < x0 || v.x > x1) continue;
+        parts.push(`<line x1="${sx(v.x)}" y1="${pad}" x2="${sx(v.x)}" y2="${H - pad}" stroke="${PLOT_COLOR.muted}" stroke-width="1.5" stroke-dasharray="3 4"/>`);
+        if (v.label) parts.push(`<text x="${sx(v.x) + 4}" y="${pad + 10}" class="fctx">${esc(v.label)}</text>`);
+      }
+
+      // Highlighted points.
+      for (const p of spec.points || []) {
+        const y = compiled[0].f(p.x);
+        if (!isFinite(y)) continue;
+        parts.push(`<circle cx="${sx(p.x)}" cy="${sy(y)}" r="4.5" fill="${PLOT_COLOR.green}"/>`);
+        if (p.label) parts.push(`<text x="${sx(p.x) + 7}" y="${sy(y) - 7}" class="fctx">${esc(p.label)}</text>`);
+      }
+
+      const caption = spec.caption ? `<div class="fc-caption">${esc(spec.caption)}</div>` : '';
+      return `<svg viewBox="0 0 ${W} ${H}" class="fc-plot" role="img" aria-label="${esc(spec.caption || 'function plot')}">${parts.join('')}</svg>${caption}`;
+    } catch {
+      return ''; // never let a bad spec break the card
+    }
+  }
+
   /* ------------------------------- Utils --------------------------------- */
   function shuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -1198,5 +1594,7 @@ const App = (() => {
     startDrill, submitCustomConfusion,
     openStats, priorityFromStats,
     analyzeProgress, closeReview, quizFromReview,
+    generateFlashcards, regenerateFlashcards, toggleHighway,
+    flipCard, nextCard, prevCard, setCardStatus, quizMeOnCard,
   };
 })();

@@ -663,7 +663,7 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
 /* -------------------------------- flashcards ------------------------------ */
 // Flashcards are enabled per-course during rollout. Start with Calculus only
 // (matches both "Calculus" and "Calculus for ML"); widen by editing this test.
-const FLASHCARD_COURSE_RE = /calculus/i;
+const FLASHCARD_COURSE_RE = /\bcalculus\b/i; // matches "Calculus" & "Calculus for ML", not "Precalculus"
 const flashcardsEnabledFor = (course) => FLASHCARD_COURSE_RE.test(course || '');
 
 // Normalise a {track,course,lesson} request into a scope + level (course|lesson).
