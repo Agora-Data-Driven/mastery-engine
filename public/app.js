@@ -248,7 +248,10 @@ const App = (() => {
     if (statsBtn) statsBtn.classList.toggle('hidden', !state.authed);
   }
 
-  const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView'];
+  const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView'];
+
+  // Flashcards roll out per-course; Calculus first (matches "Calculus" & "Calculus for ML").
+  const FLASHCARDS_RE = /calculus/i;
 
   function currentView() {
     for (const v of VIEWS) {
@@ -703,6 +706,9 @@ const App = (() => {
         <div class="prog-actions">
           <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
           <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
+          ${(level === 1 || level === 2) && FLASHCARDS_RE.test(scope.course || '')
+            ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
+            : ''}
         </div>
       </div>
       ${childHtml}
@@ -1172,6 +1178,7 @@ const App = (() => {
         const scope = nodeScope(node);
         if (actionBtn.dataset.action === 'quiz') quizFromScope(scope);
         else if (actionBtn.dataset.action === 'review') reviewFromScope(scope, node.dataset.label);
+        else if (actionBtn.dataset.action === 'cards') openFlashcards(scope, node.dataset.label);
         return; // don't also toggle the row
       }
       const row = e.target.closest('.prog-row');
