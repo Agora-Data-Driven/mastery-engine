@@ -29,6 +29,13 @@ import {
   saveFlashcards,
   getFlashcardStatuses,
   setFlashcardStatus,
+  getCardChat,
+  saveCardChat,
+  resetCardChat,
+  getCardOverlays,
+  getScopeChat,
+  saveScopeChat,
+  slug,
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
@@ -42,6 +49,8 @@ import {
   generateDrillQuestion,
   generateFlashcards,
   generateFlashcardQuestion,
+  generateCardChat,
+  generateScopeChat,
   latexifyQuestions,
 } from './lib/gemini.js';
 import { listOllamaModels } from './lib/ollama.js';
@@ -687,19 +696,28 @@ function flashcardScope(src = {}) {
 }
 const flashcardScopeLabel = (s) => [s.course, s.lesson].filter(Boolean).join(' › ');
 
-// Merge a user's private status labels onto shared card definitions.
+// Merge a user's private status labels + personalized "rewrite in place" overlay
+// onto shared card definitions.
 async function packageFlashcards(cards, userEmail) {
-  const statuses = await getFlashcardStatuses(userEmail, cards.map((c) => c.id));
-  return cards.map((c) => ({
-    id: c.id,
-    concept: c.concept,
-    intuition: c.intuition,
-    formula: c.formula,
-    visual: c.visual || null,
-    highway: !!c.highway,
-    topic: c.topic || '',
-    status: statuses[c.id] || null,
-  }));
+  const ids = cards.map((c) => c.id);
+  const [statuses, overlays] = await Promise.all([
+    getFlashcardStatuses(userEmail, ids),
+    getCardOverlays(userEmail, ids),
+  ]);
+  return cards.map((c) => {
+    const o = overlays[c.id];
+    return {
+      id: c.id,
+      concept: c.concept,
+      intuition: o ? o.intuition : c.intuition,
+      formula: o && o.formula ? o.formula : c.formula,
+      visual: o ? (o.visual || null) : (c.visual || null),
+      highway: !!c.highway,
+      topic: c.topic || '',
+      status: statuses[c.id] || null,
+      personalized: !!o,
+    };
+  });
 }
 
 // Auth: fetch the (cached) deck for a Course/Lesson scope, with this user's labels.
@@ -798,6 +816,147 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     );
     await addQuestion({ ...q, source: 'flashcard' });
     res.json(packageQuestions([q], idx, 1)[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* -------------------------------- Chat ------------------------------------ */
+// Auth: load this user's saved chat thread for one card (empty if none yet).
+app.get('/api/flashcards/chat', requireAuth, async (req, res, next) => {
+  try {
+    const cardId = String(req.query?.cardId || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    const chat = await getCardChat(req.userEmail, cardId);
+    res.json({ messages: chat?.messages || [], personalized: !!chat?.intuition });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: send a message about ONE card. Answers it AND rewrites the card's
+// explanation in place for this user (stored as a private overlay). Rate-limited.
+app.post('/api/flashcards/chat', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    const message = String(req.body?.message || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    if (!message) return res.status(400).json({ error: 'A message is required' });
+
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    // Start from this user's personalized version of the card if they have one.
+    const existing = await getCardChat(req.userEmail, cardId);
+    const history = existing?.messages || [];
+    const baseIntuition = existing?.intuition || card.intuition;
+    const baseFormula = existing?.formula || card.formula;
+    const baseVisual = existing?.intuition ? existing.visual : card.visual;
+
+    // A little context: sample questions from the same topic to gauge depth.
+    const catalog = await getCatalog(req.userEmail);
+    const idx = metaIndex(catalog);
+    const meta = card.topic && idx.has(card.topic) ? idx.get(card.topic) : {};
+    const scopeLabel = [meta.course, meta.lesson, card.topic].filter(Boolean).join(' › ') || card.topic || '';
+    const pool = card.topic ? await getQuestionsForTopics([card.topic]) : [];
+    const questions = shuffle(pool).slice(0, 8).map((q) => ({ question: q.question, answer: q.answer }));
+
+    const out = await generateCardChat(
+      {
+        topic: card.topic, scopeLabel, concept: card.concept,
+        intuition: baseIntuition, formula: baseFormula, visual: baseVisual,
+        questions, history, message,
+      },
+      aiChoice(req),
+    );
+
+    const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
+    await saveCardChat(req.userEmail, cardId, {
+      messages, intuition: out.intuition, formula: out.formula, visual: out.visual,
+    });
+
+    res.json({
+      reply: out.reply,
+      visual: out.visual,
+      card: { intuition: out.intuition, formula: out.formula, visual: out.visual, personalized: true },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: revert this user's card to the shared original (drops chat + overlay).
+app.post('/api/flashcards/chat/reset', requireAuth, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    await resetCardChat(req.userEmail, cardId);
+    res.json({
+      card: { intuition: card.intuition, formula: card.formula, visual: card.visual || null, personalized: false },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Scope-level chat id: works for any track/course/lesson selection.
+const scopeChatId = ({ track, course, lesson }) =>
+  slug(track || '', isAll(course) ? '' : course || '', isAll(lesson) ? '' : lesson || '');
+
+// Auth: load this user's saved chat thread for a lesson/course scope.
+app.get('/api/chat', requireAuth, async (req, res, next) => {
+  try {
+    const id = scopeChatId(req.query || {});
+    const messages = await getScopeChat(req.userEmail, id);
+    res.json({ messages });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: send a message about a whole section. Reads the section's flashcards +
+// quiz questions to answer big-picture questions. Rate-limited (an AI call).
+app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'A message is required' });
+
+    const catalog = await getCatalog(req.userEmail);
+    const scoped = scopeCatalog(catalog, req.body || {});
+    const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
+    if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
+
+    const { track, course, lesson, topic } = req.body || {};
+    const scopeLabel = !isAll(topic) ? topic
+      : !isAll(lesson) ? lesson
+      : !isAll(course) ? course
+      : !isAll(track) ? track
+      : 'Your selection';
+
+    const pool = await getQuestionsForTopics(topics);
+    const questions = shuffle(pool).slice(0, 30).map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
+
+    // Include the section's flashcards when a deck exists (course/lesson scope).
+    let cards = [];
+    const fscope = flashcardScope(req.body || {});
+    if (fscope.course && flashcardsEnabledFor(fscope.course)) {
+      try { cards = await getFlashcards(fscope); } catch { /* no deck; questions are enough */ }
+    }
+
+    const id = scopeChatId(req.body || {});
+    const history = await getScopeChat(req.userEmail, id);
+
+    const out = await generateScopeChat(
+      { scopeLabel, topics, cards, questions, history, message },
+      aiChoice(req),
+    );
+
+    const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }].slice(-40);
+    await saveScopeChat(req.userEmail, id, messages);
+
+    res.json({ reply: out.reply, visual: out.visual });
   } catch (e) {
     next(e);
   }
