@@ -824,7 +824,9 @@ const App = (() => {
   }
 
   /* -------------------------------- Quiz --------------------------------- */
-  function startQuiz(qs) {
+  // opts.returnTo: where "Done" goes after the quiz. Default (null) = home menu;
+  // 'flashcard' = back to the exact card the quiz was launched from.
+  function startQuiz(qs, opts = {}) {
     if (!qs || !qs.length) {
       alert('No questions found for this selection.');
       return;
@@ -833,8 +835,20 @@ const App = (() => {
     state.idx = 0;
     state.score = 0;
     state.log = [];
+    state.quizReturn = opts.returnTo || null;
     showOnly('quizView');
     renderQuestion();
+  }
+
+  // "Done" on the results screen: return to the flashcard we came from, else home.
+  function doneQuiz() {
+    if (state.quizReturn === 'flashcard' && fc.view[fc.idx]) {
+      state.quizReturn = null;
+      showOnly('flashcardView');
+      renderCard();
+      return;
+    }
+    goHome();
   }
 
   function renderQuestion() {
@@ -1395,7 +1409,8 @@ const App = (() => {
       });
       if (!q || !q.question || !Array.isArray(q.options)) throw new Error('No usable question came back');
       state.guest = false;
-      startQuiz([q]); // logs + updates mastery/streak like any other quiz on finish
+      // logs + updates mastery/streak like any other quiz; "Done" returns to this card.
+      startQuiz([q], { returnTo: 'flashcard' });
     } catch (e) {
       $('fcQuizErr').textContent = "Couldn't build a question: " + e.message;
     } finally {
@@ -1779,7 +1794,7 @@ const App = (() => {
   return {
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing,
-    launchManual, launchPriority, nextQuestion, skipQuestion,
+    launchManual, launchPriority, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     openStats, priorityFromStats, onAiEngineChange,
