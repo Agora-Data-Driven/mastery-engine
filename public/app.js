@@ -721,12 +721,23 @@ const App = (() => {
           <span class="mini-bar"><span class="mini-fill" style="width:${pct}%;background:${color}"></span></span>
           <span class="prog-pct" style="color:${color}">${pct}%</span>
         </div>
-        <div class="prog-actions">
-          <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
-          <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
-          ${(level === 1 || level === 2) && flashcardsEnabled(scope.course)
-            ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
-            : ''}
+        <div class="prog-actions" data-menu="root">
+          <div class="menu-group root">
+            <button class="prog-btn learn" data-action="learn" title="Quiz or study cards for this section">Learn ▸</button>
+            <button class="prog-btn ai" data-action="ai" title="AI review or chat for this section">AI Support ▸</button>
+          </div>
+          <div class="menu-group learn">
+            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
+            <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
+            ${(level === 1 || level === 2) && flashcardsEnabled(scope.course)
+              ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
+              : ''}
+          </div>
+          <div class="menu-group ai">
+            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
+            <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
+            <button class="prog-btn chat" data-action="chat" title="Chat about this section: reads its cards & questions">Chat</button>
+          </div>
         </div>
       </div>
       ${childHtml}
@@ -1189,7 +1200,11 @@ const App = (() => {
     fc.level = scope.lesson ? 'lesson' : 'course';
     fc.label = label || scope.course || 'Flashcards';
     fc.highway = false;
+    fc.chatOpen = false;
+    fc.chatCardId = null;
     $('fcHighway').checked = false;
+    $('fcChat').classList.add('hidden');
+    $('fcChatToggle').classList.remove('active');
     showOnly('flashcardView');
     $('fcTitle').textContent = 'Flashcards: ' + fc.label;
     $('fcSub').textContent = fc.level === 'course'
@@ -1297,6 +1312,7 @@ const App = (() => {
 
     const badges =
       (card.highway ? '<span class="fc-badge highway">Highway</span>' : '') +
+      (card.personalized ? '<span class="fc-badge personalized">Personalized</span>' : '') +
       (card.status ? `<span class="fc-badge ${card.status}">${STATUS_LABEL[card.status]}</span>` : '');
 
     // Front: the concept prompt.
@@ -1332,6 +1348,10 @@ const App = (() => {
     $('fcQuizErr').textContent = '';
     $('fcPrev').disabled = fc.idx === 0;
     $('fcNext').disabled = fc.idx >= fc.view.length - 1;
+
+    // Keep the open chat pointed at the card on screen (reload only on a real switch).
+    if (fc.chatOpen && card.id !== fc.chatCardId) loadCardChat();
+    $('fcChatRevert').classList.toggle('hidden', !card.personalized);
   }
 
   function updateCounter() {
@@ -1381,6 +1401,153 @@ const App = (() => {
     } finally {
       btn.disabled = false;
       btn.textContent = label;
+    }
+  }
+
+  /* ------------------------------- Chat ---------------------------------- */
+  // Two tutor chats share these render helpers. A message is { role, text } and
+  // the live reply may carry a declarative visual (rendered with renderVisual).
+  function bubbleHtml(role, text, visual) {
+    const who = role === 'assistant' ? 'ai' : 'me';
+    const vis = visual ? `<div class="chat-visual">${renderVisual(visual)}</div>` : '';
+    return `<div class="chat-msg ${who}"><div class="chat-bubble">${renderMarkdown(text)}${vis}</div></div>`;
+  }
+  function renderChatLog(el, messages) {
+    el.innerHTML = (messages || []).map((m) => bubbleHtml(m.role, m.text)).join('') ||
+      '<div class="chat-empty">No messages yet. Ask your first question below.</div>';
+    typeset(el);
+    el.scrollTop = el.scrollHeight;
+  }
+  function appendBubble(el, role, text, visual) {
+    const empty = el.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    el.insertAdjacentHTML('beforeend', bubbleHtml(role, text, visual));
+    typeset(el.lastElementChild);
+    el.scrollTop = el.scrollHeight;
+    return el.lastElementChild;
+  }
+
+  /* ---- Per-card chat: rewrites this card's explanation in place --------- */
+  function toggleCardChat() {
+    fc.chatOpen = !fc.chatOpen;
+    $('fcChat').classList.toggle('hidden', !fc.chatOpen);
+    $('fcChatToggle').classList.toggle('active', fc.chatOpen);
+    if (fc.chatOpen) { loadCardChat(); $('fcChatInput').focus(); }
+  }
+
+  async function loadCardChat() {
+    const card = fc.view[fc.idx];
+    if (!card) return;
+    fc.chatCardId = card.id;
+    const log = $('fcChatLog');
+    log.innerHTML = '<div class="chat-empty">Loading…</div>';
+    try {
+      const r = await api('/api/flashcards/chat?cardId=' + encodeURIComponent(card.id));
+      renderChatLog(log, r.messages);
+    } catch (e) {
+      log.innerHTML = '<div class="chat-empty">Could not load chat: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  async function sendCardChat() {
+    const card = fc.view[fc.idx];
+    if (!card) return;
+    const input = $('fcChatInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+    const log = $('fcChatLog');
+    const send = $('fcChatSend');
+    input.value = '';
+    appendBubble(log, 'user', msg);
+    const thinking = appendBubble(log, 'assistant', 'Thinking…');
+    thinking.classList.add('thinking');
+    send.disabled = true;
+    try {
+      const r = await api('/api/flashcards/chat', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id, message: msg }),
+      });
+      thinking.remove();
+      appendBubble(log, 'assistant', r.reply, r.visual);
+      // Rewrite the card in place (both the visible view + the master list).
+      if (r.card) {
+        const patch = (c) => { if (c) { c.intuition = r.card.intuition; c.formula = r.card.formula; c.visual = r.card.visual; c.personalized = true; } };
+        patch(card);
+        patch(fc.cards.find((c) => c.id === card.id));
+        renderCard();
+      }
+    } catch (e) {
+      thinking.remove();
+      appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
+    } finally {
+      send.disabled = false;
+      input.focus();
+    }
+  }
+
+  async function revertCard() {
+    const card = fc.view[fc.idx];
+    if (!card) return;
+    if (!confirm('Revert this card to the original explanation? Your personalized version and chat for this card will be removed.')) return;
+    try {
+      const r = await api('/api/flashcards/chat/reset', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id }),
+      });
+      const patch = (c) => { if (c) { c.intuition = r.card.intuition; c.formula = r.card.formula; c.visual = r.card.visual; c.personalized = false; } };
+      patch(card);
+      patch(fc.cards.find((c) => c.id === card.id));
+      renderCard();
+      if (fc.chatOpen) renderChatLog($('fcChatLog'), []);
+    } catch (e) {
+      $('fcQuizErr').textContent = 'Could not revert: ' + e.message;
+    }
+  }
+
+  /* ---- Scope chat: reads a section's cards + questions (AI Support) ------ */
+  let scopeChat = { scope: null, label: '' };
+
+  async function openScopeChat(scope, label) {
+    if (!state.authed) { showLogin(); return; }
+    scopeChat = { scope, label: label || scope.course || scope.track || 'Section' };
+    $('chatTitle').textContent = 'Chat: ' + scopeChat.label;
+    const log = $('scopeChatLog');
+    log.innerHTML = '<div class="chat-empty">Loading…</div>';
+    show('chatModal');
+    $('scopeChatInput').focus();
+    try {
+      const p = new URLSearchParams();
+      for (const k of ['track', 'course', 'lesson']) if (scope[k]) p.set(k, scope[k]);
+      const r = await api('/api/chat?' + p.toString());
+      renderChatLog(log, r.messages);
+    } catch (e) {
+      log.innerHTML = '<div class="chat-empty">Could not load chat: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function closeScopeChat() { hide('chatModal'); }
+
+  async function sendScopeChat() {
+    const input = $('scopeChatInput');
+    const msg = input.value.trim();
+    if (!msg || !scopeChat.scope) return;
+    const log = $('scopeChatLog');
+    const send = $('scopeChatSend');
+    input.value = '';
+    appendBubble(log, 'user', msg);
+    const thinking = appendBubble(log, 'assistant', 'Thinking…');
+    thinking.classList.add('thinking');
+    send.disabled = true;
+    try {
+      const r = await api('/api/chat', {
+        method: 'POST', body: JSON.stringify({ ...scopeChat.scope, message: msg }),
+      });
+      thinking.remove();
+      appendBubble(log, 'assistant', r.reply, r.visual);
+    } catch (e) {
+      thinking.remove();
+      appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
+    } finally {
+      send.disabled = false;
+      input.focus();
     }
   }
 
@@ -1589,9 +1756,15 @@ const App = (() => {
       if (actionBtn) {
         const node = actionBtn.closest('.prog-node');
         const scope = nodeScope(node);
-        if (actionBtn.dataset.action === 'quiz') quizFromScope(scope);
-        else if (actionBtn.dataset.action === 'review') reviewFromScope(scope, node.dataset.label);
-        else if (actionBtn.dataset.action === 'cards') openFlashcards(scope, node.dataset.label);
+        const act = actionBtn.dataset.action;
+        const menu = actionBtn.closest('.prog-actions');
+        // Two-level menu: Learn / AI Support open a sub-menu; ‹ goes back.
+        if (act === 'learn' || act === 'ai') { if (menu) menu.dataset.menu = act; return; }
+        if (act === 'back') { if (menu) menu.dataset.menu = 'root'; return; }
+        if (act === 'quiz') quizFromScope(scope);
+        else if (act === 'review') reviewFromScope(scope, node.dataset.label);
+        else if (act === 'cards') openFlashcards(scope, node.dataset.label);
+        else if (act === 'chat') openScopeChat(scope, node.dataset.label);
         return; // don't also toggle the row
       }
       const row = e.target.closest('.prog-row');
@@ -1613,5 +1786,7 @@ const App = (() => {
     analyzeProgress, closeReview, quizFromReview,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, setCardStatus, quizMeOnCard,
+    toggleCardChat, sendCardChat, revertCard,
+    openScopeChat, closeScopeChat, sendScopeChat,
   };
 })();
