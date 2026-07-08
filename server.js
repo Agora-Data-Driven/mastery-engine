@@ -47,6 +47,7 @@ import {
   generateAnalysis,
   generateConfusions,
   generateDrillQuestion,
+  generateSimilarQuestions,
   generateFlashcards,
   generateFlashcardQuestion,
   generateCardChat,
@@ -673,6 +674,36 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
 
     // Package with the topic's full hierarchy (same shape the quiz endpoints use).
     res.json(packageQuestions([drilled], idx, 1)[0]);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: in-quiz "generate more like this" — write N fresh questions on the SAME
+// topic, matching the current question's style/difficulty, bank them under that
+// topic (so they feed future quizzes), and return them packaged so the client
+// can queue them into the running quiz immediately.
+app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const { question, options, answer, topic } = req.body || {};
+    const count = Math.min(10, Math.max(1, parseInt(req.body?.count, 10) || 3));
+    if (!topic) return res.status(400).json({ error: 'topic is required' });
+
+    const catalog = await getCatalog(req.userEmail);
+    const idx = metaIndex(catalog);
+    if (!idx.has(topic)) return res.status(400).json({ error: 'Unknown topic; cannot generate for it' });
+    const meta = idx.get(topic);
+    const scopeLabel = [meta.course, meta.lesson, topic].filter(Boolean).join(' › ');
+
+    const generated = await generateSimilarQuestions(
+      { topic, scopeLabel, question: question || '', options: options || [], answer: answer || '' },
+      count,
+      aiChoice(req)
+    );
+    // Persist into the bank (tagged so these can be audited/pruned separately).
+    for (const g of generated) await addQuestion({ ...g, source: 'similar' });
+
+    res.json(packageQuestions(generated, idx, count));
   } catch (e) {
     next(e);
   }
