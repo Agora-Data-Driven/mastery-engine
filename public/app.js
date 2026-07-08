@@ -358,7 +358,9 @@ const App = (() => {
     $('genModeWrap').classList.toggle('hidden', !mastery);
     // The AI-model switcher governs flashcards, explanations & generation — show it in mastery.
     $('aiEngineWrap').classList.toggle('hidden', !mastery);
-    setMode('QUIZ'); // always reset to the quiz builder when (re)entering setup
+    // Mastery users land on "My Progress" (their dashboard); guests (no mode
+    // switcher) fall back to the quiz builder so they have something to do.
+    setMode(mastery ? 'PROGRESS' : 'QUIZ');
   }
 
   function setMode(mode) {
@@ -872,17 +874,22 @@ const App = (() => {
     $('hintBtn').textContent = 'Get a hint';
     $('hintBox').classList.add('hidden');
     $('hintBox').innerHTML = '';
+
+    // "Keep learning" chips + their panels.
     $('explainBtn').disabled = false;
-    $('explainBtn').classList.remove('hidden');
+    $('explainBtn').classList.remove('active');
     $('explainBox').classList.add('hidden');
     $('explainBox').innerHTML = '';
 
-    // reset the "drill deeper" UI - only in mastery mode (it banks a new
-    // question, needing auth) and only when online (it needs the AI + a write),
-    // so guests and offline quizzes never see it.
+    // Drill deeper & Generate-more both bank questions (need auth) and hit the
+    // AI over the network, so guests and offline quizzes don't get those chips.
     const canDrill = state.authed && !state.guest && !state.offline;
-    $('drillWrap').classList.toggle('hidden', !canDrill);
+    $('drillBtn').classList.toggle('hidden', !canDrill);
+    $('genMoreBtn').classList.toggle('hidden', !canDrill);
+
+    // reset the "drill deeper" UI
     $('drillBtn').disabled = false;
+    $('drillBtn').classList.remove('active');
     $('drillPanel').classList.add('hidden');
     $('confusionList').innerHTML = '';
     $('confusionCustom').classList.add('hidden');
@@ -890,6 +897,16 @@ const App = (() => {
     $('confusionText').value = '';
     $('drillError').textContent = '';
     $('drillLoader').classList.add('hidden');
+
+    // reset the "generate more like this" UI
+    $('genMoreBtn').disabled = false;
+    $('genMoreBtn').classList.remove('active');
+    $('genMorePanel').classList.add('hidden');
+    $('genMoreLoader').classList.add('hidden');
+    $('genMoreSubmit').disabled = false;
+    $('genMoreMsg').textContent = '';
+    $('genMoreMsg').classList.remove('ok');
+    $('genMoreError').textContent = '';
 
     const area = $('optionsArea');
     area.innerHTML = '';
@@ -990,7 +1007,7 @@ const App = (() => {
         userAnswer: rec.userAnswer, isCorrect: rec.isCorrect,
       }, (acc) => { box.innerHTML = head + renderMarkdown(acc); });
       typeset(box);
-      btn.classList.add('hidden');
+      btn.classList.add('active'); // keep the chip in place, marked as used
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t load explanation: ' + esc(e.message) + '</span>';
       btn.disabled = false;
@@ -1014,6 +1031,7 @@ const App = (() => {
     const rec = state.log[state.idx] || {};
     const btn = $('drillBtn');
     btn.disabled = true;
+    btn.classList.add('active');
     $('drillPanel').classList.remove('hidden');
     $('drillError').textContent = '';
     $('confusionCustom').classList.add('hidden');
@@ -1097,6 +1115,58 @@ const App = (() => {
     state.questions.splice(state.idx + 1, 0, nq);
     state.idx++;
     renderQuestion();
+  }
+
+  /* -------------------- Generate more questions like this ---------------- */
+  // A post-answer action: write N fresh questions on the SAME topic, matching
+  // this question's style, bank them, and queue them right after the current
+  // one so the learner meets them by hitting Next (no jump — they can still
+  // finish reviewing this answer first).
+  function toggleGenMore() {
+    const panel = $('genMorePanel');
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !opening);
+    $('genMoreBtn').classList.toggle('active', opening);
+    if (opening) {
+      $('genMoreError').textContent = '';
+      setTimeout(() => $('genMoreCount').focus(), 30);
+    }
+  }
+
+  function setGenMoreLoading(on) {
+    $('genMoreLoader').classList.toggle('hidden', !on);
+  }
+
+  async function generateSimilar() {
+    const q = state.questions[state.idx];
+    const count = Math.min(10, Math.max(1, parseInt($('genMoreCount').value, 10) || 3));
+    const submit = $('genMoreSubmit');
+    submit.disabled = true;
+    $('genMoreError').textContent = '';
+    const msg = $('genMoreMsg');
+    msg.textContent = '';
+    msg.classList.remove('ok');
+    setGenMoreLoading(true);
+    try {
+      const qs = await api('/api/generate/like', {
+        method: 'POST',
+        body: JSON.stringify({
+          question: q.question, options: q.options, answer: q.answer,
+          topic: q.topic, count,
+        }),
+      });
+      if (!Array.isArray(qs) || !qs.length) throw new Error('No usable questions came back');
+      // Queue them right after this one; don't advance (learner is still reviewing).
+      state.questions.splice(state.idx + 1, 0, ...qs);
+      $('progressCount').textContent = `Question ${state.idx + 1} of ${state.questions.length}`;
+      msg.textContent = `Added ${qs.length} question${qs.length === 1 ? '' : 's'} - they're queued up next. Hit Next when you're ready.`;
+      msg.classList.add('ok');
+    } catch (e) {
+      $('genMoreError').textContent = "Couldn't generate more: " + e.message;
+    } finally {
+      submit.disabled = false;
+      setGenMoreLoading(false);
+    }
   }
 
   /** Minimal, safe Markdown -> HTML (bold, bullets, paragraphs). */
@@ -1797,6 +1867,7 @@ const App = (() => {
     launchManual, launchPriority, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
+    toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange,
     analyzeProgress, closeReview, quizFromReview,
     generateFlashcards, regenerateFlashcards, toggleHighway,
