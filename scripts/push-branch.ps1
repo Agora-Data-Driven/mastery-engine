@@ -58,7 +58,7 @@ Must "git add -A"
 
 # 4. Secret guard (defense in depth -- these are gitignored, but never push them anyway).
 $staged = (git diff --cached --name-only) -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-$danger = $staged | Where-Object { $_ -match '(\.env$)|(\.env\.)|(\.p8$)|(\.pem$)|(\.key$)|(credentials.*\.json$)|(service-account.*\.json$)' }
+$danger = $staged | Where-Object { $_ -match '(\.env$)|(\.env\.)|(\.p8$)|(\.pem$)|(\.key$)|(credentials.*\.json$)|(service-account.*\.json$)' -and $_ -notmatch '\.env\.(example|sample|template)$' }  # allow placeholder templates (.env.example/.sample/.template), which are meant to be committed
 if ($danger) {
     git restore --staged $danger 2>$null
     Die "refusing to commit secret-looking files: $($danger -join ', '). They have been unstaged -- gitignore them."
