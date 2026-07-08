@@ -86,10 +86,21 @@ function Invoke-SanityGate {
         }
     }
 
-    # Validate any changed JSON too (package.json, data/*.json).
-    foreach ($rel in @($present | Where-Object { $_ -match '\.json$' })) {
-        try { Get-Content (Join-Path $RepoRoot $rel) -Raw -ErrorAction Stop | ConvertFrom-Json -ErrorAction Stop | Out-Null }
-        catch { Write-Host "    [FAIL] invalid JSON: $rel -- $($_.Exception.Message)" -ForegroundColor Red; $ok = $false }
+    # Validate any changed JSON too (package.json, package-lock.json, data/*.json) with
+    # node's JSON.parse -- the runtime that actually consumes these files. Windows
+    # PowerShell 5.1's ConvertFrom-Json rejects valid JSON whose object has an empty-string
+    # key (the "" root key every npm lockfileVersion 2/3 package-lock.json contains), so it
+    # can't be trusted here. A genuinely malformed file still fails node's parse (exit != 0).
+    $jsonFiles = @($present | Where-Object { $_ -match '\.json$' })
+    if ($jsonFiles.Count -gt 0) {
+        if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+            Write-Host "    [warn] node not on PATH -- skipping the JSON syntax gate (run scripts\setup.ps1)" -ForegroundColor Yellow
+        } else {
+            foreach ($rel in $jsonFiles) {
+                node -e "JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'))" (Join-Path $RepoRoot $rel) 2>&1 | ForEach-Object { Write-Host "           $_" -ForegroundColor Red }
+                if ($LASTEXITCODE -ne 0) { Write-Host "    [FAIL] invalid JSON: $rel" -ForegroundColor Red; $ok = $false }
+            }
+        }
     }
     return $ok
 }
