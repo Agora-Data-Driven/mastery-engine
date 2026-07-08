@@ -109,14 +109,11 @@ $env:PORT                 = "$Port"
 if (-not $env:SESSION_SECRET) {
   $env:SESSION_SECRET = ([guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N'))
 }
-# Pull the cloud AI keys from Secret Manager so the Cloud (Gemini) and DeepSeek
-# options also appear locally. Best-effort: skipped if gcloud is missing or a
-# secret isn't set / not accessible. Pre-set the env var to override.
+# Cloud (Gemini) uses Vertex AI via ADC (the gcloud login below), so no key is
+# needed. Pull the optional DeepSeek key from Secret Manager so that option also
+# appears locally. Best-effort: skipped if gcloud is missing or the secret isn't
+# set / not accessible. Pre-set the env var to override.
 if (Have 'gcloud') {
-  if (-not $env:GEMINI_API_KEY) {
-    $g = (gcloud secrets versions access latest --secret=GEMINI_API_KEY --project=$Project 2>$null)
-    if ($LASTEXITCODE -eq 0 -and $g) { $env:GEMINI_API_KEY = $g.Trim() }
-  }
   if (-not $env:DEEPSEEK_API_KEY) {
     $d = (gcloud secrets versions access latest --secret=DEEPSEEK_API_KEY --project=$Project 2>$null)
     if ($LASTEXITCODE -eq 0 -and $d) { $env:DEEPSEEK_API_KEY = $d.Trim() }

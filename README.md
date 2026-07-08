@@ -70,29 +70,32 @@ $PROJECT = "agora-data-driven"
 $REGION  = "us-central1"
 gcloud config set project $PROJECT
 
-# 1. Enable the APIs
+# 1. Enable the APIs (Gemini goes through Vertex AI = aiplatform.googleapis.com,
+#    billed to this project; the old AI Studio generativelanguage API is gone)
 gcloud services enable run.googleapis.com cloudbuild.googleapis.com `
   firestore.googleapis.com secretmanager.googleapis.com `
-  generativelanguage.googleapis.com artifactregistry.googleapis.com
+  aiplatform.googleapis.com artifactregistry.googleapis.com
 
 # 2. Create the Firestore database (Native mode), once per project
 gcloud firestore databases create --location=$REGION
 
-# 3. Create secrets (rotate the leaked Gemini key first!)
-"YOUR_NEW_GEMINI_KEY"        | gcloud secrets create GEMINI_API_KEY  --data-file=-
+# 3. Create secrets (no Gemini key needed anymore — Vertex uses the SA's ADC)
 "A_LONG_RANDOM_STRING"       | gcloud secrets create SESSION_SECRET  --data-file=-
 "YOUR_MASTERY_PASSWORD"      | gcloud secrets create APP_PASSWORD    --data-file=-
 
 # Let Cloud Run's runtime service account read them
 $PNUM = gcloud projects describe $PROJECT --format="value(projectNumber)"
 $SA = "$PNUM-compute@developer.gserviceaccount.com"
-foreach ($s in "GEMINI_API_KEY","SESSION_SECRET","APP_PASSWORD") {
+foreach ($s in "SESSION_SECRET","APP_PASSWORD") {
   gcloud secrets add-iam-policy-binding $s `
     --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
 }
 # Firestore access for the same SA
 gcloud projects add-iam-policy-binding $PROJECT `
   --member="serviceAccount:$SA" --role="roles/datastore.user"
+# Vertex AI (Gemini) access for the same SA — this is what bills to GCP
+gcloud projects add-iam-policy-binding $PROJECT `
+  --member="serviceAccount:$SA" --role="roles/aiplatform.user"
 
 # 4. Deploy from source (buildpacks; no Dockerfile required)
 #    SSO_SECRET (platform-sso-key) lets the app trust the portal's shared login cookie once this
@@ -103,8 +106,8 @@ gcloud projects add-iam-policy-binding $PROJECT `
 #    defaults baked in (ianfernandezctm@gmail.com owns the pre-existing progress; info@ is super admin).
 gcloud run deploy mastery-engine `
   --source . --region $REGION --allow-unauthenticated `
-  --set-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,SESSION_SECRET=SESSION_SECRET:latest,APP_PASSWORD=APP_PASSWORD:latest,SSO_SECRET=platform-sso-key:latest" `
-  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash,MASTERY_BASE_URL=https://mastery-engine-c732u7m57a-uc.a.run.app,MASTERY_DEFAULT_ACCOUNT=ianfernandezctm@gmail.com,MASTERY_SUPER_ADMIN=info@agoradatadriven.com"
+  --set-secrets="SESSION_SECRET=SESSION_SECRET:latest,APP_PASSWORD=APP_PASSWORD:latest,SSO_SECRET=platform-sso-key:latest" `
+  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash,GEMINI_LOCATION=global,MASTERY_BASE_URL=https://mastery-engine-c732u7m57a-uc.a.run.app,MASTERY_DEFAULT_ACCOUNT=ianfernandezctm@gmail.com,MASTERY_SUPER_ADMIN=info@agoradatadriven.com"
 # To enable Google sign-in later, after creating the two secrets, add to --set-secrets:
 #   ,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest
 
@@ -137,9 +140,11 @@ to Gemini, DeepSeek, a local [Ollama](https://ollama.com) instance, or a local
 cookies the server reads on each request (`aiProvider` / `aiModel`), so it
 governs flashcards, explanations, and question generation alike.
 
-- **Cloud — Gemini (default):** always available. Two variants in the picker:
-  **2.5 Flash** (fast, the default) and **2.5 Pro** (best quality — worth it for
-  flashcard decks). The `model` in the choice selects the variant.
+- **Cloud — Gemini (default):** always available, served through **Vertex AI**
+  and billed to this GCP project (no API key — auth is the deploy/runtime
+  service account's ADC). Two variants in the picker: **2.5 Flash** (fast, the
+  default) and **2.5 Pro** (best quality — worth it for flashcard decks). The
+  `model` in the choice selects the variant.
 - **Cloud — DeepSeek:** appears when `DEEPSEEK_API_KEY` is set (see deploy
   runbook). Offers **Chat (V3)** and **Reasoner (R1)** via DeepSeek's
   OpenAI-compatible API (`lib/deepseek.js`).
