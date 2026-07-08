@@ -717,15 +717,17 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
 //   const flashcardsEnabledFor = (course) => FLASHCARD_COURSE_RE.test(course || '');
 const flashcardsEnabledFor = (course) => !!String(course || '').trim();
 
-// Normalise a {track,course,lesson} request into a scope + level (course|lesson).
-// Flashcards exist at Course level (highest) and Lesson level (one below) only.
+// Normalise a {track,course,lesson,topic} request into a scope + level.
+// Flashcards exist at Course level (highest), Lesson level, and Topic level (the
+// smallest grain, i.e. a single sub-lesson) — most-specific field present wins.
 function flashcardScope(src = {}) {
   const track = String(src.track || '').trim();
   const course = String(src.course || '').trim();
   const lesson = isAll(src.lesson) ? '' : String(src.lesson || '').trim();
-  return { track, course, lesson, level: lesson ? 'lesson' : 'course' };
+  const topic = isAll(src.topic) ? '' : String(src.topic || '').trim();
+  return { track, course, lesson, topic, level: topic ? 'topic' : lesson ? 'lesson' : 'course' };
 }
-const flashcardScopeLabel = (s) => [s.course, s.lesson].filter(Boolean).join(' › ');
+const flashcardScopeLabel = (s) => [s.course, s.lesson, s.topic].filter(Boolean).join(' › ');
 
 // Merge a user's private status labels + personalized "rewrite in place" overlay
 // onto shared card definitions.

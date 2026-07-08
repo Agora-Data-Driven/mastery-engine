@@ -731,7 +731,7 @@ const App = (() => {
           <div class="menu-group learn">
             <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
             <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
-            ${(level === 1 || level === 2) && flashcardsEnabled(scope.course)
+            ${level >= 1 && flashcardsEnabled(scope.course)
               ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
               : ''}
           </div>
@@ -1280,8 +1280,8 @@ const App = (() => {
 
   async function openFlashcards(scope, label) {
     if (!state.authed) { showLogin(); return; }
-    fc.scope = { track: scope.track, course: scope.course, lesson: scope.lesson || '' };
-    fc.level = scope.lesson ? 'lesson' : 'course';
+    fc.scope = { track: scope.track, course: scope.course, lesson: scope.lesson || '', topic: scope.topic || '' };
+    fc.level = scope.topic ? 'topic' : scope.lesson ? 'lesson' : 'course';
     fc.label = label || scope.course || 'Flashcards';
     fc.highway = false;
     fc.chatOpen = false;
@@ -1293,7 +1293,9 @@ const App = (() => {
     $('fcTitle').textContent = 'Flashcards: ' + fc.label;
     $('fcSub').textContent = fc.level === 'course'
       ? 'A comprehensive deck for the whole course. Intuition first, then the formula.'
-      : 'Focused cards for this lesson. Intuition first, then the formula.';
+      : fc.level === 'lesson'
+        ? 'Focused cards for this lesson. Intuition first, then the formula.'
+        : 'A focused deck for this sub-lesson. Intuition first, then the formula.';
     await loadFlashcards();
   }
 
@@ -1302,6 +1304,7 @@ const App = (() => {
     p.set('track', fc.scope.track || '');
     p.set('course', fc.scope.course || '');
     if (fc.scope.lesson) p.set('lesson', fc.scope.lesson);
+    if (fc.scope.topic) p.set('topic', fc.scope.topic);
     return p.toString();
   }
 
