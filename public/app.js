@@ -1012,7 +1012,7 @@ const App = (() => {
     $('progressCount').textContent = `Question ${state.idx + 1} of ${n}`;
     $('progressScore').textContent = `Score ${state.score}`;
     $('qCrumb').textContent = [q.course, q.topic].filter(Boolean).join('  ›  ');
-    $('qText').textContent = q.question;
+    $('qText').innerHTML = codeSpans(q.question);
     typeset($('qText'));
     $('reviewFlag').checked = false;
     hide('postAnswer');
@@ -1068,7 +1068,7 @@ const App = (() => {
       // Keep the raw option text on the node so answer-matching survives LaTeX
       // typesetting (which rewrites the rendered text).
       b.dataset.opt = opt;
-      b.innerHTML = `<span class="key">${KEYS[i] || '•'}</span><span class="opt-text">${esc(opt)}</span>`;
+      b.innerHTML = `<span class="key">${KEYS[i] || '•'}</span><span class="opt-text">${codeSpans(opt)}</span>`;
       b.onclick = () => handleAnswer(opt, q, b);
       area.appendChild(b);
     });
@@ -1093,7 +1093,7 @@ const App = (() => {
       f.textContent = '';
       f.appendChild(document.createTextNode('Incorrect. Answer: '));
       const ans = document.createElement('span');
-      ans.textContent = q.answer;
+      ans.innerHTML = codeSpans(q.answer);
       f.appendChild(ans);
       typeset(ans);
     }
@@ -1117,7 +1117,7 @@ const App = (() => {
     f.textContent = '';
     f.appendChild(document.createTextNode('Skipped. Answer: '));
     const ans = document.createElement('span');
-    ans.textContent = q.answer;
+    ans.innerHTML = codeSpans(q.answer);
     f.appendChild(ans);
     typeset(ans);
     f.className = 'feedback skip';
@@ -1321,14 +1321,47 @@ const App = (() => {
     }
   }
 
-  /** Minimal, safe Markdown -> HTML (bold, bullets, paragraphs). */
+  /* ------------------------------ Code + math --------------------------- */
+  // Programming content arrives as LaTeX \texttt{...} (usually inside $...$ or
+  // \(...\)), but Python syntax (*args, **kwargs, underscores, quotes) isn't
+  // valid KaTeX math, so KaTeX prints the raw source in its red error colour.
+  // We pull those out and render them as inline <code> instead, leaving real
+  // math for KaTeX. Works on already-banked content — no regeneration needed.
+  function stashCode(raw) {
+    const codes = [];
+    // SENT is a control char (SOH) that never appears in real content, so it is
+    // a collision-proof placeholder that survives esc() and the bold pass.
+    const SENT = String.fromCharCode(1);
+    const stash = (_, c) => { codes.push(c); return SENT + (codes.length - 1) + SENT; };
+    const s = String(raw ?? '')
+      // A whole math span that is ONLY a \texttt{...}  ->  code (drop the $ / \( \)).
+      .replace(/\$\s*\\texttt\{([^{}]*)\}\s*\$/g, stash)
+      .replace(/\\\(\s*\\texttt\{([^{}]*)\}\s*\\\)/g, stash)
+      // Any remaining bare \texttt{...}  ->  code.
+      .replace(/\\texttt\{([^{}]*)\}/g, stash);
+    return { s, codes };
+  }
+  function restoreCode(html, codes) {
+    const re = new RegExp(String.fromCharCode(1) + '(\\d+)' + String.fromCharCode(1), 'g');
+    return html.replace(re, (_, i) => '<code>' + esc(codes[+i]) + '</code>');
+  }
+  // Escape a string for HTML, turning any \texttt{...} code into <code>. Real
+  // math delimiters survive for a later typeset() call.
+  function codeSpans(raw) {
+    const { s, codes } = stashCode(raw);
+    return restoreCode(esc(s), codes);
+  }
+
+  /** Minimal, safe Markdown -> HTML (bold, bullets, paragraphs, inline code). */
   function renderMarkdown(md) {
     // Normalise em/en dashes to plain hyphens in AI output (no em dashes anywhere).
     const lines = String(md || '').replace(/[—–]/g, '-').split('\n');
     let html = '', inList = false;
     for (const raw of lines) {
       const trimmed = raw.trim();
-      let line = esc(trimmed).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      // Stash code first so the bold pass can't see ** inside it (e.g. **kwargs).
+      const { s, codes } = stashCode(trimmed);
+      let line = restoreCode(esc(s).replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>'), codes);
       if (/^[-*]\s+/.test(trimmed)) {
         if (!inList) { html += '<ul>'; inList = true; }
         html += '<li>' + line.replace(/^[-*]\s+/, '') + '</li>';
@@ -1357,7 +1390,7 @@ const App = (() => {
           { left: '\\[', right: '\\]', display: true },
         ],
         throwOnError: false,
-        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'option'],
+        ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'option', 'code'],
       });
     } catch (e) {
       /* never let a malformed expression break the UI */
@@ -1584,7 +1617,7 @@ const App = (() => {
     $('fcFront').innerHTML = `
       <div class="fc-badges">${badges}</div>
       <div class="fc-topic">${esc(card.topic || '')}</div>
-      <div class="fc-concept">${esc(card.concept)}</div>
+      <div class="fc-concept">${codeSpans(card.concept)}</div>
       <div class="fc-flip-hint">Click to reveal</div>`;
     typeset($('fcFront'));
 
@@ -1599,7 +1632,7 @@ const App = (() => {
         ${visualHtml}
         <div class="fc-section">
           <div class="fc-label formula">Formula</div>
-          <div class="fc-body fc-formula">${esc(card.formula || '—')}</div>
+          <div class="fc-body fc-formula">${codeSpans(card.formula || '—')}</div>
         </div>
       </div>
       <div class="fc-flip-hint">Click to flip back</div>`;
