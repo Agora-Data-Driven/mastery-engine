@@ -1122,6 +1122,17 @@ app.get('/api/assistant/chat', requireAuth, async (req, res, next) => {
   }
 });
 
+// Auth: clear this user's assistant thread so the next message starts fresh
+// (the "new conversation" button). Idempotent — resets it to an empty thread.
+app.delete('/api/assistant/chat', requireAuth, async (req, res, next) => {
+  try {
+    await saveAssistantChat(req.userEmail, []);
+    res.json({ ok: true, messages: [] });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Auth: send a message to the always-available assistant. The client passes a
 // STRUCTURED snapshot of what's on screen (view, selection, current question or
 // flashcard, recent answers) as `context`; the assistant answers grounded in it.
