@@ -51,21 +51,22 @@
       <span id="adminBarText"></span>
       <button class="btn" id="adminActAs" onclick="App.actAs()" style="background:#fff;color:#1856C9;padding:4px 12px;font-size:12px;">Act as user</button>
       <button class="btn hidden" id="adminStopActing" onclick="App.stopActing()" style="background:rgba(255,255,255,.16);color:#fff;padding:4px 12px;font-size:12px;">Stop acting</button>
+      <button class="btn" id="adminMergeMath" onclick="App.mergeMath()" style="background:rgba(255,255,255,.16);color:#fff;padding:4px 12px;font-size:12px;">Merge Math</button>
     </div>
 
     <!-- ============================= Setup ============================= -->
     <section id="setupView" class="hidden">
       <div class="card">
         <button class="btn btn-block btn-lg priority-cta hidden" id="priorityBtn" onclick="App.launchPriority()" style="margin-bottom: 24px;">
-          <span>Priority Quiz: your weakest topics, mixed across all tracks</span>
+          <span>Mastery Quiz: your weakest topics, mixed across all tracks</span>
         </button>
 
         <div id="genModeWrap" class="field hidden">
           <span class="label">Mode</span>
           <div class="segment" id="modeSegment">
+            <button class="active" data-mode="PROGRESS" onclick="App.setMode('PROGRESS')">My Progress</button>
             <button data-mode="QUIZ" onclick="App.setMode('QUIZ')">Live Quiz</button>
             <button data-mode="GEN" onclick="App.setMode('GEN')">Generate Questions</button>
-            <button class="active" data-mode="PROGRESS" onclick="App.setMode('PROGRESS')">My Progress</button>
           </div>
         </div>
 
@@ -81,24 +82,42 @@
           <h2 class="section-title" id="setupTitle">Build your quiz</h2>
           <p class="section-sub" id="setupSub">Drill down as far as you like. Leave lower levels on "Review All" to widen the net.</p>
 
-          <div class="field">
-            <span class="label">Track / Path</span>
-            <div class="select-wrap"><select id="trackSel"></select></div>
-          </div>
-          <div class="row">
+          <!-- Multi-select tree (Live Quiz): search + tick any tracks/courses/units
+               across paths. Hidden in Generate mode (which uses the selects below). -->
+          <div id="multiSelect" class="hidden">
             <div class="field">
-              <span class="label">Course</span>
-              <div class="select-wrap"><select id="courseSel"></select></div>
+              <span class="label">Search &amp; select what to practice</span>
+              <input type="search" id="msSearch" placeholder="Search tracks, courses, units, topics…" autocomplete="off" />
+            </div>
+            <div class="ms-toolbar">
+              <span class="ms-summary" id="msSummary">Nothing selected yet</span>
+              <button type="button" class="ms-clear" id="msClear" onclick="App.msClear()">Clear</button>
+            </div>
+            <div id="msTree" class="ms-tree"></div>
+          </div>
+
+          <!-- Cascading single-scope selects (Generate mode). -->
+          <div id="cascadeSelect">
+            <div class="field">
+              <span class="label">Track / Path</span>
+              <div class="select-wrap"><select id="trackSel"></select></div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <span class="label">Course</span>
+                <div class="select-wrap"><select id="courseSel"></select></div>
+              </div>
+              <div class="field">
+                <span class="label">Unit / Lesson</span>
+                <div class="select-wrap"><select id="lessonSel"></select></div>
+              </div>
             </div>
             <div class="field">
-              <span class="label">Unit / Lesson</span>
-              <div class="select-wrap"><select id="lessonSel"></select></div>
+              <span class="label">Sub-Lesson / Topic</span>
+              <div class="select-wrap"><select id="topicSel"></select></div>
             </div>
           </div>
-          <div class="field">
-            <span class="label">Sub-Lesson / Topic</span>
-            <div class="select-wrap"><select id="topicSel"></select></div>
-          </div>
+
           <div class="field">
             <span class="label">Number of Questions</span>
             <input type="number" id="count" value="5" min="1" max="50" />
@@ -327,35 +346,23 @@
           <button class="fc-nav" id="fcNext" onclick="App.nextCard()" aria-label="Next card">›</button>
         </div>
 
-        <div class="fc-status" id="fcStatus">
-          <button class="fc-status-btn learning" data-status="learning" onclick="App.setCardStatus('learning')">Still learning</button>
-          <button class="fc-status-btn important" data-status="important" onclick="App.setCardStatus('important')">Important</button>
-          <button class="fc-status-btn mastered" data-status="mastered" onclick="App.setCardStatus('mastered')">Mastered</button>
+        <!-- Quiz performance tied to this card (its topic's questions): count,
+             your accuracy, and an expandable list of the questions you attempted. -->
+        <div class="fc-cardstats" id="fcCardStats">
+          <button class="fc-cardstats-head" id="fcStatsToggle" onclick="App.toggleCardStats()" aria-expanded="false">
+            <span class="fc-cardstats-summary" id="fcStatsSummary">Loading question stats…</span>
+            <span class="fc-cardstats-caret" id="fcStatsCaret">▸</span>
+          </button>
+          <div class="fc-cardstats-body hidden" id="fcStatsBody"></div>
         </div>
 
         <div class="fc-actions">
+          <label class="fc-quiz-count" for="fcQuizCount">Questions
+            <input type="number" id="fcQuizCount" value="3" min="1" max="10" />
+          </label>
           <button class="btn btn-ai" id="fcQuizBtn" onclick="App.quizMeOnCard()">Quiz me on this</button>
-          <button class="btn btn-chat" id="fcChatToggle" onclick="App.toggleCardChat()">💬 Chat about this card</button>
         </div>
         <div id="fcQuizErr" class="error-text"></div>
-
-        <!-- Per-card tutor chat. Each exchange rewrites this card's explanation
-             in place (personalized, saved to your account). -->
-        <div id="fcChat" class="chat-panel hidden">
-          <div class="chat-head">
-            <div>
-              <div class="chat-title">Chat about this card</div>
-              <div class="chat-hint">I'll answer, and improve this card's explanation for you each time.</div>
-            </div>
-            <button class="chat-revert hidden" id="fcChatRevert" onclick="App.revertCard()">Revert to original</button>
-          </div>
-          <div class="chat-log" id="fcChatLog"></div>
-          <div class="chat-input">
-            <textarea id="fcChatInput" rows="2" placeholder="Ask anything about this card…"
-                      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();App.sendCardChat();}"></textarea>
-            <button class="btn btn-primary" id="fcChatSend" onclick="App.sendCardChat()">Send</button>
-          </div>
-        </div>
       </div>
     </section>
   </main>
@@ -388,6 +395,37 @@
                   onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();App.sendScopeChat();}"></textarea>
         <button class="btn btn-primary" id="scopeChatSend" onclick="App.sendScopeChat()">Send</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ============== Floating AI assistant + cost calculator ============== -->
+  <!-- Always-available (when signed in): a chat FAB that sees on-screen context,
+       and a live token-cost pill. Mounted on the body so they float over every view. -->
+  <div id="assistantDock" class="hidden">
+    <div class="cost-detail hidden" id="costDetail"></div>
+    <div class="cost-pill" id="costPill" onclick="App.toggleCostDetail()" title="Your AI token spend (click for detail)">
+      <span class="cost-icon">◈</span>
+      <span class="cost-figs">
+        <span class="cost-main" id="costMain">$0.0000</span>
+        <span class="cost-sub" id="costSub">session · $0.0000 all-time</span>
+      </span>
+    </div>
+    <button class="assistant-fab" id="assistantFab" onclick="App.toggleAssistant()" aria-label="Open study assistant">💬</button>
+  </div>
+
+  <div id="assistantPanel" class="assistant-panel hidden">
+    <div class="assistant-head">
+      <div>
+        <div class="assistant-title">Study Assistant</div>
+        <div class="assistant-hint" id="assistantHint">I can see what's on your screen. Ask me anything.</div>
+      </div>
+      <button class="assistant-close" onclick="App.toggleAssistant()" aria-label="Close">×</button>
+    </div>
+    <div class="chat-log" id="assistantLog"></div>
+    <div class="chat-input">
+      <textarea id="assistantInput" rows="2" placeholder="Ask about what's on your screen…"
+                onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();App.sendAssistant();}"></textarea>
+      <button class="btn btn-primary" id="assistantSend" onclick="App.sendAssistant()">Send</button>
     </div>
   </div>
 

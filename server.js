@@ -35,6 +35,12 @@ import {
   getCardOverlays,
   getScopeChat,
   saveScopeChat,
+  getTopicAttempts,
+  getAssistantChat,
+  saveAssistantChat,
+  mergeIntoMathematics,
+  addUsage,
+  getUsage,
   slug,
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
@@ -52,8 +58,11 @@ import {
   generateFlashcardQuestion,
   generateCardChat,
   generateScopeChat,
+  generateAssistantChat,
+  generateFlashcardQuestions,
   latexifyQuestions,
 } from './lib/gemini.js';
+import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
 import { deepseekConfigured, listDeepSeekModels } from './lib/deepseek.js';
@@ -186,6 +195,21 @@ function rateLimitAI(req, res, next) {
 // The account whose progress a request reads/writes: the effective user when signed in, else null
 // (guest). Guests see the catalog with fresh/zero stats.
 const optionalUser = (req) => (isAuthed(req) ? effectiveUser(req) : null);
+
+// AI cost accounting: scope every /api request in an AsyncLocalStorage usage
+// tally that the provider calls write into (lib/usage.js). When the response
+// finishes (works for streaming too) and any tokens were spent, persist the
+// delta to the signed-in user's lifetime tally for the on-screen cost widget.
+app.use('/api', (req, res, next) => {
+  const store = newUsage();
+  res.on('finish', () => {
+    if (store.calls > 0) {
+      const user = optionalUser(req);
+      if (user) addUsage(user, store).catch(() => {});
+    }
+  });
+  runWithUsage(store, () => next());
+});
 
 app.post('/api/auth/login', (req, res) => {
   if (!checkPassword(req.body?.password)) {
@@ -418,6 +442,15 @@ app.get('/api/streak', requireAuth, async (req, res, next) => {
   }
 });
 
+// Auth: lifetime AI token/cost tally for the on-screen cost calculator.
+app.get('/api/usage', requireAuth, async (req, res, next) => {
+  try {
+    res.json(await getUsage(req.userEmail));
+  } catch (e) {
+    next(e);
+  }
+});
+
 /**
  * "Progress" summary using the tree metric the dashboard shows:
  * a topic's progress = its accuracy, or 0 if never attempted; a parent's
@@ -506,6 +539,32 @@ app.post('/api/quiz/select', requireAuth, async (req, res, next) => {
     const unseen = shuffle(valid.filter((q) => !seen.has(q.question.trim())));
     const seenQs = shuffle(valid.filter((q) => seen.has(q.question.trim())));
 
+    res.json(packageQuestions([...unseen, ...seenQs], metaIndex(catalog), count));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Public + mastery: quiz over an EXPLICIT set of topics (the multi-select Live
+// Quiz builder). The client resolves its checkbox tree to a union of topic names
+// and posts them here. Signed-in users get unseen questions first (like
+// /api/quiz/select); guests just get a shuffled sample.
+app.post('/api/quiz/multi', async (req, res, next) => {
+  try {
+    const count = clampCount(req.body?.count);
+    const topics = [...new Set((Array.isArray(req.body?.topics) ? req.body.topics : [])
+      .map((t) => String(t || '').trim()).filter(Boolean))];
+    if (!topics.length) return res.json([]);
+
+    const user = optionalUser(req);
+    const catalog = await getCatalog(user);
+    const pool = await getQuestionsForTopics(topics);
+    if (!user) {
+      return res.json(packageQuestions(shuffle(pool), metaIndex(catalog), count));
+    }
+    const seen = await getSeenQuestionTexts(user);
+    const unseen = shuffle(pool.filter((q) => !seen.has(q.question.trim())));
+    const seenQs = shuffle(pool.filter((q) => seen.has(q.question.trim())));
     res.json(packageQuestions([...unseen, ...seenQs], metaIndex(catalog), count));
   } catch (e) {
     next(e);
@@ -825,12 +884,14 @@ app.post('/api/flashcards/status', requireAuth, async (req, res, next) => {
   }
 });
 
-// Auth: "quiz me on this" — generate ONE MCQ for a card's concept, bank it under
-// the card's real topic (source 'flashcard'), and return it packaged so the
-// client runs it as a normal 1-question quiz (logged, mastery + streak updated).
+// Auth: "quiz me on this" — generate `count` MCQs (1–10, chosen by the learner)
+// for a card's concept, bank them under the card's real topic (source
+// 'flashcard'), and return them packaged so the client runs them as a normal
+// quiz (logged, mastery + streak updated).
 app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next) => {
   try {
     const cardId = String(req.body?.cardId || '').trim();
+    const count = Math.min(10, Math.max(1, parseInt(req.body?.count, 10) || 1));
     if (!cardId) return res.status(400).json({ error: 'cardId is required' });
     const card = await getFlashcardById(cardId);
     if (!card) return res.status(404).json({ error: 'Card not found' });
@@ -843,12 +904,34 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     const meta = idx.get(card.topic);
     const scopeLabel = [meta.course, meta.lesson, card.topic].filter(Boolean).join(' › ');
 
-    const q = await generateFlashcardQuestion(
+    const qs = await generateFlashcardQuestions(
       { topic: card.topic, scopeLabel, concept: card.concept, intuition: card.intuition, formula: card.formula },
+      count,
       aiChoice(req),
     );
-    await addQuestion({ ...q, source: 'flashcard' });
-    res.json(packageQuestions([q], idx, 1)[0]);
+    for (const q of qs) await addQuestion({ ...q, source: 'flashcard' });
+    res.json(packageQuestions(qs, idx, count));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: per-flashcard quiz stats — how many questions exist for the card's topic,
+// and this user's accuracy + attempted-question list for it (task: tie cards to
+// quiz performance). Multiple cards can share a topic, so these reflect the topic.
+app.get('/api/flashcards/card-stats', requireAuth, async (req, res, next) => {
+  try {
+    const cardId = String(req.query?.cardId || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    if (!card.topic) return res.json({ topic: '', questionCount: 0, attempts: 0, correct: 0, accuracy: null, questions: [] });
+
+    const [pool, attempts] = await Promise.all([
+      getQuestionsForTopics([card.topic]),
+      getTopicAttempts(req.userEmail, card.topic),
+    ]);
+    res.json({ topic: card.topic, questionCount: pool.length, ...attempts });
   } catch (e) {
     next(e);
   }
@@ -995,6 +1078,36 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
   }
 });
 
+/* --------------------------- Global AI assistant -------------------------- */
+// Auth: load this user's running assistant thread (for the floating chat).
+app.get('/api/assistant/chat', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ messages: await getAssistantChat(req.userEmail) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: send a message to the always-available assistant. The client passes a
+// STRUCTURED snapshot of what's on screen (view, selection, current question or
+// flashcard, recent answers) as `context`; the assistant answers grounded in it.
+app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const message = String(req.body?.message || '').trim();
+    if (!message) return res.status(400).json({ error: 'A message is required' });
+    const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
+
+    const history = await getAssistantChat(req.userEmail);
+    const out = await generateAssistantChat({ context, history, message }, aiChoice(req));
+
+    const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
+    await saveAssistantChat(req.userEmail, messages);
+    res.json({ reply: out.reply, visual: out.visual });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* --------------------------- progress AI features ------------------------- */
 // Auth: AI study guide for a scope — reads the existing questions and teaches
 // the concepts the learner needs BEFORE attempting that section.
@@ -1128,6 +1241,20 @@ app.post('/api/admin/latexify', requireAdmin, async (req, res, next) => {
       await bulkUpdateQuestions(updates);
     }
     res.json({ ok: true, converted, skipped, remaining: Math.max(0, pending.length - converted) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: one-time, idempotent merge of the math tracks into a single
+// "Mathematics" track (renames Math Foundations, folds in Mathematics for ML),
+// re-keying mastery stats + flashcard decks. Safe to re-run (reports 0 moved).
+app.post('/api/admin/merge-math', requireAdmin, async (_req, res, next) => {
+  try {
+    const report = await mergeIntoMathematics();
+    // Refresh the BigQuery topics snapshot to mirror the rename (default account only).
+    getTopicsRows(DEFAULT_ACCOUNT).then(replaceTopics).catch(() => {});
+    res.json({ ok: true, ...report });
   } catch (e) {
     next(e);
   }
