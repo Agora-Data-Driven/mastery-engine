@@ -1925,6 +1925,27 @@ const App = (() => {
     }
   }
 
+  // Wipe the running thread server-side and reset the panel to a blank slate.
+  async function newAssistantChat() {
+    const log = $('assistantLog');
+    const btn = $('assistantNew');
+    if (btn) btn.disabled = true;
+    try {
+      await api('/api/assistant/chat', { method: 'DELETE' });
+    } catch (e) {
+      // Non-fatal: still give the user a fresh local view even if the clear failed.
+      console.error(e);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+    renderChatLog(log, []); // shows the "No messages yet" empty state
+    assistant.loaded = true;
+    updateAssistantHint();
+    const input = $('assistantInput');
+    input.value = '';
+    input.focus();
+  }
+
   async function sendAssistant() {
     const input = $('assistantInput');
     const msg = input.value.trim();
@@ -2173,6 +2194,6 @@ const App = (() => {
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openScopeChat, closeScopeChat, sendScopeChat,
-    toggleAssistant, sendAssistant, toggleCostDetail, msClear,
+    toggleAssistant, sendAssistant, newAssistantChat, toggleCostDetail, msClear,
   };
 })();
