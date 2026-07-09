@@ -27,6 +27,7 @@ import {
   getFlashcards,
   getFlashcardById,
   getAllFlashcards,
+  getAllFlashcardsWithId,
   saveFlashcards,
   getFlashcardStatuses,
   setFlashcardStatus,
@@ -656,18 +657,73 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
   }
 });
 
-// Auth: the flashcard analogue of the Mastery quiz. Pick the single weakest/
-// stalest topic across all tracks and return its scope, so the client can open
-// a focused flashcard deck for exactly where the user needs the most help.
-app.post('/api/flashcards/priority', requireAuth, async (req, res, next) => {
+// Auth: the flashcard analogue of the Mastery quiz. Instead of one deck, build a
+// single review deck of cards drawn from the learner's WEAKEST topics, interleaved
+// round-robin across tracks (and across topics within a track) — the same "mix it
+// up, weakest first" philosophy as /api/quiz/priority, applied to flashcards.
+const MASTERY_DECK_SIZE = 24;
+app.post('/api/flashcards/mastery', requireAuth, async (req, res, next) => {
   try {
     const catalog = await getCatalog(req.userEmail);
-    const ranked = catalog
-      .filter((r) => r.topic && r.priority != null)
-      .sort((a, b) => (b.priority - a.priority) || (Math.random() - 0.5));
-    if (!ranked.length) return res.status(404).json({ error: 'No topics to study yet.' });
-    const t = ranked[0];
-    res.json({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic });
+    // Priority per topic (weakest/stalest first), carrying its track for interleaving.
+    const topicMeta = new Map();
+    for (const r of catalog) {
+      if (!r.topic || r.priority == null) continue;
+      if (!topicMeta.has(r.topic)) topicMeta.set(r.topic, { track: r.track || 'Unknown', priority: r.priority });
+    }
+
+    // All cards, grouped by topic; keep only the MOST-SPECIFIC deck level per topic
+    // (topic > lesson > course) so we don't mix near-duplicate cards from wider decks.
+    const LEVEL_RANK = { topic: 3, lesson: 2, course: 1 };
+    const all = await getAllFlashcardsWithId();
+    const byTopic = new Map();
+    for (const c of all) {
+      const t = c.topic || '';
+      if (!t || !topicMeta.has(t)) continue;
+      const rank = LEVEL_RANK[c.level] || 0;
+      const cur = byTopic.get(t);
+      if (!cur || rank > cur.rank) byTopic.set(t, { rank, cards: [c] });
+      else if (rank === cur.rank) cur.cards.push(c);
+    }
+    if (!byTopic.size) {
+      return res.json({ cards: [], topics: 0, tracks: 0 });
+    }
+
+    // Order each topic's cards, and rank topics that HAVE cards by priority.
+    for (const g of byTopic.values()) g.cards.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const rankedTopics = [...byTopic.keys()]
+      .sort((a, b) => (topicMeta.get(b).priority - topicMeta.get(a).priority) || (Math.random() - 0.5));
+
+    // Group weakest-first topics by track so we can round-robin across tracks.
+    const byTrack = new Map();
+    for (const t of rankedTopics) {
+      const tr = topicMeta.get(t).track;
+      if (!byTrack.has(tr)) byTrack.set(tr, []);
+      byTrack.get(tr).push({ t, cards: byTopic.get(t).cards, i: 0 });
+    }
+
+    // Interleave: round-robin across tracks; within a track, advance across its weak
+    // topics one card at a time, so consecutive cards mix topics AND tracks.
+    const trackState = shuffle([...byTrack.keys()]).map((tr) => ({ topics: byTrack.get(tr), ptr: 0 }));
+    const picked = [];
+    for (let more = true; more && picked.length < MASTERY_DECK_SIZE; ) {
+      more = false;
+      for (const st of trackState) {
+        if (picked.length >= MASTERY_DECK_SIZE) break;
+        const n = st.topics.length;
+        for (let step = 0; step < n; step++) {
+          const topic = st.topics[st.ptr % n];
+          st.ptr = (st.ptr + 1) % n;
+          if (topic.i < topic.cards.length) { picked.push(topic.cards[topic.i++]); more = true; break; }
+        }
+      }
+    }
+
+    res.json({
+      cards: await packageFlashcards(picked, req.userEmail),
+      topics: byTopic.size,
+      tracks: byTrack.size,
+    });
   } catch (e) {
     next(e);
   }
