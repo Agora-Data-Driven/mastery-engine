@@ -24,6 +24,7 @@ import {
   resetProgress,
   getAllQuestions,
   bulkUpdateQuestions,
+  bulkUpdateFlashcards,
   getFlashcards,
   getFlashcardById,
   getAllFlashcards,
@@ -65,6 +66,7 @@ import {
   generateAssistantChat,
   generateFlashcardQuestions,
   latexifyQuestions,
+  reformatFlashcards,
 } from './lib/gemini.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
@@ -1126,6 +1128,65 @@ app.post('/api/flashcards/chat/reset', requireAuth, async (req, res, next) => {
   }
 });
 
+/* --------------------------- Fix card formatting -------------------------- */
+// Heuristics for a flashcard field whose code/math will render wrong: code
+// tokens trapped inside a $...$ math span, long prose crammed into \text{...},
+// prose glued on with \implies/\text, or an odd (unbalanced) count of $ delims.
+const CODE_IN_MATH = /\$[^$]*(\bdef\b|\bclass\b|\bimport\b|\breturn\b|\blambda\b|\bself\b|print\(|\(self|\)\s*:|=>)/;
+const PROSE_IN_TEXT = /\\text\{[^}]{30,}\}/;
+const GLUED_IMPLIES = /\\(implies|Rightarrow|to)\b[^$]*\\text\{/;
+function fieldLooksBroken(s) {
+  const str = String(s || '');
+  if (!str) return false;
+  if (CODE_IN_MATH.test(str) || PROSE_IN_TEXT.test(str) || GLUED_IMPLIES.test(str)) return true;
+  const dollars = (str.match(/(?<!\\)\$/g) || []).length; // unescaped $ delimiters
+  return dollars % 2 === 1;
+}
+const flashcardNeedsFormatFix = (c) =>
+  fieldLooksBroken(c.formula) || fieldLooksBroken(c.intuition) || fieldLooksBroken(c.concept);
+
+// Keep only cleaned fields that are non-empty AND actually differ, so a bad or
+// no-op model response can never blank a card. Returns the accepted patch.
+function acceptCardFix(original, out) {
+  const patch = {};
+  if (!out) return patch;
+  for (const f of ['concept', 'intuition', 'formula']) {
+    const v = out[f];
+    if (typeof v === 'string' && v.trim() && v !== original[f]) patch[f] = v;
+  }
+  return patch;
+}
+
+// Admin: reformat ONE shared flashcard's code/math so it renders correctly, and
+// save it for everyone. Meaning is preserved (formatting only); never blanks a
+// field. Backs the assistant's "fixformat" quick command. Returns the (possibly
+// unchanged) card plus which fields changed.
+app.post('/api/flashcards/fix-format', requireAdmin, rateLimitAI, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const orig = { concept: card.concept || '', intuition: card.intuition || '', formula: card.formula || '' };
+    let arr;
+    try {
+      arr = await reformatFlashcards([{ id: card.id, ...orig }], aiChoice(req));
+    } catch {
+      return res.status(502).json({ error: 'The reformatter did not return usable output. Try again.' });
+    }
+    const out = (arr || []).find((o) => o && o.id === card.id) || (arr || [])[0];
+    const patch = acceptCardFix(orig, out);
+    const changed = Object.keys(patch);
+    if (changed.length) await bulkUpdateFlashcards([{ id: card.id, ...patch }]);
+
+    const merged = { ...orig, ...patch };
+    res.json({ changed, card: { id: card.id, ...merged } });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Scope-level chat id: works for any track/course/lesson selection.
 const scopeChatId = ({ track, course, lesson }) =>
   slug(track || '', isAll(course) ? '' : course || '', isAll(lesson) ? '' : lesson || '');
@@ -1382,6 +1443,48 @@ app.post('/api/admin/latexify', requireAdmin, async (req, res, next) => {
       await bulkUpdateQuestions(updates);
     }
     res.json({ ok: true, converted, skipped, remaining: Math.max(0, pending.length - converted) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: sweep every shared flashcard and fix the code/math formatting of the
+// broken ones (same reformatter as the per-card "fixformat" command). Processes
+// up to `max` candidates per call, commits each batch (resumable), and reports
+// how many were fixed. Meaning is preserved; a field is only rewritten when it
+// actually changes to non-empty content.
+app.post('/api/admin/fix-flashcard-formats', requireAdmin, async (req, res, next) => {
+  try {
+    const max = Math.min(parseInt(req.query.max, 10) || 120, 600);
+    const all = await getAllFlashcardsWithId();
+    const pending = all.filter(flashcardNeedsFormatFix);
+    const todo = pending.slice(0, max);
+
+    let fixed = 0;
+    let skipped = 0;
+    const BATCH = 10;
+    for (let i = 0; i < todo.length; i += BATCH) {
+      const chunk = todo.slice(i, i + BATCH).map((c) => ({
+        id: c.id, concept: c.concept || '', intuition: c.intuition || '', formula: c.formula || '',
+      }));
+      let out;
+      try {
+        out = await reformatFlashcards(chunk, aiChoice(req));
+      } catch {
+        skipped += chunk.length;
+        continue;
+      }
+      const byId = new Map((out || []).map((o) => [o.id, o]));
+      const updates = [];
+      for (const c of chunk) {
+        const patch = acceptCardFix(c, byId.get(c.id));
+        if (Object.keys(patch).length) { updates.push({ id: c.id, ...patch }); fixed += 1; }
+        else skipped += 1;
+      }
+      // Commit each batch immediately so progress persists / is resumable.
+      await bulkUpdateFlashcards(updates);
+    }
+    res.json({ ok: true, fixed, skipped, candidates: pending.length, remaining: Math.max(0, pending.length - fixed) });
   } catch (e) {
     next(e);
   }
