@@ -98,6 +98,25 @@ const App = (() => {
     }
   }
 
+  // Multi-topic quiz (the searchable multi-select Live Quiz builder). Falls back
+  // to the cached bank, filtered to the selected topics, when offline.
+  async function getQuizMulti(topics, count) {
+    try {
+      const qs = await api('/api/quiz/multi', { method: 'POST', body: JSON.stringify({ topics, count }) });
+      state.offline = false;
+      return qs;
+    } catch (e) {
+      if (isNetworkError(e)) {
+        const bank = lsGet(LS.qbank) || [];
+        const set = new Set(topics);
+        const n = Math.min(50, Math.max(1, parseInt(count, 10) || 5));
+        const qs = shuffle(bank.filter((q) => set.has(q.topic))).slice(0, n);
+        if (qs.length) { state.offline = true; return qs; }
+      }
+      throw e;
+    }
+  }
+
   function enqueueResults(results) {
     const q = lsGet(LS.queue) || [];
     q.push({ results, at: Date.now() });
@@ -279,6 +298,18 @@ const App = (() => {
   function showOnly(view) {
     VIEWS.forEach((v) => (v === view ? show(v) : hide(v)));
     refreshModeChip();
+    refreshAssistantDock();
+  }
+
+  // The floating assistant + cost widget are available on every view once signed
+  // in (hidden on the login screen).
+  function refreshAssistantDock() {
+    const dock = $('assistantDock');
+    if (!dock) return;
+    const on = state.authed && currentView() !== 'login';
+    dock.classList.toggle('hidden', !on);
+    if (on) refreshCost();
+    else $('assistantPanel')?.classList.add('hidden');
   }
 
   /* --------------------------- Cascading menus --------------------------- */
@@ -375,22 +406,28 @@ const App = (() => {
     // Toggle the two panels of the setup card.
     $('quizBuilder').classList.toggle('hidden', isProgress);
     $('progressPanel').classList.toggle('hidden', !isProgress);
-    // Priority CTA only makes sense in mastery quiz/gen flows.
-    $('priorityBtn').classList.toggle('hidden', !mastery || isProgress);
+    // Mastery Quiz CTA is available to mastery users on EVERY tab (including My
+    // Progress) — it sits above the mode segment so it renders on all of them.
+    $('priorityBtn').classList.toggle('hidden', !mastery);
 
     if (isProgress) renderProgressTree();
     else updateSetupCopy();
   }
 
   function updateSetupCopy() {
-    if (state.mode === 'GEN') {
+    const isGen = state.mode === 'GEN';
+    // Live Quiz uses the multi-select tree; Generate keeps the single-scope selects.
+    $('multiSelect').classList.toggle('hidden', isGen);
+    $('cascadeSelect').classList.toggle('hidden', !isGen);
+    if (isGen) {
       $('setupTitle').textContent = 'Generate mastery questions';
       $('setupSub').textContent = 'Pick a scope and let the Wise Teacher write harder questions into your bank.';
       $('launchBtn').textContent = 'Generate Questions';
     } else {
       $('setupTitle').textContent = 'Build your quiz';
-      $('setupSub').textContent = 'Drill down as far as you like. Leave lower levels on "Review All" to widen the net.';
+      $('setupSub').textContent = 'Search and tick any mix of tracks, courses, and units to quiz on.';
       $('launchBtn').textContent = 'Launch Engine';
+      renderMultiTree();
     }
   }
 
@@ -453,6 +490,21 @@ const App = (() => {
     }
   }
 
+  // Admin: run the one-time math-track merge (idempotent; safe to re-run).
+  async function mergeMath() {
+    if (!confirm('Merge "Math Foundations" and "Mathematics for Machine Learning" into a single "Mathematics" track? This re-keys mastery stats and is safe to re-run.')) return;
+    const btn = $('adminMergeMath');
+    if (btn) { btn.disabled = true; btn.textContent = 'Merging…'; }
+    try {
+      const r = await api('/api/admin/merge-math', { method: 'POST' });
+      alert(`Done. Topics moved: ${r.topicsMoved}, stats moved: ${r.statsMoved}, decks moved: ${r.decksMoved}.`);
+      window.location.reload();
+    } catch (e) {
+      alert('Merge failed: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Merge Math'; }
+    }
+  }
+
   async function submitPassword() {
     const btn = $('authSubmit');
     btn.disabled = true;
@@ -488,8 +540,11 @@ const App = (() => {
         if (r.errors && r.errors.length) msg += `\n\nSome failed:\n` + r.errors.join('\n');
         alert(msg);
       } else {
-        const path = state.guest ? '/api/quiz/guest' : '/api/quiz/select';
-        const qs = await getQuiz(path, selection());
+        // Live Quiz: the multi-select tree's union of ticked topics.
+        const topics = [...ms.selected];
+        if (!topics.length) { alert('Pick at least one track, course, or unit to quiz on.'); return; }
+        const count = clampCountClient($('count').value);
+        const qs = await getQuizMulti(topics, count);
         startQuiz(qs);
       }
     } catch (e) {
@@ -1284,11 +1339,9 @@ const App = (() => {
     fc.level = scope.topic ? 'topic' : scope.lesson ? 'lesson' : 'course';
     fc.label = label || scope.course || 'Flashcards';
     fc.highway = false;
-    fc.chatOpen = false;
-    fc.chatCardId = null;
+    fc.statsOpen = false;
+    fc._statsByTopic = {};
     $('fcHighway').checked = false;
-    $('fcChat').classList.add('hidden');
-    $('fcChatToggle').classList.remove('active');
     showOnly('flashcardView');
     $('fcTitle').textContent = 'Flashcards: ' + fc.label;
     $('fcSub').textContent = fc.level === 'course'
@@ -1384,8 +1437,6 @@ const App = (() => {
     renderCard();
   }
 
-  const STATUS_LABEL = { mastered: 'Mastered', learning: 'Still learning', important: 'Important' };
-
   function renderCard() {
     const card = fc.view[fc.idx];
     const stage = $('flashcard');
@@ -1397,10 +1448,7 @@ const App = (() => {
     }
     stage.classList.toggle('flipped', fc.flipped);
 
-    const badges =
-      (card.highway ? '<span class="fc-badge highway">Highway</span>' : '') +
-      (card.personalized ? '<span class="fc-badge personalized">Personalized</span>' : '') +
-      (card.status ? `<span class="fc-badge ${card.status}">${STATUS_LABEL[card.status]}</span>` : '');
+    const badges = card.highway ? '<span class="fc-badge highway">Highway</span>' : '';
 
     // Front: the concept prompt.
     $('fcFront').innerHTML = `
@@ -1427,18 +1475,13 @@ const App = (() => {
       <div class="fc-flip-hint">Click to flip back</div>`;
     typeset($('fcBack'));
 
-    // Status buttons reflect this card's label.
-    document.querySelectorAll('#fcStatus .fc-status-btn').forEach((b) =>
-      b.classList.toggle('active', b.dataset.status === card.status));
-
     updateCounter();
     $('fcQuizErr').textContent = '';
     $('fcPrev').disabled = fc.idx === 0;
     $('fcNext').disabled = fc.idx >= fc.view.length - 1;
 
-    // Keep the open chat pointed at the card on screen (reload only on a real switch).
-    if (fc.chatOpen && card.id !== fc.chatCardId) loadCardChat();
-    $('fcChatRevert').classList.toggle('hidden', !card.personalized);
+    // Per-card quiz performance (its topic's questions + your attempts).
+    renderCardStats(card);
   }
 
   function updateCounter() {
@@ -1453,39 +1496,88 @@ const App = (() => {
   function nextCard() { if (fc.idx < fc.view.length - 1) { fc.idx++; fc.flipped = false; renderCard(); } }
   function prevCard() { if (fc.idx > 0) { fc.idx--; fc.flipped = false; renderCard(); } }
 
-  async function setCardStatus(status) {
-    const card = fc.view[fc.idx];
-    if (!card) return;
-    const next = card.status === status ? null : status; // toggle off if re-clicked
-    card.status = next; // optimistic (fc.view holds the same object refs as fc.cards)
-    renderCard();
+  /* ------------------- Per-card quiz performance (stats) ----------------- */
+  // Cards are tied to their topic's questions: show how many exist and the
+  // learner's accuracy, with an expandable list of the questions they attempted.
+  function renderCardStats(card) {
+    const summary = $('fcStatsSummary');
+    const body = $('fcStatsBody');
+    if (!summary || !body) return;
+    // Collapse state persists across cards; body re-populates per card.
+    $('fcStatsBody').classList.toggle('hidden', !fc.statsOpen);
+    $('fcStatsCaret').textContent = fc.statsOpen ? '▾' : '▸';
+    $('fcStatsToggle').setAttribute('aria-expanded', String(fc.statsOpen));
+
+    const topic = card.topic || '';
+    const cached = topic ? fc._statsByTopic[topic] : null;
+    if (cached) { paintCardStats(cached); return; }
+    summary.textContent = 'Loading question stats…';
+    body.innerHTML = '';
+    if (!topic) { summary.textContent = 'This card is not linked to a topic yet.'; return; }
+    loadCardStats(card.id, topic);
+  }
+
+  async function loadCardStats(cardId, topic) {
     try {
-      await api('/api/flashcards/status', {
-        method: 'POST', body: JSON.stringify({ cardId: card.id, status: next }),
-      });
+      const r = await api('/api/flashcards/card-stats?cardId=' + encodeURIComponent(cardId));
+      fc._statsByTopic[topic] = r;
+      // Only paint if we're still on a card of this topic.
+      const cur = fc.view[fc.idx];
+      if (cur && cur.topic === topic) paintCardStats(r);
     } catch (e) {
-      $('fcQuizErr').textContent = 'Could not save label: ' + e.message;
+      $('fcStatsSummary').textContent = 'Could not load question stats.';
     }
+  }
+
+  function paintCardStats(r) {
+    const acc = r.accuracy == null ? '—' : r.accuracy + '%';
+    $('fcStatsSummary').innerHTML =
+      `<strong>${r.questionCount}</strong> question${r.questionCount === 1 ? '' : 's'} · ` +
+      `<span style="color:${accColor(r.accuracy)};font-weight:700">${acc}</span> accuracy · ` +
+      `${r.attempts} attempted`;
+    const body = $('fcStatsBody');
+    if (!r.questions || !r.questions.length) {
+      body.innerHTML = '<p class="fc-stats-empty">You have not attempted any questions on this topic yet. Try "Quiz me on this".</p>';
+    } else {
+      body.innerHTML = r.questions.map((q) => `
+        <div class="fc-stats-q">
+          <span class="tag ${q.result ? 'pass' : 'fail'}">${q.result ? 'PASS' : 'FAIL'}</span>
+          <span class="fc-stats-qtext">${esc(q.question)}</span>
+        </div>`).join('');
+      typeset(body);
+    }
+  }
+
+  function toggleCardStats() {
+    fc.statsOpen = !fc.statsOpen;
+    $('fcStatsBody').classList.toggle('hidden', !fc.statsOpen);
+    $('fcStatsCaret').textContent = fc.statsOpen ? '▾' : '▸';
+    $('fcStatsToggle').setAttribute('aria-expanded', String(fc.statsOpen));
   }
 
   async function quizMeOnCard() {
     const card = fc.view[fc.idx];
     if (!card) return;
+    const count = Math.min(10, Math.max(1, parseInt($('fcQuizCount').value, 10) || 3));
     const btn = $('fcQuizBtn');
     btn.disabled = true;
     const label = btn.textContent;
-    btn.textContent = 'Writing a question…';
+    btn.textContent = count > 1 ? `Writing ${count} questions…` : 'Writing a question…';
     $('fcQuizErr').textContent = '';
     try {
-      const q = await api('/api/flashcards/quiz', {
-        method: 'POST', body: JSON.stringify({ cardId: card.id }),
+      const qs = await api('/api/flashcards/quiz', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id, count }),
       });
-      if (!q || !q.question || !Array.isArray(q.options)) throw new Error('No usable question came back');
+      const list = Array.isArray(qs) ? qs : [qs];
+      if (!list.length || !list[0] || !Array.isArray(list[0].options)) throw new Error('No usable questions came back');
+      // Stats will change once these are answered — drop the cache so returning
+      // to the card re-fetches the fresh accuracy.
+      if (card.topic) delete fc._statsByTopic[card.topic];
       state.guest = false;
       // logs + updates mastery/streak like any other quiz; "Done" returns to this card.
-      startQuiz([q], { returnTo: 'flashcard' });
+      startQuiz(list, { returnTo: 'flashcard' });
     } catch (e) {
-      $('fcQuizErr').textContent = "Couldn't build a question: " + e.message;
+      $('fcQuizErr').textContent = "Couldn't build questions: " + e.message;
     } finally {
       btn.disabled = false;
       btn.textContent = label;
@@ -1513,81 +1605,6 @@ const App = (() => {
     typeset(el.lastElementChild);
     el.scrollTop = el.scrollHeight;
     return el.lastElementChild;
-  }
-
-  /* ---- Per-card chat: rewrites this card's explanation in place --------- */
-  function toggleCardChat() {
-    fc.chatOpen = !fc.chatOpen;
-    $('fcChat').classList.toggle('hidden', !fc.chatOpen);
-    $('fcChatToggle').classList.toggle('active', fc.chatOpen);
-    if (fc.chatOpen) { loadCardChat(); $('fcChatInput').focus(); }
-  }
-
-  async function loadCardChat() {
-    const card = fc.view[fc.idx];
-    if (!card) return;
-    fc.chatCardId = card.id;
-    const log = $('fcChatLog');
-    log.innerHTML = '<div class="chat-empty">Loading…</div>';
-    try {
-      const r = await api('/api/flashcards/chat?cardId=' + encodeURIComponent(card.id));
-      renderChatLog(log, r.messages);
-    } catch (e) {
-      log.innerHTML = '<div class="chat-empty">Could not load chat: ' + esc(e.message) + '</div>';
-    }
-  }
-
-  async function sendCardChat() {
-    const card = fc.view[fc.idx];
-    if (!card) return;
-    const input = $('fcChatInput');
-    const msg = input.value.trim();
-    if (!msg) return;
-    const log = $('fcChatLog');
-    const send = $('fcChatSend');
-    input.value = '';
-    appendBubble(log, 'user', msg);
-    const thinking = appendBubble(log, 'assistant', 'Thinking…');
-    thinking.classList.add('thinking');
-    send.disabled = true;
-    try {
-      const r = await api('/api/flashcards/chat', {
-        method: 'POST', body: JSON.stringify({ cardId: card.id, message: msg }),
-      });
-      thinking.remove();
-      appendBubble(log, 'assistant', r.reply, r.visual);
-      // Rewrite the card in place (both the visible view + the master list).
-      if (r.card) {
-        const patch = (c) => { if (c) { c.intuition = r.card.intuition; c.formula = r.card.formula; c.visual = r.card.visual; c.personalized = true; } };
-        patch(card);
-        patch(fc.cards.find((c) => c.id === card.id));
-        renderCard();
-      }
-    } catch (e) {
-      thinking.remove();
-      appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
-    } finally {
-      send.disabled = false;
-      input.focus();
-    }
-  }
-
-  async function revertCard() {
-    const card = fc.view[fc.idx];
-    if (!card) return;
-    if (!confirm('Revert this card to the original explanation? Your personalized version and chat for this card will be removed.')) return;
-    try {
-      const r = await api('/api/flashcards/chat/reset', {
-        method: 'POST', body: JSON.stringify({ cardId: card.id }),
-      });
-      const patch = (c) => { if (c) { c.intuition = r.card.intuition; c.formula = r.card.formula; c.visual = r.card.visual; c.personalized = false; } };
-      patch(card);
-      patch(fc.cards.find((c) => c.id === card.id));
-      renderCard();
-      if (fc.chatOpen) renderChatLog($('fcChatLog'), []);
-    } catch (e) {
-      $('fcQuizErr').textContent = 'Could not revert: ' + e.message;
-    }
   }
 
   /* ---- Scope chat: reads a section's cards + questions (AI Support) ------ */
@@ -1818,6 +1835,241 @@ const App = (() => {
     }
   }
 
+  /* --------------------- Floating study assistant ------------------------ */
+  // Always-available tutor that answers with a STRUCTURED snapshot of what's on
+  // screen (view, selection, current question/flashcard, recent answers).
+  const assistant = { loaded: false };
+
+  function assistantContext() {
+    const view = currentView();
+    const ctx = { view };
+    if (view === 'setup') {
+      const s = selection();
+      ctx.scope = { track: s.track, course: s.course, lesson: s.lesson, topic: s.topic };
+    }
+    if (view === 'quiz') {
+      const q = state.questions[state.idx];
+      if (q) {
+        const rec = state.log[state.idx];
+        ctx.question = { question: q.question, options: q.options, answer: q.answer };
+        if (rec) { ctx.question.userAnswer = rec.userAnswer; ctx.question.isCorrect = !!rec.isCorrect; }
+      }
+    }
+    if (view === 'flashcard') {
+      const c = fc.view[fc.idx];
+      if (c) ctx.card = { concept: c.concept, intuition: c.intuition, formula: c.formula, topic: c.topic };
+      else if (fc.scope) ctx.scope = fc.scope;
+    }
+    const recent = (state.log || []).filter(Boolean).slice(-5).map((r) => ({ topic: r.topic, isCorrect: !!r.isCorrect }));
+    if (recent.length) ctx.recent = recent;
+    return ctx;
+  }
+
+  function toggleAssistant() {
+    const panel = $('assistantPanel');
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !opening);
+    $('assistantFab').classList.toggle('active', opening);
+    if (opening) {
+      updateAssistantHint();
+      if (!assistant.loaded) loadAssistant();
+      setTimeout(() => $('assistantInput').focus(), 30);
+    }
+  }
+
+  function updateAssistantHint() {
+    const view = currentView();
+    $('assistantHint').textContent = {
+      quiz: "I can see this question. Ask for a nudge or an explanation.",
+      flashcard: "I can see this flashcard. Ask me to explain it another way.",
+      stats: "I can see your progress. Ask me what to focus on.",
+      setup: "Ask me what to study, or anything about a topic.",
+      result: "Ask me about anything you just answered.",
+    }[view] || "I can see what's on your screen. Ask me anything.";
+  }
+
+  async function loadAssistant() {
+    const log = $('assistantLog');
+    log.innerHTML = '<div class="chat-empty">Loading…</div>';
+    try {
+      const r = await api('/api/assistant/chat');
+      renderChatLog(log, r.messages);
+      assistant.loaded = true;
+    } catch (e) {
+      log.innerHTML = '<div class="chat-empty">Could not load: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  async function sendAssistant() {
+    const input = $('assistantInput');
+    const msg = input.value.trim();
+    if (!msg) return;
+    const log = $('assistantLog');
+    const send = $('assistantSend');
+    input.value = '';
+    appendBubble(log, 'user', msg);
+    const thinking = appendBubble(log, 'assistant', 'Thinking…');
+    thinking.classList.add('thinking');
+    send.disabled = true;
+    try {
+      const r = await api('/api/assistant/chat', {
+        method: 'POST', body: JSON.stringify({ message: msg, context: assistantContext() }),
+      });
+      thinking.remove();
+      appendBubble(log, 'assistant', r.reply, r.visual);
+      assistant.loaded = true;
+      refreshCost();
+    } catch (e) {
+      thinking.remove();
+      appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
+    } finally {
+      send.disabled = false;
+      input.focus();
+    }
+  }
+
+  /* ----------------------------- Cost widget ----------------------------- */
+  // Live AI token/cost pill: "session" (spend since this page load) + all-time.
+  const cost = { baseline: null, total: null };
+
+  function fmtUsd(n) {
+    const v = Number(n) || 0;
+    return '$' + (v < 1 ? v.toFixed(4) : v.toFixed(2));
+  }
+  function fmtTokens(n) {
+    const v = Number(n) || 0;
+    if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return (v / 1e3).toFixed(1) + 'k';
+    return String(v);
+  }
+
+  async function refreshCost() {
+    if (!state.authed) return;
+    try {
+      const u = await api('/api/usage');
+      cost.total = u;
+      if (cost.baseline == null) cost.baseline = u.costUsd || 0; // this session starts here
+      renderCost();
+    } catch { /* ignore (guest / offline) */ }
+  }
+
+  function renderCost() {
+    const u = cost.total;
+    if (!u) return;
+    const sessionCost = Math.max(0, (u.costUsd || 0) - (cost.baseline || 0));
+    $('costMain').textContent = fmtUsd(sessionCost);
+    $('costSub').textContent = `session · ${fmtUsd(u.costUsd)} all-time`;
+    const rows = Object.entries(u.byModel || {})
+      .sort((a, b) => (b[1].costUsd || 0) - (a[1].costUsd || 0))
+      .map(([m, x]) => `<div class="cost-row"><span>${esc(m)}</span><span>${fmtUsd(x.costUsd)}</span></div>`)
+      .join('') || '<div class="cost-row"><span>No spend yet</span><span>$0</span></div>';
+    $('costDetail').innerHTML = `
+      <div class="cost-detail-head">Your AI spend</div>
+      <div class="cost-row total"><span>All-time</span><span>${fmtUsd(u.costUsd)}</span></div>
+      <div class="cost-row"><span>Tokens in / out</span><span>${fmtTokens(u.inputTokens)} / ${fmtTokens(u.outputTokens)}</span></div>
+      <div class="cost-row"><span>Requests</span><span>${u.calls || 0}</span></div>
+      <div class="cost-detail-head">By model</div>
+      ${rows}`;
+  }
+
+  function toggleCostDetail() { $('costDetail').classList.toggle('hidden'); }
+
+  /* --------------------- Multi-select quiz builder ----------------------- */
+  // A searchable Track > Course > Unit checkbox tree. Selection is tracked at the
+  // topic (leaf) level; ticking a parent toggles all its topics. Search narrows
+  // which nodes are rendered without changing the current selection.
+  const ms = { selected: new Set(), search: '', open: new Set(), nodeTopics: new Map() };
+
+  const msSortKeys = (m) => [...m.keys()].sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+  function renderMultiTree() {
+    const treeEl = $('msTree');
+    if (!treeEl) return;
+    const term = ms.search;
+    let leaves = state.catalog.filter((r) => r.topic);
+    if (term) {
+      leaves = leaves.filter((r) =>
+        [r.track, r.course, r.lesson, r.topic].some((v) => (v || '').toLowerCase().includes(term)));
+    }
+    const tracks = new Map();
+    for (const r of leaves) {
+      const t = r.track || 'Unknown Track', c = r.course || 'Unknown Course', l = r.lesson || 'Unknown Unit';
+      if (!tracks.has(t)) tracks.set(t, new Map());
+      const courses = tracks.get(t);
+      if (!courses.has(c)) courses.set(c, new Map());
+      const lessons = courses.get(c);
+      if (!lessons.has(l)) lessons.set(l, new Set());
+      lessons.get(l).add(r.topic);
+    }
+
+    ms.nodeTopics = new Map();
+    let html = '';
+    for (const track of msSortKeys(tracks)) {
+      const courses = tracks.get(track);
+      const tKey = 'T::' + track;
+      const tTopics = [];
+      courses.forEach((ls) => ls.forEach((set) => set.forEach((x) => tTopics.push(x))));
+      ms.nodeTopics.set(tKey, tTopics);
+      const tOpen = !!term || ms.open.has(tKey);
+      html += msRow(tKey, 0, track, tTopics, true, tOpen);
+      if (!tOpen) continue;
+      for (const course of msSortKeys(courses)) {
+        const lessons = courses.get(course);
+        const cKey = 'C::' + track + '||' + course;
+        const cTopics = [];
+        lessons.forEach((set) => set.forEach((x) => cTopics.push(x)));
+        ms.nodeTopics.set(cKey, cTopics);
+        const cOpen = !!term || ms.open.has(cKey);
+        html += msRow(cKey, 1, course, cTopics, true, cOpen);
+        if (!cOpen) continue;
+        for (const lesson of msSortKeys(lessons)) {
+          const lTopics = [...lessons.get(lesson)];
+          const lKey = 'L::' + track + '||' + course + '||' + lesson;
+          ms.nodeTopics.set(lKey, lTopics);
+          html += msRow(lKey, 2, lesson, lTopics, false, false);
+        }
+      }
+    }
+    treeEl.innerHTML = html || '<p class="ms-empty">No matches.</p>';
+    updateMsSummary();
+  }
+
+  function msCheckState(topics) {
+    let sel = 0;
+    for (const t of topics) if (ms.selected.has(t)) sel++;
+    return !sel ? 'off' : sel === topics.length ? 'on' : 'partial';
+  }
+
+  function msRow(key, level, name, topics, expandable, open) {
+    const st = msCheckState(topics);
+    const caret = expandable
+      ? `<button class="ms-caret" data-exp="${esc(key)}" aria-label="Expand">${open ? '▾' : '▸'}</button>`
+      : '<span class="ms-caret-sp"></span>';
+    const mark = st === 'on' ? '✓' : st === 'partial' ? '–' : '';
+    return `<div class="ms-row lvl-${level}" style="padding-left:${8 + level * 18}px">
+      ${caret}
+      <button class="ms-box ${st}" data-check="${esc(key)}" aria-label="Select ${esc(name)}">${mark}</button>
+      <span class="ms-name" data-check="${esc(key)}">${esc(name)}</span>
+      <span class="ms-count">${topics.length}</span>
+    </div>`;
+  }
+
+  function toggleMsNode(key) {
+    const topics = ms.nodeTopics.get(key);
+    if (!topics) return;
+    if (msCheckState(topics) === 'on') topics.forEach((t) => ms.selected.delete(t));
+    else topics.forEach((t) => ms.selected.add(t));
+    renderMultiTree();
+  }
+
+  function updateMsSummary() {
+    const n = ms.selected.size;
+    $('msSummary').textContent = n ? `${n} topic${n === 1 ? '' : 's'} selected` : 'Nothing selected yet';
+  }
+
+  function msClear() { ms.selected.clear(); renderMultiTree(); }
+
   /* ------------------------------- Utils --------------------------------- */
   function shuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -1837,6 +2089,26 @@ const App = (() => {
     $('trackSel').addEventListener('change', filterCourses);
     $('courseSel').addEventListener('change', filterLessons);
     $('lessonSel').addEventListener('change', filterTopics);
+
+    // Multi-select Live Quiz builder: search + tree (event delegation).
+    $('msSearch').addEventListener('input', (e) => {
+      ms.search = e.target.value.trim().toLowerCase();
+      renderMultiTree();
+    });
+    $('msTree').addEventListener('click', (e) => {
+      const exp = e.target.closest('[data-exp]');
+      if (exp) {
+        const k = exp.dataset.exp;
+        if (ms.open.has(k)) ms.open.delete(k); else ms.open.add(k);
+        renderMultiTree();
+        return;
+      }
+      const chk = e.target.closest('[data-check]');
+      if (chk) toggleMsNode(chk.dataset.check);
+    });
+
+    // Keep the cost pill fresh when returning to the tab.
+    window.addEventListener('focus', refreshCost);
 
     // Progress tree: action buttons + expand/collapse (event delegation).
     $('progressTree').addEventListener('click', (e) => {
@@ -1866,7 +2138,7 @@ const App = (() => {
 
   return {
     enterMastery, goHome, setMode,
-    submitPassword, actAs, stopActing,
+    submitPassword, actAs, stopActing, mergeMath,
     launchManual, launchPriority, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
@@ -1874,8 +2146,8 @@ const App = (() => {
     openStats, priorityFromStats, onAiEngineChange,
     analyzeProgress, closeReview, quizFromReview,
     generateFlashcards, regenerateFlashcards, toggleHighway,
-    flipCard, nextCard, prevCard, setCardStatus, quizMeOnCard,
-    toggleCardChat, sendCardChat, revertCard,
+    flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openScopeChat, closeScopeChat, sendScopeChat,
+    toggleAssistant, sendAssistant, toggleCostDetail, msClear,
   };
 })();
