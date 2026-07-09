@@ -1129,18 +1129,28 @@ app.post('/api/flashcards/chat/reset', requireAuth, async (req, res, next) => {
 });
 
 /* --------------------------- Fix card formatting -------------------------- */
-// Heuristics for a flashcard field whose code/math will render wrong: code
-// tokens trapped inside a $...$ math span, long prose crammed into \text{...},
-// prose glued on with \implies/\text, or an odd (unbalanced) count of $ delims.
-const CODE_IN_MATH = /\$[^$]*(\bdef\b|\bclass\b|\bimport\b|\breturn\b|\blambda\b|\bself\b|print\(|\(self|\)\s*:|=>)/;
-const PROSE_IN_TEXT = /\\text\{[^}]{30,}\}/;
-const GLUED_IMPLIES = /\\(implies|Rightarrow|to)\b[^$]*\\text\{/;
+// Candidate detection for the BATCH sweep (the per-card "fixformat" command
+// reformats whatever card you point it at, so it does NOT gate on this).
+// Deliberately TIGHT to avoid touching valid math: \lambda, \det, \frac etc. are
+// KaTeX commands, NOT code, so we strip \texttt{}/\text{}/\<command> BEFORE
+// hunting for raw code left inside a $...$ span. A `\implies` on its own is
+// legitimate math (derivations), so we only flag the awkward "code chip glued to
+// prose by an arrow" pattern (the screenshot case), plus unbalanced $ delimiters.
+const CODE_TOK = /\b(def|class|import|return|lambda|print)\b|=>/;
+const stripLatex = (s) => String(s)
+  .replace(/\\texttt\{[^{}]*\}/g, ' ') // code chips (render fine as <code>)
+  .replace(/\\text\{[^{}]*\}/g, ' ')   // \text{...} prose (valid in math)
+  .replace(/\\[a-zA-Z]+/g, ' ');       // \lambda, \frac, \det, \implies, ...
 function fieldLooksBroken(s) {
   const str = String(s || '');
   if (!str) return false;
-  if (CODE_IN_MATH.test(str) || PROSE_IN_TEXT.test(str) || GLUED_IMPLIES.test(str)) return true;
-  const dollars = (str.match(/(?<!\\)\$/g) || []).length; // unescaped $ delimiters
-  return dollars % 2 === 1;
+  // Unbalanced (odd) count of unescaped $ -> KaTeX delimiter mismatch.
+  if (((str.match(/(?<!\\)\$/g) || []).length) % 2 === 1) return true;
+  // A \texttt{} code chip immediately glued to prose by an arrow (screenshot style).
+  if (/\\texttt\{[^{}]*\}\s*\\(implies|Rightarrow|to)\b/.test(str)) return true;
+  // Raw code still sitting inside a math span once real LaTeX is stripped out.
+  const spans = stripLatex(str).match(/\$\$[\s\S]*?\$\$|\$[^$]*\$/g) || [];
+  return spans.some((sp) => CODE_TOK.test(sp));
 }
 const flashcardNeedsFormatFix = (c) =>
   fieldLooksBroken(c.formula) || fieldLooksBroken(c.intuition) || fieldLooksBroken(c.concept);
