@@ -785,11 +785,53 @@ const App = (() => {
   // The Track>Course>Unit>Topic keys, indexed by depth level.
   const LEVEL_KEYS = ['track', 'course', 'lesson', 'topic'];
 
+  // Donut ring showing a percentage in a tier colour, centred label. `size` is
+  // the SVG box in px; the stroke width scales with it via the --sw CSS var.
+  function ringHtml(pct, color, size = 56) {
+    const sw = size >= 68 ? 7 : 6;
+    const r = size / 2 - sw;
+    const circ = 2 * Math.PI * r;
+    const off = circ * (1 - Math.max(0, Math.min(100, pct)) / 100);
+    const c = (size / 2).toFixed(0);
+    return `<div class="prog-ring-wrap" style="width:${size}px;height:${size}px">
+      <svg class="prog-ring" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" aria-hidden="true" style="--sw:${sw}px">
+        <circle class="ring-bg" cx="${c}" cy="${c}" r="${r.toFixed(1)}"></circle>
+        <circle class="ring-fg" cx="${c}" cy="${c}" r="${r.toFixed(1)}"
+          style="stroke:${color};stroke-dasharray:${circ.toFixed(1)};stroke-dashoffset:${off.toFixed(1)}"></circle>
+      </svg>
+      <span class="ring-num" style="color:${color}">${pct}<i>%</i></span>
+    </div>`;
+  }
+
+  // The three action groups (root / Learn / AI Support) are identical at every
+  // level, so build them once.
+  function progActionsHtml(level, scope) {
+    return `<div class="prog-actions" data-menu="root">
+          <div class="menu-group root">
+            <button class="prog-btn learn" data-action="learn" title="Quiz or study cards for this section">Learn ▸</button>
+            <button class="prog-btn ai" data-action="ai" title="AI review or chat for this section">AI Support ▸</button>
+          </div>
+          <div class="menu-group learn">
+            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
+            <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
+            ${level >= 1 && flashcardsEnabled(scope.course)
+              ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
+              : ''}
+          </div>
+          <div class="menu-group ai">
+            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
+            <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
+            <button class="prog-btn chat" data-action="chat" title="Chat about this section: reads its cards & questions">Chat</button>
+          </div>
+        </div>`;
+  }
+
   function renderProgressNode(node, level, scope) {
     const pct = nodeProgress(node);
     const color = accColor(pct);
     const kids = [...node.children.values()].sort(byName);
     const hasKids = kids.length > 0 && !node.leaf;
+    const isTrack = level === 0;
     const sub = node.leaf
       ? (node.attempts ? `${node.attempts} attempt${node.attempts === 1 ? '' : 's'}` : 'Not started')
       : `${node.attemptedCount}/${node.topicCount} topics practised`;
@@ -807,9 +849,20 @@ const App = (() => {
           .join('')}</div>`
       : '';
 
-    return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}" data-label="${esc(node.name)}" ${dataAttrs}>
-      <div class="prog-row" style="padding-left:${level * 16}px">
-        <span class="prog-caret">${hasKids ? '▸' : ''}</span>
+    const actions = progActionsHtml(level, scope);
+
+    // Tracks (level 0) read as cards anchored by a donut ring; deeper levels are
+    // slim rows with a status dot + linear bar.
+    const rowInner = isTrack
+      ? `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
+        ${ringHtml(pct, color, 56)}
+        <div class="prog-info">
+          <span class="prog-name">${esc(node.name)}</span>
+          <span class="prog-sub">${esc(sub)}</span>
+        </div>
+        ${actions}`
+      : `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
+        <span class="prog-dot" style="color:${color};background:${color}"></span>
         <div class="prog-info">
           <span class="prog-name">${esc(node.name)}</span>
           <span class="prog-sub">${esc(sub)}</span>
@@ -818,40 +871,44 @@ const App = (() => {
           <span class="mini-bar"><span class="mini-fill" style="width:${pct}%;background:${color}"></span></span>
           <span class="prog-pct" style="color:${color}">${pct}%</span>
         </div>
-        <div class="prog-actions" data-menu="root">
-          <div class="menu-group root">
-            <button class="prog-btn learn" data-action="learn" title="Quiz or study cards for this section">Learn ▸</button>
-            <button class="prog-btn ai" data-action="ai" title="AI review or chat for this section">AI Support ▸</button>
-          </div>
-          <div class="menu-group learn">
-            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
-            <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
-            ${level >= 1 && flashcardsEnabled(scope.course)
-              ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
-              : ''}
-          </div>
-          <div class="menu-group ai">
-            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
-            <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
-            <button class="prog-btn chat" data-action="chat" title="Chat about this section: reads its cards & questions">Chat</button>
-          </div>
-        </div>
+        ${actions}`;
+
+    return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}" data-label="${esc(node.name)}" ${dataAttrs}>
+      <div class="prog-row ${isTrack ? 'track-row' : ''}"${isTrack ? '' : ` style="padding-left:${level * 16}px"`}>
+        ${rowInner}
       </div>
       ${childHtml}
     </div>`;
   }
 
+  // Overall-mastery hero: a big ring + a linear bar, rolled up across all tracks.
+  function overviewHtml(tracks) {
+    let sum = 0, count = 0, attempted = 0;
+    for (const t of tracks) { sum += t.progressSum; count += t.topicCount; attempted += t.attemptedCount; }
+    const overall = count ? Math.round(sum / count) : 0;
+    const color = accColor(overall);
+    return `${ringHtml(overall, color, 76)}
+      <div class="po-body">
+        <div class="po-label">Overall mastery</div>
+        <div class="po-bar"><span style="width:${overall}%;background:${color}"></span></div>
+        <div class="po-sub">${attempted} of ${count} topics practised · ${tracks.length} track${tracks.length === 1 ? '' : 's'}</div>
+      </div>`;
+  }
+
   function renderProgressTree() {
     const tree = $('progressTree');
     const empty = $('progressEmpty');
+    const overview = $('progressOverview');
     if (!state.catalog.length) {
       tree.innerHTML = '';
+      if (overview) overview.innerHTML = '';
       empty.classList.remove('hidden');
       return;
     }
     empty.classList.add('hidden');
     const root = buildProgressTree(state.catalog);
     const tracks = [...root.children.values()].sort(byName);
+    if (overview) overview.innerHTML = overviewHtml(tracks);
     tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name })).join('');
   }
 
@@ -1978,32 +2035,65 @@ const App = (() => {
     }
   }
 
-  // Fetch the conversation list and repaint the history dropdown.
+  // Fetch the conversation list and repaint the slide-in history list.
   async function refreshAssistantChats() {
     const r = await api('/api/assistant/chats');
     assistant.chats = r.chats || [];
-    renderAssistantChatSel();
+    renderAssistantHistList();
   }
 
-  function renderAssistantChatSel() {
-    const sel = $('assistantChatSel');
-    if (!sel) return;
-    const opts = assistant.chats.map(
-      (c) => `<option value="${esc(c.id)}">${esc(c.title || 'Conversation')}</option>`,
-    );
-    // A brand-new, not-yet-saved chat gets a placeholder entry at the top.
-    if (!assistant.activeId) opts.unshift('<option value="">New conversation</option>');
-    sel.innerHTML = opts.join('');
-    sel.value = assistant.activeId;
-    updateAssistantHistBar();
+  // Human-friendly "time ago" for the history list.
+  function relTime(ms) {
+    if (!ms) return '';
+    const s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 60) return 'just now';
+    const m = Math.floor(s / 60);
+    if (m < 60) return m + 'm ago';
+    const h = Math.floor(m / 60);
+    if (h < 24) return h + 'h ago';
+    const d = Math.floor(h / 24);
+    if (d < 7) return d + 'd ago';
+    const w = Math.floor(d / 7);
+    if (w < 5) return w + 'w ago';
+    return new Date(ms).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
-  function updateAssistantHistBar() {
-    const bar = $('assistantHistBar');
-    const del = $('assistantDel');
-    // Hide the bar entirely until there's at least one saved conversation.
-    if (bar) bar.classList.toggle('hidden', assistant.chats.length === 0);
-    if (del) del.disabled = !assistant.activeId; // nothing to delete on a fresh chat
+  // Paint the slide-in conversation history. Each row: title + "N messages · time",
+  // with a hover-reveal delete. The open conversation is highlighted.
+  function renderAssistantHistList() {
+    const list = $('assistantHistList');
+    if (!list) return;
+    if (!assistant.chats.length) {
+      list.innerHTML = '<div class="hist-empty">No saved conversations yet.<br>Start chatting and they’ll show up here.</div>';
+      return;
+    }
+    list.innerHTML = assistant.chats.map((c) => {
+      const active = c.id === assistant.activeId ? ' active' : '';
+      const n = c.count || 0;
+      const meta = [n ? `${n} message${n === 1 ? '' : 's'}` : 'Empty', relTime(c.updatedAt)]
+        .filter(Boolean).join(' · ');
+      return `<button type="button" class="hist-item${active}" onclick="App.openAssistantChatById('${esc(c.id)}')">
+        <span class="hist-title">${esc(c.title || 'Conversation')}</span>
+        <span class="hist-meta">${esc(meta)}</span>
+        <span class="hist-del" role="button" tabindex="0" title="Delete conversation" aria-label="Delete conversation"
+              onclick="event.stopPropagation();App.deleteAssistantChat('${esc(c.id)}')">🗑</span>
+      </button>`;
+    }).join('');
+  }
+
+  // Slide the history panel in/out over the chat.
+  function toggleAssistantHistory() {
+    const hist = $('assistantHistory');
+    if (!hist) return;
+    const opening = hist.classList.contains('hidden');
+    if (opening) { renderAssistantHistList(); hist.classList.remove('hidden'); }
+    else hist.classList.add('hidden');
+  }
+
+  // Pick a conversation from the history list, then drop back to the chat view.
+  function openAssistantChatById(id) {
+    $('assistantHistory')?.classList.add('hidden');
+    openAssistantChat(id);
   }
 
   // Load and show a conversation by id ('' = fresh blank chat).
@@ -2011,7 +2101,7 @@ const App = (() => {
     const log = $('assistantLog');
     assistant.activeId = id || '';
     localStorage.setItem('assistant.activeId', assistant.activeId);
-    renderAssistantChatSel();
+    renderAssistantHistList();
     if (!assistant.activeId) {
       renderChatLog(log, []);
       return;
@@ -2025,13 +2115,10 @@ const App = (() => {
     }
   }
 
-  function switchAssistantChat() {
-    openAssistantChat($('assistantChatSel').value);
-  }
-
   // Start a fresh conversation, keeping existing ones in history. Nothing is
   // saved until the first message is sent.
   function newAssistantChat() {
+    $('assistantHistory')?.classList.add('hidden');
     openAssistantChat('');
     updateAssistantHint();
     const input = $('assistantInput');
@@ -2039,20 +2126,21 @@ const App = (() => {
     input.focus();
   }
 
-  // Delete the currently-open conversation, then fall back to the most recent.
-  async function deleteAssistantChat() {
-    const id = assistant.activeId;
-    if (!id) return;
+  // Delete a conversation (defaults to the open one). If it was the active chat,
+  // fall back to the most recent; otherwise just repaint the list in place.
+  async function deleteAssistantChat(id) {
+    const target = id || assistant.activeId;
+    if (!target) return;
     if (!confirm('Delete this conversation? This cannot be undone.')) return;
-    const del = $('assistantDel');
-    if (del) del.disabled = true;
+    const wasActive = target === assistant.activeId;
     try {
-      await api('/api/assistant/chat?id=' + encodeURIComponent(id), { method: 'DELETE' });
+      await api('/api/assistant/chat?id=' + encodeURIComponent(target), { method: 'DELETE' });
     } catch (e) {
       console.error(e);
     }
     await refreshAssistantChats();
-    await openAssistantChat(assistant.chats[0]?.id || '', true);
+    if (wasActive) await openAssistantChat(assistant.chats[0]?.id || '', true);
+    else renderAssistantHistList();
   }
 
   async function sendAssistant() {
@@ -2078,14 +2166,11 @@ const App = (() => {
       thinking.remove();
       appendBubble(log, 'assistant', r.reply, r.visual);
       assistant.loaded = true;
-      // First message of a new chat gets an id + title — sync the dropdown.
+      // First message of a new chat gets an id + title — sync the history list.
       if (r.conversationId) {
         assistant.activeId = r.conversationId;
         localStorage.setItem('assistant.activeId', assistant.activeId);
         await refreshAssistantChats();
-        const sel = $('assistantChatSel');
-        if (sel) sel.value = assistant.activeId;
-        updateAssistantHistBar();
       }
       refreshCost();
     } catch (e) {
@@ -2317,7 +2402,8 @@ const App = (() => {
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openScopeChat, closeScopeChat, sendScopeChat,
-    toggleAssistant, sendAssistant, newAssistantChat, switchAssistantChat, deleteAssistantChat,
+    toggleAssistant, sendAssistant, newAssistantChat, deleteAssistantChat,
+    toggleAssistantHistory, openAssistantChatById,
     toggleCostDetail, msClear,
   };
 })();
