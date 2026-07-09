@@ -245,7 +245,7 @@ const App = (() => {
       setThinking(thinkOn);
 
       $('aiEngineHint').textContent = r.deepseekAvailable
-        ? 'Cloud (Gemini) and DeepSeek are connected. Pick the engine for flashcards, explanations & question generation.'
+        ? ''
         : (r.ollamaAvailable || r.lmstudioAvailable)
           ? 'Local engine detected. Pick a local model to keep everything on your machine.'
           : 'Cloud uses Gemini. DeepSeek appears when its API key is configured; local models appear when run locally.';
@@ -431,9 +431,9 @@ const App = (() => {
     // Toggle the two panels of the setup card.
     $('quizBuilder').classList.toggle('hidden', isProgress);
     $('progressPanel').classList.toggle('hidden', !isProgress);
-    // Mastery Quiz CTA is available to mastery users on EVERY tab (including My
-    // Progress) — it sits above the mode segment so it renders on all of them.
-    $('priorityBtn').classList.toggle('hidden', !mastery);
+    // Mastery Quiz / Flashcards CTAs are available to mastery users on EVERY tab
+    // (including My Progress) — they sit above the mode segment so they render on all.
+    $('priorityBtnRow').classList.toggle('hidden', !mastery);
 
     if (isProgress) renderProgressTree();
     else updateSetupCopy();
@@ -554,6 +554,7 @@ const App = (() => {
     $('setupLoader').classList.toggle('hidden', !on);
     $('launchBtn').disabled = on;
     $('priorityBtn').disabled = on;
+    $('priorityCardsBtn').disabled = on;
   }
 
   async function launchManual() {
@@ -584,6 +585,22 @@ const App = (() => {
     try {
       const qs = await getQuiz('/api/quiz/priority', selection());
       startQuiz(qs);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Same weakest-topic logic as the Mastery Quiz, but opens the flashcard deck
+  // for the single weakest/stalest topic instead of serving questions.
+  async function launchPriorityCards() {
+    if (!state.authed) { showLogin(); return; }
+    setLoading(true);
+    try {
+      const scope = await api('/api/flashcards/priority', { method: 'POST', body: '{}' });
+      const label = [scope.course, scope.lesson, scope.topic].filter(Boolean).join(' › ') || scope.topic;
+      await openFlashcards(scope, label);
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
@@ -1863,7 +1880,8 @@ const App = (() => {
   /* --------------------- Floating study assistant ------------------------ */
   // Always-available tutor that answers with a STRUCTURED snapshot of what's on
   // screen (view, selection, current question/flashcard, recent answers).
-  const assistant = { loaded: false };
+  // activeId '' = a fresh, unsent conversation (created on first message).
+  const assistant = { loaded: false, activeId: '', chats: [] };
 
   function assistantContext() {
     const view = currentView();
@@ -1917,33 +1935,93 @@ const App = (() => {
     const log = $('assistantLog');
     log.innerHTML = '<div class="chat-empty">Loading…</div>';
     try {
-      const r = await api('/api/assistant/chat');
-      renderChatLog(log, r.messages);
+      await refreshAssistantChats();
+      // Reopen the last conversation used on this device, else the most recent.
+      const saved = localStorage.getItem('assistant.activeId') || '';
+      const pick = assistant.chats.some((c) => c.id === saved) ? saved
+        : (assistant.chats[0]?.id || '');
+      await openAssistantChat(pick, true);
       assistant.loaded = true;
     } catch (e) {
       log.innerHTML = '<div class="chat-empty">Could not load: ' + esc(e.message) + '</div>';
     }
   }
 
-  // Wipe the running thread server-side and reset the panel to a blank slate.
-  async function newAssistantChat() {
+  // Fetch the conversation list and repaint the history dropdown.
+  async function refreshAssistantChats() {
+    const r = await api('/api/assistant/chats');
+    assistant.chats = r.chats || [];
+    renderAssistantChatSel();
+  }
+
+  function renderAssistantChatSel() {
+    const sel = $('assistantChatSel');
+    if (!sel) return;
+    const opts = assistant.chats.map(
+      (c) => `<option value="${esc(c.id)}">${esc(c.title || 'Conversation')}</option>`,
+    );
+    // A brand-new, not-yet-saved chat gets a placeholder entry at the top.
+    if (!assistant.activeId) opts.unshift('<option value="">New conversation</option>');
+    sel.innerHTML = opts.join('');
+    sel.value = assistant.activeId;
+    updateAssistantHistBar();
+  }
+
+  function updateAssistantHistBar() {
+    const bar = $('assistantHistBar');
+    const del = $('assistantDel');
+    // Hide the bar entirely until there's at least one saved conversation.
+    if (bar) bar.classList.toggle('hidden', assistant.chats.length === 0);
+    if (del) del.disabled = !assistant.activeId; // nothing to delete on a fresh chat
+  }
+
+  // Load and show a conversation by id ('' = fresh blank chat).
+  async function openAssistantChat(id, silent) {
     const log = $('assistantLog');
-    const btn = $('assistantNew');
-    if (btn) btn.disabled = true;
-    try {
-      await api('/api/assistant/chat', { method: 'DELETE' });
-    } catch (e) {
-      // Non-fatal: still give the user a fresh local view even if the clear failed.
-      console.error(e);
-    } finally {
-      if (btn) btn.disabled = false;
+    assistant.activeId = id || '';
+    localStorage.setItem('assistant.activeId', assistant.activeId);
+    renderAssistantChatSel();
+    if (!assistant.activeId) {
+      renderChatLog(log, []);
+      return;
     }
-    renderChatLog(log, []); // shows the "No messages yet" empty state
-    assistant.loaded = true;
+    if (!silent) log.innerHTML = '<div class="chat-empty">Loading…</div>';
+    try {
+      const r = await api('/api/assistant/chat?id=' + encodeURIComponent(assistant.activeId));
+      renderChatLog(log, r.messages || []);
+    } catch (e) {
+      log.innerHTML = '<div class="chat-empty">Could not load: ' + esc(e.message) + '</div>';
+    }
+  }
+
+  function switchAssistantChat() {
+    openAssistantChat($('assistantChatSel').value);
+  }
+
+  // Start a fresh conversation, keeping existing ones in history. Nothing is
+  // saved until the first message is sent.
+  function newAssistantChat() {
+    openAssistantChat('');
     updateAssistantHint();
     const input = $('assistantInput');
     input.value = '';
     input.focus();
+  }
+
+  // Delete the currently-open conversation, then fall back to the most recent.
+  async function deleteAssistantChat() {
+    const id = assistant.activeId;
+    if (!id) return;
+    if (!confirm('Delete this conversation? This cannot be undone.')) return;
+    const del = $('assistantDel');
+    if (del) del.disabled = true;
+    try {
+      await api('/api/assistant/chat?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    } catch (e) {
+      console.error(e);
+    }
+    await refreshAssistantChats();
+    await openAssistantChat(assistant.chats[0]?.id || '', true);
   }
 
   async function sendAssistant() {
@@ -1959,11 +2037,25 @@ const App = (() => {
     send.disabled = true;
     try {
       const r = await api('/api/assistant/chat', {
-        method: 'POST', body: JSON.stringify({ message: msg, context: assistantContext() }),
+        method: 'POST',
+        body: JSON.stringify({
+          message: msg,
+          context: assistantContext(),
+          conversationId: assistant.activeId || undefined,
+        }),
       });
       thinking.remove();
       appendBubble(log, 'assistant', r.reply, r.visual);
       assistant.loaded = true;
+      // First message of a new chat gets an id + title — sync the dropdown.
+      if (r.conversationId) {
+        assistant.activeId = r.conversationId;
+        localStorage.setItem('assistant.activeId', assistant.activeId);
+        await refreshAssistantChats();
+        const sel = $('assistantChatSel');
+        if (sel) sel.value = assistant.activeId;
+        updateAssistantHistBar();
+      }
       refreshCost();
     } catch (e) {
       thinking.remove();
@@ -2185,7 +2277,7 @@ const App = (() => {
   return {
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, mergeMath,
-    launchManual, launchPriority, nextQuestion, skipQuestion, doneQuiz,
+    launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     toggleGenMore, generateSimilar,
@@ -2194,6 +2286,7 @@ const App = (() => {
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openScopeChat, closeScopeChat, sendScopeChat,
-    toggleAssistant, sendAssistant, newAssistantChat, toggleCostDetail, msClear,
+    toggleAssistant, sendAssistant, newAssistantChat, switchAssistantChat, deleteAssistantChat,
+    toggleCostDetail, msClear,
   };
 })();
