@@ -530,6 +530,29 @@ const App = (() => {
     }
   }
 
+  // Admin: sweep every shared flashcard and fix broken code/math formatting.
+  // Loops the endpoint until no candidates remain (each call handles a batch).
+  async function fixAllFormats() {
+    if (!confirm('Scan every flashcard and fix broken code/math formatting? This rewrites the shared cards for all users. Meaning is preserved; safe to re-run.')) return;
+    const btn = $('adminFixFormats');
+    if (btn) { btn.disabled = true; btn.textContent = 'Fixing…'; }
+    let fixed = 0;
+    try {
+      for (let pass = 0; pass < 30; pass++) {
+        const r = await api('/api/admin/fix-flashcard-formats', { method: 'POST' });
+        fixed += r.fixed || 0;
+        if (btn) btn.textContent = `Fixing… (${fixed})`;
+        // Stop once a pass fixes nothing (remaining candidates are false positives).
+        if (!r.fixed) break;
+      }
+      alert(`Done. Cards fixed: ${fixed}.`);
+      window.location.reload();
+    } catch (e) {
+      alert('Fix formats failed: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Fix Formats'; }
+    }
+  }
+
   async function submitPassword() {
     const btn = $('authSubmit');
     btn.disabled = true;
@@ -990,6 +1013,8 @@ const App = (() => {
     state.score = 0;
     state.log = [];
     state.quizReturn = opts.returnTo || null;
+    // Label the exit button for where this quiz returns to (flashcard vs. menu).
+    $('quizExitBtn').textContent = (state.quizReturn === 'flashcard' && fc.view[fc.idx]) ? 'Back to Flashcard' : 'Back to menu';
     showOnly('quizView');
     renderQuestion();
   }
@@ -2021,7 +2046,7 @@ const App = (() => {
     }
     if (view === 'flashcard') {
       const c = fc.view[fc.idx];
-      if (c) ctx.card = { concept: c.concept, intuition: c.intuition, formula: c.formula, topic: c.topic };
+      if (c) ctx.card = { id: c.id, concept: c.concept, intuition: c.intuition, formula: c.formula, topic: c.topic };
       else if (fc.scope) ctx.scope = fc.scope;
     }
     const recent = (state.log || []).filter(Boolean).slice(-5).map((r) => ({ topic: r.topic, isCorrect: !!r.isCorrect }));
@@ -2045,7 +2070,7 @@ const App = (() => {
     const view = currentView();
     $('assistantHint').textContent = {
       quiz: "I can see this question. Ask for a nudge or an explanation.",
-      flashcard: "I can see this flashcard. Ask me to explain it another way.",
+      flashcard: "I can see this flashcard. Ask me to explain it another way — or type “fixformat” to clean up its code/math.",
       stats: "I can see your progress. Ask me what to focus on.",
       setup: "Ask me what to study, or anything about a topic.",
       result: "Ask me about anything you just answered.",
@@ -2184,6 +2209,12 @@ const App = (() => {
     const send = $('assistantSend');
     input.value = '';
     appendBubble(log, 'user', msg);
+    // Quick command: "fixformat" cleans up the current card instead of chatting.
+    if (/^\/?fix[\s-]?formats?\b/i.test(msg)) {
+      await fixFormatCommand(log);
+      input.focus();
+      return;
+    }
     const thinking = appendBubble(log, 'assistant', 'Thinking…');
     thinking.classList.add('thinking');
     send.disabled = true;
@@ -2212,6 +2243,62 @@ const App = (() => {
     } finally {
       send.disabled = false;
       input.focus();
+    }
+  }
+
+  // Handle the "fixformat" quick command: reformat the CURRENT flashcard's code
+  // and math so it renders correctly, and save the corrected card for everyone
+  // (admin only). This is a client action, not an LLM chat turn, so it is not
+  // saved to the conversation thread. Assumes the user bubble is already shown.
+  async function fixFormatCommand(log) {
+    const send = $('assistantSend');
+    const card = currentView() === 'flashcard' ? fc.view[fc.idx] : null;
+    if (!card || !card.id) {
+      appendBubble(log, 'assistant', 'Open the flashcard you want fixed, then type **fixformat** and I’ll clean up its code and math formatting.');
+      return;
+    }
+    const thinking = appendBubble(log, 'assistant', 'Fixing the formatting…');
+    thinking.classList.add('thinking');
+    send.disabled = true;
+    try {
+      const r = await api('/api/flashcards/fix-format', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id }),
+      });
+      thinking.remove();
+      applyCardFix(r.card);
+      const changed = r.changed || [];
+      if (!changed.length) {
+        appendBubble(log, 'assistant', 'This card’s formatting already looks fine — nothing to change.');
+      } else {
+        fc.flipped = true; // reveal the back so the fixed formula is visible
+        renderCard();
+        appendBubble(log, 'assistant', 'Fixed the ' + changed.join(' + ') + ' and saved this card for everyone. ✅');
+      }
+      refreshCost();
+    } catch (e) {
+      thinking.remove();
+      const msg = /admin|forbidden|\(403\)/i.test(e.message)
+        ? 'Only an admin can edit shared cards.'
+        : 'Sorry, that failed: ' + esc(e.message);
+      appendBubble(log, 'assistant', msg);
+    } finally {
+      send.disabled = false;
+    }
+  }
+
+  // Patch a card's fields in place across both the visible deck and the master
+  // list (same id may appear in each), so the fix shows without a reload.
+  function applyCardFix(fields) {
+    if (!fields || !fields.id) return;
+    for (const arr of [fc.view, fc.cards]) {
+      if (!Array.isArray(arr)) continue;
+      for (const c of arr) {
+        if (c && c.id === fields.id) {
+          c.concept = fields.concept;
+          c.intuition = fields.intuition;
+          c.formula = fields.formula;
+        }
+      }
     }
   }
 
@@ -2425,7 +2512,7 @@ const App = (() => {
 
   return {
     enterMastery, goHome, setMode,
-    submitPassword, actAs, stopActing, mergeMath,
+    submitPassword, actAs, stopActing, mergeMath, fixAllFormats,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
