@@ -37,8 +37,10 @@ import {
   getScopeChat,
   saveScopeChat,
   getTopicAttempts,
+  listAssistantChats,
   getAssistantChat,
   saveAssistantChat,
+  deleteAssistantChat,
   mergeIntoMathematics,
   addUsage,
   getUsage,
@@ -654,6 +656,23 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
   }
 });
 
+// Auth: the flashcard analogue of the Mastery quiz. Pick the single weakest/
+// stalest topic across all tracks and return its scope, so the client can open
+// a focused flashcard deck for exactly where the user needs the most help.
+app.post('/api/flashcards/priority', requireAuth, async (req, res, next) => {
+  try {
+    const catalog = await getCatalog(req.userEmail);
+    const ranked = catalog
+      .filter((r) => r.topic && r.priority != null)
+      .sort((a, b) => (b.priority - a.priority) || (Math.random() - 0.5));
+    if (!ranked.length) return res.status(404).json({ error: 'No topics to study yet.' });
+    const t = ranked[0];
+    res.json({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Auth: persist results + update running mastery stats.
 app.post('/api/quiz/log', requireAuth, async (req, res, next) => {
   try {
@@ -1113,21 +1132,39 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
 });
 
 /* --------------------------- Global AI assistant -------------------------- */
-// Auth: load this user's running assistant thread (for the floating chat).
-app.get('/api/assistant/chat', requireAuth, async (req, res, next) => {
+// Auth: list this user's saved conversations (metadata for the history dropdown).
+app.get('/api/assistant/chats', requireAuth, async (req, res, next) => {
   try {
-    res.json({ messages: await getAssistantChat(req.userEmail) });
+    res.json({ chats: await listAssistantChats(req.userEmail) });
   } catch (e) {
     next(e);
   }
 });
 
-// Auth: clear this user's assistant thread so the next message starts fresh
-// (the "new conversation" button). Idempotent — resets it to an empty thread.
+// Auth: load one conversation's messages (by ?id=), or the most recent if no id.
+app.get('/api/assistant/chat', requireAuth, async (req, res, next) => {
+  try {
+    const id = req.query?.id ? String(req.query.id) : '';
+    if (id) {
+      const chat = await getAssistantChat(req.userEmail, id);
+      return res.json(chat || { id: '', title: '', messages: [] });
+    }
+    const list = await listAssistantChats(req.userEmail);
+    if (!list.length) return res.json({ id: '', title: '', messages: [] });
+    const chat = await getAssistantChat(req.userEmail, list[0].id);
+    return res.json(chat || { id: '', title: '', messages: [] });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: delete one conversation (the history dropdown's trash button).
 app.delete('/api/assistant/chat', requireAuth, async (req, res, next) => {
   try {
-    await saveAssistantChat(req.userEmail, []);
-    res.json({ ok: true, messages: [] });
+    const id = req.query?.id ? String(req.query.id) : '';
+    if (!id) return res.status(400).json({ error: 'A conversation id is required' });
+    await deleteAssistantChat(req.userEmail, id);
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }
@@ -1136,18 +1173,21 @@ app.delete('/api/assistant/chat', requireAuth, async (req, res, next) => {
 // Auth: send a message to the always-available assistant. The client passes a
 // STRUCTURED snapshot of what's on screen (view, selection, current question or
 // flashcard, recent answers) as `context`; the assistant answers grounded in it.
+// Appends to `conversationId` when given; otherwise starts a new conversation.
 app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next) => {
   try {
     const message = String(req.body?.message || '').trim();
     if (!message) return res.status(400).json({ error: 'A message is required' });
     const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
+    const conversationId = req.body?.conversationId ? String(req.body.conversationId) : '';
 
-    const history = await getAssistantChat(req.userEmail);
+    const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
+    const history = existing ? existing.messages : [];
     const out = await generateAssistantChat({ context, history, message }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
-    await saveAssistantChat(req.userEmail, messages);
-    res.json({ reply: out.reply, visual: out.visual });
+    const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
+    res.json({ reply: out.reply, visual: out.visual, conversationId: saved.id, title: saved.title });
   } catch (e) {
     next(e);
   }
