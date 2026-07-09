@@ -185,10 +185,12 @@ const App = (() => {
     syncThinkingVisibility(provider);
   }
 
-  // Extended thinking is a Gemini-only lever; hide the toggle for other engines.
+  // Extended thinking applies to the cloud engines that support it (Gemini and
+  // DeepSeek V4 — whose Flash model defaults to thinking ON, hence slow); hide the
+  // toggle for the local engines that don't take the lever.
   function syncThinkingVisibility(provider) {
     const wrap = $('aiThinkingWrap');
-    if (wrap) wrap.classList.toggle('hidden', provider !== 'gemini');
+    if (wrap) wrap.classList.toggle('hidden', provider !== 'gemini' && provider !== 'deepseek');
   }
 
   // Persist the extended-thinking choice (default ON, so nothing regresses).
