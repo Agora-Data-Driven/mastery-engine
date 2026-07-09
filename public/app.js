@@ -182,6 +182,25 @@ const App = (() => {
     document.cookie = `aiModel=${encodeURIComponent(model || '')}; path=/; max-age=31536000; samesite=lax`;
     localStorage.setItem('aiProvider', provider);
     localStorage.setItem('aiModel', model || '');
+    syncThinkingVisibility(provider);
+  }
+
+  // Extended thinking is a Gemini-only lever; hide the toggle for other engines.
+  function syncThinkingVisibility(provider) {
+    const wrap = $('aiThinkingWrap');
+    if (wrap) wrap.classList.toggle('hidden', provider !== 'gemini');
+  }
+
+  // Persist the extended-thinking choice (default ON, so nothing regresses).
+  // The server reads the aiThinking cookie; 'off' disables Gemini thinking for
+  // faster, cheaper generation.
+  function setThinking(on) {
+    document.cookie = `aiThinking=${on ? 'on' : 'off'}; path=/; max-age=31536000; samesite=lax`;
+    localStorage.setItem('aiThinking', on ? 'on' : 'off');
+  }
+
+  function onThinkingChange() {
+    setThinking(!!$('aiThinkingChk').checked);
   }
 
   // Friendly names for the known cloud models (falls back to "Provider: id").
@@ -218,6 +237,12 @@ const App = (() => {
       const match = opts.find((o) => o.provider === savedP && (!savedM || o.model === savedM)) || opts[0];
       sel.value = `${match.provider}::${match.model}`;
       setAiChoice(match.provider, match.model);
+
+      // Restore the extended-thinking toggle (default ON).
+      const thinkOn = localStorage.getItem('aiThinking') !== 'off';
+      const chk = $('aiThinkingChk');
+      if (chk) chk.checked = thinkOn;
+      setThinking(thinkOn);
 
       $('aiEngineHint').textContent = r.deepseekAvailable
         ? 'Cloud (Gemini) and DeepSeek are connected. Pick the engine for flashcards, explanations & question generation.'
@@ -2143,7 +2168,7 @@ const App = (() => {
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     toggleGenMore, generateSimilar,
-    openStats, priorityFromStats, onAiEngineChange,
+    openStats, priorityFromStats, onAiEngineChange, onThinkingChange,
     analyzeProgress, closeReview, quizFromReview,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
