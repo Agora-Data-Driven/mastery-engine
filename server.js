@@ -26,6 +26,7 @@ import {
   bulkUpdateQuestions,
   getFlashcards,
   getFlashcardById,
+  getAllFlashcards,
   saveFlashcards,
   getFlashcardStatuses,
   setFlashcardStatus,
@@ -142,7 +143,28 @@ function aiChoice(req) {
   const p = req.cookies?.aiProvider;
   const provider = ['deepseek', 'ollama', 'lmstudio'].includes(p) ? p : 'gemini';
   const model = req.cookies?.aiModel ? decodeURIComponent(req.cookies.aiModel) : undefined;
-  return { provider, model };
+  // Extended thinking (Gemini): ON unless the user explicitly turned it off, so
+  // nothing regresses by default; turning it off trades some depth for speed.
+  const thinking = req.cookies?.aiThinking !== 'off';
+  return { provider, model, thinking };
+}
+
+/**
+ * Run `fn` over `items` with at most `limit` promises in flight, preserving
+ * result order. Used to fan out per-topic LLM generation instead of awaiting
+ * each topic serially (N round-trips -> ceil(N/limit) waves).
+ */
+async function mapWithConcurrency(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 /**
@@ -662,11 +684,13 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
 
     let created = 0;
     const errors = [];
-    for (const topic of topics) {
+    const ai = aiChoice(req);
+    // Fan out across topics (bounded) instead of one serial round-trip each.
+    await mapWithConcurrency(topics, 4, async (topic) => {
       try {
         const existing = await getQuestionsForTopics([topic]);
         const baseline = existing.slice(0, 8).map((q) => ({ q: q.question, a: q.answer }));
-        const generated = await generateQuestions(topic, baseline, count, aiChoice(req));
+        const generated = await generateQuestions(topic, baseline, count, ai);
         for (const g of generated) {
           await addQuestion(g);
           created++;
@@ -674,7 +698,7 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
       } catch (e) {
         errors.push(`${topic}: ${e.message}`);
       }
-    }
+    });
     res.json({ ok: true, created, topics: topics.length, errors });
   } catch (e) {
     next(e);
@@ -763,6 +787,16 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
     for (const g of generated) await addQuestion({ ...g, source: 'similar' });
 
     res.json(packageQuestions(generated, idx, count));
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Public: every shared flashcard deck, so the local offline app's Sync can pull
+// the cloud's (better) cards. Card definitions are user-agnostic, so no auth.
+app.get('/api/flashcards/all', async (_req, res, next) => {
+  try {
+    res.json(await getAllFlashcards());
   } catch (e) {
     next(e);
   }
