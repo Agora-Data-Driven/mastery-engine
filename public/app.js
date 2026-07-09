@@ -592,15 +592,13 @@ const App = (() => {
     }
   }
 
-  // Same weakest-topic logic as the Mastery Quiz, but opens the flashcard deck
-  // for the single weakest/stalest topic instead of serving questions.
+  // Same weakest-topic logic as the Mastery Quiz, but for flashcards: opens ONE
+  // review deck mixing cards from the learner's weakest topics across all tracks.
   async function launchPriorityCards() {
     if (!state.authed) { showLogin(); return; }
     setLoading(true);
     try {
-      const scope = await api('/api/flashcards/priority', { method: 'POST', body: '{}' });
-      const label = [scope.course, scope.lesson, scope.topic].filter(Boolean).join(' › ') || scope.topic;
-      await openFlashcards(scope, label);
+      await openMasteryDeck();
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
@@ -1366,7 +1364,7 @@ const App = (() => {
   // (mastered / still learning / important), have a Highway rapid-review filter,
   // and a "quiz me" that banks + serves one real question for the card's topic.
   const fc = {
-    scope: null, label: '', level: 'course',
+    scope: null, label: '', level: 'course', mastery: false,
     cards: [], view: [], idx: 0, flipped: false, highway: false,
   };
 
@@ -1377,6 +1375,7 @@ const App = (() => {
 
   async function openFlashcards(scope, label) {
     if (!state.authed) { showLogin(); return; }
+    fc.mastery = false;
     fc.scope = { track: scope.track, course: scope.course, lesson: scope.lesson || '', topic: scope.topic || '' };
     fc.level = scope.topic ? 'topic' : scope.lesson ? 'lesson' : 'course';
     fc.label = label || scope.course || 'Flashcards';
@@ -1384,6 +1383,7 @@ const App = (() => {
     fc.statsOpen = false;
     fc._statsByTopic = {};
     $('fcHighway').checked = false;
+    $('fcRegen').classList.remove('hidden'); // single-scope deck can be regenerated
     showOnly('flashcardView');
     $('fcTitle').textContent = 'Flashcards: ' + fc.label;
     $('fcSub').textContent = fc.level === 'course'
@@ -1392,6 +1392,37 @@ const App = (() => {
         ? 'Focused cards for this lesson. Intuition first, then the formula.'
         : 'A focused deck for this sub-lesson. Intuition first, then the formula.';
     await loadFlashcards();
+  }
+
+  // A single review deck mixing cards from the learner's weakest topics across
+  // every track (the flashcard analogue of the Mastery quiz). It spans many
+  // scopes, so there's no single deck to (re)generate — hide that control.
+  async function openMasteryDeck() {
+    if (!state.authed) { showLogin(); return; }
+    fc.mastery = true;
+    fc.scope = null;
+    fc.label = 'Mastery Flashcards';
+    fc.highway = false;
+    fc.statsOpen = false;
+    fc._statsByTopic = {};
+    $('fcHighway').checked = false;
+    $('fcRegen').classList.add('hidden');
+    showOnly('flashcardView');
+    $('fcTitle').textContent = 'Mastery Flashcards';
+    $('fcSub').textContent = 'Cards from your weakest topics, interleaved across every track.';
+    $('fcError').textContent = '';
+    $('fcDeck').classList.add('hidden');
+    $('fcEmpty').classList.add('hidden');
+    fcSetLoading(true, 'Building your mastery deck…');
+    try {
+      const r = await api('/api/flashcards/mastery', { method: 'POST', body: '{}' });
+      if (r.cards && r.cards.length) renderDeck(r.cards);
+      else $('fcError').textContent = 'No flashcard decks exist for your weakest topics yet. Open a topic below and generate its deck first.';
+    } catch (e) {
+      $('fcError').textContent = 'Could not build your mastery deck: ' + e.message;
+    } finally {
+      fcSetLoading(false);
+    }
   }
 
   function fcQuery() {
