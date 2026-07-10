@@ -179,12 +179,12 @@ const App = (() => {
   // is stored in cookies the server reads on every AI request, so it governs
   // flashcards, explanations, question generation AND the Study Assistant alike.
   //
-  // The same controls live in two places — the home setup card and the Study
-  // Assistant panel — so the picker is reachable wherever you are. These id
-  // lists keep the two mirrored sets in lockstep.
-  const AI_ENGINE_SELECTS = ['aiEngineSel', 'asstEngineSel'];
-  const AI_THINKING_WRAPS = ['aiThinkingWrap', 'asstThinkingWrap'];
-  const AI_THINKING_CHECKS = ['aiThinkingChk', 'asstThinkingChk'];
+  // The picker lives in the Study Assistant panel (⚙). These id lists keep the
+  // helpers below generic, so re-mirroring the choice into additional dropdowns
+  // (should the picker ever return elsewhere) is a one-line change.
+  const AI_ENGINE_SELECTS = ['asstEngineSel'];
+  const AI_THINKING_WRAPS = ['asstThinkingWrap'];
+  const AI_THINKING_CHECKS = ['asstThinkingChk'];
 
   function setAiChoice(provider, model) {
     document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
@@ -221,17 +221,17 @@ const App = (() => {
     });
   }
 
-  // Change handlers accept the source control's id so either mirrored set can
-  // drive the shared choice (defaults keep the original home-card calls working).
+  // Change handlers take the source control's id (the panel's onchange passes it),
+  // so the same helpers can drive any dropdown we mirror the choice across.
   function onAiEngineChange(selId) {
-    const el = $(selId || 'aiEngineSel');
+    const el = $(selId || 'asstEngineSel');
     if (!el) return;
     const [provider, model] = el.value.split('::');
     setAiChoice(provider, model);
   }
 
   function onThinkingChange(chkId) {
-    const el = $(chkId || 'aiThinkingChk');
+    const el = $(chkId || 'asstThinkingChk');
     if (el) setThinking(!!el.checked);
   }
 
@@ -276,12 +276,6 @@ const App = (() => {
       // Restore the extended-thinking toggle (default ON); setThinking mirrors
       // the state into every checkbox.
       setThinking(localStorage.getItem('aiThinking') !== 'off');
-
-      $('aiEngineHint').textContent = r.deepseekAvailable
-        ? ''
-        : (r.ollamaAvailable || r.lmstudioAvailable)
-          ? 'Local engine detected. Pick a local model to keep everything on your machine.'
-          : 'Cloud uses Gemini. DeepSeek appears when its API key is configured; local models appear when run locally.';
     } catch (e) {
       console.error(e);
     }
@@ -366,6 +360,36 @@ const App = (() => {
   }
 
   /* --------------------------- Cascading menus --------------------------- */
+  // Pedagogical course order within a track (foundations first). Course names are
+  // globally unique across tracks, so one flat list is enough; anything not listed
+  // falls back to alphabetical, after the ranked ones. Edit this list to re-sequence.
+  const COURSE_ORDER = [
+    // Mathematics — build up the foundations, then the applied "for ML" courses last.
+    'Trigonometry',
+    'College Algebra',
+    'Precalculus',
+    'Calculus',
+    'Statistics and Probability',
+    'Linear Algebra for ML',
+    'Calculus for ML',
+    'Prob & Stats for ML',
+    // Programming Foundations — beginner to advanced.
+    'Python Syntax & Logic Foundations',
+    'Python Data Types',
+    'Efficient Iteration & Memory Optimization',
+    'Object-Oriented Programming (OOP) in Python',
+    'Modularity, Packages & Robust Code',
+    'Data Structures and Algorithms',
+  ];
+  const COURSE_RANK = new Map(COURSE_ORDER.map((name, i) => [name, i]));
+  // Order two course names by curriculum rank, then alphabetically as a fallback.
+  function byCourseName(a, b) {
+    const ra = COURSE_RANK.has(a) ? COURSE_RANK.get(a) : Infinity;
+    const rb = COURSE_RANK.has(b) ? COURSE_RANK.get(b) : Infinity;
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  }
+
   function uniqSorted(arr) {
     return [...new Set(arr)].filter(Boolean).sort();
   }
@@ -378,7 +402,8 @@ const App = (() => {
 
   function filterCourses() {
     const t = $('trackSel').value;
-    const courses = uniqSorted(state.catalog.filter((r) => r.track === t).map((r) => r.course));
+    const courses = [...new Set(state.catalog.filter((r) => r.track === t).map((r) => r.course))]
+      .filter(Boolean).sort(byCourseName);
     $('courseSel').innerHTML =
       '<option value="Review All">Review Full Track</option>' +
       courses.map((c) => `<option>${esc(c)}</option>`).join('');
@@ -440,8 +465,6 @@ const App = (() => {
   function configureSetupForMode() {
     const mastery = state.authed && !state.guest;
     $('genModeWrap').classList.toggle('hidden', !mastery);
-    // The AI-model switcher governs flashcards, explanations & generation — show it in mastery.
-    $('aiEngineWrap').classList.toggle('hidden', !mastery);
     // Mastery users land on "My Progress" (their dashboard); guests (no mode
     // switcher) fall back to the quiz builder so they have something to do.
     setMode(mastery ? 'PROGRESS' : 'QUIZ');
@@ -880,7 +903,11 @@ const App = (() => {
   function renderProgressNode(node, level, scope) {
     const pct = nodeProgress(node);
     const color = accColor(pct);
-    const kids = [...node.children.values()].sort(byName);
+    // Courses (the children of a track, level 0) follow the curriculum order;
+    // everything else stays in natural name/unit-number order.
+    const kids = [...node.children.values()].sort(
+      level === 0 ? (a, b) => byCourseName(a.name, b.name) : byName,
+    );
     const hasKids = kids.length > 0 && !node.leaf;
     const isTrack = level === 0;
     const sub = node.leaf
@@ -2426,7 +2453,7 @@ const App = (() => {
       const tOpen = !!term || ms.open.has(tKey);
       html += msRow(tKey, 0, track, tTopics, true, tOpen);
       if (!tOpen) continue;
-      for (const course of msSortKeys(courses)) {
+      for (const course of [...courses.keys()].sort(byCourseName)) {
         const lessons = courses.get(course);
         const cKey = 'C::' + track + '||' + course;
         const cTopics = [];

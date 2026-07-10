@@ -766,8 +766,12 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
     await mapWithConcurrency(topics, 4, async (topic) => {
       try {
         const existing = await getQuestionsForTopics([topic]);
-        const baseline = existing.slice(0, 8).map((q) => ({ q: q.question, a: q.answer }));
-        const generated = await generateQuestions(topic, baseline, count, ai);
+        // A few full Q/A for depth calibration; ALL stems as a de-dup avoid-list.
+        const baseline = existing.slice(0, 6).map((q) => ({ q: q.question, a: q.answer }));
+        const stems = existing.map((q) => q.question);
+        // Performance left neutral on purpose: the bank is shared across users, so
+        // a bulk seed should stay comprehensive rather than skew to one learner.
+        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems });
         for (const g of generated) {
           await addQuestion(g);
           created++;
@@ -855,8 +859,11 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
     const meta = idx.get(topic);
     const scopeLabel = [meta.course, meta.lesson, topic].filter(Boolean).join(' › ');
 
+    // Existing stems for this topic become an avoid-list so "more like this"
+    // widens coverage instead of re-emitting questions already in the bank.
+    const pool = await getQuestionsForTopics([topic]);
     const generated = await generateSimilarQuestions(
-      { topic, scopeLabel, question: question || '', options: options || [], answer: answer || '' },
+      { topic, scopeLabel, question: question || '', options: options || [], answer: answer || '', existing: pool.map((q) => q.question) },
       count,
       aiChoice(req)
     );
@@ -1015,10 +1022,24 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     const meta = idx.get(card.topic);
     const scopeLabel = [meta.course, meta.lesson, card.topic].filter(Boolean).join(' › ');
 
+    // Feed the planner what already exists for this topic (avoid-list) and how
+    // this learner has done on it (difficulty target + missed-question focus).
+    const [pool, attempts] = await Promise.all([
+      getQuestionsForTopics([card.topic]),
+      getTopicAttempts(req.userEmail, card.topic),
+    ]);
+    const existing = pool.map((q) => q.question);
+    const performance = {
+      accuracy: attempts.accuracy,
+      attempts: attempts.attempts,
+      missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
+    };
+
     const qs = await generateFlashcardQuestions(
       { topic: card.topic, scopeLabel, concept: card.concept, intuition: card.intuition, formula: card.formula },
       count,
       aiChoice(req),
+      { existing, performance },
     );
     for (const q of qs) await addQuestion({ ...q, source: 'flashcard' });
     res.json(packageQuestions(qs, idx, count));
