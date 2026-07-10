@@ -185,7 +185,7 @@ const App = (() => {
   const AI_ENGINE_SELECTS = ['asstEngineSel'];
   const AI_THINKING_WRAPS = ['asstThinkingWrap'];
   const AI_THINKING_CHECKS = ['asstThinkingChk'];
-  const AI_DIFFICULTY_SELECTS = ['asstDifficultySel'];
+  const AI_DIFFICULTY_SELECTS = ['asstDifficultySel', 'fcDifficultySel'];
 
   function setAiChoice(provider, model) {
     document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
