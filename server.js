@@ -161,6 +161,14 @@ function aiChoice(req) {
   return { provider, model, thinking };
 }
 
+/** The question difficulty the learner picked (cookie set by the settings panel).
+ *  'auto' (default) ramps from their per-topic history; core|balanced|challenge
+ *  override it. */
+function difficultyChoice(req) {
+  const d = req.cookies?.difficulty;
+  return ['core', 'balanced', 'challenge'].includes(d) ? d : 'auto';
+}
+
 /**
  * Run `fn` over `items` with at most `limit` promises in flight, preserving
  * result order. Used to fan out per-topic LLM generation instead of awaiting
@@ -770,16 +778,26 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
     let created = 0;
     const errors = [];
     const ai = aiChoice(req);
+    const difficulty = difficultyChoice(req);
     // Fan out across topics (bounded) instead of one serial round-trip each.
     await mapWithConcurrency(topics, 4, async (topic) => {
       try {
-        const existing = await getQuestionsForTopics([topic]);
+        const [existing, attempts] = await Promise.all([
+          getQuestionsForTopics([topic]),
+          getTopicAttempts(req.userEmail, topic),
+        ]);
         // A few full Q/A for depth calibration; ALL stems as a de-dup avoid-list.
         const baseline = existing.slice(0, 6).map((q) => ({ q: q.question, a: q.answer }));
         const stems = existing.map((q) => q.question);
-        // Performance left neutral on purpose: the bank is shared across users, so
-        // a bulk seed should stay comprehensive rather than skew to one learner.
-        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems });
+        // Difficulty ramps from THIS learner's history on the topic when set to
+        // "auto" (weak/untouched -> core, mastered -> challenge); a manual pick
+        // overrides it. Missed questions bias new ones toward closing gaps.
+        const performance = {
+          accuracy: attempts.accuracy,
+          attempts: attempts.attempts,
+          missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
+        };
+        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty });
         for (const g of generated) {
           await addQuestion(g);
           created++;
@@ -1050,7 +1068,7 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
       { topic: card.topic, scopeLabel, concept: card.concept, intuition: card.intuition, formula: card.formula },
       count,
       aiChoice(req),
-      { existing, performance },
+      { existing, performance, difficulty: difficultyChoice(req) },
     );
     // Bank each question and carry its new id back so the client copy can be
     // reformatted inline (the admin "Fix format" button needs the id).

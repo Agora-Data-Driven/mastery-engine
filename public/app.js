@@ -185,6 +185,7 @@ const App = (() => {
   const AI_ENGINE_SELECTS = ['asstEngineSel'];
   const AI_THINKING_WRAPS = ['asstThinkingWrap'];
   const AI_THINKING_CHECKS = ['asstThinkingChk'];
+  const AI_DIFFICULTY_SELECTS = ['asstDifficultySel'];
 
   function setAiChoice(provider, model) {
     document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
@@ -235,6 +236,25 @@ const App = (() => {
     if (el) setThinking(!!el.checked);
   }
 
+  // Persist the question-difficulty choice (default 'auto', which ramps from the
+  // learner's per-topic history server-side). The server reads the `difficulty`
+  // cookie in difficultyChoice().
+  const DIFFICULTIES = ['auto', 'core', 'balanced', 'challenge'];
+  function setDifficulty(level) {
+    const val = DIFFICULTIES.includes(level) ? level : 'auto';
+    document.cookie = `difficulty=${val}; path=/; max-age=31536000; samesite=lax`;
+    localStorage.setItem('difficulty', val);
+    AI_DIFFICULTY_SELECTS.forEach((id) => {
+      const el = $(id);
+      if (el && el.value !== val) el.value = val;
+    });
+  }
+
+  function onDifficultyChange(selId) {
+    const el = $(selId || 'asstDifficultySel');
+    if (el) setDifficulty(el.value);
+  }
+
   // Friendly names for the known cloud models (falls back to "Provider: id").
   const MODEL_LABELS = {
     'gemini-2.5-flash': 'Cloud · Gemini 2.5 Flash (fast)',
@@ -276,6 +296,8 @@ const App = (() => {
       // Restore the extended-thinking toggle (default ON); setThinking mirrors
       // the state into every checkbox.
       setThinking(localStorage.getItem('aiThinking') !== 'off');
+      // Restore the difficulty choice (default 'auto').
+      setDifficulty(localStorage.getItem('difficulty') || 'auto');
     } catch (e) {
       console.error(e);
     }
@@ -2699,7 +2721,7 @@ const App = (() => {
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     toggleGenMore, generateSimilar,
-    openStats, priorityFromStats, onAiEngineChange, onThinkingChange,
+    openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
