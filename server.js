@@ -838,10 +838,11 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
     );
     // Persist into the bank so it feeds future quizzes for this exact sub-lesson.
     // Tag it `drill` so these can be audited/pruned separately from seeded ones.
-    await addQuestion({ ...drilled, source: 'drill' });
+    const id = await addQuestion({ ...drilled, source: 'drill' });
 
-    // Package with the topic's full hierarchy (same shape the quiz endpoints use).
-    res.json(packageQuestions([drilled], idx, 1)[0]);
+    // Package with the topic's full hierarchy (same shape the quiz endpoints use),
+    // carrying the new id so the client can reformat it inline.
+    res.json(packageQuestions([{ ...drilled, id }], idx, 1)[0]);
   } catch (e) {
     next(e);
   }
@@ -871,10 +872,12 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
       count,
       aiChoice(req)
     );
-    // Persist into the bank (tagged so these can be audited/pruned separately).
-    for (const g of generated) await addQuestion({ ...g, source: 'similar' });
+    // Persist into the bank (tagged so these can be audited/pruned separately),
+    // carrying each new id back so the client copies can be reformatted inline.
+    const banked = [];
+    for (const g of generated) banked.push({ ...g, id: await addQuestion({ ...g, source: 'similar' }) });
 
-    res.json(packageQuestions(generated, idx, count));
+    res.json(packageQuestions(banked, idx, count));
   } catch (e) {
     next(e);
   }
@@ -1045,8 +1048,11 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
       aiChoice(req),
       { existing, performance },
     );
-    for (const q of qs) await addQuestion({ ...q, source: 'flashcard' });
-    res.json(packageQuestions(qs, idx, count));
+    // Bank each question and carry its new id back so the client copy can be
+    // reformatted inline (the admin "Fix format" button needs the id).
+    const banked = [];
+    for (const q of qs) banked.push({ ...q, id: await addQuestion({ ...q, source: 'flashcard' }) });
+    res.json(packageQuestions(banked, idx, count));
   } catch (e) {
     next(e);
   }
