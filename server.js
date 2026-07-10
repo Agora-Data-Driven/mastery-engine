@@ -23,6 +23,7 @@ import {
   addQuestion,
   resetProgress,
   getAllQuestions,
+  getQuestionById,
   bulkUpdateQuestions,
   bulkUpdateFlashcards,
   getFlashcards,
@@ -67,6 +68,7 @@ import {
   generateFlashcardQuestions,
   latexifyQuestions,
   reformatFlashcards,
+  reformatQuestions,
 } from './lib/gemini.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
@@ -1218,6 +1220,82 @@ app.post('/api/flashcards/fix-format', requireAdmin, rateLimitAI, async (req, re
   }
 });
 
+/* ------------------------ Fix quiz-question formatting -------------------- */
+// Raw HTML that leaked into a question renders literally (the "<code>def
+// demo(a, b, *args):</code>" case), so flag any recognised tag. Combined with
+// the flashcard-style checks (code inside $...$, unbalanced $) this decides the
+// BATCH sweep's candidates; the per-question button fixes whatever you point it
+// at and does NOT gate on this.
+const HTML_TAG = /<\/?(code|pre|b|i|strong|em|u|br|span|sub|sup|tt|kbd|samp|mark)\b[^>]*>/i;
+const questionFieldLooksBroken = (s) => HTML_TAG.test(String(s || '')) || fieldLooksBroken(s);
+const questionNeedsFormatFix = (q) =>
+  questionFieldLooksBroken(q.question) ||
+  (Array.isArray(q.options) && q.options.some(questionFieldLooksBroken)) ||
+  questionFieldLooksBroken(q.answer);
+
+// Validate a reformatted question before saving: keep the same option count, and
+// require the answer to still equal one option exactly (trimmed). Returns the
+// accepted {question, options, answer} — falling back to the original per field —
+// or null if the shape is unusable, so a bad model response never corrupts a
+// question. Never blanks a field.
+function acceptQuestionFix(orig, out) {
+  if (!out) return null;
+  const question = typeof out.question === 'string' && out.question.trim() ? out.question : orig.question;
+  const options = Array.isArray(out.options) && out.options.length === orig.options.length
+    ? out.options.map(String)
+    : orig.options;
+  const answer = typeof out.answer === 'string' && out.answer.trim() ? out.answer : orig.answer;
+  const answerMatches = options.map((s) => s.trim()).includes(String(answer).trim());
+  if (!answerMatches) return null;
+  return { question, options, answer };
+}
+
+// List which of question/options/answer actually changed (so the UI can report it
+// and we skip a no-op write).
+function questionFixChanges(orig, fix) {
+  const changed = [];
+  if (fix.question !== orig.question) changed.push('question');
+  if (JSON.stringify(fix.options) !== JSON.stringify(orig.options)) changed.push('options');
+  if (fix.answer !== orig.answer) changed.push('answer');
+  return changed;
+}
+
+// Admin: reformat ONE shared quiz question's code/math (and strip any raw HTML)
+// so it renders correctly, and save it for everyone. Meaning is preserved
+// (formatting only); the answer stays matched to an option. Backs the quiz
+// view's "Fix format" button. Returns the (possibly unchanged) question plus
+// which fields changed.
+app.post('/api/questions/fix-format', requireAdmin, rateLimitAI, async (req, res, next) => {
+  try {
+    const questionId = String(req.body?.questionId || '').trim();
+    if (!questionId) return res.status(400).json({ error: 'questionId is required' });
+    const q = await getQuestionById(questionId);
+    if (!q) return res.status(404).json({ error: 'Question not found' });
+
+    const orig = {
+      question: q.question || '',
+      options: Array.isArray(q.options) ? q.options.map(String) : [],
+      answer: q.answer || '',
+    };
+    let arr;
+    try {
+      arr = await reformatQuestions([{ id: q.id, ...orig }], aiChoice(req));
+    } catch {
+      return res.status(502).json({ error: 'The reformatter did not return usable output. Try again.' });
+    }
+    const out = (arr || []).find((o) => o && o.id === q.id) || (arr || [])[0];
+    const fix = acceptQuestionFix(orig, out);
+    if (!fix) return res.status(502).json({ error: 'The reformatter returned an unusable result. Try again.' });
+
+    const changed = questionFixChanges(orig, fix);
+    if (changed.length) await bulkUpdateQuestions([{ id: q.id, ...fix }]);
+
+    res.json({ changed, question: { id: q.id, ...fix } });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Scope-level chat id: works for any track/course/lesson selection.
 const scopeChatId = ({ track, course, lesson }) =>
   slug(track || '', isAll(course) ? '' : course || '', isAll(lesson) ? '' : lesson || '');
@@ -1514,6 +1592,56 @@ app.post('/api/admin/fix-flashcard-formats', requireAdmin, async (req, res, next
       }
       // Commit each batch immediately so progress persists / is resumable.
       await bulkUpdateFlashcards(updates);
+    }
+    res.json({ ok: true, fixed, skipped, candidates: pending.length, remaining: Math.max(0, pending.length - fixed) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: sweep every shared quiz question and fix the code/math formatting (and
+// strip raw HTML) of the broken ones (same reformatter as the per-question "Fix
+// format" button). Processes up to `max` candidates per call, commits each batch
+// (resumable), and reports how many were fixed. Meaning is preserved; the answer
+// always stays matched to an option, and a field is only rewritten when it
+// actually changes.
+app.post('/api/admin/fix-question-formats', requireAdmin, async (req, res, next) => {
+  try {
+    const max = Math.min(parseInt(req.query.max, 10) || 120, 600);
+    const all = await getAllQuestions();
+    const pending = all.filter(questionNeedsFormatFix);
+    const todo = pending.slice(0, max);
+
+    let fixed = 0;
+    let skipped = 0;
+    const BATCH = 10;
+    for (let i = 0; i < todo.length; i += BATCH) {
+      const chunk = todo.slice(i, i + BATCH).map((q) => ({
+        id: q.id,
+        question: q.question || '',
+        options: Array.isArray(q.options) ? q.options.map(String) : [],
+        answer: q.answer || '',
+      }));
+      let out;
+      try {
+        out = await reformatQuestions(chunk, aiChoice(req));
+      } catch {
+        skipped += chunk.length;
+        continue;
+      }
+      const byId = new Map((out || []).map((o) => [o.id, o]));
+      const updates = [];
+      for (const orig of chunk) {
+        const fix = acceptQuestionFix(orig, byId.get(orig.id));
+        if (fix && questionFixChanges(orig, fix).length) {
+          updates.push({ id: orig.id, ...fix });
+          fixed += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+      // Commit each batch immediately so progress persists / is resumable.
+      await bulkUpdateQuestions(updates);
     }
     res.json({ ok: true, fixed, skipped, candidates: pending.length, remaining: Math.max(0, pending.length - fixed) });
   } catch (e) {

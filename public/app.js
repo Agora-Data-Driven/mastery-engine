@@ -342,6 +342,9 @@ const App = (() => {
     return 'login';
   }
 
+  // Whether the signed-in user is an admin (gates the inline "Fix format" buttons).
+  const isAdmin = () => !!(state.auth && state.auth.admin);
+
   function showOnly(view) {
     VIEWS.forEach((v) => (v === view ? show(v) : hide(v)));
     refreshModeChip();
@@ -600,7 +603,30 @@ const App = (() => {
       window.location.reload();
     } catch (e) {
       alert('Fix formats failed: ' + e.message);
-      if (btn) { btn.disabled = false; btn.textContent = 'Fix Formats'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Fix Card Formats'; }
+    }
+  }
+
+  // Admin: sweep every shared quiz question and fix broken code/math formatting
+  // (and strip raw HTML). Loops the endpoint until no candidates remain.
+  async function fixAllQuestionFormats() {
+    if (!confirm('Scan every quiz question and fix broken code/math formatting (and stray HTML)? This rewrites the shared questions for all users. Meaning is preserved; safe to re-run.')) return;
+    const btn = $('adminFixQuestionFormats');
+    if (btn) { btn.disabled = true; btn.textContent = 'Fixing…'; }
+    let fixed = 0;
+    try {
+      for (let pass = 0; pass < 30; pass++) {
+        const r = await api('/api/admin/fix-question-formats', { method: 'POST' });
+        fixed += r.fixed || 0;
+        if (btn) btn.textContent = `Fixing… (${fixed})`;
+        // Stop once a pass fixes nothing (remaining candidates are false positives).
+        if (!r.fixed) break;
+      }
+      alert(`Done. Questions fixed: ${fixed}.`);
+      window.location.reload();
+    } catch (e) {
+      alert('Fix question formats failed: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Fix Question Formats'; }
     }
   }
 
@@ -1094,6 +1120,13 @@ const App = (() => {
     $('qCrumb').textContent = [q.course, q.topic].filter(Boolean).join('  ›  ');
     $('qText').innerHTML = codeSpans(q.question);
     typeset($('qText'));
+
+    // Admin-only: "Fix format" reformats this shared question for everyone.
+    const qFix = $('qFixFormatBtn');
+    qFix.classList.toggle('hidden', !isAdmin());
+    qFix.disabled = false;
+    qFix.textContent = '🛠️ Fix format';
+
     $('reviewFlag').checked = false;
     hide('postAnswer');
 
@@ -1723,6 +1756,12 @@ const App = (() => {
     $('fcPrev').disabled = fc.idx === 0;
     $('fcNext').disabled = fc.idx >= fc.view.length - 1;
 
+    // Admin-only: "Fix format" reformats this shared card for everyone.
+    $('fcAdminActions').classList.toggle('hidden', !isAdmin());
+    const fcFix = $('fcFixFormatBtn');
+    fcFix.disabled = false;
+    fcFix.textContent = '🛠️ Fix format';
+
     // Per-card quiz performance (its topic's questions + your attempts).
     renderCardStats(card);
   }
@@ -2135,7 +2174,7 @@ const App = (() => {
     const view = currentView();
     $('assistantHint').textContent = {
       quiz: "I can see this question. Ask for a nudge or an explanation.",
-      flashcard: "I can see this flashcard. Ask me to explain it another way — or type “fixformat” to clean up its code/math.",
+      flashcard: "I can see this flashcard. Ask me to explain it another way.",
       stats: "I can see your progress. Ask me what to focus on.",
       setup: "Ask me what to study, or anything about a topic.",
       result: "Ask me about anything you just answered.",
@@ -2367,6 +2406,83 @@ const App = (() => {
     }
   }
 
+  // Admin button (flashcard view): reformat the CURRENT card's code/math and save
+  // it for everyone. Same action as the assistant's "fixformat" command, but a
+  // one-click button instead of typing.
+  async function fixCardFormat() {
+    const card = fc.view[fc.idx];
+    const btn = $('fcFixFormatBtn');
+    const err = $('fcQuizErr');
+    if (!card || !card.id) { if (err) err.textContent = 'No card to fix.'; return; }
+    err.textContent = '';
+    btn.disabled = true;
+    btn.textContent = 'Fixing…';
+    try {
+      const r = await api('/api/flashcards/fix-format', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id }),
+      });
+      applyCardFix(r.card);
+      const changed = r.changed || [];
+      if (changed.length) {
+        fc.flipped = true; // reveal the back so the fixed formula is visible
+        renderCard();
+        err.textContent = 'Fixed the ' + changed.join(' + ') + ' and saved for everyone.';
+      } else {
+        btn.disabled = false;
+        btn.textContent = '🛠️ Fix format';
+        err.textContent = 'This card already looks fine — nothing to change.';
+      }
+      refreshCost();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '🛠️ Fix format';
+      err.textContent = /admin|forbidden|\(403\)/i.test(e.message)
+        ? 'Only an admin can edit shared cards.'
+        : 'Fix failed: ' + e.message;
+    }
+  }
+
+  // Admin button (quiz view): reformat the CURRENT question's code/math (and strip
+  // raw HTML) and save it for everyone, then re-render so the fix shows at once.
+  async function fixQuestionFormat() {
+    const q = state.questions[state.idx];
+    const btn = $('qFixFormatBtn');
+    if (!q || !q.id) { alert('This question has no id to fix (offline or generated preview).'); return; }
+    btn.disabled = true;
+    btn.textContent = 'Fixing…';
+    try {
+      const r = await api('/api/questions/fix-format', {
+        method: 'POST', body: JSON.stringify({ questionId: q.id }),
+      });
+      // Patch the live question in place (question bank + any log entry) so the
+      // re-render reflects the fix without a reload.
+      const fix = r.question || {};
+      for (const arr of [state.questions, state.log]) {
+        if (!Array.isArray(arr)) continue;
+        for (const item of arr) {
+          if (item && item.id === q.id) {
+            item.question = fix.question;
+            item.options = fix.options;
+            item.answer = fix.answer;
+          }
+        }
+      }
+      const changed = r.changed || [];
+      renderQuestion(); // resets qFixFormatBtn text/disabled
+      if (!changed.length) {
+        btn.textContent = 'Already clean ✓';
+        btn.disabled = true;
+      }
+      refreshCost();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '🛠️ Fix format';
+      alert(/admin|forbidden|\(403\)/i.test(e.message)
+        ? 'Only an admin can edit shared questions.'
+        : 'Fix failed: ' + e.message);
+    }
+  }
+
   /* ----------------------------- Cost widget ----------------------------- */
   // Live AI token/cost pill: "session" (spend since this page load) + all-time.
   const cost = { baseline: null, total: null };
@@ -2577,7 +2693,8 @@ const App = (() => {
 
   return {
     enterMastery, goHome, setMode,
-    submitPassword, actAs, stopActing, mergeMath, fixAllFormats,
+    submitPassword, actAs, stopActing, mergeMath, fixAllFormats, fixAllQuestionFormats,
+    fixQuestionFormat, fixCardFormat,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
