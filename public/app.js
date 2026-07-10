@@ -176,12 +176,27 @@ const App = (() => {
 
   /* ----------------------------- AI engine ------------------------------- */
   // Lets the user pick the cloud (Gemini) or a local Ollama model. The choice
-  // is stored in cookies the server reads on every AI request.
+  // is stored in cookies the server reads on every AI request, so it governs
+  // flashcards, explanations, question generation AND the Study Assistant alike.
+  //
+  // The same controls live in two places — the home setup card and the Study
+  // Assistant panel — so the picker is reachable wherever you are. These id
+  // lists keep the two mirrored sets in lockstep.
+  const AI_ENGINE_SELECTS = ['aiEngineSel', 'asstEngineSel'];
+  const AI_THINKING_WRAPS = ['aiThinkingWrap', 'asstThinkingWrap'];
+  const AI_THINKING_CHECKS = ['aiThinkingChk', 'asstThinkingChk'];
+
   function setAiChoice(provider, model) {
     document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
     document.cookie = `aiModel=${encodeURIComponent(model || '')}; path=/; max-age=31536000; samesite=lax`;
     localStorage.setItem('aiProvider', provider);
     localStorage.setItem('aiModel', model || '');
+    // Mirror the selection into every model dropdown so both stay in sync.
+    const val = `${provider}::${model || ''}`;
+    AI_ENGINE_SELECTS.forEach((id) => {
+      const el = $(id);
+      if (el && el.value !== val) el.value = val;
+    });
     syncThinkingVisibility(provider);
   }
 
@@ -189,8 +204,8 @@ const App = (() => {
   // DeepSeek V4 — whose Flash model defaults to thinking ON, hence slow); hide the
   // toggle for the local engines that don't take the lever.
   function syncThinkingVisibility(provider) {
-    const wrap = $('aiThinkingWrap');
-    if (wrap) wrap.classList.toggle('hidden', provider !== 'gemini' && provider !== 'deepseek');
+    const supported = provider === 'gemini' || provider === 'deepseek';
+    AI_THINKING_WRAPS.forEach((id) => $(id)?.classList.toggle('hidden', !supported));
   }
 
   // Persist the extended-thinking choice (default ON, so nothing regresses).
@@ -199,10 +214,25 @@ const App = (() => {
   function setThinking(on) {
     document.cookie = `aiThinking=${on ? 'on' : 'off'}; path=/; max-age=31536000; samesite=lax`;
     localStorage.setItem('aiThinking', on ? 'on' : 'off');
+    // Keep both toggle checkboxes reflecting the same state.
+    AI_THINKING_CHECKS.forEach((id) => {
+      const el = $(id);
+      if (el && el.checked !== on) el.checked = on;
+    });
   }
 
-  function onThinkingChange() {
-    setThinking(!!$('aiThinkingChk').checked);
+  // Change handlers accept the source control's id so either mirrored set can
+  // drive the shared choice (defaults keep the original home-card calls working).
+  function onAiEngineChange(selId) {
+    const el = $(selId || 'aiEngineSel');
+    if (!el) return;
+    const [provider, model] = el.value.split('::');
+    setAiChoice(provider, model);
+  }
+
+  function onThinkingChange(chkId) {
+    const el = $(chkId || 'aiThinkingChk');
+    if (el) setThinking(!!el.checked);
   }
 
   // Friendly names for the known cloud models (falls back to "Provider: id").
@@ -217,8 +247,10 @@ const App = (() => {
   }
 
   async function loadModels() {
-    const sel = $('aiEngineSel');
-    if (!sel) return;
+    // Both the home card and the assistant panel host a model dropdown; bail
+    // only if neither is present.
+    const sels = AI_ENGINE_SELECTS.map((id) => $(id)).filter(Boolean);
+    if (!sels.length) return;
     try {
       const r = await api('/api/models');
       const opts = [];
@@ -228,23 +260,22 @@ const App = (() => {
         }
       }
       if (!opts.length) return;
-      sel.innerHTML = opts
+      const optionsHtml = opts
         .map((o) => `<option value="${esc(o.provider)}::${esc(o.model)}">${esc(o.label)}</option>`)
         .join('');
+      sels.forEach((sel) => { sel.innerHTML = optionsHtml; });
 
       // Restore the saved choice, falling back to the first available option
       // (so a previously-picked model resets to cloud when unavailable).
+      // setAiChoice mirrors the value into every dropdown.
       const savedP = localStorage.getItem('aiProvider') || 'gemini';
       const savedM = localStorage.getItem('aiModel') || '';
       const match = opts.find((o) => o.provider === savedP && (!savedM || o.model === savedM)) || opts[0];
-      sel.value = `${match.provider}::${match.model}`;
       setAiChoice(match.provider, match.model);
 
-      // Restore the extended-thinking toggle (default ON).
-      const thinkOn = localStorage.getItem('aiThinking') !== 'off';
-      const chk = $('aiThinkingChk');
-      if (chk) chk.checked = thinkOn;
-      setThinking(thinkOn);
+      // Restore the extended-thinking toggle (default ON); setThinking mirrors
+      // the state into every checkbox.
+      setThinking(localStorage.getItem('aiThinking') !== 'off');
 
       $('aiEngineHint').textContent = r.deepseekAvailable
         ? ''
@@ -2068,6 +2099,16 @@ const App = (() => {
     }
   }
 
+  // Reveal/hide the in-panel AI model + thinking controls. These drive the same
+  // global choice as the home card, so switching here affects everything.
+  function toggleAssistantSettings() {
+    const box = $('assistantSettings');
+    if (!box) return;
+    const opening = box.classList.contains('hidden');
+    box.classList.toggle('hidden', !opening);
+    $('assistantSettingsBtn')?.classList.toggle('active', opening);
+  }
+
   function updateAssistantHint() {
     const view = currentView();
     $('assistantHint').textContent = {
@@ -2525,7 +2566,7 @@ const App = (() => {
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openScopeChat, closeScopeChat, sendScopeChat,
     toggleAssistant, sendAssistant, newAssistantChat, deleteAssistantChat,
-    toggleAssistantHistory, openAssistantChatById,
+    toggleAssistantHistory, openAssistantChatById, toggleAssistantSettings,
     toggleCostDetail, msClear,
   };
 })();
