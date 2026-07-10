@@ -69,6 +69,7 @@ import {
   latexifyQuestions,
   reformatFlashcards,
   reformatQuestions,
+  restoreLatexEscapes,
 } from './lib/gemini.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
@@ -128,9 +129,12 @@ function packageQuestions(questions, idx, count) {
       course: meta.course || 'Unknown Course',
       lesson: meta.lesson || 'Unknown Lesson',
       topic: q.topic,
-      question: q.question,
-      options: q.options,
-      answer: q.answer,
+      // restoreLatexEscapes repairs any control-char-mangled LaTeX ("\texttt"
+      // arriving as a literal tab) at read time, so even questions banked before
+      // the generator fix render correctly.
+      question: restoreLatexEscapes(q.question),
+      options: Array.isArray(q.options) ? q.options.map(restoreLatexEscapes) : q.options,
+      answer: restoreLatexEscapes(q.answer),
     };
   });
 }
@@ -363,9 +367,9 @@ app.get('/api/questions/all', async (_req, res, next) => {
             course: m.course || '',
             lesson: m.lesson || '',
             topic: q.topic,
-            question: q.question,
-            options: q.options,
-            answer: q.answer,
+            question: restoreLatexEscapes(q.question),
+            options: Array.isArray(q.options) ? q.options.map(restoreLatexEscapes) : q.options,
+            answer: restoreLatexEscapes(q.answer),
           };
         })
     );
@@ -1235,11 +1239,26 @@ app.post('/api/flashcards/fix-format', requireAdmin, rateLimitAI, async (req, re
 // BATCH sweep's candidates; the per-question button fixes whatever you point it
 // at and does NOT gate on this.
 const HTML_TAG = /<\/?(code|pre|b|i|strong|em|u|br|span|sub|sup|tt|kbd|samp|mark)\b[^>]*>/i;
-const questionFieldLooksBroken = (s) => HTML_TAG.test(String(s || '')) || fieldLooksBroken(s);
+// A literal control char glued to lowercase text is a LaTeX command mangled by
+// JSON parsing (e.g. "\texttt" -> TAB+"exttt"); flag it so the batch sweep fixes
+// these even though they contain no HTML and parse fine. \b here is backspace.
+const CTRL_LATEX = /[\t\f\b\r\n][a-z]/;
+const questionFieldLooksBroken = (s) =>
+  HTML_TAG.test(String(s || '')) || CTRL_LATEX.test(String(s || '')) || fieldLooksBroken(s);
 const questionNeedsFormatFix = (q) =>
   questionFieldLooksBroken(q.question) ||
   (Array.isArray(q.options) && q.options.some(questionFieldLooksBroken)) ||
   questionFieldLooksBroken(q.answer);
+
+// Deterministically repair control-char-mangled LaTeX across a question's text
+// fields (same transform as gemini's, applied to the {question, options, answer}
+// shape the fixer uses). The answer<->option match is preserved because every
+// field is cleaned identically.
+const cleanQuestionEscapes = (q) => ({
+  question: restoreLatexEscapes(q.question || ''),
+  options: (q.options || []).map((o) => restoreLatexEscapes(String(o))),
+  answer: restoreLatexEscapes(q.answer || ''),
+});
 
 // Validate a reformatted question before saving: keep the same option count, and
 // require the answer to still equal one option exactly (trimmed). Returns the
@@ -1280,22 +1299,28 @@ app.post('/api/questions/fix-format', requireAdmin, rateLimitAI, async (req, res
     const q = await getQuestionById(questionId);
     if (!q) return res.status(404).json({ error: 'Question not found' });
 
-    const orig = {
+    const stored = {
       question: q.question || '',
       options: Array.isArray(q.options) ? q.options.map(String) : [],
       answer: q.answer || '',
     };
+    // Deterministically repair control-char-mangled LaTeX first, so the model
+    // sees valid LaTeX AND so this class of breakage is fixed even if the model
+    // returns the text unchanged. `cleaned` is the AI input and the fallback.
+    const cleaned = cleanQuestionEscapes(stored);
     let arr;
     try {
-      arr = await reformatQuestions([{ id: q.id, ...orig }], aiChoice(req));
+      arr = await reformatQuestions([{ id: q.id, ...cleaned }], aiChoice(req));
     } catch {
       return res.status(502).json({ error: 'The reformatter did not return usable output. Try again.' });
     }
     const out = (arr || []).find((o) => o && o.id === q.id) || (arr || [])[0];
-    const fix = acceptQuestionFix(orig, out);
+    const fix = acceptQuestionFix(cleaned, out);
     if (!fix) return res.status(502).json({ error: 'The reformatter returned an unusable result. Try again.' });
 
-    const changed = questionFixChanges(orig, fix);
+    // Compare against the TRUE stored value so a control-char-only repair still
+    // counts as a change and gets saved.
+    const changed = questionFixChanges(stored, fix);
     if (changed.length) await bulkUpdateQuestions([{ id: q.id, ...fix }]);
 
     res.json({ changed, question: { id: q.id, ...fix } });
@@ -1624,23 +1649,26 @@ app.post('/api/admin/fix-question-formats', requireAdmin, async (req, res, next)
     let skipped = 0;
     const BATCH = 10;
     for (let i = 0; i < todo.length; i += BATCH) {
-      const chunk = todo.slice(i, i + BATCH).map((q) => ({
+      // `stored` keeps the true values for change detection; `cleaned` (control
+      // chars repaired) is what the model sees and the fallback baseline.
+      const stored = todo.slice(i, i + BATCH).map((q) => ({
         id: q.id,
         question: q.question || '',
         options: Array.isArray(q.options) ? q.options.map(String) : [],
         answer: q.answer || '',
       }));
+      const cleanedById = new Map(stored.map((q) => [q.id, cleanQuestionEscapes(q)]));
       let out;
       try {
-        out = await reformatQuestions(chunk, aiChoice(req));
+        out = await reformatQuestions(stored.map((q) => ({ id: q.id, ...cleanedById.get(q.id) })), aiChoice(req));
       } catch {
-        skipped += chunk.length;
+        skipped += stored.length;
         continue;
       }
       const byId = new Map((out || []).map((o) => [o.id, o]));
       const updates = [];
-      for (const orig of chunk) {
-        const fix = acceptQuestionFix(orig, byId.get(orig.id));
+      for (const orig of stored) {
+        const fix = acceptQuestionFix(cleanedById.get(orig.id), byId.get(orig.id));
         if (fix && questionFixChanges(orig, fix).length) {
           updates.push({ id: orig.id, ...fix });
           fixed += 1;
