@@ -287,11 +287,6 @@ const App = (() => {
     }
   }
 
-  function onAiEngineChange() {
-    const [provider, model] = $('aiEngineSel').value.split('::');
-    setAiChoice(provider, model);
-  }
-
   function tickClock() {
     const el = $('clock');
     if (!el) return;
