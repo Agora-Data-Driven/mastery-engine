@@ -123,6 +123,7 @@ function packageQuestions(questions, idx, count) {
   return questions.slice(0, count).map((q) => {
     const meta = idx.get(q.topic) || {};
     return {
+      id: q.id, // needed by the admin "Fix format" button
       track: meta.track || 'Unknown Track',
       course: meta.course || 'Unknown Course',
       lesson: meta.lesson || 'Unknown Lesson',
@@ -357,6 +358,7 @@ app.get('/api/questions/all', async (_req, res, next) => {
         .map((q) => {
           const m = idx.get(q.topic) || {};
           return {
+            id: q.id, // needed by the admin "Fix format" button
             track: m.track || '',
             course: m.course || '',
             lesson: m.lesson || '',
