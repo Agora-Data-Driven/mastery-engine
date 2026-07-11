@@ -45,11 +45,20 @@ import {
   saveAssistantChat,
   deleteAssistantChat,
   mergeIntoMathematics,
+  getGraphLinks,
+  saveGraphLinks,
   addUsage,
   getUsage,
   slug,
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
+import {
+  toNode,
+  buildFlowEdges,
+  buildPrereqEdges,
+  computeInsights,
+  prereqContext,
+} from './lib/graph.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
 import {
   generateQuestions,
@@ -66,6 +75,7 @@ import {
   generateScopeChat,
   generateAssistantChat,
   generateFlashcardQuestions,
+  generateTopicLinks,
   latexifyQuestions,
   reformatFlashcards,
   editFlashcard,
@@ -780,6 +790,9 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
     const errors = [];
     const ai = aiChoice(req);
     const difficulty = difficultyChoice(req);
+    // Knowledge-graph links (best-effort): each topic's prompt gets the learner's
+    // standing on its prerequisites, steering questions toward weak sub-steps.
+    const graphLinks = await getGraphLinks().catch(() => []);
     // Fan out across topics (bounded) instead of one serial round-trip each.
     await mapWithConcurrency(topics, 4, async (topic) => {
       try {
@@ -798,7 +811,8 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
           attempts: attempts.attempts,
           missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
         };
-        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty });
+        const prereqs = prereqContext(topic, catalog, graphLinks);
+        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty, prereqs });
         for (const g of generated) {
           await addQuestion(g);
           created++;
@@ -1052,11 +1066,13 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     const meta = idx.get(card.topic);
     const scopeLabel = [meta.course, meta.lesson, card.topic].filter(Boolean).join(' › ');
 
-    // Feed the planner what already exists for this topic (avoid-list) and how
-    // this learner has done on it (difficulty target + missed-question focus).
-    const [pool, attempts] = await Promise.all([
+    // Feed the planner what already exists for this topic (avoid-list), how
+    // this learner has done on it (difficulty target + missed-question focus),
+    // and the graph's prerequisite standing (weak prereqs become sub-steps).
+    const [pool, attempts, graphLinks] = await Promise.all([
       getQuestionsForTopics([card.topic]),
       getTopicAttempts(req.userEmail, card.topic),
+      getGraphLinks().catch(() => []),
     ]);
     const existing = pool.map((q) => q.question);
     const performance = {
@@ -1064,12 +1080,13 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
       attempts: attempts.attempts,
       missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
     };
+    const prereqs = prereqContext(card.topic, catalog, graphLinks);
 
     const qs = await generateFlashcardQuestions(
       { topic: card.topic, scopeLabel, concept: card.concept, intuition: card.intuition, formula: card.formula },
       count,
       aiChoice(req),
-      { existing, performance, difficulty: difficultyChoice(req) },
+      { existing, performance, difficulty: difficultyChoice(req), prereqs },
     );
     // Bank each question and carry its new id back so the client copy can be
     // reformatted inline (the admin "Fix format" button needs the id).
@@ -1572,13 +1589,131 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
 });
 
 // Auth: AI analysis of the learner's overall progress dashboard (streamed).
+// The knowledge graph's frontier/keystone signals ride along (best-effort) so
+// the coach can say WHAT to study next, not just where accuracy is low.
 app.post('/api/analyze', requireAuth, async (req, res, next) => {
   try {
     const catalog = await getCatalog(req.userEmail);
     const summary = buildProgressSummary(catalog);
+    try {
+      const links = await getGraphLinks();
+      const rows = catalog.filter((r) => r.topic);
+      const now = new Date();
+      summary.graph = computeInsights(rows.map((r) => toNode(r, now)), buildPrereqEdges(links, rows), { limit: 8 });
+    } catch { /* graph unavailable — the analysis still works without it */ }
     await streamText(res, (onToken) => generateAnalysis(summary, aiChoice(req), onToken));
   } catch (e) {
     if (!res.headersSent) next(e);
+  }
+});
+
+/* ------------------------------ knowledge graph ---------------------------- */
+// Nodes are topics (the stable unit every quiz attempt and priority score keys
+// on); each node carries its flashcards + this user's labels. Edges are the
+// computed curriculum "flow" spine plus stored AI "prereq" links (lib/graph.js).
+
+/** Link a batch of topics (LLM -> graphLinks), chunked so each call stays
+ *  careful. Shared by the admin sweep and the background top-up. */
+async function linkTopics(rows, targets, ai) {
+  const candidates = rows.map((r) => ({ id: r.id, topic: r.topic, course: r.course || '', track: r.track || '' }));
+  const chunks = [];
+  for (let i = 0; i < targets.length; i += 20) chunks.push(targets.slice(i, i + 20));
+  let linked = 0;
+  await mapWithConcurrency(chunks, 2, async (chunk) => {
+    try {
+      const results = await generateTopicLinks({ targets: chunk, candidates }, ai);
+      linked += await saveGraphLinks(results);
+    } catch (e) {
+      console.error('graph: link batch failed:', e.message);
+    }
+  });
+  return linked;
+}
+
+// Self-healing map: whenever the graph is opened and topics without stored
+// links exist (a fresh install, or newly added topics), link a capped batch in
+// the background. Repeat opens finish the job; no admin action required.
+let graphLinkingInFlight = false;
+function kickBackgroundLinking(rows, unlinked, ai) {
+  if (graphLinkingInFlight || !unlinked.length) return;
+  graphLinkingInFlight = true;
+  linkTopics(rows, unlinked.slice(0, 30), ai)
+    .catch(() => {})
+    .finally(() => { graphLinkingInFlight = false; });
+}
+
+// Auth: the full graph for the "Visualize my progress" map — nodes with THIS
+// user's mastery state, flow + prereq edges, coverage, and the deterministic
+// insights (frontier = ready to start; keystones = weak links blocking the most).
+app.get('/api/graph', requireAuth, async (req, res, next) => {
+  try {
+    const [catalog, links, allCards] = await Promise.all([
+      getCatalog(req.userEmail),
+      getGraphLinks(),
+      getAllFlashcardsWithId(),
+    ]);
+    const rows = catalog.filter((r) => r.topic);
+    const now = new Date();
+    const nodes = rows.map((r) => toNode(r, now));
+
+    // Hang each topic's flashcards off its node (compact), with this user's
+    // private labels, so clicking a node shows its cards and their state.
+    const statuses = await getFlashcardStatuses(req.userEmail, allCards.map((c) => c.id));
+    const cardsByTopic = new Map();
+    for (const c of allCards) {
+      if (!c.topic) continue;
+      if (!cardsByTopic.has(c.topic)) cardsByTopic.set(c.topic, []);
+      cardsByTopic.get(c.topic).push({
+        id: c.id,
+        concept: c.concept || '',
+        level: c.level || 'course',
+        status: statuses[c.id] || null,
+      });
+    }
+    const LEVEL_RANK = { topic: 0, lesson: 1, course: 2 }; // most-specific first
+    for (const n of nodes) {
+      n.cards = (cardsByTopic.get(n.topic) || [])
+        .sort((a, b) => (LEVEL_RANK[a.level] ?? 3) - (LEVEL_RANK[b.level] ?? 3));
+    }
+
+    const prereqEdges = buildPrereqEdges(links, rows);
+    const edges = [...buildFlowEdges(rows), ...prereqEdges];
+    const insights = computeInsights(nodes, prereqEdges);
+
+    const linkedIds = new Set(links.map((l) => l.id));
+    const unlinked = rows.filter((r) => !linkedIds.has(r.id));
+    kickBackgroundLinking(rows, unlinked, aiChoice(req));
+
+    res.json({
+      nodes,
+      edges,
+      insights,
+      coverage: {
+        linked: rows.length - unlinked.length,
+        total: rows.length,
+        building: unlinked.length > 0,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: bulk-build the prereq links (resumable sweep, like the format fixers).
+// Processes up to `max` unlinked topics per call; `?refresh=1` re-links
+// EVERYTHING (e.g. after a big catalog change). Safe to re-run.
+app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
+  try {
+    const max = Math.min(parseInt(req.query.max, 10) || 120, 600);
+    const [catalog, links] = await Promise.all([getCatalog(req.userEmail), getGraphLinks()]);
+    const rows = catalog.filter((r) => r.topic);
+    const linkedIds = new Set(links.map((l) => l.id));
+    const pending = req.query.refresh === '1' ? rows : rows.filter((r) => !linkedIds.has(r.id));
+    const todo = pending.slice(0, max);
+    const linked = await linkTopics(rows, todo, aiChoice(req));
+    res.json({ ok: true, linked, remaining: Math.max(0, pending.length - todo.length) });
+  } catch (e) {
+    next(e);
   }
 });
 

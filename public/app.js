@@ -350,7 +350,7 @@ const App = (() => {
     if (statsBtn) statsBtn.classList.toggle('hidden', !state.authed);
   }
 
-  const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView'];
+  const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView', 'graphView'];
 
   // Flashcards are enabled for every course/lesson (must stay in sync with
   // server.js flashcardsEnabledFor). To scope back to specific courses, make this
@@ -2833,6 +2833,650 @@ const App = (() => {
 
   function msClear() { ms.selected.clear(); renderMultiTree(); }
 
+  /* ---------------------------- Knowledge Map ---------------------------- */
+  // "Visualize my progress": every topic in the catalog is a node (clustered by
+  // track), joined by the curriculum spine ("flow" edges) and the AI-mapped
+  // prerequisite links ("prereq" edges) served by /api/graph. Node fill encodes
+  // THIS user's mastery (hollow = never attempted, colour = accuracy), so the
+  // map is also the progress picture. Clicking a node lights up the whole chain
+  // it builds on and unlocks (Limits → Derivatives → Gradient Descent → …) and
+  // opens a panel with its stats, flashcards, and quiz/cards actions.
+  //
+  // Rendered on a <canvas> with a small custom force layout (no library):
+  // springs along edges, grid-bucketed repulsion, per-track anchor gravity.
+  const graph = {
+    data: null,           // last /api/graph payload
+    nodes: [],            // [{...node, x, y, vx, vy, r}]
+    byId: new Map(),
+    edges: [],
+    prereqIn: new Map(),  // id -> [ids it builds on]
+    prereqOut: new Map(), // id -> [ids it unlocks]
+    flowAdj: new Map(),   // id -> [curriculum neighbours]
+    anchors: new Map(),   // track -> {x, y} cluster anchor (world coords)
+    trackColor: new Map(),
+    tf: { x: 0, y: 0, k: 1 }, // world -> screen: screen = world * k + (x, y)
+    selected: null,
+    related: null,        // Set of node ids highlighted for the selection
+    relatedEdges: null,   // Set of edge objects highlighted for the selection
+    hover: null,
+    settleTimer: 0,
+    drag: null,
+    sized: false,
+  };
+
+  const GRAPH_POS_KEY = 'agora.graphpos.v1';
+  const TRACK_PALETTE = ['#2fa14a', '#7c6ff0', '#1856c9', '#c95816', '#0f8f8f', '#b3387a'];
+
+  // Solid hex versions of accColor (canvas can't resolve CSS vars).
+  function accHex(pct) {
+    if (pct == null) return '#9aa39e';
+    if (pct >= 80) return '#2fa14a';
+    if (pct >= 60) return '#c98a16';
+    return '#d6453f';
+  }
+
+  async function openGraph() {
+    if (!state.authed) { showLogin(); return; }
+    showOnly('graphView');
+    $('graphError').textContent = '';
+    // Always refetch: cheap, and it's how newly unlocked cards/attempts/links
+    // show up automatically every time the map is opened.
+    show('graphLoader'); hide('graphBody');
+    try {
+      const data = await api('/api/graph');
+      hide('graphLoader'); show('graphBody');
+      buildGraphStructures(data);
+      sizeGraphCanvas();
+      layoutGraph();
+      renderGraphPanel();
+      renderGraphCoverage();
+    } catch (e) {
+      hide('graphLoader');
+      $('graphError').textContent = 'Couldn’t load your knowledge map: ' + e.message;
+    }
+  }
+
+  const pushTo = (map, key, val) => { if (!map.has(key)) map.set(key, []); map.get(key).push(val); };
+
+  function buildGraphStructures(data) {
+    graph.data = data;
+    graph.selected = null;
+    graph.related = graph.relatedEdges = null;
+    graph.hover = null;
+    graph.nodes = data.nodes.map((n) => ({
+      ...n,
+      x: 0, y: 0, vx: 0, vy: 0,
+      r: 4 + Math.min(5, Math.sqrt(n.questionCount || 1)),
+    }));
+    graph.byId = new Map(graph.nodes.map((n) => [n.id, n]));
+    graph.edges = (data.edges || []).filter((e) => graph.byId.has(e.from) && graph.byId.has(e.to));
+    graph.prereqIn = new Map(); graph.prereqOut = new Map(); graph.flowAdj = new Map();
+    for (const e of graph.edges) {
+      if (e.kind === 'prereq') {
+        pushTo(graph.prereqIn, e.to, e.from);
+        pushTo(graph.prereqOut, e.from, e.to);
+      } else {
+        pushTo(graph.flowAdj, e.from, e.to);
+        pushTo(graph.flowAdj, e.to, e.from);
+      }
+    }
+    // One cluster anchor per track, spread on a circle sized to the clusters.
+    const counts = new Map();
+    for (const n of graph.nodes) counts.set(n.track, (counts.get(n.track) || 0) + 1);
+    const tracks = [...counts.keys()].sort();
+    graph.trackColor = new Map(tracks.map((t, i) => [t, TRACK_PALETTE[i % TRACK_PALETTE.length]]));
+    const biggest = Math.max(1, ...counts.values());
+    const clusterR = Math.ceil(Math.sqrt(biggest)) * 21; // grid cell is 42 world units
+    const R = tracks.length > 1 ? clusterR * 1.7 + 120 : 0;
+    graph.anchors = new Map(tracks.map((t, i) => {
+      const a = (i / tracks.length) * Math.PI * 2 - Math.PI / 2;
+      return [t, { x: Math.cos(a) * R, y: Math.sin(a) * R }];
+    }));
+  }
+
+  // Deterministic starting positions: each track is a boustrophedon grid in
+  // curriculum order around its anchor, so the flow spine starts untangled and
+  // the force pass only has to relax it. Cached positions (from the last visit)
+  // take precedence so the map keeps its shape between opens.
+  function initGraphPositions(cachedPos) {
+    const byTrack = new Map();
+    for (const n of graph.nodes) pushTo(byTrack, n.track, n);
+    const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+    for (const [t, list] of byTrack) {
+      list.sort((a, b) => byCourseName(a.course, b.course) || natural(a.lesson, b.lesson) || natural(a.topic, b.topic));
+      const anchor = graph.anchors.get(t);
+      const cols = Math.ceil(Math.sqrt(list.length));
+      const cell = 42;
+      list.forEach((n, i) => {
+        if (cachedPos && cachedPos[n.id]) { n.x = cachedPos[n.id][0]; n.y = cachedPos[n.id][1]; return; }
+        const row = Math.floor(i / cols);
+        const col = i % cols;
+        const c = row % 2 ? cols - 1 - col : col;
+        n.x = anchor.x + (c - (cols - 1) / 2) * cell + (Math.random() - 0.5) * 8;
+        n.y = anchor.y + (row - (list.length / cols - 1) / 2) * cell + (Math.random() - 0.5) * 8;
+      });
+    }
+  }
+
+  // One physics step: edge springs (flow tight, prereq loose so cross-track
+  // links don't collapse the clusters), short-range repulsion via a spatial
+  // grid (O(n · neighbours), fine for ~600 nodes), anchor gravity, damping.
+  function graphTick() {
+    for (const e of graph.edges) {
+      const a = graph.byId.get(e.from), b = graph.byId.get(e.to);
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.hypot(dx, dy) || 1;
+      const rest = e.kind === 'flow' ? 48 : 180;
+      const k = e.kind === 'flow' ? 0.05 : 0.005;
+      const f = (k * (d - rest)) / d;
+      a.vx += dx * f; a.vy += dy * f;
+      b.vx -= dx * f; b.vy -= dy * f;
+    }
+    const CELL = 60;
+    const buckets = new Map();
+    const keyOf = (cx, cy) => cx * 100003 + cy;
+    for (const n of graph.nodes) {
+      const k = keyOf(Math.floor(n.x / CELL), Math.floor(n.y / CELL));
+      pushTo(buckets, k, n);
+    }
+    for (const n of graph.nodes) {
+      const cx = Math.floor(n.x / CELL), cy = Math.floor(n.y / CELL);
+      for (let gx = cx - 1; gx <= cx + 1; gx++) {
+        for (let gy = cy - 1; gy <= cy + 1; gy++) {
+          const cell = buckets.get(keyOf(gx, gy));
+          if (!cell) continue;
+          for (const m of cell) {
+            if (m === n) continue;
+            let dx = n.x - m.x, dy = n.y - m.y;
+            let d2 = dx * dx + dy * dy;
+            if (d2 > CELL * CELL) continue;
+            if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
+            const f = 340 / d2;
+            n.vx += dx * f * 0.05;
+            n.vy += dy * f * 0.05;
+          }
+        }
+      }
+    }
+    for (const n of graph.nodes) {
+      const a = graph.anchors.get(n.track) || { x: 0, y: 0 };
+      n.vx += (a.x - n.x) * 0.0032;
+      n.vy += (a.y - n.y) * 0.0032;
+      n.vx *= 0.82; n.vy *= 0.82;
+      n.x += Math.max(-14, Math.min(14, n.vx));
+      n.y += Math.max(-14, Math.min(14, n.vy));
+    }
+  }
+
+  // Relax the layout over rAF chunks so the tab stays responsive, then cache
+  // the settled positions (keyed by node id) for instant reopening.
+  function layoutGraph() {
+    const cached = lsGet(GRAPH_POS_KEY);
+    const pos = cached && cached.pos ? cached.pos : null;
+    const covered = pos ? graph.nodes.filter((n) => pos[n.id]).length : 0;
+    const warm = pos && covered / graph.nodes.length > 0.95;
+    initGraphPositions(warm ? pos : null);
+    let remaining = warm ? 70 : 300; // short relax when reusing a cached shape
+    cancelAnimationFrame(graph.settleTimer);
+    fitGraphView();
+    if (!warm) show('graphSettling');
+    const step = () => {
+      for (let i = 0; i < 25 && remaining > 0; i++, remaining--) graphTick();
+      graphDraw();
+      if (remaining > 0) {
+        graph.settleTimer = requestAnimationFrame(step);
+      } else {
+        hide('graphSettling');
+        fitGraphView();
+        graphDraw();
+        const save = {};
+        for (const n of graph.nodes) save[n.id] = [Math.round(n.x), Math.round(n.y)];
+        lsSet(GRAPH_POS_KEY, { pos: save });
+      }
+    };
+    graph.settleTimer = requestAnimationFrame(step);
+  }
+
+  function sizeGraphCanvas() {
+    const wrap = $('graphCanvasWrap');
+    const cv = $('graphCanvas');
+    if (!wrap || !cv) return;
+    const rect = wrap.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = Math.max(1, Math.round(rect.width * dpr));
+    cv.height = Math.max(1, Math.round(rect.height * dpr));
+    cv.style.width = rect.width + 'px';
+    cv.style.height = rect.height + 'px';
+    graph.sized = true;
+  }
+
+  function graphViewSize() {
+    const cv = $('graphCanvas');
+    const dpr = window.devicePixelRatio || 1;
+    return { w: cv.width / dpr, h: cv.height / dpr };
+  }
+
+  function fitGraphView() {
+    if (!graph.nodes.length) return;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const n of graph.nodes) {
+      if (n.x < minX) minX = n.x;
+      if (n.x > maxX) maxX = n.x;
+      if (n.y < minY) minY = n.y;
+      if (n.y > maxY) maxY = n.y;
+    }
+    const { w, h } = graphViewSize();
+    const pad = 46;
+    const k = Math.min(2, Math.max(0.12,
+      Math.min((w - pad * 2) / Math.max(1, maxX - minX), (h - pad * 2) / Math.max(1, maxY - minY))));
+    graph.tf.k = k;
+    graph.tf.x = w / 2 - ((minX + maxX) / 2) * k;
+    graph.tf.y = h / 2 - ((minY + maxY) / 2) * k;
+  }
+
+  function graphCenterOn(n, minZoom = 1.1) {
+    const { w, h } = graphViewSize();
+    if (graph.tf.k < minZoom) graph.tf.k = minZoom;
+    graph.tf.x = w / 2 - n.x * graph.tf.k;
+    graph.tf.y = h / 2 - n.y * graph.tf.k;
+    graphDraw();
+  }
+
+  /* ------------------------------ drawing -------------------------------- */
+  function graphDraw() {
+    const cv = $('graphCanvas');
+    if (!cv || !graph.sized) return;
+    const ctx = cv.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const { w, h } = graphViewSize();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    const { x, y, k } = graph.tf;
+    ctx.translate(x, y);
+    ctx.scale(k, k);
+
+    const sel = graph.selected;
+    const rel = graph.related;
+    const relE = graph.relatedEdges;
+    const lw = (px) => px / k; // constant screen-width lines
+
+    // Track labels behind everything (constant on-screen size).
+    ctx.textAlign = 'center';
+    ctx.font = `700 ${lw(38)}px Sora, Inter, sans-serif`;
+    for (const [t, a] of graph.anchors) {
+      ctx.fillStyle = graph.trackColor.get(t) + '30'; // ~19% alpha
+      ctx.fillText(t, a.x, a.y);
+    }
+
+    // Edges. Prereq edges bow slightly so parallel flow links stay readable.
+    for (const e of graph.edges) {
+      const a = graph.byId.get(e.from), b = graph.byId.get(e.to);
+      const hot = relE && relE.has(e);
+      const dim = sel && !hot;
+      if (e.kind === 'flow') {
+        ctx.strokeStyle = hot ? 'rgba(31,125,56,0.85)' : dim ? 'rgba(108,118,113,0.06)' : 'rgba(108,118,113,0.28)';
+        ctx.lineWidth = lw(hot ? 2 : 1.1);
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = hot ? 'rgba(124,111,240,0.95)' : dim ? 'rgba(124,111,240,0.05)' : 'rgba(124,111,240,0.22)';
+        ctx.lineWidth = lw(hot ? 2.2 : 1.1);
+        const mx = (a.x + b.x) / 2 - (b.y - a.y) * 0.12;
+        const my = (a.y + b.y) / 2 + (b.x - a.x) * 0.12;
+        ctx.beginPath();
+        ctx.moveTo(a.x, a.y);
+        ctx.quadraticCurveTo(mx, my, b.x, b.y);
+        ctx.stroke();
+        if (hot) drawArrowhead(ctx, mx, my, b, lw(9));
+      }
+    }
+
+    // Nodes.
+    for (const n of graph.nodes) {
+      const isSel = sel && n.id === sel.id;
+      const isRel = rel && rel.has(n.id);
+      const dim = sel && !isRel;
+      const taken = n.attempts > 0;
+      ctx.globalAlpha = dim ? 0.14 : 1;
+      if (isSel || (graph.hover && graph.hover.id === n.id)) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r + lw(5), 0, Math.PI * 2);
+        ctx.fillStyle = isSel ? 'rgba(124,111,240,0.30)' : 'rgba(14,21,18,0.12)';
+        ctx.fill();
+      }
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+      ctx.fillStyle = taken ? accHex(n.accuracy) : '#ffffff';
+      ctx.fill();
+      ctx.lineWidth = lw(taken ? 1 : 1.4);
+      ctx.strokeStyle = taken ? 'rgba(14,21,18,0.25)' : '#9aa39e';
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Topic labels: when zoomed in, or for the highlighted chain.
+    const labelAll = k >= 1.35;
+    if (labelAll || rel) {
+      ctx.font = `500 ${lw(11.5)}px Inter, sans-serif`;
+      ctx.textAlign = 'center';
+      for (const n of graph.nodes) {
+        const isRel = rel && rel.has(n.id);
+        if (!labelAll && !isRel) continue;
+        if (rel && !isRel) continue;
+        ctx.fillStyle = isRel ? 'rgba(14,21,18,0.95)' : 'rgba(14,21,18,0.62)';
+        const t = n.topic.length > 30 ? n.topic.slice(0, 29) + '…' : n.topic;
+        ctx.fillText(t, n.x, n.y - n.r - lw(5));
+      }
+    }
+  }
+
+  function drawArrowhead(ctx, cx, cy, b, size) {
+    const ang = Math.atan2(b.y - cy, b.x - cx);
+    ctx.beginPath();
+    ctx.moveTo(b.x, b.y);
+    ctx.lineTo(b.x - size * Math.cos(ang - 0.42), b.y - size * Math.sin(ang - 0.42));
+    ctx.lineTo(b.x - size * Math.cos(ang + 0.42), b.y - size * Math.sin(ang + 0.42));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(124,111,240,0.95)';
+    ctx.fill();
+  }
+
+  /* ---------------------------- interaction ------------------------------ */
+  function graphHit(sx, sy) {
+    // screen -> world
+    const wx = (sx - graph.tf.x) / graph.tf.k;
+    const wy = (sy - graph.tf.y) / graph.tf.k;
+    const slack = 6 / graph.tf.k;
+    let best = null, bestD = Infinity;
+    for (const n of graph.nodes) {
+      const d = Math.hypot(n.x - wx, n.y - wy);
+      if (d < n.r + slack && d < bestD) { best = n; bestD = d; }
+    }
+    return best;
+  }
+
+  // Select a node: BFS both ways along prereq edges gives the full chain it
+  // builds on and unlocks (the "limits → … → neural networks" line), plus its
+  // immediate curriculum neighbours.
+  function graphSelect(id, center = false) {
+    graph.selected = id ? graph.byId.get(id) || null : null;
+    if (!graph.selected) {
+      graph.related = graph.relatedEdges = null;
+      renderGraphPanel();
+      graphDraw();
+      return;
+    }
+    const n = graph.selected;
+    const rel = new Set([n.id]);
+    const walk = (adj) => {
+      const q = [n.id];
+      const seen = new Set([n.id]);
+      while (q.length) {
+        const cur = q.shift();
+        for (const next of adj.get(cur) || []) {
+          if (!seen.has(next)) { seen.add(next); rel.add(next); q.push(next); }
+        }
+      }
+    };
+    walk(graph.prereqIn);
+    walk(graph.prereqOut);
+    for (const f of graph.flowAdj.get(n.id) || []) rel.add(f);
+    graph.related = rel;
+    graph.relatedEdges = new Set(graph.edges.filter((e) =>
+      (e.kind === 'prereq' && rel.has(e.from) && rel.has(e.to)) ||
+      (e.kind === 'flow' && (e.from === n.id || e.to === n.id))));
+    renderGraphPanel();
+    if (center) graphCenterOn(n);
+    else graphDraw();
+  }
+
+  function wireGraphEvents() {
+    const cv = $('graphCanvas');
+    if (!cv) return;
+    const tip = $('graphTip');
+
+    cv.addEventListener('pointerdown', (e) => {
+      cv.setPointerCapture(e.pointerId);
+      graph.drag = { sx: e.offsetX, sy: e.offsetY, tx: graph.tf.x, ty: graph.tf.y, moved: false };
+    });
+    cv.addEventListener('pointermove', (e) => {
+      if (graph.drag) {
+        const dx = e.offsetX - graph.drag.sx, dy = e.offsetY - graph.drag.sy;
+        if (Math.abs(dx) + Math.abs(dy) > 4) graph.drag.moved = true;
+        if (graph.drag.moved) {
+          graph.tf.x = graph.drag.tx + dx;
+          graph.tf.y = graph.drag.ty + dy;
+          graphDraw();
+        }
+        return;
+      }
+      const hit = graphHit(e.offsetX, e.offsetY);
+      if (hit !== graph.hover) {
+        graph.hover = hit;
+        cv.style.cursor = hit ? 'pointer' : 'grab';
+        if (hit) {
+          tip.innerHTML = `<b>${esc(hit.topic)}</b><span>${
+            hit.attempts ? `${hit.accuracy}% · ${hit.attempts} attempt${hit.attempts === 1 ? '' : 's'}` : 'Not started'
+          } · ${esc(hit.course)}</span>`;
+          tip.classList.remove('hidden');
+        } else {
+          tip.classList.add('hidden');
+        }
+        graphDraw();
+      }
+      if (hit) {
+        tip.style.left = e.offsetX + 14 + 'px';
+        tip.style.top = e.offsetY + 12 + 'px';
+      }
+    });
+    cv.addEventListener('pointerup', (e) => {
+      const wasDrag = graph.drag && graph.drag.moved;
+      graph.drag = null;
+      if (wasDrag) return;
+      const hit = graphHit(e.offsetX, e.offsetY);
+      graphSelect(hit ? hit.id : null);
+    });
+    cv.addEventListener('pointerleave', () => {
+      graph.hover = null;
+      tip.classList.add('hidden');
+      graphDraw();
+    });
+    cv.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = Math.exp(-e.deltaY * 0.0012);
+      const k2 = Math.min(6, Math.max(0.1, graph.tf.k * factor));
+      // Zoom about the cursor: keep the world point under it fixed.
+      graph.tf.x = e.offsetX - ((e.offsetX - graph.tf.x) / graph.tf.k) * k2;
+      graph.tf.y = e.offsetY - ((e.offsetY - graph.tf.y) / graph.tf.k) * k2;
+      graph.tf.k = k2;
+      graphDraw();
+    }, { passive: false });
+
+    const zoomBy = (f) => {
+      const { w, h } = graphViewSize();
+      const k2 = Math.min(6, Math.max(0.1, graph.tf.k * f));
+      graph.tf.x = w / 2 - ((w / 2 - graph.tf.x) / graph.tf.k) * k2;
+      graph.tf.y = h / 2 - ((h / 2 - graph.tf.y) / graph.tf.k) * k2;
+      graph.tf.k = k2;
+      graphDraw();
+    };
+    $('graphZoomIn').addEventListener('click', () => zoomBy(1.35));
+    $('graphZoomOut').addEventListener('click', () => zoomBy(1 / 1.35));
+    $('graphZoomFit').addEventListener('click', () => { fitGraphView(); graphDraw(); });
+
+    // Search: filter topics as you type; click (or Enter) selects + centres.
+    const search = $('graphSearch');
+    const results = $('graphSearchResults');
+    const runSearch = () => {
+      const q = search.value.trim().toLowerCase();
+      if (!q || !graph.nodes.length) { results.classList.add('hidden'); return; }
+      const hits = graph.nodes
+        .filter((n) => n.topic.toLowerCase().includes(q) || n.course.toLowerCase().includes(q))
+        .slice(0, 8);
+      if (!hits.length) { results.classList.add('hidden'); return; }
+      results.innerHTML = hits.map((n) => `
+        <button data-graph-id="${esc(n.id)}">
+          <span class="gsr-dot" style="background:${n.attempts ? accHex(n.accuracy) : '#fff'};border:1.5px solid ${n.attempts ? 'transparent' : '#9aa39e'}"></span>
+          <span class="gsr-name">${esc(n.topic)}</span>
+          <span class="gsr-course">${esc(n.course)}</span>
+        </button>`).join('');
+      results.classList.remove('hidden');
+    };
+    search.addEventListener('input', runSearch);
+    search.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const first = results.querySelector('[data-graph-id]');
+        if (first) { graphSelect(first.dataset.graphId, true); results.classList.add('hidden'); search.blur(); }
+      }
+      if (e.key === 'Escape') results.classList.add('hidden');
+    });
+    results.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-graph-id]');
+      if (btn) { graphSelect(btn.dataset.graphId, true); results.classList.add('hidden'); search.value = ''; }
+    });
+
+    // The coverage footer hosts the admin "Build all links now" button.
+    $('graphCoverage').addEventListener('click', (e) => {
+      const act = e.target.closest('[data-graph-act="build"]');
+      if (act) buildGraphLinks(act);
+    });
+
+    // The side panel's node links + action buttons (event delegation).
+    $('graphPanel').addEventListener('click', (e) => {
+      const nodeBtn = e.target.closest('[data-graph-id]');
+      if (nodeBtn) { graphSelect(nodeBtn.dataset.graphId, true); return; }
+      const act = e.target.closest('[data-graph-act]');
+      if (!act) return;
+      const n = graph.selected;
+      if (act.dataset.graphAct === 'quiz' && n) {
+        quizFromScope({ track: n.track, course: n.course, lesson: n.lesson, topic: n.topic });
+      } else if (act.dataset.graphAct === 'cards' && n) {
+        openFlashcards({ track: n.track, course: n.course, lesson: n.lesson, topic: n.topic }, n.topic);
+      } else if (act.dataset.graphAct === 'clear') {
+        graphSelect(null);
+      } else if (act.dataset.graphAct === 'build') {
+        buildGraphLinks(act);
+      }
+    });
+
+    window.addEventListener('resize', () => {
+      if (currentView() !== 'graph') return;
+      sizeGraphCanvas();
+      graphDraw();
+    });
+  }
+
+  /* ------------------------------ side panel ----------------------------- */
+  function graphNodeButton(n, extra = '') {
+    const dot = n.attempts
+      ? `<span class="gp-dot" style="background:${accHex(n.accuracy)}"></span>`
+      : '<span class="gp-dot gp-hollow"></span>';
+    const chip = n.attempts
+      ? `<span class="gp-chip" style="color:${accHex(n.accuracy)}">${n.accuracy}%</span>`
+      : '<span class="gp-chip gp-new">not started</span>';
+    return `<button class="gp-node" data-graph-id="${esc(n.id)}">${dot}
+      <span class="gp-node-name">${esc(n.topic)}</span>${extra}${chip}</button>`;
+  }
+
+  function renderGraphPanel() {
+    const el = $('graphPanel');
+    if (!el) return;
+    const n = graph.selected;
+    if (!n) { el.innerHTML = graphInsightsHtml(); return; }
+
+    const prereqs = (graph.prereqIn.get(n.id) || []).map((id) => graph.byId.get(id)).filter(Boolean);
+    const unlocks = (graph.prereqOut.get(n.id) || []).map((id) => graph.byId.get(id)).filter(Boolean);
+    const cards = n.cards || [];
+    const STATUS_ICON = { mastered: '✅', learning: '📖', important: '⭐' };
+    const cardLine = (c) => `<div class="gp-card">
+        <span class="gp-card-ico">${STATUS_ICON[c.status] || '·'}</span>
+        <span class="gp-card-name">${esc(c.concept.length > 70 ? c.concept.slice(0, 69) + '…' : c.concept)}</span>
+        ${c.level !== 'topic' ? `<span class="gp-card-lvl">${esc(c.level)}</span>` : ''}
+      </div>`;
+
+    el.innerHTML = `
+      <div class="gp-head">
+        <div class="gp-crumb">${esc(n.track)} › ${esc(n.course)} › ${esc(n.lesson)}</div>
+        <button class="gp-close" data-graph-act="clear" aria-label="Close">×</button>
+      </div>
+      <h3 class="gp-title">${esc(n.topic)}</h3>
+      <div class="gp-stats">
+        <span class="gp-stat" style="color:${n.attempts ? accHex(n.accuracy) : 'var(--faint)'}">
+          ${n.attempts ? `${n.accuracy}% accuracy` : 'Not started yet'}
+        </span>
+        ${n.attempts ? `<span class="gp-stat">${n.attempts} attempt${n.attempts === 1 ? '' : 's'}</span>` : ''}
+        <span class="gp-stat">${n.questionCount || 0} question${n.questionCount === 1 ? '' : 's'} banked</span>
+        <span class="gp-stat">priority ${Math.round(n.priority)}</span>
+      </div>
+      <div class="gp-actions">
+        <button class="btn btn-primary" data-graph-act="quiz">Quiz this topic</button>
+        <button class="btn btn-neutral" data-graph-act="cards">Flashcards</button>
+      </div>
+      ${prereqs.length ? `<div class="gp-sec">Builds on</div>${prereqs.map((p) => graphNodeButton(p)).join('')}` : ''}
+      ${unlocks.length ? `<div class="gp-sec">Unlocks</div>${unlocks.map((p) => graphNodeButton(p)).join('')}` : ''}
+      ${cards.length
+        ? `<div class="gp-sec">Flashcards here <span class="gp-sec-hint">${cards.length}</span></div>${cards.slice(0, 14).map(cardLine).join('')}`
+        : '<div class="gp-sec">Flashcards here</div><p class="gp-none">No cards yet — "Flashcards" above will offer to generate a deck.</p>'}
+    `;
+  }
+
+  function graphInsightsHtml() {
+    const ins = (graph.data && graph.data.insights) || {};
+    const frontier = ins.frontier || [];
+    const keystones = ins.keystones || [];
+    const nodeOf = (x) => graph.byId.get(x.id);
+    const fLine = (f) => {
+      const n = nodeOf(f);
+      return n ? graphNodeButton(n) : '';
+    };
+    const kLine = (kx) => {
+      const n = nodeOf(kx);
+      if (!n) return '';
+      return graphNodeButton(n, `<span class="gp-blocked">blocks ${kx.blocked}</span>`);
+    };
+    return `
+      <h3 class="gp-title gp-title-idle">Your map, read for you</h3>
+      <p class="gp-intro">Click any node to see its chain. Meanwhile, the graph itself suggests:</p>
+      <div class="gp-sec">🚀 Ready to start <span class="gp-sec-hint">groundwork done</span></div>
+      ${frontier.length ? frontier.slice(0, 8).map(fLine).join('') : '<p class="gp-none">Nothing yet — as you master topics, the concepts they unlock appear here.</p>'}
+      <div class="gp-sec">🧱 Weak links <span class="gp-sec-hint">blocking the most</span></div>
+      ${keystones.length ? keystones.slice(0, 8).map(kLine).join('') : '<p class="gp-none">No blockers found — keep practising and check back.</p>'}
+    `;
+  }
+
+  function renderGraphCoverage() {
+    const el = $('graphCoverage');
+    const cov = (graph.data && graph.data.coverage) || {};
+    if (!el || !cov.total) { if (el) el.textContent = ''; return; }
+    let txt = `Prerequisite links: ${cov.linked} of ${cov.total} concepts mapped.`;
+    if (cov.building) txt += ' The rest are being mapped automatically in the background — reopen the map in a minute to see more links.';
+    el.innerHTML = esc(txt) + (isAdmin() && cov.building
+      ? ' <button class="gp-build" data-graph-act="build">Build all links now</button>'
+      : '');
+  }
+
+  // Admin: run the link-building sweep to completion (batched, resumable).
+  async function buildGraphLinks(btn) {
+    if (!confirm('Map prerequisite links for every remaining topic now? This runs a batch of AI calls (a few minutes).')) return;
+    if (btn) { btn.disabled = true; btn.textContent = 'Building…'; }
+    try {
+      let linked = 0;
+      for (let pass = 0; pass < 20; pass++) {
+        const r = await api('/api/admin/build-graph?max=120', { method: 'POST' });
+        linked += r.linked || 0;
+        if (btn) btn.textContent = `Building… (${linked})`;
+        if (!r.remaining) break;
+      }
+      alert(`Done. Topics linked: ${linked}.`);
+      openGraph(); // refetch with the new edges
+    } catch (e) {
+      alert('Link building failed: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Build all links now'; }
+    }
+  }
+
   /* ------------------------------- Utils --------------------------------- */
   function shuffle(arr) {
     for (let i = arr.length - 1; i > 0; i--) {
@@ -2869,6 +3513,9 @@ const App = (() => {
       const chk = e.target.closest('[data-check]');
       if (chk) toggleMsNode(chk.dataset.check);
     });
+
+    // Knowledge Map: canvas pan/zoom/hover/click, search, panel actions.
+    wireGraphEvents();
 
     // Keep the cost pill fresh when returning to the tab.
     window.addEventListener('focus', refreshCost);
@@ -2910,6 +3557,7 @@ const App = (() => {
     toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
+    openGraph,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openScopeChat, closeScopeChat, sendScopeChat,
