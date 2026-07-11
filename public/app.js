@@ -2870,7 +2870,7 @@ const App = (() => {
     sized: false,
   };
 
-  const GRAPH_POS_KEY = 'agora.graphpos.v2';
+  const GRAPH_POS_KEY = 'agora.graphpos.v3'; // bump when the physics change enough that cached layouts mislead
   const GRAPH_LOD_KEY = 'agora.graphlod';
   const TRACK_PALETTE = ['#2fa14a', '#7c6ff0', '#1856c9', '#c95816', '#0f8f8f', '#b3387a'];
 
