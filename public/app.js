@@ -1467,14 +1467,62 @@ const App = (() => {
     // SENT is a control char (SOH) that never appears in real content, so it is
     // a collision-proof placeholder that survives esc() and the bold pass.
     const SENT = String.fromCharCode(1);
-    const stash = (_, c) => { codes.push(c); return SENT + (codes.length - 1) + SENT; };
-    const s = String(raw ?? '')
+    const stash = (c) => { codes.push(c); return SENT + (codes.length - 1) + SENT; };
+    let s = String(raw ?? '')
       // A whole math span that is ONLY a \texttt{...}  ->  code (drop the $ / \( \)).
-      .replace(/\$\s*\\texttt\{([^{}]*)\}\s*\$/g, stash)
-      .replace(/\\\(\s*\\texttt\{([^{}]*)\}\s*\\\)/g, stash)
-      // Any remaining bare \texttt{...}  ->  code.
-      .replace(/\\texttt\{([^{}]*)\}/g, stash);
+      .replace(/\$\s*\\texttt\{([^{}]*)\}\s*\$/g, (_, c) => stash(c))
+      .replace(/\\\(\s*\\texttt\{([^{}]*)\}\s*\\\)/g, (_, c) => stash(c));
+    // Any remaining \texttt{...}  ->  code, but WITHOUT splitting a math span
+    // across the injected <code>. KaTeX auto-render matches $...$ delimiters per
+    // DOM text node, never across an element, so a <code> dropped into the
+    // middle of "$... \texttt{x} ...$" orphans the opening $ and mis-pairs every
+    // following $ — italicising the prose after it (the "half the question turns
+    // italic" bug). So a \texttt found inside math is lifted OUT of the span and
+    // the surrounding math keeps its own delimiters.
+    s = stashTexttNoSplit(s, stash);
     return { s, codes };
+  }
+  // Replace \texttt{...} with a code placeholder, never leaving one inside a math
+  // span. Math spans ($$..$$, $..$, \[..\], \(..\)) are located first; a \texttt
+  // inside one is lifted out, re-wrapping the math fragments on either side.
+  function stashTexttNoSplit(str, stash) {
+    const DELIMS = [['$$', '$$'], ['$', '$'], ['\\[', '\\]'], ['\\(', '\\)']];
+    const codeOut = (t) => t.replace(/\\texttt\{([^{}]*)\}/g, (_, c) => stash(c));
+    // Split a math span's inner text at each \texttt; drop empty math fragments so
+    // we never emit a bare "$$". Returns null when there was no \texttt inside.
+    const splitMath = (inner, l, r) => {
+      const re = /\\texttt\{([^{}]*)\}/g;
+      let out = '', last = 0, m, found = false;
+      while ((m = re.exec(inner))) {
+        found = true;
+        const before = inner.slice(last, m.index);
+        if (before.trim()) out += l + before + r;
+        out += stash(m[1]);
+        last = m.index + m[0].length;
+      }
+      if (!found) return null;
+      const tail = inner.slice(last);
+      if (tail.trim()) out += l + tail + r;
+      return out;
+    };
+    let out = '', i = 0, textStart = 0;
+    while (i < str.length) {
+      let hit = null;
+      for (const [l, r] of DELIMS) {
+        if (str.startsWith(l, i)) {
+          const close = str.indexOf(r, i + l.length);
+          if (close !== -1) { hit = { l, r, close }; break; }
+        }
+      }
+      if (!hit) { i++; continue; }
+      out += codeOut(str.slice(textStart, i));               // prose before the span
+      const inner = str.slice(i + hit.l.length, hit.close);
+      const split = splitMath(inner, hit.l, hit.r);
+      out += split !== null ? split : hit.l + inner + hit.r;
+      i = hit.close + hit.r.length;
+      textStart = i;
+    }
+    return out + codeOut(str.slice(textStart));               // trailing prose
   }
   function restoreCode(html, codes) {
     const re = new RegExp(String.fromCharCode(1) + '(\\d+)' + String.fromCharCode(1), 'g');
