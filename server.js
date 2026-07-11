@@ -1284,6 +1284,44 @@ app.post('/api/flashcards/edit', requireAdmin, rateLimitAI, async (req, res, nex
   }
 });
 
+// Admin: manual edit — save the exact text the admin typed for ONE shared card
+// (no AI involved). Concept and intuition are required; formula may be blank.
+// Persists only the fields that actually changed and returns which those were.
+app.post('/api/flashcards/set', requireAdmin, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+
+    const concept = String(req.body?.concept ?? '').trim();
+    const intuition = String(req.body?.intuition ?? '').trim();
+    // Formula is optional: keep the admin's text (only trim trailing space) and
+    // allow an empty value to clear it.
+    const formula = String(req.body?.formula ?? '').replace(/\s+$/, '');
+    if (!concept) return res.status(400).json({ error: 'The concept (front of the card) cannot be empty' });
+    if (!intuition) return res.status(400).json({ error: 'The intuition cannot be empty' });
+    if (concept.length > 4000 || intuition.length > 8000 || formula.length > 8000) {
+      return res.status(400).json({ error: 'One of the fields is too long' });
+    }
+
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const orig = { concept: card.concept || '', intuition: card.intuition || '', formula: card.formula || '' };
+    const next_ = { concept, intuition, formula };
+    const patch = {};
+    for (const f of ['concept', 'intuition', 'formula']) {
+      if (next_[f] !== orig[f]) patch[f] = next_[f];
+    }
+    const changed = Object.keys(patch);
+    if (changed.length) await bulkUpdateFlashcards([{ id: card.id, ...patch }]);
+
+    const merged = { ...orig, ...patch };
+    res.json({ changed, card: { id: card.id, ...merged } });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* ------------------------ Fix quiz-question formatting -------------------- */
 // Raw HTML that leaked into a question renders literally (the "<code>def
 // demo(a, b, *args):</code>" case), so flag any recognised tag. Combined with
