@@ -2859,6 +2859,7 @@ const App = (() => {
     trackColor: new Map(),
     tf: { x: 0, y: 0, k: 1 }, // world -> screen: screen = world * k + (x, y)
     selected: null,
+    chainDir: 'both',     // 'up' (builds on) | 'both' | 'down' (unlocks)
     related: null,        // Set of node ids highlighted for the selection
     relatedEdges: null,
     hot: null,            // Set of 1-hop neighbour ids (labelled + strongest)
@@ -2870,9 +2871,11 @@ const App = (() => {
     sized: false,
   };
 
-  const GRAPH_POS_KEY = 'agora.graphpos.v3'; // bump when the physics change enough that cached layouts mislead
+  const GRAPH_POS_KEY = 'agora.graphpos.v4'; // bump when the physics change enough that cached layouts mislead
   const GRAPH_LOD_KEY = 'agora.graphlod';
-  const TRACK_PALETTE = ['#2fa14a', '#7c6ff0', '#1856c9', '#c95816', '#0f8f8f', '#b3387a'];
+  // Track identity colours — deliberately distinct from the mastery scale
+  // (green/amber/red) and from the violet prereq edges.
+  const TRACK_PALETTE = ['#1856c9', '#b3387a', '#0f8f8f', '#c95816', '#5b6ee1', '#7a5c2e'];
 
   // Physics + sizing per level. `cell` is the seed-grid pitch; rest lengths,
   // repulsion and label sizes all scale from it.
@@ -3021,12 +3024,17 @@ const App = (() => {
     for (const n of graph.nodes) counts.set(n.track, (counts.get(n.track) || 0) + 1);
     const tracks = [...counts.keys()].sort();
     graph.trackColor = new Map(tracks.map((t, i) => [t, TRACK_PALETTE[i % TRACK_PALETTE.length]]));
+    const leg = $('graphTrackLegend');
+    if (leg) {
+      leg.innerHTML = tracks.map((t) =>
+        `<span class="gl-item gl-track"><span class="gl-dot" style="background:${graph.trackColor.get(t)}"></span>${esc(t)}</span>`).join('');
+    }
     const radii = tracks.map((t) => (Math.ceil(Math.sqrt(counts.get(t))) * cell) / 2);
     const sorted = [...radii].sort((a, b) => b - a);
     // Anchor circle sized so the biggest clusters slightly interlock (chord
     // between adjacent anchors < their radii sum): the lobes touch and the map
     // reads as one organic mass — brain, not islands.
-    const chord = 0.88 * ((sorted[0] || 0) + (sorted[1] || 0));
+    const chord = 0.72 * ((sorted[0] || 0) + (sorted[1] || 0));
     const R = tracks.length > 1 ? Math.max(160, chord / (2 * Math.sin(Math.PI / tracks.length))) : 0;
     graph.anchors = new Map(tracks.map((t, i) => {
       const a = (i / tracks.length) * Math.PI * 2 - Math.PI / 2;
@@ -3265,9 +3273,6 @@ const App = (() => {
     const lw = (px) => px / k;
     const dimmedNode = (n) => (sel && !rel.has(n.id)) || (focus && !focus.has(n.id));
 
-    // Soft tinted blob + name above each track cluster.
-    graph._trackLabelRects = [];
-    drawTrackBlobs(ctx, lw);
 
     // Edges: curriculum in quiet gray, prerequisites in violet. Aggregated
     // edges thicken with how many topic-links they bundle.
@@ -3323,7 +3328,8 @@ const App = (() => {
   }
 
   // Aggregate node: a pie — filled slice = share of its topics practised,
-  // slice colour = accuracy over those. An untouched unit is an empty plate.
+  // slice colour = accuracy over those. The ring is the TRACK's colour (that's
+  // how clusters are identified — no blob, no big on-canvas names).
   function drawPieNode(ctx, n, lw) {
     const frac = n.nTopics ? n.attemptedTopics / n.nTopics : 0;
     ctx.beginPath();
@@ -3340,47 +3346,22 @@ const App = (() => {
     }
     ctx.beginPath();
     ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(14,21,18,0.20)';
-    ctx.lineWidth = lw(1.1);
+    ctx.strokeStyle = graph.trackColor.get(n.track) || 'rgba(14,21,18,0.20)';
+    ctx.lineWidth = lw(1.7);
     ctx.stroke();
   }
 
-  // Topic node: hollow-ish gray = never attempted, filled = accuracy colour.
+  // Topic node: fill = mastery (light gray = never attempted), ring = track.
   function drawTopicNode(ctx, n, lw) {
     const taken = n.attempts > 0;
+    const track = graph.trackColor.get(n.track) || '#9aa39e';
     ctx.beginPath();
     ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
     ctx.fillStyle = taken ? accHex(n.accuracy) : '#f3f5f1';
     ctx.fill();
-    ctx.lineWidth = lw(taken ? 1 : 1.3);
-    ctx.strokeStyle = taken ? 'rgba(14,21,18,0.25)' : '#b6bdb6';
+    ctx.lineWidth = lw(taken ? 1.4 : 1.2);
+    ctx.strokeStyle = taken ? track : track + '99';
     ctx.stroke();
-  }
-
-  // Soft tinted ellipse behind each track's nodes, with the track's name set
-  // ABOVE the cluster (small caps, constant screen size) — not underneath it.
-  function drawTrackBlobs(ctx, lw) {
-    const byTrack = new Map();
-    for (const n of graph.nodes) pushTo(byTrack, n.track, n);
-    ctx.textAlign = 'center';
-    for (const [t, list] of byTrack) {
-      const { minX, minY, maxX, maxY } = nodesBBox(list);
-      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
-      const pad = LOD[graph.level].cell * 0.9;
-      const rx = (maxX - minX) / 2 + pad, ry = (maxY - minY) / 2 + pad;
-      const color = graph.trackColor.get(t) || '#9aa39e';
-      ctx.beginPath();
-      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
-      ctx.fillStyle = color + '0c'; // ~5% alpha wash
-      ctx.fill();
-      ctx.font = `700 ${lw(12.5)}px Inter, sans-serif`;
-      ctx.fillStyle = color + 'b0';
-      const name = t.toUpperCase();
-      ctx.fillText(name, cx, minY - lw(14));
-      // Reserve the name's rect so node labels can't stamp over it.
-      const tw = ctx.measureText(name).width;
-      graph._trackLabelRects.push({ x: cx - tw / 2 - lw(4), y: minY - lw(28), w: tw + lw(8), h: lw(18) });
-    }
   }
 
   // Labels with collision culling: candidates in priority order each claim a
@@ -3407,7 +3388,7 @@ const App = (() => {
     ctx.font = `600 ${lw(size)}px Inter, sans-serif`;
     ctx.textAlign = 'center';
     ctx.lineJoin = 'round';
-    const placed = [...(graph._trackLabelRects || [])];
+    const placed = [];
     const lh = lw(size + 3);
     for (const n of candidates) {
       const text = n.label.length > 28 ? n.label.slice(0, 27) + '…' : n.label;
@@ -3460,6 +3441,7 @@ const App = (() => {
       return;
     }
     const n = graph.selected;
+    const dir = graph.chainDir || 'both';
     const rel = new Set([n.id]);
     const walk = (adj) => {
       const q = [n.id];
@@ -3471,13 +3453,13 @@ const App = (() => {
         }
       }
     };
-    walk(graph.prereqIn);
-    walk(graph.prereqOut);
-    for (const f of graph.flowAdj.get(n.id) || []) rel.add(f);
+    if (dir !== 'down') walk(graph.prereqIn);   // what it builds on
+    if (dir !== 'up') walk(graph.prereqOut);    // what it unlocks
+    if (dir === 'both') for (const f of graph.flowAdj.get(n.id) || []) rel.add(f);
     graph.related = rel;
     graph.hot = new Set([
-      ...(graph.prereqIn.get(n.id) || []),
-      ...(graph.prereqOut.get(n.id) || []),
+      ...(dir !== 'down' ? graph.prereqIn.get(n.id) || [] : []),
+      ...(dir !== 'up' ? graph.prereqOut.get(n.id) || [] : []),
     ]);
     graph.relatedEdges = new Set(graph.edges.filter((e) =>
       (e.kind === 'prereq' && rel.has(e.from) && rel.has(e.to)) ||
@@ -3649,6 +3631,12 @@ const App = (() => {
 
     // The side panel's node links + action buttons (event delegation).
     $('graphPanel').addEventListener('click', (e) => {
+      const dirBtn = e.target.closest('[data-graph-dir]');
+      if (dirBtn && graph.selected) {
+        graph.chainDir = dirBtn.dataset.graphDir;
+        graphSelect(graph.selected.id);
+        return;
+      }
       const topicBtn = e.target.closest('[data-graph-topic]');
       if (topicBtn) { graphJumpToTopic(topicBtn.dataset.graphTopic); return; }
       const nodeBtn = e.target.closest('[data-graph-id]');
@@ -3704,6 +3692,16 @@ const App = (() => {
       <span class="gp-node-name">${esc(t.topic)}</span>${chip}</button>`;
   }
 
+  // Chain-direction toggle for a selected node: prerequisites, everything, or
+  // what it unlocks downstream.
+  function graphDirSegHtml() {
+    const d = graph.chainDir || 'both';
+    const b = (val, txt) => `<button type="button" class="${d === val ? 'active' : ''}" data-graph-dir="${val}">${txt}</button>`;
+    return `<div class="gp-dir">
+      ${b('up', '⬆ Builds on')}${b('both', 'Both')}${b('down', 'Unlocks ⬇')}
+    </div>`;
+  }
+
   function renderGraphPanel() {
     const el = $('graphPanel');
     if (!el) return;
@@ -3737,6 +3735,7 @@ const App = (() => {
         <button class="btn btn-primary" data-graph-act="quiz">Quiz this ${kind}</button>
         <button class="btn btn-neutral" data-graph-act="cards">Flashcards</button>
       </div>
+      ${graphDirSegHtml()}
       <button class="gp-drill" data-graph-act="drill">🔍 See its ${n.nTopics} topics on the map</button>
       <div class="gp-sec">Topics inside <span class="gp-sec-hint">${n.nTopics}</span></div>
       ${n.topics.map(graphTopicRow).join('')}
@@ -3772,6 +3771,7 @@ const App = (() => {
         <button class="btn btn-primary" data-graph-act="quiz">Quiz this topic</button>
         <button class="btn btn-neutral" data-graph-act="cards">Flashcards</button>
       </div>
+      ${graphDirSegHtml()}
       ${prereqs.length ? `<div class="gp-sec">Builds on</div>${prereqs.map((p) => graphNodeButton(p)).join('')}` : ''}
       ${unlocks.length ? `<div class="gp-sec">Unlocks</div>${unlocks.map((p) => graphNodeButton(p)).join('')}` : ''}
       ${cards.length
