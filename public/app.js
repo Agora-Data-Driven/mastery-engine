@@ -2834,38 +2834,53 @@ const App = (() => {
   function msClear() { ms.selected.clear(); renderMultiTree(); }
 
   /* ---------------------------- Knowledge Map ---------------------------- */
-  // "Visualize my progress": every topic in the catalog is a node (clustered by
-  // track), joined by the curriculum spine ("flow" edges) and the AI-mapped
-  // prerequisite links ("prereq" edges) served by /api/graph. Node fill encodes
-  // THIS user's mastery (hollow = never attempted, colour = accuracy), so the
-  // map is also the progress picture. Clicking a node lights up the whole chain
-  // it builds on and unlocks (Limits → Derivatives → Gradient Descent → …) and
-  // opens a panel with its stats, flashcards, and quiz/cards actions.
+  // "Visualize my progress": the catalog as a graph, at three zoom levels —
+  // Courses / Units (default) / Topics — clustered by track. Aggregate nodes
+  // (courses/units) render as pies: the filled slice is the share of topics
+  // practised, its colour the accuracy there. Topic nodes are dots (hollow =
+  // never attempted). Click anything to light up what it builds on / unlocks;
+  // units drill down into their topics. Served by /api/graph; the level
+  // aggregation is all client-side.
   //
   // Rendered on a <canvas> with a small custom force layout (no library):
-  // springs along edges, grid-bucketed repulsion, per-track anchor gravity.
+  // springs along edges, grid-bucketed repulsion, track anchors + per-course
+  // sub-anchors so clusters form organic clumps instead of one hairball.
   const graph = {
-    data: null,           // last /api/graph payload
-    nodes: [],            // [{...node, x, y, vx, vy, r}]
+    raw: null,            // last /api/graph payload (topic-level truth)
+    level: null,          // 'course' | 'lesson' | 'topic'
+    nodes: [],            // current-level nodes [{..., x, y, vx, vy, r}]
     byId: new Map(),
-    edges: [],
+    edges: [],            // current-level edges (aggregated above topic level)
     prereqIn: new Map(),  // id -> [ids it builds on]
     prereqOut: new Map(), // id -> [ids it unlocks]
     flowAdj: new Map(),   // id -> [curriculum neighbours]
-    anchors: new Map(),   // track -> {x, y} cluster anchor (world coords)
+    anchors: new Map(),   // track -> {x, y}
+    subAnchor: new Map(), // node id -> {x, y} (course clump inside the track)
     trackColor: new Map(),
     tf: { x: 0, y: 0, k: 1 }, // world -> screen: screen = world * k + (x, y)
     selected: null,
     related: null,        // Set of node ids highlighted for the selection
-    relatedEdges: null,   // Set of edge objects highlighted for the selection
+    relatedEdges: null,
+    hot: null,            // Set of 1-hop neighbour ids (labelled + strongest)
+    focus: null,          // Set of node ids scoped by a drill-down (no selection)
+    focusInfo: null,      // {label, ids} for the drill-down panel
     hover: null,
     settleTimer: 0,
     drag: null,
     sized: false,
   };
 
-  const GRAPH_POS_KEY = 'agora.graphpos.v1';
+  const GRAPH_POS_KEY = 'agora.graphpos.v2';
+  const GRAPH_LOD_KEY = 'agora.graphlod';
   const TRACK_PALETTE = ['#2fa14a', '#7c6ff0', '#1856c9', '#c95816', '#0f8f8f', '#b3387a'];
+
+  // Physics + sizing per level. `cell` is the seed-grid pitch; rest lengths,
+  // repulsion and label sizes all scale from it.
+  const LOD = {
+    course: { cell: 200, flowK: 0.04, prereqK: 0.010, rep: 3200, gravity: 0.0045, sub: 0, label: 13 },
+    lesson: { cell: 105, flowK: 0.045, prereqK: 0.007, rep: 1500, gravity: 0.0034, sub: 0.0030, label: 12 },
+    topic: { cell: 44, flowK: 0.05, prereqK: 0.004, rep: 380, gravity: 0.0020, sub: 0.0028, label: 11 },
+  };
 
   // Solid hex versions of accColor (canvas can't resolve CSS vars).
   function accHex(pct) {
@@ -2885,10 +2900,9 @@ const App = (() => {
     try {
       const data = await api('/api/graph');
       hide('graphLoader'); show('graphBody');
-      buildGraphStructures(data);
-      sizeGraphCanvas();
-      layoutGraph();
-      renderGraphPanel();
+      graph.raw = data;
+      const saved = localStorage.getItem(GRAPH_LOD_KEY);
+      setGraphLevel(LOD[saved] ? saved : 'lesson', { force: true });
       renderGraphCoverage();
     } catch (e) {
       hide('graphLoader');
@@ -2897,19 +2911,98 @@ const App = (() => {
   }
 
   const pushTo = (map, key, val) => { if (!map.has(key)) map.set(key, []); map.get(key).push(val); };
+  const natCmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
 
-  function buildGraphStructures(data) {
-    graph.data = data;
+  /* --------------------------- level aggregation ------------------------- */
+  // The group a topic belongs to at a level (its own id at topic level).
+  function groupKeyOf(t, level) {
+    if (level === 'course') return `c|${t.track}|${t.course}`;
+    if (level === 'lesson') return `l|${t.track}|${t.course}|${t.lesson}`;
+    return t.id;
+  }
+
+  // Roll topic nodes up into course/unit nodes: pies carrying their members.
+  function buildLevelNodes(level) {
+    const raw = graph.raw.nodes;
+    if (level === 'topic') {
+      return raw.map((n) => ({
+        ...n,
+        agg: false,
+        label: n.topic,
+        nTopics: 1,
+        attemptedTopics: n.attempts > 0 ? 1 : 0,
+        x: 0, y: 0, vx: 0, vy: 0,
+        r: 4 + Math.min(5, Math.sqrt(n.questionCount || 1)),
+      }));
+    }
+    const groups = new Map();
+    for (const t of raw) {
+      const key = groupKeyOf(t, level);
+      let g = groups.get(key);
+      if (!g) {
+        g = {
+          id: key, agg: true,
+          label: level === 'course' ? t.course : t.lesson,
+          topic: level === 'course' ? t.course : t.lesson, // panel/search title
+          track: t.track, course: t.course, lesson: level === 'lesson' ? t.lesson : '',
+          topics: [], nTopics: 0, attemptedTopics: 0, attempts: 0,
+          accSum: 0, questionCount: 0, cardCount: 0, priority: 0,
+          x: 0, y: 0, vx: 0, vy: 0, r: 0,
+        };
+        groups.set(key, g);
+      }
+      g.topics.push(t);
+      g.nTopics += 1;
+      g.questionCount += t.questionCount || 0;
+      g.cardCount += (t.cards || []).length;
+      g.priority = Math.max(g.priority, t.priority || 0);
+      if (t.attempts > 0) {
+        g.attemptedTopics += 1;
+        g.attempts += t.attempts;
+        g.accSum += t.accuracy || 0;
+      }
+    }
+    for (const g of groups.values()) {
+      g.accuracy = g.attemptedTopics ? Math.round(g.accSum / g.attemptedTopics) : null;
+      g.topics.sort((a, b) => natCmp(a.lesson, b.lesson) || natCmp(a.topic, b.topic));
+      g.r = level === 'course'
+        ? 14 + Math.min(18, Math.sqrt(g.nTopics) * 2.2)
+        : 8 + Math.min(12, Math.sqrt(g.nTopics) * 2.4);
+    }
+    return [...groups.values()];
+  }
+
+  // Project topic-level edges onto the current level, merging duplicates into
+  // one weighted edge and dropping edges that fold inside a single group.
+  function buildLevelEdges(level) {
+    const raw = graph.raw.edges || [];
+    const known = new Set(graph.raw.nodes.map((n) => n.id));
+    if (level === 'topic') {
+      return raw.filter((e) => known.has(e.from) && known.has(e.to)).map((e) => ({ ...e, weight: 1 }));
+    }
+    const keyOf = new Map(graph.raw.nodes.map((n) => [n.id, groupKeyOf(n, level)]));
+    const agg = new Map();
+    for (const e of raw) {
+      const from = keyOf.get(e.from), to = keyOf.get(e.to);
+      if (!from || !to || from === to) continue;
+      const k = `${e.kind}|${from}|${to}`;
+      const cur = agg.get(k);
+      if (cur) { cur.weight += 1; }
+      else agg.set(k, { from, to, kind: e.kind, why: e.why || '', weight: 1 });
+    }
+    return [...agg.values()];
+  }
+
+  /* ------------------------------ structures ----------------------------- */
+  function buildGraphStructures() {
+    const level = graph.level;
     graph.selected = null;
-    graph.related = graph.relatedEdges = null;
+    graph.related = graph.relatedEdges = graph.hot = null;
+    graph.focus = graph.focusInfo = null;
     graph.hover = null;
-    graph.nodes = data.nodes.map((n) => ({
-      ...n,
-      x: 0, y: 0, vx: 0, vy: 0,
-      r: 4 + Math.min(5, Math.sqrt(n.questionCount || 1)),
-    }));
+    graph.nodes = buildLevelNodes(level);
     graph.byId = new Map(graph.nodes.map((n) => [n.id, n]));
-    graph.edges = (data.edges || []).filter((e) => graph.byId.has(e.from) && graph.byId.has(e.to));
+    graph.edges = buildLevelEdges(level);
     graph.prereqIn = new Map(); graph.prereqOut = new Map(); graph.flowAdj = new Map();
     for (const e of graph.edges) {
       if (e.kind === 'prereq') {
@@ -2920,33 +3013,53 @@ const App = (() => {
         pushTo(graph.flowAdj, e.to, e.from);
       }
     }
-    // One cluster anchor per track, spread on a circle sized to the clusters.
+
+    // One anchor per track, separated far enough that the two biggest clusters
+    // can't touch; per-course sub-anchors ring each track so courses clump.
+    const cell = LOD[level].cell;
     const counts = new Map();
     for (const n of graph.nodes) counts.set(n.track, (counts.get(n.track) || 0) + 1);
     const tracks = [...counts.keys()].sort();
     graph.trackColor = new Map(tracks.map((t, i) => [t, TRACK_PALETTE[i % TRACK_PALETTE.length]]));
-    const biggest = Math.max(1, ...counts.values());
-    const clusterR = Math.ceil(Math.sqrt(biggest)) * 21; // grid cell is 42 world units
-    const R = tracks.length > 1 ? clusterR * 1.7 + 120 : 0;
+    const radii = tracks.map((t) => (Math.ceil(Math.sqrt(counts.get(t))) * cell) / 2);
+    const sorted = [...radii].sort((a, b) => b - a);
+    const R = tracks.length > 1 ? Math.max(240, 1.35 * ((sorted[0] || 0) + (sorted[1] || 0))) : 0;
     graph.anchors = new Map(tracks.map((t, i) => {
       const a = (i / tracks.length) * Math.PI * 2 - Math.PI / 2;
       return [t, { x: Math.cos(a) * R, y: Math.sin(a) * R }];
     }));
+
+    // Course clumps: courses of a track sit on a ring inside its cluster, in
+    // curriculum order, and every node is pulled gently toward its course spot.
+    graph.subAnchor = new Map();
+    if (LOD[level].sub > 0) {
+      const byTrack = new Map();
+      for (const n of graph.nodes) pushTo(byTrack, n.track, n);
+      for (const [t, list] of byTrack) {
+        const anchor = graph.anchors.get(t);
+        const courses = [...new Set(list.map((n) => n.course))].sort(byCourseName);
+        const ringR = (Math.ceil(Math.sqrt(list.length)) * cell) / 2;
+        const spot = new Map(courses.map((c, i) => {
+          if (courses.length === 1) return [c, anchor];
+          const a = (i / courses.length) * Math.PI * 2;
+          return [c, { x: anchor.x + Math.cos(a) * ringR * 0.62, y: anchor.y + Math.sin(a) * ringR * 0.62 }];
+        }));
+        for (const n of list) graph.subAnchor.set(n.id, spot.get(n.course) || anchor);
+      }
+    }
   }
 
   // Deterministic starting positions: each track is a boustrophedon grid in
-  // curriculum order around its anchor, so the flow spine starts untangled and
-  // the force pass only has to relax it. Cached positions (from the last visit)
-  // take precedence so the map keeps its shape between opens.
+  // curriculum order around its anchor, so the flow spine starts untangled.
+  // Cached positions (per level, from the last visit) take precedence.
   function initGraphPositions(cachedPos) {
+    const cell = LOD[graph.level].cell;
     const byTrack = new Map();
     for (const n of graph.nodes) pushTo(byTrack, n.track, n);
-    const natural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
     for (const [t, list] of byTrack) {
-      list.sort((a, b) => byCourseName(a.course, b.course) || natural(a.lesson, b.lesson) || natural(a.topic, b.topic));
+      list.sort((a, b) => byCourseName(a.course, b.course) || natCmp(a.lesson, b.lesson) || natCmp(a.topic, b.topic));
       const anchor = graph.anchors.get(t);
       const cols = Math.ceil(Math.sqrt(list.length));
-      const cell = 42;
       list.forEach((n, i) => {
         if (cachedPos && cachedPos[n.id]) { n.x = cachedPos[n.id][0]; n.y = cachedPos[n.id][1]; return; }
         const row = Math.floor(i / cols);
@@ -2958,40 +3071,42 @@ const App = (() => {
     }
   }
 
-  // One physics step: edge springs (flow tight, prereq loose so cross-track
-  // links don't collapse the clusters), short-range repulsion via a spatial
-  // grid (O(n · neighbours), fine for ~600 nodes), anchor gravity, damping.
+  // One physics step: springs along edges (cross-track prerequisites are
+  // drawn but exert almost no pull, so clusters stay apart), short-range
+  // repulsion via a spatial grid, anchor + course-clump gravity, damping.
   function graphTick() {
+    const P = LOD[graph.level];
+    const cell = P.cell;
     for (const e of graph.edges) {
       const a = graph.byId.get(e.from), b = graph.byId.get(e.to);
       const dx = b.x - a.x, dy = b.y - a.y;
       const d = Math.hypot(dx, dy) || 1;
-      const rest = e.kind === 'flow' ? 48 : 180;
-      const k = e.kind === 'flow' ? 0.05 : 0.005;
+      const rest = e.kind === 'flow' ? cell * 1.15 : cell * 3.2;
+      let k = e.kind === 'flow' ? P.flowK : P.prereqK;
+      if (e.kind === 'prereq' && a.track !== b.track) k *= 0.12;
       const f = (k * (d - rest)) / d;
       a.vx += dx * f; a.vy += dy * f;
       b.vx -= dx * f; b.vy -= dy * f;
     }
-    const CELL = 60;
+    const CELL = cell * 1.5;
     const buckets = new Map();
     const keyOf = (cx, cy) => cx * 100003 + cy;
     for (const n of graph.nodes) {
-      const k = keyOf(Math.floor(n.x / CELL), Math.floor(n.y / CELL));
-      pushTo(buckets, k, n);
+      pushTo(buckets, keyOf(Math.floor(n.x / CELL), Math.floor(n.y / CELL)), n);
     }
     for (const n of graph.nodes) {
       const cx = Math.floor(n.x / CELL), cy = Math.floor(n.y / CELL);
       for (let gx = cx - 1; gx <= cx + 1; gx++) {
         for (let gy = cy - 1; gy <= cy + 1; gy++) {
-          const cell = buckets.get(keyOf(gx, gy));
-          if (!cell) continue;
-          for (const m of cell) {
+          const bucket = buckets.get(keyOf(gx, gy));
+          if (!bucket) continue;
+          for (const m of bucket) {
             if (m === n) continue;
             let dx = n.x - m.x, dy = n.y - m.y;
             let d2 = dx * dx + dy * dy;
             if (d2 > CELL * CELL) continue;
             if (d2 < 1) { dx = Math.random() - 0.5; dy = Math.random() - 0.5; d2 = 1; }
-            const f = 340 / d2;
+            const f = P.rep / d2;
             n.vx += dx * f * 0.05;
             n.vy += dy * f * 0.05;
           }
@@ -3000,41 +3115,79 @@ const App = (() => {
     }
     for (const n of graph.nodes) {
       const a = graph.anchors.get(n.track) || { x: 0, y: 0 };
-      n.vx += (a.x - n.x) * 0.0032;
-      n.vy += (a.y - n.y) * 0.0032;
+      n.vx += (a.x - n.x) * P.gravity;
+      n.vy += (a.y - n.y) * P.gravity;
+      if (P.sub > 0) {
+        const s = graph.subAnchor.get(n.id);
+        if (s) { n.vx += (s.x - n.x) * P.sub; n.vy += (s.y - n.y) * P.sub; }
+      }
       n.vx *= 0.82; n.vy *= 0.82;
-      n.x += Math.max(-14, Math.min(14, n.vx));
-      n.y += Math.max(-14, Math.min(14, n.vy));
+      n.x += Math.max(-16, Math.min(16, n.vx));
+      n.y += Math.max(-16, Math.min(16, n.vy));
     }
   }
 
   // Relax the layout over rAF chunks so the tab stays responsive, then cache
-  // the settled positions (keyed by node id) for instant reopening.
+  // the settled positions (per level) for instant reopening.
   function layoutGraph() {
-    const cached = lsGet(GRAPH_POS_KEY);
+    const cacheKey = `${GRAPH_POS_KEY}.${graph.level}`;
+    const cached = lsGet(cacheKey);
     const pos = cached && cached.pos ? cached.pos : null;
     const covered = pos ? graph.nodes.filter((n) => pos[n.id]).length : 0;
     const warm = pos && covered / graph.nodes.length > 0.95;
     initGraphPositions(warm ? pos : null);
-    let remaining = warm ? 70 : 300; // short relax when reusing a cached shape
+    let remaining = warm ? 60 : 320;
     cancelAnimationFrame(graph.settleTimer);
+    graph.userCam = false; // becomes true the moment the user pans/zooms
     fitGraphView();
     if (!warm) show('graphSettling');
+    const level = graph.level; // bail out if the level changes mid-settle
     const step = () => {
+      if (graph.level !== level) return;
       for (let i = 0; i < 25 && remaining > 0; i++, remaining--) graphTick();
+      // Camera follows the layout while it settles (a drill-down tracks its
+      // group), unless the user has taken over the viewport.
+      if (!graph.userCam) {
+        const members = graph.focus ? [...graph.focus].map((id) => graph.byId.get(id)).filter(Boolean) : graph.nodes;
+        if (members.length) fitGraphView(members, graph.focus ? 1.6 : 2);
+      }
       graphDraw();
       if (remaining > 0) {
         graph.settleTimer = requestAnimationFrame(step);
       } else {
         hide('graphSettling');
-        fitGraphView();
+        // Final frame after the physics settle: a drill-down keeps its group
+        // centred; otherwise show the whole map (unless the user took over).
+        if (!graph.userCam) {
+          if (graph.focus) {
+            const members = [...graph.focus].map((id) => graph.byId.get(id)).filter(Boolean);
+            if (members.length) fitGraphView(members, 1.6);
+          } else if (!graph.selected) {
+            fitGraphView();
+          }
+        }
         graphDraw();
         const save = {};
         for (const n of graph.nodes) save[n.id] = [Math.round(n.x), Math.round(n.y)];
-        lsSet(GRAPH_POS_KEY, { pos: save });
+        lsSet(cacheKey, { pos: save });
       }
     };
     graph.settleTimer = requestAnimationFrame(step);
+  }
+
+  // Switch Courses / Units / Topics. Rebuilds structures + layout from the
+  // same payload; the picked level sticks across visits.
+  function setGraphLevel(level, { force = false } = {}) {
+    if (!LOD[level] || !graph.raw) return;
+    if (!force && level === graph.level) return;
+    graph.level = level;
+    localStorage.setItem(GRAPH_LOD_KEY, level);
+    document.querySelectorAll('#graphLod button').forEach((b) =>
+      b.classList.toggle('active', b.dataset.lod === level));
+    buildGraphStructures();
+    sizeGraphCanvas();
+    layoutGraph();
+    renderGraphPanel();
   }
 
   function sizeGraphCanvas() {
@@ -3056,18 +3209,23 @@ const App = (() => {
     return { w: cv.width / dpr, h: cv.height / dpr };
   }
 
-  function fitGraphView() {
-    if (!graph.nodes.length) return;
+  function nodesBBox(nodes) {
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-    for (const n of graph.nodes) {
+    for (const n of nodes) {
       if (n.x < minX) minX = n.x;
       if (n.x > maxX) maxX = n.x;
       if (n.y < minY) minY = n.y;
       if (n.y > maxY) maxY = n.y;
     }
+    return { minX, minY, maxX, maxY };
+  }
+
+  function fitGraphView(nodes = graph.nodes, maxK = 2) {
+    if (!nodes.length) return;
+    const { minX, minY, maxX, maxY } = nodesBBox(nodes);
     const { w, h } = graphViewSize();
-    const pad = 46;
-    const k = Math.min(2, Math.max(0.12,
+    const pad = 56;
+    const k = Math.min(maxK, Math.max(0.12,
       Math.min((w - pad * 2) / Math.max(1, maxX - minX), (h - pad * 2) / Math.max(1, maxY - minY))));
     graph.tf.k = k;
     graph.tf.x = w / 2 - ((minX + maxX) / 2) * k;
@@ -3075,6 +3233,7 @@ const App = (() => {
   }
 
   function graphCenterOn(n, minZoom = 1.1) {
+    graph.userCam = true; // an explicit jump owns the viewport
     const { w, h } = graphViewSize();
     if (graph.tf.k < minZoom) graph.tf.k = minZoom;
     graph.tf.x = w / 2 - n.x * graph.tf.k;
@@ -3098,33 +3257,33 @@ const App = (() => {
     const sel = graph.selected;
     const rel = graph.related;
     const relE = graph.relatedEdges;
-    const lw = (px) => px / k; // constant screen-width lines
+    const focus = !sel ? graph.focus : null;
+    const lw = (px) => px / k;
+    const dimmedNode = (n) => (sel && !rel.has(n.id)) || (focus && !focus.has(n.id));
 
-    // Track labels behind everything (constant on-screen size).
-    ctx.textAlign = 'center';
-    ctx.font = `700 ${lw(38)}px Sora, Inter, sans-serif`;
-    for (const [t, a] of graph.anchors) {
-      ctx.fillStyle = graph.trackColor.get(t) + '30'; // ~19% alpha
-      ctx.fillText(t, a.x, a.y);
-    }
+    // Soft tinted blob + name above each track cluster.
+    graph._trackLabelRects = [];
+    drawTrackBlobs(ctx, lw);
 
-    // Edges. Prereq edges bow slightly so parallel flow links stay readable.
+    // Edges: curriculum in quiet gray, prerequisites in violet. Aggregated
+    // edges thicken with how many topic-links they bundle.
     for (const e of graph.edges) {
       const a = graph.byId.get(e.from), b = graph.byId.get(e.to);
       const hot = relE && relE.has(e);
-      const dim = sel && !hot;
+      const dim = (sel && !hot) || (focus && !(focus.has(e.from) && focus.has(e.to)));
+      const wgt = Math.min(3, Math.sqrt(e.weight || 1));
       if (e.kind === 'flow') {
-        ctx.strokeStyle = hot ? 'rgba(31,125,56,0.85)' : dim ? 'rgba(108,118,113,0.06)' : 'rgba(108,118,113,0.28)';
-        ctx.lineWidth = lw(hot ? 2 : 1.1);
+        ctx.strokeStyle = hot ? 'rgba(31,125,56,0.8)' : dim ? 'rgba(108,118,113,0.05)' : 'rgba(108,118,113,0.22)';
+        ctx.lineWidth = lw(hot ? 2 : 0.9 + wgt * 0.3);
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.lineTo(b.x, b.y);
         ctx.stroke();
       } else {
-        ctx.strokeStyle = hot ? 'rgba(124,111,240,0.95)' : dim ? 'rgba(124,111,240,0.05)' : 'rgba(124,111,240,0.22)';
-        ctx.lineWidth = lw(hot ? 2.2 : 1.1);
-        const mx = (a.x + b.x) / 2 - (b.y - a.y) * 0.12;
-        const my = (a.y + b.y) / 2 + (b.x - a.x) * 0.12;
+        ctx.strokeStyle = hot ? 'rgba(124,111,240,0.9)' : dim ? 'rgba(124,111,240,0.04)' : `rgba(124,111,240,${0.10 + wgt * 0.05})`;
+        ctx.lineWidth = lw(hot ? 2.2 : 0.8 + wgt * 0.5);
+        const mx = (a.x + b.x) / 2 - (b.y - a.y) * 0.10;
+        const my = (a.y + b.y) / 2 + (b.x - a.x) * 0.10;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
         ctx.quadraticCurveTo(mx, my, b.x, b.y);
@@ -3136,39 +3295,128 @@ const App = (() => {
     // Nodes.
     for (const n of graph.nodes) {
       const isSel = sel && n.id === sel.id;
-      const isRel = rel && rel.has(n.id);
-      const dim = sel && !isRel;
-      const taken = n.attempts > 0;
-      ctx.globalAlpha = dim ? 0.14 : 1;
-      if (isSel || (graph.hover && graph.hover.id === n.id)) {
+      const isHover = graph.hover && graph.hover.id === n.id;
+      ctx.globalAlpha = dimmedNode(n) ? 0.16 : 1;
+      if (isSel || isHover) {
         ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r + lw(5), 0, Math.PI * 2);
-        ctx.fillStyle = isSel ? 'rgba(124,111,240,0.30)' : 'rgba(14,21,18,0.12)';
+        ctx.arc(n.x, n.y, n.r + lw(6), 0, Math.PI * 2);
+        ctx.fillStyle = isSel ? 'rgba(124,111,240,0.28)' : 'rgba(14,21,18,0.10)';
         ctx.fill();
       }
-      ctx.beginPath();
-      ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-      ctx.fillStyle = taken ? accHex(n.accuracy) : '#ffffff';
-      ctx.fill();
-      ctx.lineWidth = lw(taken ? 1 : 1.4);
-      ctx.strokeStyle = taken ? 'rgba(14,21,18,0.25)' : '#9aa39e';
-      ctx.stroke();
+      if (n.agg) drawPieNode(ctx, n, lw);
+      else drawTopicNode(ctx, n, lw);
+      if (isSel) {
+        ctx.beginPath();
+        ctx.arc(n.x, n.y, n.r + lw(3), 0, Math.PI * 2);
+        ctx.strokeStyle = '#7c6ff0';
+        ctx.lineWidth = lw(2.2);
+        ctx.stroke();
+      }
       ctx.globalAlpha = 1;
     }
 
-    // Topic labels: when zoomed in, or for the highlighted chain.
-    const labelAll = k >= 1.35;
-    if (labelAll || rel) {
-      ctx.font = `500 ${lw(11.5)}px Inter, sans-serif`;
-      ctx.textAlign = 'center';
-      for (const n of graph.nodes) {
-        const isRel = rel && rel.has(n.id);
-        if (!labelAll && !isRel) continue;
-        if (rel && !isRel) continue;
-        ctx.fillStyle = isRel ? 'rgba(14,21,18,0.95)' : 'rgba(14,21,18,0.62)';
-        const t = n.topic.length > 30 ? n.topic.slice(0, 29) + '…' : n.topic;
-        ctx.fillText(t, n.x, n.y - n.r - lw(5));
-      }
+    drawGraphLabels(ctx, lw, k);
+  }
+
+  // Aggregate node: a pie — filled slice = share of its topics practised,
+  // slice colour = accuracy over those. An untouched unit is an empty plate.
+  function drawPieNode(ctx, n, lw) {
+    const frac = n.nTopics ? n.attemptedTopics / n.nTopics : 0;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = '#eef1ea';
+    ctx.fill();
+    if (frac > 0) {
+      ctx.beginPath();
+      ctx.moveTo(n.x, n.y);
+      ctx.arc(n.x, n.y, n.r, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, frac));
+      ctx.closePath();
+      ctx.fillStyle = accHex(n.accuracy);
+      ctx.fill();
+    }
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(14,21,18,0.20)';
+    ctx.lineWidth = lw(1.1);
+    ctx.stroke();
+  }
+
+  // Topic node: hollow-ish gray = never attempted, filled = accuracy colour.
+  function drawTopicNode(ctx, n, lw) {
+    const taken = n.attempts > 0;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
+    ctx.fillStyle = taken ? accHex(n.accuracy) : '#f3f5f1';
+    ctx.fill();
+    ctx.lineWidth = lw(taken ? 1 : 1.3);
+    ctx.strokeStyle = taken ? 'rgba(14,21,18,0.25)' : '#b6bdb6';
+    ctx.stroke();
+  }
+
+  // Soft tinted ellipse behind each track's nodes, with the track's name set
+  // ABOVE the cluster (small caps, constant screen size) — not underneath it.
+  function drawTrackBlobs(ctx, lw) {
+    const byTrack = new Map();
+    for (const n of graph.nodes) pushTo(byTrack, n.track, n);
+    ctx.textAlign = 'center';
+    for (const [t, list] of byTrack) {
+      const { minX, minY, maxX, maxY } = nodesBBox(list);
+      const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+      const pad = LOD[graph.level].cell * 0.9;
+      const rx = (maxX - minX) / 2 + pad, ry = (maxY - minY) / 2 + pad;
+      const color = graph.trackColor.get(t) || '#9aa39e';
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fillStyle = color + '0c'; // ~5% alpha wash
+      ctx.fill();
+      ctx.font = `700 ${lw(12.5)}px Inter, sans-serif`;
+      ctx.fillStyle = color + 'b0';
+      const name = t.toUpperCase();
+      ctx.fillText(name, cx, minY - lw(14));
+      // Reserve the name's rect so node labels can't stamp over it.
+      const tw = ctx.measureText(name).width;
+      graph._trackLabelRects.push({ x: cx - tw / 2 - lw(4), y: minY - lw(28), w: tw + lw(8), h: lw(18) });
+    }
+  }
+
+  // Labels with collision culling: candidates in priority order each claim a
+  // rectangle; anything that would overlap simply doesn't draw. A soft halo
+  // keeps text readable over edges.
+  function drawGraphLabels(ctx, lw, k) {
+    const sel = graph.selected;
+    const size = LOD[graph.level].label;
+    const zoomedIn = graph.level === 'topic' ? k >= 1.25 : true;
+
+    let candidates = [];
+    if (sel) {
+      // Selected + its DIRECT neighbours get labels; the further chain glows
+      // but stays quiet (that's what killed readability before).
+      candidates = [sel, ...(graph.hot ? [...graph.hot].map((id) => graph.byId.get(id)).filter(Boolean) : [])];
+    } else if (graph.focus) {
+      candidates = [...graph.focus].map((id) => graph.byId.get(id)).filter(Boolean);
+    } else if (zoomedIn) {
+      candidates = [...graph.nodes].sort((a, b) => b.r - a.r);
+    }
+    if (graph.hover && !candidates.includes(graph.hover)) candidates.unshift(graph.hover);
+    if (!candidates.length) return;
+
+    ctx.font = `600 ${lw(size)}px Inter, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.lineJoin = 'round';
+    const placed = [...(graph._trackLabelRects || [])];
+    const lh = lw(size + 3);
+    for (const n of candidates) {
+      const text = n.label.length > 28 ? n.label.slice(0, 27) + '…' : n.label;
+      const tw = ctx.measureText(text).width;
+      const rect = { x: n.x - tw / 2 - lw(3), y: n.y - n.r - lh - lw(6), w: tw + lw(6), h: lh + lw(4) };
+      if (placed.some((p) => rect.x < p.x + p.w && p.x < rect.x + rect.w && rect.y < p.y + p.h && p.y < rect.y + rect.h)) continue;
+      placed.push(rect);
+      const ty = n.y - n.r - lw(7);
+      ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+      ctx.lineWidth = lw(3.5);
+      ctx.strokeText(text, n.x, ty);
+      ctx.fillStyle = sel && n.id === sel.id ? 'rgba(14,21,18,0.95)' : 'rgba(14,21,18,0.72)';
+      ctx.fillText(text, n.x, ty);
     }
   }
 
@@ -3179,13 +3427,12 @@ const App = (() => {
     ctx.lineTo(b.x - size * Math.cos(ang - 0.42), b.y - size * Math.sin(ang - 0.42));
     ctx.lineTo(b.x - size * Math.cos(ang + 0.42), b.y - size * Math.sin(ang + 0.42));
     ctx.closePath();
-    ctx.fillStyle = 'rgba(124,111,240,0.95)';
+    ctx.fillStyle = 'rgba(124,111,240,0.9)';
     ctx.fill();
   }
 
   /* ---------------------------- interaction ------------------------------ */
   function graphHit(sx, sy) {
-    // screen -> world
     const wx = (sx - graph.tf.x) / graph.tf.k;
     const wy = (sy - graph.tf.y) / graph.tf.k;
     const slack = 6 / graph.tf.k;
@@ -3197,13 +3444,13 @@ const App = (() => {
     return best;
   }
 
-  // Select a node: BFS both ways along prereq edges gives the full chain it
-  // builds on and unlocks (the "limits → … → neural networks" line), plus its
-  // immediate curriculum neighbours.
+  // Select a node: BFS both ways along prereq edges gives the chain it builds
+  // on and unlocks; only DIRECT neighbours get labels (graph.hot).
   function graphSelect(id, center = false) {
+    graph.focus = graph.focusInfo = null;
     graph.selected = id ? graph.byId.get(id) || null : null;
     if (!graph.selected) {
-      graph.related = graph.relatedEdges = null;
+      graph.related = graph.relatedEdges = graph.hot = null;
       renderGraphPanel();
       graphDraw();
       return;
@@ -3224,12 +3471,40 @@ const App = (() => {
     walk(graph.prereqOut);
     for (const f of graph.flowAdj.get(n.id) || []) rel.add(f);
     graph.related = rel;
+    graph.hot = new Set([
+      ...(graph.prereqIn.get(n.id) || []),
+      ...(graph.prereqOut.get(n.id) || []),
+    ]);
     graph.relatedEdges = new Set(graph.edges.filter((e) =>
       (e.kind === 'prereq' && rel.has(e.from) && rel.has(e.to)) ||
       (e.kind === 'flow' && (e.from === n.id || e.to === n.id))));
     renderGraphPanel();
     if (center) graphCenterOn(n);
     else graphDraw();
+  }
+
+  // Jump to ONE topic from anywhere (search, insights, a unit's topic list):
+  // switches to the Topics level if needed, then selects + centres it.
+  function graphJumpToTopic(topicId) {
+    if (graph.level !== 'topic') setGraphLevel('topic');
+    graphSelect(topicId, true);
+  }
+
+  // Drill into a unit/course: switch to Topics scoped (visually) to its
+  // members — they stay bright, the rest of the map fades back.
+  function graphDrillInto(aggId) {
+    const g = graph.byId.get(aggId);
+    if (!g || !g.agg) return;
+    const ids = g.topics.map((t) => t.id);
+    const label = g.label;
+    const crumb = [g.track, g.course, g.lesson].filter(Boolean).join(' › ');
+    setGraphLevel('topic');
+    graph.focus = new Set(ids);
+    graph.focusInfo = { label, crumb, ids };
+    const members = ids.map((id) => graph.byId.get(id)).filter(Boolean);
+    if (members.length) fitGraphView(members, 1.6);
+    renderGraphPanel();
+    graphDraw();
   }
 
   function wireGraphEvents() {
@@ -3246,6 +3521,7 @@ const App = (() => {
         const dx = e.offsetX - graph.drag.sx, dy = e.offsetY - graph.drag.sy;
         if (Math.abs(dx) + Math.abs(dy) > 4) graph.drag.moved = true;
         if (graph.drag.moved) {
+          graph.userCam = true;
           graph.tf.x = graph.drag.tx + dx;
           graph.tf.y = graph.drag.ty + dy;
           graphDraw();
@@ -3257,9 +3533,10 @@ const App = (() => {
         graph.hover = hit;
         cv.style.cursor = hit ? 'pointer' : 'grab';
         if (hit) {
-          tip.innerHTML = `<b>${esc(hit.topic)}</b><span>${
-            hit.attempts ? `${hit.accuracy}% · ${hit.attempts} attempt${hit.attempts === 1 ? '' : 's'}` : 'Not started'
-          } · ${esc(hit.course)}</span>`;
+          const stats = hit.agg
+            ? `${hit.attemptedTopics}/${hit.nTopics} topics practised${hit.accuracy != null ? ` · ${hit.accuracy}%` : ''}`
+            : hit.attempts ? `${hit.accuracy}% · ${hit.attempts} attempt${hit.attempts === 1 ? '' : 's'}` : 'Not started';
+          tip.innerHTML = `<b>${esc(hit.label)}</b><span>${esc(stats)} · ${esc(hit.agg && graph.level === 'course' ? hit.track : hit.course)}</span>`;
           tip.classList.remove('hidden');
         } else {
           tip.classList.add('hidden');
@@ -3285,9 +3562,9 @@ const App = (() => {
     });
     cv.addEventListener('wheel', (e) => {
       e.preventDefault();
+      graph.userCam = true;
       const factor = Math.exp(-e.deltaY * 0.0012);
       const k2 = Math.min(6, Math.max(0.1, graph.tf.k * factor));
-      // Zoom about the cursor: keep the world point under it fixed.
       graph.tf.x = e.offsetX - ((e.offsetX - graph.tf.x) / graph.tf.k) * k2;
       graph.tf.y = e.offsetY - ((e.offsetY - graph.tf.y) / graph.tf.k) * k2;
       graph.tf.k = k2;
@@ -3295,6 +3572,7 @@ const App = (() => {
     }, { passive: false });
 
     const zoomBy = (f) => {
+      graph.userCam = true;
       const { w, h } = graphViewSize();
       const k2 = Math.min(6, Math.max(0.1, graph.tf.k * f));
       graph.tf.x = w / 2 - ((w / 2 - graph.tf.x) / graph.tf.k) * k2;
@@ -3306,35 +3584,57 @@ const App = (() => {
     $('graphZoomOut').addEventListener('click', () => zoomBy(1 / 1.35));
     $('graphZoomFit').addEventListener('click', () => { fitGraphView(); graphDraw(); });
 
-    // Search: filter topics as you type; click (or Enter) selects + centres.
+    // Search topics AND units; picking a result jumps (switching level if
+    // needed) and selects it.
     const search = $('graphSearch');
     const results = $('graphSearchResults');
     const runSearch = () => {
       const q = search.value.trim().toLowerCase();
-      if (!q || !graph.nodes.length) { results.classList.add('hidden'); return; }
-      const hits = graph.nodes
-        .filter((n) => n.topic.toLowerCase().includes(q) || n.course.toLowerCase().includes(q))
-        .slice(0, 8);
+      if (!q || !graph.raw) { results.classList.add('hidden'); return; }
+      const topicHits = graph.raw.nodes
+        .filter((n) => n.topic.toLowerCase().includes(q))
+        .slice(0, 6)
+        .map((n) => ({ kind: 'topic', id: n.id, label: n.topic, sub: n.course, acc: n.attempts ? n.accuracy : null, taken: n.attempts > 0 }));
+      const seen = new Set();
+      const unitHits = [];
+      for (const n of graph.raw.nodes) {
+        if (!n.lesson.toLowerCase().includes(q)) continue;
+        const key = `l|${n.track}|${n.course}|${n.lesson}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        unitHits.push({ kind: 'unit', id: key, label: n.lesson, sub: n.course, acc: null, taken: true });
+        if (unitHits.length >= 3) break;
+      }
+      const hits = [...unitHits, ...topicHits].slice(0, 8);
       if (!hits.length) { results.classList.add('hidden'); return; }
-      results.innerHTML = hits.map((n) => `
-        <button data-graph-id="${esc(n.id)}">
-          <span class="gsr-dot" style="background:${n.attempts ? accHex(n.accuracy) : '#fff'};border:1.5px solid ${n.attempts ? 'transparent' : '#9aa39e'}"></span>
-          <span class="gsr-name">${esc(n.topic)}</span>
-          <span class="gsr-course">${esc(n.course)}</span>
+      results.innerHTML = hits.map((hkt) => `
+        <button data-graph-kind="${hkt.kind}" data-graph-id="${esc(hkt.id)}">
+          <span class="gsr-dot" style="background:${hkt.kind === 'unit' ? '#7c6ff0' : hkt.taken ? accHex(hkt.acc) : '#fff'};border:1.5px solid ${hkt.kind === 'unit' || hkt.taken ? 'transparent' : '#9aa39e'}"></span>
+          <span class="gsr-name">${esc(hkt.label)}</span>
+          <span class="gsr-course">${esc(hkt.kind === 'unit' ? 'unit · ' + hkt.sub : hkt.sub)}</span>
         </button>`).join('');
       results.classList.remove('hidden');
+    };
+    const pickSearchHit = (btn) => {
+      results.classList.add('hidden');
+      if (btn.dataset.graphKind === 'unit') {
+        if (graph.level !== 'lesson') setGraphLevel('lesson');
+        graphSelect(btn.dataset.graphId, true);
+      } else {
+        graphJumpToTopic(btn.dataset.graphId);
+      }
     };
     search.addEventListener('input', runSearch);
     search.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         const first = results.querySelector('[data-graph-id]');
-        if (first) { graphSelect(first.dataset.graphId, true); results.classList.add('hidden'); search.blur(); }
+        if (first) { pickSearchHit(first); search.blur(); }
       }
       if (e.key === 'Escape') results.classList.add('hidden');
     });
     results.addEventListener('click', (e) => {
       const btn = e.target.closest('[data-graph-id]');
-      if (btn) { graphSelect(btn.dataset.graphId, true); results.classList.add('hidden'); search.value = ''; }
+      if (btn) { pickSearchHit(btn); search.value = ''; }
     });
 
     // The coverage footer hosts the admin "Build all links now" button.
@@ -3345,15 +3645,19 @@ const App = (() => {
 
     // The side panel's node links + action buttons (event delegation).
     $('graphPanel').addEventListener('click', (e) => {
+      const topicBtn = e.target.closest('[data-graph-topic]');
+      if (topicBtn) { graphJumpToTopic(topicBtn.dataset.graphTopic); return; }
       const nodeBtn = e.target.closest('[data-graph-id]');
       if (nodeBtn) { graphSelect(nodeBtn.dataset.graphId, true); return; }
       const act = e.target.closest('[data-graph-act]');
       if (!act) return;
       const n = graph.selected;
       if (act.dataset.graphAct === 'quiz' && n) {
-        quizFromScope({ track: n.track, course: n.course, lesson: n.lesson, topic: n.topic });
+        quizFromScope({ track: n.track, course: n.course, lesson: n.lesson || undefined, topic: n.agg ? undefined : n.topic });
       } else if (act.dataset.graphAct === 'cards' && n) {
-        openFlashcards({ track: n.track, course: n.course, lesson: n.lesson, topic: n.topic }, n.topic);
+        openFlashcards({ track: n.track, course: n.course, lesson: n.lesson || '', topic: n.agg ? '' : n.topic }, n.label);
+      } else if (act.dataset.graphAct === 'drill' && n) {
+        graphDrillInto(n.id);
       } else if (act.dataset.graphAct === 'clear') {
         graphSelect(null);
       } else if (act.dataset.graphAct === 'build') {
@@ -3370,22 +3674,73 @@ const App = (() => {
 
   /* ------------------------------ side panel ----------------------------- */
   function graphNodeButton(n, extra = '') {
-    const dot = n.attempts
-      ? `<span class="gp-dot" style="background:${accHex(n.accuracy)}"></span>`
-      : '<span class="gp-dot gp-hollow"></span>';
-    const chip = n.attempts
-      ? `<span class="gp-chip" style="color:${accHex(n.accuracy)}">${n.accuracy}%</span>`
-      : '<span class="gp-chip gp-new">not started</span>';
+    const dot = n.agg
+      ? `<span class="gp-dot" style="background:${n.attemptedTopics ? accHex(n.accuracy) : '#fff'};${n.attemptedTopics ? '' : 'border:1.5px solid var(--faint);'}"></span>`
+      : n.attempts
+        ? `<span class="gp-dot" style="background:${accHex(n.accuracy)}"></span>`
+        : '<span class="gp-dot gp-hollow"></span>';
+    const chip = n.agg
+      ? `<span class="gp-chip" style="color:var(--muted)">${n.attemptedTopics}/${n.nTopics}</span>`
+      : n.attempts
+        ? `<span class="gp-chip" style="color:${accHex(n.accuracy)}">${n.accuracy}%</span>`
+        : '<span class="gp-chip gp-new">not started</span>';
     return `<button class="gp-node" data-graph-id="${esc(n.id)}">${dot}
-      <span class="gp-node-name">${esc(n.topic)}</span>${extra}${chip}</button>`;
+      <span class="gp-node-name">${esc(n.label)}</span>${extra}${chip}</button>`;
+  }
+
+  // A raw-topic row (used inside unit/drill panels): jumps to Topics level.
+  function graphTopicRow(t) {
+    const dot = t.attempts
+      ? `<span class="gp-dot" style="background:${accHex(t.accuracy)}"></span>`
+      : '<span class="gp-dot gp-hollow"></span>';
+    const chip = t.attempts
+      ? `<span class="gp-chip" style="color:${accHex(t.accuracy)}">${t.accuracy}%</span>`
+      : '<span class="gp-chip gp-new">not started</span>';
+    return `<button class="gp-node" data-graph-topic="${esc(t.id)}">${dot}
+      <span class="gp-node-name">${esc(t.topic)}</span>${chip}</button>`;
   }
 
   function renderGraphPanel() {
     const el = $('graphPanel');
     if (!el) return;
     const n = graph.selected;
-    if (!n) { el.innerHTML = graphInsightsHtml(); return; }
+    if (!n) {
+      el.innerHTML = graph.focusInfo ? graphFocusHtml() : graphInsightsHtml();
+      return;
+    }
+    el.innerHTML = n.agg ? graphAggPanelHtml(n) : graphTopicPanelHtml(n);
+  }
 
+  // Panel for a selected course/unit pie.
+  function graphAggPanelHtml(n) {
+    const crumb = [n.track, graph.level === 'lesson' ? n.course : ''].filter(Boolean).join(' › ');
+    const kind = graph.level === 'course' ? 'course' : 'unit';
+    return `
+      <div class="gp-head">
+        <div class="gp-crumb">${esc(crumb)}</div>
+        <button class="gp-close" data-graph-act="clear" aria-label="Close">×</button>
+      </div>
+      <h3 class="gp-title">${esc(n.label)}</h3>
+      <div class="gp-stats">
+        <span class="gp-stat" style="color:${n.attemptedTopics ? accHex(n.accuracy) : 'var(--faint)'}">
+          ${n.attemptedTopics ? `${n.accuracy}% where practised` : 'Not started yet'}
+        </span>
+        <span class="gp-stat">${n.attemptedTopics}/${n.nTopics} topics practised</span>
+        <span class="gp-stat">${n.questionCount} questions</span>
+        ${n.cardCount ? `<span class="gp-stat">${n.cardCount} cards</span>` : ''}
+      </div>
+      <div class="gp-actions">
+        <button class="btn btn-primary" data-graph-act="quiz">Quiz this ${kind}</button>
+        <button class="btn btn-neutral" data-graph-act="cards">Flashcards</button>
+      </div>
+      <button class="gp-drill" data-graph-act="drill">🔍 See its ${n.nTopics} topics on the map</button>
+      <div class="gp-sec">Topics inside <span class="gp-sec-hint">${n.nTopics}</span></div>
+      ${n.topics.map(graphTopicRow).join('')}
+    `;
+  }
+
+  // Panel for a selected topic dot.
+  function graphTopicPanelHtml(n) {
     const prereqs = (graph.prereqIn.get(n.id) || []).map((id) => graph.byId.get(id)).filter(Boolean);
     const unlocks = (graph.prereqOut.get(n.id) || []).map((id) => graph.byId.get(id)).filter(Boolean);
     const cards = n.cards || [];
@@ -3395,8 +3750,7 @@ const App = (() => {
         <span class="gp-card-name">${esc(c.concept.length > 70 ? c.concept.slice(0, 69) + '…' : c.concept)}</span>
         ${c.level !== 'topic' ? `<span class="gp-card-lvl">${esc(c.level)}</span>` : ''}
       </div>`;
-
-    el.innerHTML = `
+    return `
       <div class="gp-head">
         <div class="gp-crumb">${esc(n.track)} › ${esc(n.course)} › ${esc(n.lesson)}</div>
         <button class="gp-close" data-graph-act="clear" aria-label="Close">×</button>
@@ -3422,33 +3776,44 @@ const App = (() => {
     `;
   }
 
+  // Panel after drilling into a unit: its topics, with the map scoped to them.
+  function graphFocusHtml() {
+    const f = graph.focusInfo;
+    const topics = f.ids.map((id) => graph.byId.get(id)).filter(Boolean);
+    return `
+      <div class="gp-head">
+        <div class="gp-crumb">${esc(f.crumb || '')}</div>
+        <button class="gp-close" data-graph-act="clear" aria-label="Close">×</button>
+      </div>
+      <h3 class="gp-title">${esc(f.label)}</h3>
+      <p class="gp-intro">Its topics are highlighted on the map. Click one to see its chain.</p>
+      <div class="gp-sec">Topics <span class="gp-sec-hint">${topics.length}</span></div>
+      ${topics.map((t) => graphNodeButton(t)).join('')}
+    `;
+  }
+
   function graphInsightsHtml() {
-    const ins = (graph.data && graph.data.insights) || {};
+    const ins = (graph.raw && graph.raw.insights) || {};
     const frontier = ins.frontier || [];
     const keystones = ins.keystones || [];
-    const nodeOf = (x) => graph.byId.get(x.id);
-    const fLine = (f) => {
-      const n = nodeOf(f);
-      return n ? graphNodeButton(n) : '';
-    };
-    const kLine = (kx) => {
-      const n = nodeOf(kx);
-      if (!n) return '';
-      return graphNodeButton(n, `<span class="gp-blocked">blocks ${kx.blocked}</span>`);
+    const topicOf = (x) => graph.raw.nodes.find((n) => n.id === x.id);
+    const row = (x, extra = '') => {
+      const t = topicOf(x);
+      return t ? graphTopicRow(t).replace('</button>', `${extra}</button>`) : '';
     };
     return `
       <h3 class="gp-title gp-title-idle">Your map, read for you</h3>
-      <p class="gp-intro">Click any node to see its chain. Meanwhile, the graph itself suggests:</p>
+      <p class="gp-intro">Click any node to see its chain — units drill down into topics. The graph itself suggests:</p>
       <div class="gp-sec">🚀 Ready to start <span class="gp-sec-hint">groundwork done</span></div>
-      ${frontier.length ? frontier.slice(0, 8).map(fLine).join('') : '<p class="gp-none">Nothing yet — as you master topics, the concepts they unlock appear here.</p>'}
+      ${frontier.length ? frontier.slice(0, 8).map((f) => row(f)).join('') : '<p class="gp-none">Nothing yet — as you master topics, the concepts they unlock appear here.</p>'}
       <div class="gp-sec">🧱 Weak links <span class="gp-sec-hint">blocking the most</span></div>
-      ${keystones.length ? keystones.slice(0, 8).map(kLine).join('') : '<p class="gp-none">No blockers found — keep practising and check back.</p>'}
+      ${keystones.length ? keystones.slice(0, 8).map((kx) => row(kx, `<span class="gp-blocked">blocks ${kx.blocked}</span>`)).join('') : '<p class="gp-none">No blockers found — keep practising and check back.</p>'}
     `;
   }
 
   function renderGraphCoverage() {
     const el = $('graphCoverage');
-    const cov = (graph.data && graph.data.coverage) || {};
+    const cov = (graph.raw && graph.raw.coverage) || {};
     if (!el || !cov.total) { if (el) el.textContent = ''; return; }
     let txt = `Prerequisite links: ${cov.linked} of ${cov.total} concepts mapped.`;
     if (cov.building) txt += ' The rest are being mapped automatically in the background — reopen the map in a minute to see more links.';
@@ -3557,7 +3922,7 @@ const App = (() => {
     toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
-    openGraph,
+    openGraph, setGraphLevel,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openScopeChat, closeScopeChat, sendScopeChat,
