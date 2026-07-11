@@ -68,6 +68,7 @@ import {
   generateFlashcardQuestions,
   latexifyQuestions,
   reformatFlashcards,
+  editFlashcard,
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
@@ -1239,6 +1240,39 @@ app.post('/api/flashcards/fix-format', requireAdmin, rateLimitAI, async (req, re
       return res.status(502).json({ error: 'The reformatter did not return usable output. Try again.' });
     }
     const out = (arr || []).find((o) => o && o.id === card.id) || (arr || [])[0];
+    const patch = acceptCardFix(orig, out);
+    const changed = Object.keys(patch);
+    if (changed.length) await bulkUpdateFlashcards([{ id: card.id, ...patch }]);
+
+    const merged = { ...orig, ...patch };
+    res.json({ changed, card: { id: card.id, ...merged } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: apply a natural-language EDIT to ONE shared flashcard and save it for
+// everyone. Unlike fix-format (formatting only) this can change wording/content,
+// but only as the instruction asks. Reuses acceptCardFix, so it never blanks a
+// field and only persists fields that actually changed. Returns which changed.
+app.post('/api/flashcards/edit', requireAdmin, rateLimitAI, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    const instruction = String(req.body?.instruction || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    if (!instruction) return res.status(400).json({ error: 'An edit instruction is required' });
+    if (instruction.length > 1000) return res.status(400).json({ error: 'Instruction is too long (max 1000 characters)' });
+
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    const orig = { concept: card.concept || '', intuition: card.intuition || '', formula: card.formula || '' };
+    let out;
+    try {
+      out = await editFlashcard({ id: card.id, ...orig }, instruction, aiChoice(req));
+    } catch {
+      return res.status(502).json({ error: 'The editor did not return usable output. Try again.' });
+    }
     const patch = acceptCardFix(orig, out);
     const changed = Object.keys(patch);
     if (changed.length) await bulkUpdateFlashcards([{ id: card.id, ...patch }]);

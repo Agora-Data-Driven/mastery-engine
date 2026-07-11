@@ -1826,11 +1826,10 @@ const App = (() => {
     $('fcPrev').disabled = fc.idx === 0;
     $('fcNext').disabled = fc.idx >= fc.view.length - 1;
 
-    // Admin-only: "Fix format" reformats this shared card for everyone.
+    // Admin-only: edit this card / fix its formatting, saved for everyone. Reset
+    // the edit panel to its idle (collapsed) state whenever the card changes.
     $('fcAdminActions').classList.toggle('hidden', !isAdmin());
-    const fcFix = $('fcFixFormatBtn');
-    fcFix.disabled = false;
-    fcFix.textContent = '🛠️ Fix format';
+    resetCardEditUI();
 
     // Per-card quiz performance (its topic's questions + your attempts).
     renderCardStats(card);
@@ -2512,6 +2511,74 @@ const App = (() => {
     }
   }
 
+  // Show/hide the inline "edit this card" panel (admin only). Collapsing it also
+  // clears the in-progress instruction and resets the buttons.
+  function toggleCardEdit() {
+    const panel = $('fcEditPanel');
+    if (!panel) return;
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      $('fcEditBtn')?.classList.add('active');
+      $('fcQuizErr').textContent = '';
+      setTimeout(() => $('fcEditInput')?.focus(), 20);
+    } else {
+      resetCardEditUI();
+    }
+  }
+
+  // Collapse + reset the edit panel and its buttons to their idle state. Called on
+  // every card render (so edit state never leaks across cards) and on Cancel.
+  function resetCardEditUI() {
+    $('fcEditPanel')?.classList.add('hidden');
+    $('fcEditBtn')?.classList.remove('active');
+    const inp = $('fcEditInput'); if (inp) inp.value = '';
+    const apply = $('fcEditApply'); if (apply) { apply.disabled = false; apply.textContent = 'Apply edit'; }
+    const fcFix = $('fcFixFormatBtn'); if (fcFix) { fcFix.disabled = false; fcFix.textContent = '🛠️ Fix format'; }
+  }
+
+  // ⌘/Ctrl+Enter in the edit box applies the edit (Enter alone inserts a newline).
+  function cardEditKey(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); applyCardEdit(); }
+  }
+
+  // Admin action (flashcard view): apply a plain-English edit to the CURRENT card
+  // and save it for everyone, then re-render so the change shows at once. Content
+  // may change (unlike Fix format, which only repairs code/math rendering).
+  async function applyCardEdit() {
+    const card = fc.view[fc.idx];
+    const err = $('fcQuizErr');
+    const apply = $('fcEditApply');
+    if (!card || !card.id) { if (err) err.textContent = 'No card to edit.'; return; }
+    const instruction = ($('fcEditInput')?.value || '').trim();
+    if (!instruction) { if (err) err.textContent = 'Describe what to change first.'; $('fcEditInput')?.focus(); return; }
+    err.textContent = '';
+    apply.disabled = true;
+    apply.textContent = 'Applying…';
+    try {
+      const r = await api('/api/flashcards/edit', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id, instruction }),
+      });
+      applyCardFix(r.card);
+      const changed = r.changed || [];
+      if (changed.length) {
+        fc.flipped = true; // reveal the back so an edited intuition/formula shows
+        renderCard();      // also collapses/resets the edit panel
+        $('fcQuizErr').textContent = 'Updated the ' + changed.join(' + ') + ' and saved for everyone. ✅';
+      } else {
+        apply.disabled = false;
+        apply.textContent = 'Apply edit';
+        err.textContent = 'No change was made — try rewording your instruction.';
+      }
+      refreshCost();
+    } catch (e) {
+      apply.disabled = false;
+      apply.textContent = 'Apply edit';
+      err.textContent = /admin|forbidden|\(403\)/i.test(e.message)
+        ? 'Only an admin can edit shared cards.'
+        : 'Edit failed: ' + e.message;
+    }
+  }
+
   // Admin button (quiz view): reformat the CURRENT question's code/math (and strip
   // raw HTML) and save it for everyone, then re-render so the fix shows at once.
   async function fixQuestionFormat() {
@@ -2765,6 +2832,7 @@ const App = (() => {
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, mergeMath, fixAllFormats, fixAllQuestionFormats,
     fixQuestionFormat, fixCardFormat,
+    toggleCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
