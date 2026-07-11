@@ -2511,8 +2511,9 @@ const App = (() => {
     }
   }
 
-  // Show/hide the inline "edit this card" panel (admin only). Collapsing it also
-  // clears the in-progress instruction and resets the buttons.
+  // Show/hide the inline "edit this card" panel (admin only). Opening it defaults
+  // to the hand-edit mode with the current card's fields pre-filled; collapsing it
+  // clears everything and resets the buttons.
   function toggleCardEdit() {
     const panel = $('fcEditPanel');
     if (!panel) return;
@@ -2520,9 +2521,31 @@ const App = (() => {
       panel.classList.remove('hidden');
       $('fcEditBtn')?.classList.add('active');
       $('fcQuizErr').textContent = '';
-      setTimeout(() => $('fcEditInput')?.focus(), 20);
+      setCardEditMode('manual');
     } else {
       resetCardEditUI();
+    }
+  }
+
+  // Switch between the two edit modes: "manual" (hand-edit the raw fields) and
+  // "prompt" (describe a change for the selected model to apply). Manual mode is
+  // (re)filled from the current card each time it's shown so it always reflects
+  // what's on screen.
+  function setCardEditMode(mode) {
+    const manual = mode !== 'prompt';
+    $('fcEditManual')?.classList.toggle('hidden', !manual);
+    $('fcEditPrompt')?.classList.toggle('hidden', manual);
+    $('fcEditModeManual')?.classList.toggle('active', manual);
+    $('fcEditModePrompt')?.classList.toggle('active', !manual);
+    $('fcQuizErr').textContent = '';
+    if (manual) {
+      const card = fc.view[fc.idx] || {};
+      const c = $('fcEditConcept'); if (c) c.value = card.concept || '';
+      const i = $('fcEditIntuition'); if (i) i.value = card.intuition || '';
+      const f = $('fcEditFormula'); if (f) f.value = card.formula || '';
+      setTimeout(() => $('fcEditConcept')?.focus(), 20);
+    } else {
+      setTimeout(() => $('fcEditInput')?.focus(), 20);
     }
   }
 
@@ -2532,13 +2555,61 @@ const App = (() => {
     $('fcEditPanel')?.classList.add('hidden');
     $('fcEditBtn')?.classList.remove('active');
     const inp = $('fcEditInput'); if (inp) inp.value = '';
+    for (const id of ['fcEditConcept', 'fcEditIntuition', 'fcEditFormula']) {
+      const el = $(id); if (el) el.value = '';
+    }
+    const save = $('fcEditSave'); if (save) { save.disabled = false; save.textContent = 'Save changes'; }
     const apply = $('fcEditApply'); if (apply) { apply.disabled = false; apply.textContent = 'Apply edit'; }
     const fcFix = $('fcFixFormatBtn'); if (fcFix) { fcFix.disabled = false; fcFix.textContent = '🛠️ Fix format'; }
+    // Default back to the hand-edit tab for the next open.
+    $('fcEditManual')?.classList.remove('hidden');
+    $('fcEditPrompt')?.classList.add('hidden');
+    $('fcEditModeManual')?.classList.add('active');
+    $('fcEditModePrompt')?.classList.remove('active');
   }
 
   // ⌘/Ctrl+Enter in the edit box applies the edit (Enter alone inserts a newline).
   function cardEditKey(e) {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); applyCardEdit(); }
+  }
+
+  // Manual mode: save the exact field text the admin typed for this card (no AI),
+  // shared for everyone, then re-render so the change shows at once.
+  async function saveCardEdit() {
+    const card = fc.view[fc.idx];
+    const err = $('fcQuizErr');
+    const save = $('fcEditSave');
+    if (!card || !card.id) { if (err) err.textContent = 'No card to edit.'; return; }
+    const concept = ($('fcEditConcept')?.value || '').trim();
+    const intuition = ($('fcEditIntuition')?.value || '').trim();
+    const formula = ($('fcEditFormula')?.value || '').trim();
+    if (!concept) { if (err) err.textContent = 'The concept (front of the card) can’t be empty.'; $('fcEditConcept')?.focus(); return; }
+    if (!intuition) { if (err) err.textContent = 'The intuition can’t be empty.'; $('fcEditIntuition')?.focus(); return; }
+    err.textContent = '';
+    save.disabled = true;
+    save.textContent = 'Saving…';
+    try {
+      const r = await api('/api/flashcards/set', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id, concept, intuition, formula }),
+      });
+      applyCardFix(r.card);
+      const changed = r.changed || [];
+      if (changed.length) {
+        fc.flipped = true; // reveal the back so an edited intuition/formula shows
+        renderCard();      // also collapses/resets the edit panel
+        $('fcQuizErr').textContent = 'Saved the ' + changed.join(' + ') + ' for everyone. ✅';
+      } else {
+        save.disabled = false;
+        save.textContent = 'Save changes';
+        err.textContent = 'Nothing changed — the fields match what’s already saved.';
+      }
+    } catch (e) {
+      save.disabled = false;
+      save.textContent = 'Save changes';
+      err.textContent = /admin|forbidden|\(403\)/i.test(e.message)
+        ? 'Only an admin can edit shared cards.'
+        : 'Save failed: ' + e.message;
+    }
   }
 
   // Admin action (flashcard view): apply a plain-English edit to the CURRENT card
@@ -2832,7 +2903,7 @@ const App = (() => {
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, mergeMath, fixAllFormats, fixAllQuestionFormats,
     fixQuestionFormat, fixCardFormat,
-    toggleCardEdit, applyCardEdit, cardEditKey,
+    toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
