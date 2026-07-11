@@ -2877,9 +2877,9 @@ const App = (() => {
   // Physics + sizing per level. `cell` is the seed-grid pitch; rest lengths,
   // repulsion and label sizes all scale from it.
   const LOD = {
-    course: { cell: 200, flowK: 0.04, prereqK: 0.010, rep: 3200, gravity: 0.0045, sub: 0, label: 13 },
-    lesson: { cell: 105, flowK: 0.045, prereqK: 0.007, rep: 1500, gravity: 0.0034, sub: 0.0030, label: 12 },
-    topic: { cell: 44, flowK: 0.05, prereqK: 0.004, rep: 380, gravity: 0.0020, sub: 0.0028, label: 11 },
+    course: { cell: 200, flowK: 0.04, prereqK: 0.010, rep: 4400, gravity: 0.0032, sub: 0, label: 13 },
+    lesson: { cell: 105, flowK: 0.045, prereqK: 0.007, rep: 2200, gravity: 0.0023, sub: 0.0022, label: 12 },
+    topic: { cell: 44, flowK: 0.05, prereqK: 0.004, rep: 560, gravity: 0.0013, sub: 0.0020, label: 11 },
   };
 
   // Solid hex versions of accColor (canvas can't resolve CSS vars).
@@ -3023,7 +3023,11 @@ const App = (() => {
     graph.trackColor = new Map(tracks.map((t, i) => [t, TRACK_PALETTE[i % TRACK_PALETTE.length]]));
     const radii = tracks.map((t) => (Math.ceil(Math.sqrt(counts.get(t))) * cell) / 2);
     const sorted = [...radii].sort((a, b) => b - a);
-    const R = tracks.length > 1 ? Math.max(240, 1.35 * ((sorted[0] || 0) + (sorted[1] || 0))) : 0;
+    // Anchor circle sized so the biggest clusters slightly interlock (chord
+    // between adjacent anchors < their radii sum): the lobes touch and the map
+    // reads as one organic mass — brain, not islands.
+    const chord = 0.88 * ((sorted[0] || 0) + (sorted[1] || 0));
+    const R = tracks.length > 1 ? Math.max(160, chord / (2 * Math.sin(Math.PI / tracks.length))) : 0;
     graph.anchors = new Map(tracks.map((t, i) => {
       const a = (i / tracks.length) * Math.PI * 2 - Math.PI / 2;
       return [t, { x: Math.cos(a) * R, y: Math.sin(a) * R }];
@@ -3081,14 +3085,14 @@ const App = (() => {
       const a = graph.byId.get(e.from), b = graph.byId.get(e.to);
       const dx = b.x - a.x, dy = b.y - a.y;
       const d = Math.hypot(dx, dy) || 1;
-      const rest = e.kind === 'flow' ? cell * 1.15 : cell * 3.2;
+      const rest = e.kind === 'flow' ? cell * 1.35 : cell * 3.2;
       let k = e.kind === 'flow' ? P.flowK : P.prereqK;
-      if (e.kind === 'prereq' && a.track !== b.track) k *= 0.12;
+      if (e.kind === 'prereq' && a.track !== b.track) k *= 0.22;
       const f = (k * (d - rest)) / d;
       a.vx += dx * f; a.vy += dy * f;
       b.vx -= dx * f; b.vy -= dy * f;
     }
-    const CELL = cell * 1.5;
+    const CELL = cell * 1.8;
     const buckets = new Map();
     const keyOf = (cx, cy) => cx * 100003 + cy;
     for (const n of graph.nodes) {
