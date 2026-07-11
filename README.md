@@ -251,6 +251,42 @@ in `public/app.js`), e.g. `/\bcalculus\b/i`. Endpoints:
 (`server.js`); generators `generateFlashcards` / `generateFlashcardQuestion`
 (`lib/gemini.js`); data layer in `lib/firestore.js`.
 
+## Knowledge Map ("Visualize my progress")
+
+My Progress > **Visualize my progress** opens a full knowledge graph of the
+catalog: every **topic** is a node (topics are the stable unit all quiz history
+and priority scores key on), clustered by track. Node fill = your mastery
+(hollow = never attempted, red/amber/green = accuracy); click a node and the
+whole chain it builds on / unlocks lights up (Limits -> Derivatives -> Gradient
+Descent -> Neural Networks), with a side panel showing its stats, its
+flashcards (with your labels), and Quiz / Flashcards actions.
+
+Two edge kinds (`lib/graph.js`):
+- **flow** — the curriculum spine (topic -> next topic -> next lesson -> next
+  course per `COURSE_ORDER`), derived from the catalog on every request, so it
+  can never go stale.
+- **prereq** — AI-mapped "you need X to understand Y" links, often cross-course
+  and cross-track (`generateTopicLinks` in `lib/gemini.js`), persisted once per
+  topic in the shared `graphLinks` collection keyed by the stable topic doc id.
+
+The map is **self-healing**: `GET /api/graph` links a capped batch of any
+unmapped topics in the background on every open, so new topics get absorbed
+automatically; admins also get a **Build all links now** button
+(`POST /api/admin/build-graph`, resumable, `?refresh=1` to re-link everything).
+
+The same graph feeds the learning algorithm:
+- `computeInsights()` derives **Ready to start** (untouched topics whose every
+  prerequisite is strong) and **Weak links** (weak/untouched topics blocking the
+  most downstream material) — shown in the map's side panel and injected into
+  the AI progress analysis (`/api/analyze`).
+- `prereqContext()` gives question generation (`/api/generate`,
+  `/api/flashcards/quiz`) your standing on a topic's prerequisites, so prompts
+  steer questions to exercise weak prerequisites as sub-steps.
+
+Frontend is a dependency-free canvas force layout in `public/app.js` (springs
+on edges, grid-bucketed repulsion, per-track anchor gravity); positions are
+cached in localStorage so reopening is instant.
+
 ## Progress & analytics
 
 Two layers, by depth of analysis:
