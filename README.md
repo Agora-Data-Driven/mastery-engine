@@ -23,7 +23,7 @@ The app is **live** — deployed and serving with all data imported:
 
 | | |
 |---|---|
-| **URL** | https://mastery-engine-c732u7m57a-uc.a.run.app |
+| **URL** | https://mastery-engine-585951669065.us-central1.run.app (legacy alias: https://mastery-engine-c732u7m57a-uc.a.run.app) |
 | **GCP project** | `agora-data-driven` (info@agoradatadriven.com) |
 | **Service / region** | Cloud Run `mastery-engine` · `us-central1` |
 | **Firestore** | `(default)`, Native mode, `us-central1` — `topics`, `questions`, `quizLog` |
@@ -107,7 +107,10 @@ gcloud projects add-iam-policy-binding $PROJECT `
 gcloud run deploy mastery-engine `
   --source . --region $REGION --allow-unauthenticated `
   --set-secrets="SESSION_SECRET=SESSION_SECRET:latest,APP_PASSWORD=APP_PASSWORD:latest,SSO_SECRET=platform-sso-key:latest" `
-  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash,GEMINI_LOCATION=global,MASTERY_BASE_URL=https://mastery-engine-c732u7m57a-uc.a.run.app,MASTERY_DEFAULT_ACCOUNT=ianfernandezctm@gmail.com,MASTERY_SUPER_ADMIN=info@agoradatadriven.com"
+  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash,GEMINI_LOCATION=global,MASTERY_BASE_URL=https://mastery-engine-585951669065.us-central1.run.app,MASTERY_DEFAULT_ACCOUNT=ianfernandezctm@gmail.com,MASTERY_SUPER_ADMIN=info@agoradatadriven.com"
+# ⚠️ MASTERY_BASE_URL must stay the NEW-STYLE run.app URL above: it builds the Google OAuth
+# redirect URI, and that exact URI is what's registered on the shared portal OAuth client.
+# (The legacy c732u7m57a alias entry in the console has a typo and is rejected by Google.)
 # To enable Google sign-in later, after creating the two secrets, add to --set-secrets:
 #   ,GOOGLE_OAUTH_CLIENT_ID=google-oauth-client-id:latest,GOOGLE_OAUTH_CLIENT_SECRET=google-oauth-client-secret:latest
 
