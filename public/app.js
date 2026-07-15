@@ -185,7 +185,7 @@ const App = (() => {
   const AI_ENGINE_SELECTS = ['asstEngineSel'];
   const AI_THINKING_WRAPS = ['asstThinkingWrap'];
   const AI_THINKING_CHECKS = ['asstThinkingChk'];
-  const AI_DIFFICULTY_SELECTS = ['asstDifficultySel', 'fcDifficultySel', 'notesDifficultySel'];
+  const AI_DIFFICULTY_SELECTS = ['asstDifficultySel', 'fcDifficultySel'];
 
   function setAiChoice(provider, model) {
     document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
@@ -350,7 +350,7 @@ const App = (() => {
     if (statsBtn) statsBtn.classList.toggle('hidden', !state.authed);
   }
 
-  const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView', 'graphView', 'notesView'];
+  const VIEWS = ['loginView', 'setupView', 'quizView', 'resultView', 'statsView', 'flashcardView', 'graphView'];
 
   // Flashcards are enabled for every course/lesson (must stay in sync with
   // server.js flashcardsEnabledFor). To scope back to specific courses, make this
@@ -725,155 +725,6 @@ const App = (() => {
       alert('Error: ' + e.message);
     } finally {
       setLoading(false);
-    }
-  }
-
-  /* ------------------- Quiz from my notes (BYO content) ------------------ */
-  // Upload documents and/or paste text; the same Wise Teacher engine writes a
-  // quiz on exactly that material. PDFs/images are read by the model server-side;
-  // text/markdown files are decoded directly. The resulting quiz is ad-hoc: it
-  // isn't banked or logged to mastery (no catalog topic), so it runs with
-  // startQuiz({ adhoc: true }).
-  const notes = { files: [], wired: false };
-  const NOTES_MAX_FILES = 12;
-  const NOTES_MAX_BYTES = 16 * 1024 * 1024; // keep in step with server CONTENT_MAX_FILE_BYTES
-
-  function openNotesQuiz() {
-    if (!state.authed) { showLogin(); return; }
-    state.guest = false;
-    notes.files = [];
-    $('notesText').value = '';
-    $('notesContext').value = '';
-    $('notesCount').value = '8';
-    $('notesError').textContent = '';
-    const warn = $('notesNotes'); warn.textContent = ''; warn.classList.add('hidden');
-    $('notesLoader').classList.add('hidden');
-    $('notesGenBtn').disabled = false;
-    renderNotesFiles();
-    wireNotesDrop();
-    // Reflect the shared difficulty choice (default 'auto') in this panel's select.
-    setDifficulty(localStorage.getItem('difficulty') || 'auto');
-    showOnly('notesView');
-  }
-
-  // Wire the file input + drag-and-drop once (the elements persist across opens).
-  function wireNotesDrop() {
-    if (notes.wired) return;
-    notes.wired = true;
-    const input = $('notesFiles');
-    const drop = $('notesDrop');
-    if (input) input.addEventListener('change', (e) => { addNotesFiles(e.target.files); input.value = ''; });
-    if (drop) {
-      ['dragenter', 'dragover'].forEach((ev) =>
-        drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('drag'); }));
-      ['dragleave', 'dragend'].forEach((ev) =>
-        drop.addEventListener(ev, () => drop.classList.remove('drag')));
-      drop.addEventListener('drop', (e) => {
-        e.preventDefault();
-        drop.classList.remove('drag');
-        if (e.dataTransfer && e.dataTransfer.files) addNotesFiles(e.dataTransfer.files);
-      });
-    }
-  }
-
-  async function addNotesFiles(fileList) {
-    const arr = Array.from(fileList || []);
-    $('notesError').textContent = '';
-    for (const f of arr) {
-      if (notes.files.length >= NOTES_MAX_FILES) {
-        $('notesError').textContent = `You can add up to ${NOTES_MAX_FILES} files.`;
-        break;
-      }
-      if (f.size > NOTES_MAX_BYTES) {
-        $('notesError').textContent = `"${f.name}" is over 16 MB and was skipped.`;
-        continue;
-      }
-      try {
-        const dataBase64 = await fileToBase64(f);
-        notes.files.push({ name: f.name, mime: f.type || '', size: f.size, dataBase64 });
-      } catch {
-        $('notesError').textContent = `Couldn't read "${f.name}".`;
-      }
-    }
-    renderNotesFiles();
-  }
-
-  // Read a File to raw base64 (strip the "data:...;base64," prefix the reader adds).
-  function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => {
-        const s = String(r.result || '');
-        const comma = s.indexOf(',');
-        resolve(comma >= 0 ? s.slice(comma + 1) : s);
-      };
-      r.onerror = () => reject(r.error || new Error('read failed'));
-      r.readAsDataURL(file);
-    });
-  }
-
-  function fileGlyph(f) {
-    const n = (f.name || '').toLowerCase();
-    const m = (f.mime || '').toLowerCase();
-    if (m.startsWith('image/') || /\.(png|jpe?g|webp|gif|heic|heif)$/.test(n)) return '🖼️';
-    if (m === 'application/pdf' || /\.pdf$/.test(n)) return '📄';
-    return '📝';
-  }
-
-  function fmtBytes(b) {
-    if (b == null) return '';
-    if (b < 1024) return b + ' B';
-    if (b < 1024 * 1024) return Math.round(b / 1024) + ' KB';
-    return (b / 1024 / 1024).toFixed(1) + ' MB';
-  }
-
-  function renderNotesFiles() {
-    const wrap = $('notesFileList');
-    if (!notes.files.length) { wrap.innerHTML = ''; wrap.classList.add('hidden'); return; }
-    wrap.classList.remove('hidden');
-    wrap.innerHTML = notes.files.map((f, i) => `
-      <div class="notes-file">
-        <span class="nf-ico" aria-hidden="true">${fileGlyph(f)}</span>
-        <span class="nf-name" title="${esc(f.name)}">${esc(f.name)}</span>
-        <span class="nf-size">${fmtBytes(f.size)}</span>
-        <button class="nf-x" title="Remove" aria-label="Remove ${esc(f.name)}" onclick="App.removeNotesFile(${i})">×</button>
-      </div>`).join('');
-  }
-
-  function removeNotesFile(i) {
-    notes.files.splice(i, 1);
-    renderNotesFiles();
-  }
-
-  async function generateNotesQuiz() {
-    const text = $('notesText').value.trim();
-    if (!notes.files.length && !text) {
-      $('notesError').textContent = 'Add at least one file or paste some text first.';
-      return;
-    }
-    const count = Math.min(30, Math.max(1, parseInt($('notesCount').value, 10) || 8));
-    const extraContext = $('notesContext').value.trim();
-    const btn = $('notesGenBtn');
-    btn.disabled = true;
-    $('notesError').textContent = '';
-    const warn = $('notesNotes'); warn.textContent = ''; warn.classList.add('hidden');
-    $('notesLoader').classList.remove('hidden');
-    try {
-      const r = await api('/api/generate/from-content', {
-        method: 'POST',
-        body: JSON.stringify({
-          texts: text ? [text] : [],
-          files: notes.files.map((f) => ({ name: f.name, mime: f.mime, dataBase64: f.dataBase64 })),
-          count, extraContext,
-        }),
-      });
-      if (!r.questions || !r.questions.length) throw new Error('No questions came back. Try adding more material.');
-      startQuiz(r.questions, { adhoc: true });
-    } catch (e) {
-      $('notesError').textContent = 'Could not build the quiz: ' + e.message;
-    } finally {
-      btn.disabled = false;
-      $('notesLoader').classList.add('hidden');
     }
   }
 
@@ -1264,10 +1115,6 @@ const App = (() => {
     state.idx = 0;
     state.score = 0;
     state.log = [];
-    // Ad-hoc quizzes (e.g. "Quiz from my notes") have no catalog topic, so they
-    // are never banked or logged to mastery — finish() and renderQuestion() key
-    // off this to skip the save and hide the bank-writing "keep learning" chips.
-    state.adhoc = !!opts.adhoc;
     state.quizReturn = opts.returnTo || null;
     // Label the exit button for where this quiz returns to (flashcard vs. menu).
     $('quizExitBtn').textContent = (state.quizReturn === 'flashcard' && fc.view[fc.idx]) ? 'Back to Flashcard' : 'Back to menu';
@@ -1292,7 +1139,7 @@ const App = (() => {
     $('progressFill').style.width = (state.idx / n) * 100 + '%';
     $('progressCount').textContent = `Question ${state.idx + 1} of ${n}`;
     $('progressScore').textContent = `Score ${state.score}`;
-    $('qCrumb').textContent = [...new Set([q.course, q.topic].filter(Boolean))].join('  ›  ');
+    $('qCrumb').textContent = [q.course, q.topic].filter(Boolean).join('  ›  ');
     $('qText').innerHTML = codeSpans(q.question);
     typeset($('qText'));
 
@@ -1321,10 +1168,9 @@ const App = (() => {
     $('explainBox').classList.add('hidden');
     $('explainBox').innerHTML = '';
 
-    // Drill deeper & Generate-more both bank questions (need auth + a real
-    // catalog topic) and hit the AI over the network, so guests, offline, and
-    // ad-hoc "from my notes" quizzes don't get those chips.
-    const canDrill = state.authed && !state.guest && !state.offline && !state.adhoc;
+    // Drill deeper & Generate-more both bank questions (need auth) and hit the
+    // AI over the network, so guests and offline quizzes don't get those chips.
+    const canDrill = state.authed && !state.guest && !state.offline;
     $('drillBtn').classList.toggle('hidden', !canDrill);
     $('genMoreBtn').classList.toggle('hidden', !canDrill);
 
@@ -1761,9 +1607,7 @@ const App = (() => {
     });
 
     const note = $('syncNote');
-    if (state.adhoc) {
-      note.textContent = 'Practice quiz from your material — not saved to your mastery stats.';
-    } else if (state.guest || !state.authed) {
+    if (state.guest || !state.authed) {
       note.textContent = 'Guest mode: results were not saved.';
     } else {
       note.textContent = 'Saving results…';
@@ -4080,7 +3924,6 @@ const App = (() => {
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     toggleGenMore, generateSimilar,
-    openNotesQuiz, generateNotesQuiz, removeNotesFile,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
     openGraph, setGraphLevel,
