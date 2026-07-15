@@ -62,8 +62,6 @@ import {
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
 import {
   generateQuestions,
-  generateQuestionsFromContent,
-  extractDocumentText,
   generateHint,
   generateExplanation,
   generateReview,
@@ -108,11 +106,6 @@ import * as googleauth from './lib/googleauth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-// "Quiz from my notes" ships uploaded files as base64 in the JSON body, so this
-// one route needs a much larger limit. It is mounted BEFORE the global 1 MB
-// parser: body-parser marks the request once parsed, so the global parser then
-// skips it (and every OTHER endpoint stays capped at the safe 1 MB default).
-app.use('/api/generate/from-content', express.json({ limit: '32mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
@@ -829,114 +822,6 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
       }
     });
     res.json({ ok: true, created, topics: topics.length, errors });
-  } catch (e) {
-    next(e);
-  }
-});
-
-/* -------------------- Quiz from the learner's own material ---------------- */
-// Auth: build an ad-hoc quiz from documents the user uploads and/or text they
-// paste — NOT from the topic catalog. Reuses the exact same question-craft as
-// /api/generate (Wise Master Educator, anti-test-hacking rules, difficulty
-// directive, KaTeX/answer-index schema). PDFs and images are transcribed with
-// Gemini's native multimodal reading; text/markdown files are decoded directly.
-// The result is served as a one-off practice quiz — because these questions
-// have no catalog topic, they are NOT banked and NOT logged to mastery.
-const CONTENT_MAX_FILES = 12;
-const CONTENT_MAX_FILE_BYTES = 16 * 1024 * 1024; // 16 MB decoded, per file
-const CONTENT_MAX_CHARS = 120_000;               // total prompt material cap
-const clampContentCount = (c) => Math.min(30, Math.max(1, parseInt(c, 10) || 5));
-
-// Files we can read as UTF-8 straight away (no model call needed).
-const TEXT_MIME = /^text\/|application\/(json|xml|x-yaml|yaml|markdown|rtf|csv|javascript|typescript)/i;
-const TEXT_EXT = /\.(txt|text|md|markdown|mdown|csv|tsv|json|ya?ml|log|html?|xml|tex|rst|org|py|js|ts|java|c|cpp|cs|go|rb|rs|sql|sh|css)$/i;
-// Files Gemini can read natively (transcribe to text): PDFs and images.
-const DOC_MIME = /^(application\/pdf|image\/(png|jpe?g|webp|gif|heic|heif))/i;
-const DOC_EXT = /\.(pdf|png|jpe?g|webp|gif|heic|heif)$/i;
-
-app.post('/api/generate/from-content', requireAuth, rateLimitAI, async (req, res, next) => {
-  try {
-    const body = req.body || {};
-    const count = clampContentCount(body.count);
-    const difficulty = ['core', 'balanced', 'challenge'].includes(body.difficulty)
-      ? body.difficulty
-      : difficultyChoice(req);
-    const extraContext = String(body.extraContext || '').slice(0, 1200);
-
-    // --- collect sources (pasted text + uploaded files) ---
-    const sources = []; // { label, text }
-    const notes = [];   // human-readable warnings for skipped/failed inputs
-
-    const pasted = Array.isArray(body.texts) ? body.texts : (body.text ? [body.text] : []);
-    pasted.forEach((t, i) => {
-      const s = String(t || '').trim();
-      if (s) sources.push({ label: pasted.length > 1 ? `Pasted text ${i + 1}` : 'Pasted text', text: s });
-    });
-
-    const files = (Array.isArray(body.files) ? body.files : []).slice(0, CONTENT_MAX_FILES);
-    const names = [];
-    // Read files with bounded concurrency (PDF/image reads hit the model).
-    await mapWithConcurrency(files, 3, async (f) => {
-      const name = String(f?.name || 'file').slice(0, 200);
-      const mime = String(f?.mime || '').toLowerCase();
-      const data = String(f?.dataBase64 || '');
-      if (!data) { notes.push(`${name}: empty file, skipped`); return; }
-      // Rough decoded-size guard from the base64 length (4 chars ≈ 3 bytes).
-      if (data.length * 0.75 > CONTENT_MAX_FILE_BYTES) { notes.push(`${name}: too large (max 16 MB), skipped`); return; }
-      try {
-        if (TEXT_MIME.test(mime) || TEXT_EXT.test(name)) {
-          const text = Buffer.from(data, 'base64').toString('utf8').trim();
-          if (text) { sources.push({ label: name, text }); names.push(name); }
-          else notes.push(`${name}: no readable text, skipped`);
-        } else if (DOC_MIME.test(mime) || DOC_EXT.test(name)) {
-          const guessed = mime && DOC_MIME.test(mime) ? mime : (/\.pdf$/i.test(name) ? 'application/pdf' : 'image/png');
-          const text = await extractDocumentText({ mimeType: guessed, dataBase64: data, name });
-          if (text) { sources.push({ label: name, text }); names.push(name); }
-          else notes.push(`${name}: nothing readable was found, skipped`);
-        } else {
-          notes.push(`${name}: unsupported file type (use PDF, an image, or a text/markdown file), skipped`);
-        }
-      } catch (e) {
-        notes.push(`${name}: could not read it (${e.message})`);
-      }
-    });
-
-    if (!sources.length) {
-      return res.status(400).json({
-        error: 'No usable material. Paste some text or upload a PDF, image, or text/markdown file.',
-        notes,
-      });
-    }
-
-    // Concatenate labelled sections, bounded so the prompt stays sane.
-    let combined = sources.map((s) => `### SOURCE: ${s.label}\n${s.text}`).join('\n\n');
-    let truncated = false;
-    if (combined.length > CONTENT_MAX_CHARS) { combined = combined.slice(0, CONTENT_MAX_CHARS); truncated = true; }
-
-    // A friendly label for the quiz crumb: the file name if there's exactly one
-    // source, else a generic bucket.
-    const sourceLabel = names.length === 1
-      ? names[0].replace(/\.[a-z0-9]+$/i, '')
-      : (names.length ? 'Your uploads' : 'Your notes');
-
-    const questions = await generateQuestionsFromContent(
-      { content: combined, sourceLabel, extraContext, count, difficulty },
-      aiChoice(req),
-    );
-
-    // Shape into the same payload the quiz UI consumes. No catalog meta exists,
-    // so track/course are fixed labels and the crumb reads "Your material › X".
-    const packaged = questions.map((q) => ({
-      track: 'Your material',
-      course: 'Your material',
-      lesson: '',
-      topic: q.topic || sourceLabel,
-      question: restoreLatexEscapes(q.question),
-      options: Array.isArray(q.options) ? q.options.map(restoreLatexEscapes) : q.options,
-      answer: restoreLatexEscapes(q.answer),
-    }));
-
-    res.json({ ok: true, questions: packaged, count: packaged.length, sourceLabel, truncated, notes });
   } catch (e) {
     next(e);
   }

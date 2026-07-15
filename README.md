@@ -220,37 +220,6 @@ model to match Gemini's reliability.
 
 ---
 
-## Quiz from my notes (bring-your-own content)
-
-Turn any material you already have into a quiz — no catalog topic required. From
-the Mastery landing card, click **Quiz from my notes** and either **upload files**
-(PDFs, images/photos, or text/markdown — up to 12) and/or **paste text**, then pick
-**how many questions** and a **difficulty**, with an optional **extra-instructions**
-box to steer the AI (e.g. "focus on chapter 3", "formulas only", "keep it applied").
-
-It reuses the *exact same* question craft as the catalog generator — the "Wise
-Master Educator / Professional Test Developer" framing, the anti-test-hacking
-formatting contract (option uniformity, no length bias, parallel structure,
-sophisticated distractors), the difficulty directive, and the KaTeX + answer-index
-`responseSchema` — so questions are the same quality, just grounded in *your*
-material instead of the topic bank. In-quiz **hints** and **Explain from scratch**
-work as usual.
-
-- **How files are read:** text/markdown files are decoded directly; **PDFs and
-  images are transcribed by Gemini's native multimodal reading** (always via Vertex
-  ADC, regardless of the selected quiz engine, since it's the only always-available
-  reader on the deployed app). DOCX isn't supported — export to PDF or paste.
-- **Difficulty:** manual here (there's no per-topic history), so **Auto → Balanced**;
-  Core/Balanced/Challenge use the shared difficulty directive.
-- **Ad-hoc by design:** these questions have no catalog topic, so they are **not
-  banked and not logged to mastery** — it's pure practice. (Drill / "generate more
-  like this" chips are hidden for these quizzes for the same reason.)
-
-Endpoint `POST /api/generate/from-content` (auth, rate-limited; body limit raised
-to 32 MB for this one route only). Generators `generateQuestionsFromContent` /
-`extractDocumentText` in `lib/gemini.js`; frontend flow (`openNotesQuiz` →
-`generateNotesQuiz`, `startQuiz({ adhoc: true })`) in `public/app.js`.
-
 ## Flashcards (Course & Lesson level)
 
 AI-written study decks that sit **above** the quiz: mastering a deck should mean
