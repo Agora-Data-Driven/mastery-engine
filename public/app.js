@@ -4288,7 +4288,34 @@ const App = (() => {
     init();
   });
 
+  // Voice input: dictate speech into a chat textarea (Web Speech API). Reuses the Speaker-Mode
+  // mic-permission prime (ensureMicPermission) so it works inside the website's cross-origin iframe.
+  // Graceful: the button hides itself when the browser has no SpeechRecognition. One live at a time.
+  let _dictation = null;
+  async function dictateInto(inputId, btn) {
+    const input = $(inputId);
+    if (!input) return;
+    if (!SR) { if (btn) btn.style.display = 'none'; return; }
+    if (_dictation) { try { _dictation.rec.stop(); } catch {} return; }   // toggle off
+    const ok = await ensureMicPermission();
+    if (!ok) return;
+    const rec = new SR();
+    rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true;
+    const base = input.value ? input.value.replace(/\s+$/, '') + ' ' : '';
+    _dictation = { rec, btn };
+    rec.onstart = () => { if (btn) btn.classList.add('recording'); };
+    rec.onresult = (e) => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      input.value = base + t;
+    };
+    rec.onerror = () => {};
+    rec.onend = () => { if (btn) btn.classList.remove('recording'); _dictation = null; input.focus(); };
+    try { rec.start(); } catch { _dictation = null; if (btn) btn.classList.remove('recording'); }
+  }
+
   return {
+    dictateInto,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, mergeMath, fixAllFormats, fixAllQuestionFormats,
     fixQuestionFormat, fixCardFormat,
