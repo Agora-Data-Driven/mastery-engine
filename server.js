@@ -79,6 +79,7 @@ import {
   latexifyQuestions,
   reformatFlashcards,
   editFlashcard,
+  gradeExplanation,
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
@@ -1114,6 +1115,69 @@ app.get('/api/flashcards/card-stats', requireAuth, async (req, res, next) => {
       getTopicAttempts(req.userEmail, card.topic),
     ]);
     res.json({ topic: card.topic, questionCount: pool.length, ...attempts });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------------ Speaker Mode ------------------------------ */
+// Auth: grade a spoken (or typed) explanation of a card's concept out of 3 and
+// fold it into the learner's topic mastery. The transcript comes from browser
+// speech-to-text; the AI scores UNDERSTANDING (see gradeExplanation) and we log
+// it as ONE quiz-equivalent attempt on the card's topic — a "pass" when the
+// learner scores 2/3 or better — so a good explanation moves mastery exactly
+// like answering a question does. Rate-limited (one AI call per request).
+app.post('/api/flashcards/explain', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    // Bound the transcript before it reaches the prompt (cost + injection surface).
+    const transcript = String(req.body?.transcript || '').slice(0, 4000).trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    if (!transcript) return res.status(400).json({ error: 'An explanation is required' });
+
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    // Resolve the card's full hierarchy (same lookup the quiz endpoint uses) so
+    // the attempt logs against the right Track > Course > Lesson > Topic.
+    const catalog = await getCatalog(req.userEmail);
+    const idx = metaIndex(catalog);
+    const meta = card.topic && idx.has(card.topic) ? idx.get(card.topic) : null;
+    const scopeLabel = meta
+      ? [meta.course, meta.lesson, card.topic].filter(Boolean).join(' › ')
+      : (card.topic || '');
+
+    const grade = await gradeExplanation(
+      { concept: card.concept, intuition: card.intuition, formula: card.formula, scopeLabel, transcript },
+      aiChoice(req),
+    );
+
+    // Progress (lighter mapping): count the whole explanation as ONE attempt on
+    // the topic — correct when they scored 2/3+. Only log when the card is tied
+    // to a known topic, so mastery keys correctly; otherwise just return the grade.
+    const pass = grade.score >= 2;
+    let logged = false;
+    if (meta) {
+      const row = {
+        track: meta.track || '',
+        course: meta.course || '',
+        lesson: meta.lesson || '',
+        topic: card.topic || '',
+        question: '🎙️ Explained aloud: ' + String(card.concept || '').slice(0, 140),
+        isCorrect: pass,
+        reviewFlag: 0,
+      };
+      await logResults(req.userEmail, [row]);
+      logged = true;
+      // Mirror into BigQuery for the analytics dashboards, same as /api/quiz/log
+      // (best-effort, default account only).
+      if (req.userEmail === DEFAULT_ACCOUNT) {
+        streamAttempts([row]).catch(() => {});
+        getTopicsRows(DEFAULT_ACCOUNT).then(replaceTopics).catch(() => {});
+      }
+    }
+
+    res.json({ ...grade, pass, pointsMax: 3, progress: { logged, topic: card.topic || '' } });
   } catch (e) {
     next(e);
   }

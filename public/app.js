@@ -1641,6 +1641,16 @@ const App = (() => {
     cards: [], view: [], idx: 0, flipped: false, highway: false,
   };
 
+  // Speaker Mode: explain a card's concept aloud; browser speech-to-text feeds
+  // an AI grade (0–3) that folds into the topic's mastery. See openSpeaker().
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const SILENCE_MS = 2500; // pause after speaking that auto-triggers grading
+  const sp = {
+    rec: null, recording: false, typing: false, grading: false,
+    finalText: '', interim: '', silenceTimer: null, stopReason: null,
+    lastGrade: null, supported: !!SR,
+  };
+
   function fcSetLoading(on, text) {
     $('fcLoader').classList.toggle('hidden', !on);
     if (text) $('fcLoaderText').textContent = text;
@@ -1831,6 +1841,9 @@ const App = (() => {
     $('fcAdminActions').classList.toggle('hidden', !isAdmin());
     resetCardEditUI();
 
+    // Collapse Speaker Mode so a graded panel never lingers onto the next card.
+    resetSpeakerUI();
+
     // Per-card quiz performance (its topic's questions + your attempts).
     renderCardStats(card);
   }
@@ -1933,6 +1946,319 @@ const App = (() => {
       btn.disabled = false;
       btn.textContent = label;
     }
+  }
+
+  /* --------------------------- Speaker Mode ------------------------------ */
+  // Teach the current card's concept back in your own words. The browser's free
+  // speech-to-text (Web Speech API) captures it, we wait for a pause, then the
+  // AI grades it 0–3 and the score feeds this topic's mastery (a "pass" at 2+).
+  // A typed box is the fallback when speech recognition isn't available.
+
+  // Fully reset + hide the panel, stopping any live recognition or read-aloud.
+  function resetSpeakerUI() {
+    stopRecognition('reset');
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    sp.finalText = ''; sp.interim = ''; sp.lastGrade = null; sp.grading = false;
+    const panel = $('fcSpeaker');
+    if (panel) panel.classList.add('hidden');
+    $('fcsResult')?.classList.add('hidden');
+    $('fcsGrading')?.classList.add('hidden');
+    $('fcsRecordStage')?.classList.remove('hidden');
+    const t = $('fcsTranscript'); if (t) t.innerHTML = '';
+    const typed = $('fcsTyped'); if (typed) typed.value = '';
+    $('fcsError') && ($('fcsError').textContent = '');
+    paintMic(false);
+    spSyncGradeBtn();
+  }
+
+  // Open the panel for the current card. Requires sign-in (grading writes progress).
+  function openSpeaker() {
+    if (!state.authed) { showLogin(); return; }
+    const card = fc.view[fc.idx];
+    if (!card) return;
+    resetSpeakerUI();
+    $('fcSpeaker').classList.remove('hidden');
+    // No speech recognition here (Safari/Firefox/etc.) → go straight to typing.
+    if (!sp.supported) {
+      enableTyped(true);
+      $('fcsStatus').textContent = 'Speech input isn’t available in this browser — type your explanation instead.';
+    } else {
+      sp.typing = false;
+      $('fcsTypedWrap').classList.add('hidden');
+      $('fcsTypeToggle').textContent = '⌨️ Type instead';
+      $('fcsStatus').textContent = 'Tap the mic to start';
+    }
+    $('fcSpeaker').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  function closeSpeaker() { resetSpeakerUI(); }
+
+  // Mic button: start listening, or stop (a manual stop just pauses — you then
+  // review the transcript and hit "Grade", or tap the mic again to add more).
+  function toggleSpeaking() {
+    if (!sp.supported) { enableTyped(true); return; }
+    if (sp.recording) stopRecognition('manual');
+    else startRecognition();
+  }
+
+  function startRecognition() {
+    if (!sp.supported || sp.recording) return;
+    let rec;
+    try { rec = new SR(); } catch { sp.supported = false; enableTyped(true); return; }
+    rec.lang = 'en-US';
+    rec.continuous = true;
+    rec.interimResults = true;
+    sp.rec = rec;
+    sp.stopReason = null;
+    sp.finalText = ''; sp.interim = '';
+    $('fcsError').textContent = '';
+    $('fcsResult').classList.add('hidden');
+
+    rec.onresult = (e) => {
+      let finalT = '', interimT = '';
+      for (let i = 0; i < e.results.length; i++) {
+        const res = e.results[i];
+        if (res.isFinal) finalT += res[0].transcript;
+        else interimT += res[0].transcript;
+      }
+      sp.finalText = finalT;
+      sp.interim = interimT;
+      paintTranscript();
+      spSyncGradeBtn();
+      armSilenceTimer();
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+        $('fcsError').textContent = 'Microphone access was blocked. Allow the mic, or type your explanation instead.';
+        enableTyped(true);
+      } else if (e.error === 'no-speech') {
+        $('fcsStatus').textContent = 'Didn’t catch anything — tap the mic and try again.';
+      } else if (e.error !== 'aborted') {
+        $('fcsError').textContent = 'Speech recognition error: ' + e.error;
+      }
+    };
+    rec.onend = () => {
+      sp.recording = false;
+      clearSilence();
+      paintMic(false);
+      const hasText = !!(sp.finalText.trim() || sp.interim.trim());
+      // A manual stop just pauses for review; any other end (silence pause,
+      // an explicit Grade tap, or the browser closing the stream) grades now.
+      if (sp.stopReason === 'manual' || sp.stopReason === 'reset') {
+        $('fcsStatus').textContent = hasText ? 'Paused — tap the mic to add more, or grade it.' : 'Tap the mic to start';
+      } else if (hasText) {
+        gradeSpeaking();
+      } else {
+        $('fcsStatus').textContent = 'Didn’t catch anything — tap the mic and try again.';
+      }
+      spSyncGradeBtn();
+    };
+
+    try {
+      rec.start();
+      sp.recording = true;
+      paintMic(true);
+      $('fcsStatus').textContent = 'Listening… explain the concept. I’ll wait for a pause.';
+    } catch {
+      sp.recording = false;
+      paintMic(false);
+    }
+  }
+
+  // reason: 'manual' (pause for review) | 'silence' | 'grade' | 'reset'.
+  function stopRecognition(reason) {
+    clearSilence();
+    if (sp.rec && sp.recording) {
+      sp.stopReason = reason;
+      try { sp.rec.stop(); } catch {}
+    } else if (!sp.recording && sp.rec) {
+      // already stopped; nothing to do
+    }
+  }
+
+  function armSilenceTimer() {
+    clearSilence();
+    if (!(sp.finalText.trim() || sp.interim.trim())) return; // wait until they've said something
+    sp.silenceTimer = setTimeout(() => { stopRecognition('silence'); }, SILENCE_MS);
+  }
+  function clearSilence() { if (sp.silenceTimer) { clearTimeout(sp.silenceTimer); sp.silenceTimer = null; } }
+
+  function paintMic(on) {
+    const mic = $('fcsMic');
+    if (mic) mic.classList.toggle('recording', !!on);
+  }
+
+  function paintTranscript() {
+    const el = $('fcsTranscript');
+    if (!el) return;
+    const fin = esc(sp.finalText);
+    const int = sp.interim ? ` <span class="fcs-interim">${esc(sp.interim)}</span>` : '';
+    el.innerHTML = (fin + int).trim() || '<span class="fcs-transcript-empty">Your words will appear here…</span>';
+  }
+
+  // Reveal the typed fallback (and, when speech is unsupported, hide the mic row).
+  function enableTyped(focus) {
+    sp.typing = true;
+    $('fcsTypedWrap').classList.remove('hidden');
+    $('fcsTypeToggle').textContent = '🎙️ Use the mic';
+    // No speech support → hide just the mic button (keep the status hint, which
+    // lives in the same row, visible). Also hide the "use the mic" toggle, since
+    // there's nothing to switch back to.
+    if (!sp.supported) {
+      $('fcsMic')?.classList.add('hidden');
+      $('fcsTypeToggle')?.classList.add('hidden');
+    }
+    const ta = $('fcsTyped');
+    if (ta && !ta._spBound) { ta.addEventListener('input', spSyncGradeBtn); ta._spBound = true; }
+    if (focus && ta) ta.focus();
+    spSyncGradeBtn();
+  }
+
+  function toggleSpeakerType() {
+    if (sp.typing && sp.supported) {
+      sp.typing = false;
+      $('fcsTypedWrap').classList.add('hidden');
+      $('fcsTypeToggle').textContent = '⌨️ Type instead';
+      spSyncGradeBtn();
+    } else {
+      enableTyped(true);
+    }
+  }
+
+  // Enable the Grade button whenever there's something to grade.
+  function spSyncGradeBtn() {
+    const btn = $('fcsGradeBtn');
+    if (!btn) return;
+    const typed = sp.typing ? ($('fcsTyped')?.value || '').trim() : '';
+    const spoken = (sp.finalText.trim() + ' ' + sp.interim.trim()).trim();
+    btn.disabled = sp.grading || !(typed || spoken);
+  }
+
+  async function gradeSpeaking() {
+    if (sp.grading) return;
+    // If still listening, stop first; onend re-enters here with the final text.
+    if (sp.recording) { stopRecognition('grade'); return; }
+    clearSilence();
+    const card = fc.view[fc.idx];
+    if (!card) return;
+    const transcript = sp.typing
+      ? ($('fcsTyped')?.value || '').trim()
+      : (sp.finalText.trim() + ' ' + sp.interim.trim()).trim();
+    if (!transcript) { $('fcsError').textContent = 'Say (or type) your explanation first.'; return; }
+
+    sp.grading = true;
+    spSyncGradeBtn();
+    $('fcsError').textContent = '';
+    $('fcsRecordStage').classList.add('hidden');
+    $('fcsResult').classList.add('hidden');
+    $('fcsGrading').classList.remove('hidden');
+    try {
+      const r = await api('/api/flashcards/explain', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id, transcript }),
+      });
+      renderSpeakerResult(r, transcript, card);
+      // Progress changed for this topic — drop the cached stats so the card's
+      // accuracy re-fetches, and refresh the panel behind us.
+      if (card.topic) { delete fc._statsByTopic[card.topic]; renderCardStats(card); }
+    } catch (e) {
+      $('fcsGrading').classList.add('hidden');
+      $('fcsRecordStage').classList.remove('hidden');
+      $('fcsError').textContent = 'Could not grade that: ' + e.message;
+    } finally {
+      sp.grading = false;
+      spSyncGradeBtn();
+    }
+  }
+
+  function renderSpeakerResult(r, transcript, card) {
+    sp.lastGrade = r;
+    $('fcsGrading').classList.add('hidden');
+    $('fcsRecordStage').classList.add('hidden');
+    $('fcsResult').classList.remove('hidden');
+
+    const score = Math.max(0, Math.min(3, r.score | 0));
+    const scoreEl = $('fcsScore');
+    scoreEl.className = 'fcs-score fcs-s' + score;
+    $('fcsScoreNum').textContent = score;
+    $('fcsVerdict').innerHTML = codeSpans(r.verdict || '');
+
+    // Progress note reflects the lighter mapping (pass at 2/3+).
+    const note = $('fcsProgressNote');
+    if (r.progress && r.progress.logged) {
+      note.textContent = r.pass
+        ? `✅ Counted as a pass on “${r.progress.topic}” — mastery updated.`
+        : `Logged on “${r.progress.topic}” — aim for 2/3 to pass. Keep at it.`;
+      note.className = 'fcs-progress-note ' + (r.pass ? 'ok' : 'miss');
+    } else {
+      note.textContent = 'This card isn’t linked to a topic yet, so it won’t change your mastery.';
+      note.className = 'fcs-progress-note neutral';
+    }
+
+    $('fcsSaid').textContent = transcript;
+
+    const fillList = (wrapId, listId, items) => {
+      const wrap = $(wrapId), list = $(listId);
+      if (!items || !items.length) { wrap.classList.add('hidden'); list.innerHTML = ''; return; }
+      wrap.classList.remove('hidden');
+      list.innerHTML = items.map((s) => `<li>${codeSpans(s)}</li>`).join('');
+      typeset(list);
+    };
+    fillList('fcsStrengthsWrap', 'fcsStrengths', r.strengths);
+    fillList('fcsGapsWrap', 'fcsGaps', r.gaps);
+
+    $('fcsModel').innerHTML = renderMarkdown(r.modelAnswer || '');
+    typeset($('fcsModel'));
+    $('fcsEncouragement').innerHTML = codeSpans(r.encouragement || '');
+    typeset($('fcsVerdict'));
+
+    // Hide the read-aloud button if this browser can't speak.
+    $('fcsRead').classList.toggle('hidden', !window.speechSynthesis);
+    $('fcsResult').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+
+  // Fresh attempt on the same card.
+  function restartSpeaking() {
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    sp.finalText = ''; sp.interim = ''; sp.lastGrade = null;
+    $('fcsResult').classList.add('hidden');
+    $('fcsGrading').classList.add('hidden');
+    $('fcsRecordStage').classList.remove('hidden');
+    paintTranscript();
+    const ta = $('fcsTyped'); if (ta) ta.value = '';
+    $('fcsError').textContent = '';
+    $('fcsStatus').textContent = sp.supported ? 'Tap the mic to start' : 'Type your explanation, then grade it.';
+    spSyncGradeBtn();
+  }
+
+  function speakerNextCard() { closeSpeaker(); nextCard(); }
+
+  // Read-aloud: speak the assessment with the browser's free TTS. Toggles off if
+  // it's already talking. Strips LaTeX/code markup so it reads naturally.
+  function readAssessment() {
+    const synth = window.speechSynthesis;
+    if (!synth || !sp.lastGrade) return;
+    if (synth.speaking) { synth.cancel(); return; }
+    const g = sp.lastGrade;
+    const parts = [`You scored ${g.score} out of 3.`, g.verdict];
+    if (g.strengths && g.strengths.length) parts.push('What you got right: ' + g.strengths.join('; ') + '.');
+    if (g.gaps && g.gaps.length) parts.push('What to work on: ' + g.gaps.join('; ') + '.');
+    if (g.modelAnswer) parts.push('Model answer: ' + g.modelAnswer);
+    if (g.encouragement) parts.push(g.encouragement);
+    const u = new SpeechSynthesisUtterance(plainForSpeech(parts.filter(Boolean).join(' ')));
+    u.rate = 1.02;
+    synth.cancel();
+    synth.speak(u);
+  }
+
+  function plainForSpeech(s) {
+    return String(s || '')
+      .replace(/\\texttt\{([^}]*)\}/g, '$1')
+      .replace(/\${1,2}/g, ' ')
+      .replace(/\\[a-zA-Z]+/g, ' ')
+      .replace(/[{}\\]/g, ' ')
+      .replace(/\*\*/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
   }
 
   /* ------------------------------- Chat ---------------------------------- */
@@ -3929,6 +4255,8 @@ const App = (() => {
     openGraph, setGraphLevel,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
+    openSpeaker, closeSpeaker, toggleSpeaking, gradeSpeaking, toggleSpeakerType,
+    restartSpeaking, speakerNextCard, readAssessment,
     openScopeChat, closeScopeChat, sendScopeChat,
     toggleAssistant, sendAssistant, newAssistantChat, deleteAssistantChat,
     toggleAssistantHistory, openAssistantChatById, toggleAssistantSettings,
