@@ -415,6 +415,50 @@ const App = (() => {
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   }
 
+  // Recommended lesson sequence for courses whose lessons DON'T carry a leading
+  // unit number. Every other course already numbers its lessons ("01 …") so they
+  // sort naturally; the two Machine Learning courses don't, so they'd otherwise
+  // fall back to alphabetical. These are DISPLAY-ONLY: the stored lesson names are
+  // unchanged (quiz/stat routing slugs the raw name), we only re-sequence the rows
+  // and prefix a number in the UI. Edit these lists to re-order.
+  const LESSON_ORDER = {
+    'Machine Learning Specialization': [
+      'Supervised Machine Learning',
+      'Unsupervised Learning, Recommenders, Reinforcement',
+      'Advanced Learning Algorithms',
+    ],
+    'StatQuest ML': [
+      'Decision Trees',
+      'Gradient Boost',
+      'Xgboost',
+      'Support Vector Machines',
+    ],
+  };
+  // Rank of a lesson within its course's recommended order (Infinity if unranked).
+  function lessonRank(course, lesson) {
+    const order = LESSON_ORDER[course];
+    if (!order) return Infinity;
+    const i = order.indexOf(lesson);
+    return i === -1 ? Infinity : i;
+  }
+  // Order two lesson names within a course: recommended rank first, then natural.
+  function byLessonName(course, a, b) {
+    const ra = lessonRank(course, a), rb = lessonRank(course, b);
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  }
+  // Distinct lesson names of a course, in recommended order.
+  function orderedLessons(course, lessons) {
+    return [...new Set(lessons)].filter(Boolean).sort((a, b) => byLessonName(course, a, b));
+  }
+  // Cosmetic label: prefix a 2-digit recommended-order number for lessons in
+  // LESSON_ORDER (whose stored names lack their own unit number). Never mutates
+  // the raw name used for routing.
+  function lessonLabel(course, lesson) {
+    const r = lessonRank(course, lesson);
+    return r === Infinity ? lesson : `${String(r + 1).padStart(2, '0')} ${lesson}`;
+  }
+
   function uniqSorted(arr) {
     return [...new Set(arr)].filter(Boolean).sort();
   }
@@ -438,10 +482,11 @@ const App = (() => {
   function filterLessons() {
     const c = $('courseSel').value;
     if (c !== 'Review All') {
-      const ls = uniqSorted(state.catalog.filter((r) => r.course === c).map((r) => r.lesson));
+      const ls = orderedLessons(c, state.catalog.filter((r) => r.course === c).map((r) => r.lesson));
       $('lessonSel').innerHTML =
         '<option value="Review All">Review Full Course</option>' +
-        ls.map((l) => `<option>${esc(l)}</option>`).join('');
+        // value = raw lesson name (drives scope/routing); text = numbered label.
+        ls.map((l) => `<option value="${esc(l)}">${esc(lessonLabel(c, l))}</option>`).join('');
     } else {
       $('lessonSel').innerHTML = '<option value="-- N/A --">N/A</option>';
     }
@@ -951,13 +996,19 @@ const App = (() => {
   function renderProgressNode(node, level, scope) {
     const pct = nodeProgress(node);
     const color = accColor(pct);
-    // Courses (the children of a track, level 0) follow the curriculum order;
-    // everything else stays in natural name/unit-number order.
+    // Courses (children of a track, level 0) follow the curriculum order; a
+    // course's lessons (level 1) follow their recommended sequence; everything
+    // else stays in natural name/unit-number order.
     const kids = [...node.children.values()].sort(
-      level === 0 ? (a, b) => byCourseName(a.name, b.name) : byName,
+      level === 0 ? (a, b) => byCourseName(a.name, b.name)
+      : level === 1 ? (a, b) => byLessonName(node.name, a.name, b.name)
+      : byName,
     );
     const hasKids = kids.length > 0 && !node.leaf;
     const isTrack = level === 0;
+    // Lesson rows (level 2) show a recommended-order number prefix for the ML
+    // courses; the raw name still drives data-* / routing.
+    const displayName = level === 2 ? lessonLabel(scope.course, node.name) : node.name;
     const sub = node.leaf
       ? (node.attempts ? `${node.attempts} attempt${node.attempts === 1 ? '' : 's'}` : 'Not started')
       : `${node.attemptedCount}/${node.topicCount} topics practised`;
@@ -983,14 +1034,14 @@ const App = (() => {
       ? `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
         ${ringHtml(pct, color, 56)}
         <div class="prog-info">
-          <span class="prog-name">${esc(node.name)}</span>
+          <span class="prog-name">${esc(displayName)}</span>
           <span class="prog-sub">${esc(sub)}</span>
         </div>
         ${actions}`
       : `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
         <span class="prog-dot" style="color:${color};background:${color}"></span>
         <div class="prog-info">
-          <span class="prog-name">${esc(node.name)}</span>
+          <span class="prog-name">${esc(displayName)}</span>
           <span class="prog-sub">${esc(sub)}</span>
         </div>
         <div class="prog-bar-wrap">
@@ -1382,6 +1433,8 @@ const App = (() => {
         body: JSON.stringify({
           question: q.question, options: q.options, answer: q.answer,
           topic: q.topic, confusion,
+          // Forward the hierarchy so a shared topic name drills into this exact sub-lesson.
+          track: q.track, course: q.course, lesson: q.lesson,
         }),
       });
       if (!nq || !nq.question || !Array.isArray(nq.options)) throw new Error('No usable question came back');
@@ -1440,6 +1493,8 @@ const App = (() => {
         body: JSON.stringify({
           question: q.question, options: q.options, answer: q.answer,
           topic: q.topic, count,
+          // Forward the hierarchy so a shared topic name resolves to this exact sub-lesson.
+          track: q.track, course: q.course, lesson: q.lesson,
         }),
       });
       if (!Array.isArray(qs) || !qs.length) throw new Error('No usable questions came back');
@@ -3159,11 +3214,12 @@ const App = (() => {
         const cOpen = !!term || ms.open.has(cKey);
         html += msRow(cKey, 1, course, cTopics, true, cOpen);
         if (!cOpen) continue;
-        for (const lesson of msSortKeys(lessons)) {
+        for (const lesson of orderedLessons(course, [...lessons.keys()])) {
           const lTopics = [...lessons.get(lesson)];
           const lKey = 'L::' + track + '||' + course + '||' + lesson;
           ms.nodeTopics.set(lKey, lTopics);
-          html += msRow(lKey, 2, lesson, lTopics, false, false);
+          // display the recommended-order number prefix; the key stays raw.
+          html += msRow(lKey, 2, lessonLabel(course, lesson), lTopics, false, false);
         }
       }
     }

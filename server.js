@@ -131,6 +131,37 @@ function metaIndex(catalog) {
   return idx;
 }
 
+/**
+ * A topic-name -> {track,course,lesson} lookup that PREFERS rows living inside
+ * the requested scope container (track/course/lesson).
+ *
+ * A few topic names are shared by two different lessons/courses — e.g. "Anomaly
+ * Detection" exists under BOTH the "Supervised Machine Learning" and
+ * "Unsupervised Learning, Recommenders, Reinforcement" lessons. Questions in the
+ * bank are keyed by topic NAME only, so the plain metaIndex resolves such a name
+ * to whichever catalog row sorts first by doc-id (here: the Supervised one). A
+ * quiz launched from the OTHER lesson then gets its results slugged to the wrong
+ * topic doc — so a perfect score shows no progress on the section you clicked.
+ *
+ * When the request names a track/course/lesson, resolve shared names to the row
+ * that actually lives in that container. Falls back to the global first-by-name
+ * for topics outside the scope (and for unscoped, cross-topic quizzes).
+ */
+function scopedMetaIndex(catalog, scope = {}) {
+  const idx = metaIndex(catalog);
+  if ([scope.track, scope.course, scope.lesson].every(isAll)) return idx;
+  const overridden = new Set();
+  for (const r of catalog) {
+    if (!r.topic || overridden.has(r.topic)) continue;
+    if (!isAll(scope.track) && r.track !== scope.track) continue;
+    if (!isAll(scope.course) && r.course !== scope.course) continue;
+    if (!isAll(scope.lesson) && r.lesson !== scope.lesson) continue;
+    idx.set(r.topic, r); // an in-scope row wins over the global first-by-name
+    overridden.add(r.topic);
+  }
+  return idx;
+}
+
 /** Shape question docs into the payload the frontend expects. */
 function packageQuestions(questions, idx, count) {
   return questions.slice(0, count).map((q) => {
@@ -594,7 +625,9 @@ app.post('/api/quiz/select', requireAuth, async (req, res, next) => {
     const unseen = shuffle(valid.filter((q) => !seen.has(q.question.trim())));
     const seenQs = shuffle(valid.filter((q) => seen.has(q.question.trim())));
 
-    res.json(packageQuestions([...unseen, ...seenQs], metaIndex(catalog), count));
+    // Resolve topic hierarchy within the requested scope so a topic name shared
+    // by two lessons is credited to the section the learner actually launched.
+    res.json(packageQuestions([...unseen, ...seenQs], scopedMetaIndex(catalog, req.body || {}), count));
   } catch (e) {
     next(e);
   }
@@ -863,7 +896,9 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
       return res.status(400).json({ error: 'topic and confusion are required' });
     }
     const catalog = await getCatalog(req.userEmail);
-    const idx = metaIndex(catalog);
+    // Prefer the running question's own hierarchy so a shared topic name drills
+    // into (and later logs against) the exact sub-lesson it came from.
+    const idx = scopedMetaIndex(catalog, req.body || {});
     if (!idx.has(topic)) {
       return res.status(400).json({ error: 'Unknown topic; cannot drill into it' });
     }
@@ -897,7 +932,9 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
     if (!topic) return res.status(400).json({ error: 'topic is required' });
 
     const catalog = await getCatalog(req.userEmail);
-    const idx = metaIndex(catalog);
+    // Prefer the running question's own hierarchy so a shared topic name is
+    // resolved to (and logged against) the exact sub-lesson it came from.
+    const idx = scopedMetaIndex(catalog, req.body || {});
     if (!idx.has(topic)) return res.status(400).json({ error: 'Unknown topic; cannot generate for it' });
     const meta = idx.get(topic);
     const scopeLabel = [meta.course, meta.lesson, topic].filter(Boolean).join(' › ');
@@ -1060,7 +1097,9 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
     const catalog = await getCatalog(req.userEmail);
-    const idx = metaIndex(catalog);
+    // Resolve within the card's own deck scope so a topic name shared by two
+    // lessons quizzes (and logs) against the section this card belongs to.
+    const idx = scopedMetaIndex(catalog, { track: card.track, course: card.course, lesson: card.lesson });
     if (!card.topic || !idx.has(card.topic)) {
       return res.status(400).json({ error: 'This card is not linked to a known topic' });
     }
