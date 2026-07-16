@@ -1646,7 +1646,7 @@ const App = (() => {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   const SILENCE_MS = 2500; // pause after speaking that auto-triggers grading
   const sp = {
-    rec: null, recording: false, typing: false, grading: false,
+    rec: null, recording: false, typing: false, grading: false, starting: false, blocked: false,
     finalText: '', interim: '', silenceTimer: null, stopReason: null,
     lastGrade: null, supported: !!SR,
   };
@@ -1959,6 +1959,7 @@ const App = (() => {
     stopRecognition('reset');
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     sp.finalText = ''; sp.interim = ''; sp.lastGrade = null; sp.grading = false;
+    sp.blocked = false; sp.starting = false;
     const panel = $('fcSpeaker');
     if (panel) panel.classList.add('hidden');
     $('fcsResult')?.classList.add('hidden');
@@ -2001,8 +2002,52 @@ const App = (() => {
     else startRecognition();
   }
 
-  function startRecognition() {
-    if (!sp.supported || sp.recording) return;
+  // Ask for the mic with a real getUserMedia prompt before starting recognition.
+  // This surfaces the standard Chrome permission prompt (the one that works on
+  // other sites) and gives a precise allowed/blocked signal — SpeechRecognition
+  // on its own can fail with a SILENT 'not-allowed' when the mic is merely
+  // un-granted or when the page is embedded in an iframe without
+  // allow="microphone". Returns true if the mic is usable.
+  async function ensureMicPermission() {
+    const md = navigator.mediaDevices;
+    if (!md || !md.getUserMedia) return true; // can't pre-check; let recognition try
+    try {
+      const stream = await md.getUserMedia({ audio: true });
+      stream.getTracks().forEach((t) => t.stop()); // release it; recognition opens its own
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  // Mic denied: fall back to typing, and explain how to fix it. When we're inside
+  // an iframe (e.g. the website's /skill-mastery embed), the block is the parent
+  // page's Permissions Policy — offer to open the app in its own tab where voice
+  // works. Otherwise it's a per-site permission the user can flip in the address bar.
+  function showMicBlocked() {
+    sp.blocked = true;
+    enableTyped(false);
+    const err = $('fcsError');
+    const inIframe = window.self !== window.top;
+    if (inIframe) {
+      err.innerHTML = 'Your microphone is blocked inside this embedded page. '
+        + `<a href="${esc(window.location.href)}" target="_blank" rel="noopener">Open Skill Mastery in its own tab</a>`
+        + ' to use your voice — or just type your explanation below.';
+      $('fcsStatus').textContent = 'Voice is blocked in the embed — open in a new tab, or type below.';
+    } else {
+      err.textContent = 'Microphone access is blocked for this site. Click the mic (or lock) icon in your address bar, allow the microphone, then tap the mic again — or type your explanation below.';
+      $('fcsStatus').textContent = 'Voice unavailable — type instead, or allow the mic and retry.';
+    }
+  }
+
+  async function startRecognition() {
+    if (!sp.supported || sp.recording || sp.starting) return;
+    sp.starting = true;
+    sp.blocked = false;
+    $('fcsStatus').textContent = 'Requesting microphone…';
+    const ok = await ensureMicPermission();
+    sp.starting = false;
+    if (!ok) { showMicBlocked(); return; }
     let rec;
     try { rec = new SR(); } catch { sp.supported = false; enableTyped(true); return; }
     rec.lang = 'en-US';
@@ -2029,8 +2074,7 @@ const App = (() => {
     };
     rec.onerror = (e) => {
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
-        $('fcsError').textContent = 'Microphone access was blocked. Allow the mic, or type your explanation instead.';
-        enableTyped(true);
+        showMicBlocked();
       } else if (e.error === 'no-speech') {
         $('fcsStatus').textContent = 'Didn’t catch anything — tap the mic and try again.';
       } else if (e.error !== 'aborted') {
@@ -2041,6 +2085,9 @@ const App = (() => {
       sp.recording = false;
       clearSilence();
       paintMic(false);
+      // Mic was denied — showMicBlocked() already set a clear message; don't
+      // overwrite it with a "didn't catch anything" hint.
+      if (sp.blocked) { spSyncGradeBtn(); return; }
       const hasText = !!(sp.finalText.trim() || sp.interim.trim());
       // A manual stop just pauses for review; any other end (silence pause,
       // an explicit Grade tap, or the browser closing the stream) grades now.
@@ -2219,7 +2266,7 @@ const App = (() => {
   // Fresh attempt on the same card.
   function restartSpeaking() {
     if (window.speechSynthesis) window.speechSynthesis.cancel();
-    sp.finalText = ''; sp.interim = ''; sp.lastGrade = null;
+    sp.finalText = ''; sp.interim = ''; sp.lastGrade = null; sp.blocked = false;
     $('fcsResult').classList.add('hidden');
     $('fcsGrading').classList.add('hidden');
     $('fcsRecordStage').classList.remove('hidden');
