@@ -2265,28 +2265,28 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
     if (!verifyInternalSig(req, 'enrollment-progress')) return res.status(401).json({ error: 'bad signature' });
     const email = String(req.query?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'email required' });
-    const scope = await resolveProgramScope(email, { requested: '', isAdmin: false });
-    const rows = await getCatalog(email, scope);
-    // Aggregate topics into courses; carry the min `order` so the dashboard can sort.
-    const byCourse = new Map();
-    for (const r of rows) {
-      const key = `${r.track} ${r.course}`;
-      let c = byCourse.get(key);
-      if (!c) { c = { track: r.track, course: r.course, total: 0, practiced: 0, progSum: 0, order: Infinity }; byCourse.set(key, c); }
-      c.total += 1;
-      const attempts = r.totalAttempts || 0;
-      if (attempts > 0) { c.practiced += 1; c.progSum += Math.round((r.correctCount || 0) / attempts * 100); }
-      if (Number.isFinite(r.order) && r.order < c.order) c.order = r.order;
+    const [enrollment, allPrograms] = await Promise.all([getEnrollment(email), getPrograms()]);
+    const nameOf = (id) => (allPrograms.find((p) => p.id === id) || {}).name || id;
+    // One card per ASSIGNED PROGRAM, each with aggregate topic progress across its courses.
+    const programs = [];
+    for (const pid of enrollment.programs) {
+      const rows = await getCatalog(email, { program: pid, courses: enrollment.courses });
+      let total = 0, practiced = 0, progSum = 0;
+      const courses = new Set();
+      for (const r of rows) {
+        total += 1;
+        courses.add(r.course);
+        const attempts = r.totalAttempts || 0;
+        if (attempts > 0) { practiced += 1; progSum += Math.round((r.correctCount || 0) / attempts * 100); }
+      }
+      programs.push({
+        id: pid, name: nameOf(pid),
+        courseCount: courses.size,
+        topicsTotal: total, topicsPracticed: practiced,
+        pct: total ? Math.round(progSum / total) : 0,
+      });
     }
-    const courses = [...byCourse.values()]
-      .map((c) => ({
-        track: c.track, course: c.course,
-        topicsTotal: c.total, topicsPracticed: c.practiced,
-        pct: c.total ? Math.round(c.progSum / c.total) : 0,
-        order: Number.isFinite(c.order) ? c.order : null,
-      }))
-      .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.course.localeCompare(b.course, undefined, { numeric: true }));
-    res.json({ program: scope.program, courses });
+    res.json({ programs });
   } catch (e) {
     next(e);
   }
