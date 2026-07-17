@@ -118,6 +118,22 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(cookieParser());
 
+/*
+ * Who may embed this app in a frame.
+ *
+ * It ships inside two sibling apps already — the public website's /skill-mastery page and
+ * Sentinel's Academy tab — and the shared `ag_sso` cookie only rides along because they all sit
+ * under agoradatadriven.com. Until now NO framing header was sent at all, which let ANY site frame
+ * the app (clickjacking); this pins it to the Agora family while keeping both real embeds working.
+ * Override with FRAME_ANCESTORS (space-separated sources) if a new host ever needs it.
+ */
+const FRAME_ANCESTORS = process.env.FRAME_ANCESTORS
+  || "'self' https://*.agoradatadriven.com https://agoradatadriven.com";
+app.use((_req, res, next) => {
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${FRAME_ANCESTORS}`);
+  next();
+});
+
 /* ------------------------------- helpers ---------------------------------- */
 
 const NA = new Set(['', 'Review All', '-- N/A --', undefined, null]);

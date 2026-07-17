@@ -5,6 +5,19 @@ const App = (() => {
   const hide = (id) => $(id).classList.add('hidden');
   const KEYS = ['A', 'B', 'C', 'D', 'E', 'F'];
 
+  /* Embedded mode (?embed=1): this app is running inside a host that already provides the page
+     chrome — Sentinel's Academy tab today. The host supplies the frame, so we trim our own
+     full-page padding. Remembered for the session because in-app navigation drops the query
+     string, and once set it should not flicker back on every route change. */
+  (() => {
+    try {
+      const q = new URLSearchParams(location.search).get('embed');
+      if (q === '1') sessionStorage.setItem('embed', '1');
+      else if (q === '0') sessionStorage.removeItem('embed');
+      if (sessionStorage.getItem('embed') === '1') document.documentElement.classList.add('embed');
+    } catch { /* private mode / no storage — embed styling is cosmetic, never block boot */ }
+  })();
+
   const state = {
     catalog: [],
     authed: false,
