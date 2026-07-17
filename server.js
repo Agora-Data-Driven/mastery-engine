@@ -48,6 +48,7 @@ import {
   mergeIntoMathematics,
   getGraphLinks,
   saveGraphLinks,
+  setTopicOrders,
   addUsage,
   getUsage,
   slug,
@@ -101,6 +102,7 @@ import {
   generateAssistantChat,
   generateFlashcardQuestions,
   generateTopicLinks,
+  generateTopicOrder,
   latexifyQuestions,
   reformatFlashcards,
   editFlashcard,
@@ -428,6 +430,9 @@ app.get('/api/catalog', async (req, res, next) => {
         course: t.course,
         lesson: t.lesson,
         topic: t.topic,
+        // Pedagogical within-lesson study order (admin "Sequence Topics" sweep);
+        // null when not yet sequenced, which sorts to the end / alphabetical.
+        order: Number.isFinite(t.order) ? t.order : null,
         accuracy: t.totalAttempts ? Math.round((t.correctCount / t.totalAttempts) * 100) : null,
         priority: t.priority ?? null,
         totalAttempts: t.totalAttempts ?? 0,
@@ -1906,6 +1911,56 @@ app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
     const todo = pending.slice(0, max);
     const linked = await linkTopics(rows, todo, aiChoice(req));
     res.json({ ok: true, linked, remaining: Math.max(0, pending.length - todo.length) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: AI-sequence each lesson's topics into study order and persist an
+// `order` field per topic doc (resumable sweep, like the format fixers). Every
+// view then sorts topics by that order instead of alphabetically.
+//
+// Processes up to `max` LESSONS per call; a lesson is "pending" until every one
+// of its topics has a stored order. `?refresh=1` re-sequences every lesson (e.g.
+// after adding topics). `?track=`/`?course=` narrow the sweep to one curriculum
+// slice — the ML button passes ?track=Machine Learning. Safe to re-run.
+app.post('/api/admin/sequence-topics', requireAdmin, async (req, res, next) => {
+  try {
+    const maxLessons = Math.min(parseInt(req.query.max, 10) || 40, 200);
+    const catalog = await getCatalog(req.userEmail, await requestScope(req));
+    const track = (req.query.track || '').trim();
+    const course = (req.query.course || '').trim();
+    const rows = catalog.filter((r) =>
+      r.topic && (!track || r.track === track) && (!course || r.course === course));
+
+    // Group rows into lessons (track+course+lesson is the unit we sequence).
+    const groups = new Map();
+    for (const r of rows) {
+      const key = `${r.track} ${r.course} ${r.lesson}`;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    }
+
+    const refresh = req.query.refresh === '1';
+    const pending = [...groups.values()].filter(
+      (g) => refresh || g.some((r) => !Number.isFinite(r.order)));
+    const todo = pending.slice(0, maxLessons);
+    const ai = aiChoice(req);
+
+    let sequenced = 0;
+    await mapWithConcurrency(todo, 2, async (g) => {
+      try {
+        const ordered = await generateTopicOrder(
+          { course: g[0].course, lesson: g[0].lesson, topics: g.map((r) => ({ id: r.id, topic: r.topic })) },
+          ai,
+        );
+        await setTopicOrders(ordered.map((t, i) => ({ id: t.id, order: i })));
+        sequenced += 1;
+      } catch (e) {
+        console.error('sequence-topics: lesson failed:', e.message);
+      }
+    });
+    res.json({ ok: true, sequenced, remaining: Math.max(0, pending.length - todo.length) });
   } catch (e) {
     next(e);
   }
