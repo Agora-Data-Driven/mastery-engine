@@ -103,6 +103,7 @@ import {
   generateFlashcardQuestions,
   generateTopicLinks,
   generateTopicOrder,
+  classifyTranscript,
   latexifyQuestions,
   reformatFlashcards,
   editFlashcard,
@@ -2414,6 +2415,115 @@ app.post('/api/admin/watcher/import', requireAdmin, async (req, res, next) => {
       watcherRef: { client, channel, video, url: v.url },
     });
     res.json({ ok: true, id, title: v.title, chars: v.chars });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------- auto-file (AI placement) ------------------------ */
+/**
+ * Admin: read a piece of source material (pasted text OR a Watcher video) and let
+ * the AI decide where it belongs — which existing Track/Course/Lesson it slots
+ * into, or what new ones to create, and which topics to build. This is a DRY RUN:
+ * it writes nothing. It returns the proposal (with new-vs-existing computed HERE
+ * against the live catalog, never trusting the model) plus the resolved transcript
+ * text, so /commit acts on exactly what the admin saw and approved.
+ */
+app.post('/api/admin/ingest/plan', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+
+    // Resolve the source material: pasted text wins; otherwise pull the Watcher video.
+    let text = String(req.body?.text || '').trim();
+    let title = String(req.body?.title || '').trim();
+    let watcherRef = null;
+    let source = 'paste';
+    if (!text && req.body?.watcher) {
+      const { client, channel, video } = req.body.watcher;
+      const v = await watcher.getVideo(client, channel, video);
+      if (!v) return res.status(404).json({ error: 'Video not found in the Watcher archive' });
+      if (!v.transcript) return res.status(400).json({ error: `That video has no transcript yet${v.error ? ` (${v.error})` : ''}` });
+      text = v.transcript;
+      source = 'watcher';
+      if (!title) title = v.title;
+      watcherRef = { client, channel, video, url: v.url };
+    }
+    if (!text) return res.status(400).json({ error: 'Paste a transcript or pick a Watcher video first' });
+
+    const catalog = await getCatalog(req.userEmail, scope);
+    const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+    const p = await classifyTranscript(
+      { transcript: text, catalog, programName },
+      { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) },
+    );
+
+    // New-vs-existing is decided here, from the live catalog — never from the model.
+    const has = (tr, co, le, to) => catalog.some((r) => r.track === tr && r.course === co && r.lesson === le && (to == null || r.topic === to));
+    res.json({
+      program,
+      title: title || p.title,
+      summary: p.summary,
+      source,
+      watcherRef,
+      chars: text.length,
+      text,
+      placement: {
+        track: p.track, course: p.course, lesson: p.lesson,
+        trackIsNew: !catalog.some((r) => r.track === p.track),
+        courseIsNew: !catalog.some((r) => r.track === p.track && r.course === p.course),
+        lessonIsNew: !has(p.track, p.course, p.lesson),
+      },
+      topics: p.topics.map((t) => ({ topic: t, isNew: !has(p.track, p.course, p.lesson, t) })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Admin: act on an approved placement. Creates any new topic rows, attaches the
+ * transcript at the lesson level (so every chosen topic can use it), and queues a
+ * generation job over exactly those topics. Returns the job; the admin page then
+ * drives the existing /genjobs/:id/step stepper. Auto-publish, same as a manual
+ * run — the flag + delete-batch valves still apply.
+ */
+app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const track = String(req.body?.track || '').trim();
+    const course = String(req.body?.course || '').trim();
+    const lesson = String(req.body?.lesson || '').trim();
+    const topics = [...new Set((Array.isArray(req.body?.topics) ? req.body.topics : [])
+      .map((t) => String(t || '').trim()).filter(Boolean))];
+    const text = String(req.body?.text || '').trim();
+    if (!track || !course || !lesson) return res.status(400).json({ error: 'Track, course and lesson are all required' });
+    if (!topics.length) return res.status(400).json({ error: 'Pick at least one topic to build' });
+    if (!text) return res.status(400).json({ error: 'The source material is empty' });
+
+    // 1. Ensure the topic rows exist (new ones created, existing ones untouched).
+    await upsertTopics(topics.map((topic) => ({ program, track, course, lesson, topic })));
+
+    // 2. Attach the transcript at the lesson level, so every chosen topic can draw on it.
+    await addTranscript({
+      program, track, course, lesson,
+      title: req.body?.title || 'Untitled',
+      text,
+      source: req.body?.source || 'paste',
+      watcherRef: req.body?.watcherRef || null,
+    });
+
+    // 3. Queue generation over exactly the chosen topics.
+    const job = await createGenJob({
+      program,
+      scope: { track, course, lesson },
+      targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
+      provider: req.body?.provider || 'deepseek',
+      model: req.body?.model || null,
+      topics: topics.map((topic) => ({ topic, track, course, lesson })),
+    });
+    res.json({ ok: true, job: publicJob(job) });
   } catch (e) {
     next(e);
   }

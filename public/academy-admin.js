@@ -19,7 +19,12 @@
     return data;
   }
 
-  const state = { program: '', catalog: [], watcher: { client: '', channel: '', video: null }, job: null, stop: false };
+  const state = {
+    program: '', catalog: [],
+    watcher: { client: '', channel: '', video: null, title: '' },
+    job: null, stop: false,
+    ingest: null, stopIngest: false, // the AI auto-file proposal + its run
+  };
 
   /* ------------------------------- bootstrap ------------------------------- */
   async function boot() {
@@ -38,6 +43,7 @@
     wireTabs();
     wireCurriculum();
     wireTranscripts();
+    wireIngest();
     wireGenerate();
     wirePeople();
     refreshAll();
@@ -152,18 +158,18 @@
       } catch (e) { $('tMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
     };
     loadWatcherClients();
-    $('wImport').onclick = async () => {
+    // "Use this video": hand the selection to the auto-file box above. The heavy
+    // transcript text is only fetched server-side when Analyze runs, so nothing
+    // large rides through the browser here.
+    $('wImport').onclick = () => {
       const w = state.watcher;
-      $('wMsg').textContent = 'Importing…';
-      try {
-        const s = scopeParts($('tScope').value);
-        const r = await api('/api/admin/watcher/import', {
-          method: 'POST',
-          body: { program: state.program, client: w.client, channel: w.channel, video: w.video, ...s },
-        });
-        $('wMsg').innerHTML = `<span class="aa-ok">Imported “${esc(r.title)}” (${r.chars} chars).</span>`;
-        await loadTranscripts();
-      } catch (e) { $('wMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+      if (!w.video) return;
+      $('iText').value = '';
+      if (!$('iTitle').value) $('iTitle').value = w.title || '';
+      state.ingest = { source: 'watcher', watcher: { client: w.client, channel: w.channel, video: w.video }, watcherTitle: w.title };
+      $('wMsg').innerHTML = `<span class="aa-ok">Loaded “${esc(w.title || 'video')}”. Click “Analyze &amp; place with AI” above.</span>`;
+      $('iMsg').textContent = 'Watcher video ready — press Analyze & place.';
+      $('iPlan').scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
   }
 
@@ -193,13 +199,132 @@
           const { videos } = await api(`/api/admin/watcher/videos?client=${encodeURIComponent(v)}&channel=${encodeURIComponent(cid)}`);
           const withText = videos.filter((x) => x.hasTranscript);
           pick($('wVideos'), withText.map((x) => ({ value: x.id, ...x })), (i) => `${i.title}  ·  ${i.chars} chars`, (vid) => {
-            state.watcher.video = vid; $('wImport').disabled = false;
+            const chosen = withText.find((x) => x.id === vid);
+            state.watcher.video = vid; state.watcher.title = chosen ? chosen.title : '';
+            $('wImport').disabled = false;
           });
         });
       });
     } catch (e) {
       $('wClients').innerHTML = `<button disabled style="color:#B3261E">${esc(e.message)}</button>`;
     }
+  }
+
+  /* ------------------------- auto-file (AI placement) ---------------------- */
+  const stripTiming = (text) => text
+    .replace(/^WEBVTT.*$/gm, '')
+    .replace(/^\d+$/gm, '')
+    .replace(/^[\d:.,]+\s*-->\s*[\d:.,]+.*$/gm, '')
+    .replace(/\n{3,}/g, '\n\n').trim();
+
+  const badge = (isNew) => isNew
+    ? '<span style="color:#2E7D32;font-weight:700;font-size:12px">new</span>'
+    : '<span class="aa-note" style="font-size:12px">existing</span>';
+
+  function renderIngestTopics() {
+    const rows = (state.ingest && state.ingest.topicRows) || [];
+    $('iTopics').innerHTML = rows.length
+      ? rows.map((r, i) => `<label style="display:flex;gap:8px;align-items:center;padding:4px 0">
+          <input type="checkbox" data-i="${i}" ${r.on ? 'checked' : ''} />
+          <span>${esc(r.topic)}</span> ${badge(r.isNew)}
+        </label>`).join('')
+      : '<span class="aa-note">No topics — add one below.</span>';
+    $('iTopics').querySelectorAll('input[data-i]').forEach((cb) => {
+      cb.onchange = () => { state.ingest.topicRows[Number(cb.dataset.i)].on = cb.checked; };
+    });
+  }
+
+  function renderPlan(data) {
+    // Everything /commit needs, kept exactly as the AI proposed + the admin approves.
+    state.ingest = {
+      program: data.program, text: data.text, title: data.title,
+      source: data.source, watcherRef: data.watcherRef,
+      topicRows: (data.topics || []).map((t) => ({ topic: t.topic, isNew: t.isNew, on: true })),
+    };
+    $('iTitle').value = data.title || '';
+    const pl = data.placement || {};
+    $('iTrack').value = pl.track || '';
+    $('iCourse').value = pl.course || '';
+    $('iLesson').value = pl.lesson || '';
+    $('iTrackNew').innerHTML = badge(pl.trackIsNew);
+    $('iCourseNew').innerHTML = badge(pl.courseIsNew);
+    $('iLessonNew').innerHTML = badge(pl.lessonIsNew);
+    $('iSummary').innerHTML = `${esc(data.summary || '')} <span class="aa-note">· ${data.chars} chars · source: ${esc(data.source)}</span>`;
+    renderIngestTopics();
+    $('iBar').style.width = '0%';
+    $('iStatus').textContent = '';
+    $('iCommitMsg').textContent = '';
+    show($('iPlanBox'), true);
+  }
+
+  function wireIngest() {
+    $('iFile').onchange = async () => {
+      const f = $('iFile').files[0];
+      if (!f) return;
+      $('iText').value = stripTiming(await f.text());
+      state.ingest = null; // a fresh paste supersedes any picked Watcher video
+      if (!$('iTitle').value) $('iTitle').value = f.name.replace(/\.[^.]+$/, '');
+    };
+    // Typing/pasting into the box means "use this text", not the Watcher pick.
+    $('iText').oninput = () => { if ($('iText').value.trim() && state.ingest && state.ingest.source === 'watcher') state.ingest = null; };
+
+    $('iPlan').onclick = async () => {
+      const text = $('iText').value.trim();
+      const watcher = (!text && state.ingest && state.ingest.watcher) ? state.ingest.watcher : null;
+      if (!text && !watcher) { $('iMsg').innerHTML = '<span class="aa-err">Paste a transcript or pick a Watcher video first.</span>'; return; }
+      $('iPlan').disabled = true;
+      $('iMsg').textContent = 'Reading the material and finding where it fits…';
+      try {
+        const data = await api('/api/admin/ingest/plan', {
+          method: 'POST',
+          body: { program: state.program, title: $('iTitle').value, ...(text ? { text } : { watcher }) },
+        });
+        renderPlan(data);
+        $('iMsg').innerHTML = '<span class="aa-ok">Here is the plan — review, then add it.</span>';
+      } catch (e) {
+        $('iMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+      }
+      $('iPlan').disabled = false;
+    };
+
+    $('iAddTopic').onclick = () => {
+      const name = $('iNewTopic').value.trim();
+      if (!name || !state.ingest) return;
+      state.ingest.topicRows.push({ topic: name, isNew: true, on: true });
+      $('iNewTopic').value = '';
+      renderIngestTopics();
+    };
+
+    $('iCommit').onclick = async () => {
+      if (!state.ingest) return;
+      const topics = state.ingest.topicRows.filter((r) => r.on).map((r) => r.topic);
+      if (!topics.length) { $('iCommitMsg').innerHTML = '<span class="aa-err">Pick at least one topic.</span>'; return; }
+      $('iCommit').disabled = true;
+      state.stopIngest = false;
+      $('iCommitMsg').textContent = 'Creating topics and attaching the material…';
+      try {
+        const { job } = await api('/api/admin/ingest/commit', {
+          method: 'POST',
+          body: {
+            program: state.ingest.program || state.program,
+            track: $('iTrack').value.trim(), course: $('iCourse').value.trim(), lesson: $('iLesson').value.trim(),
+            topics, text: state.ingest.text, title: $('iTitle').value,
+            source: state.ingest.source, watcherRef: state.ingest.watcherRef,
+            targetPerTopic: Number($('iCount').value) || 6,
+          },
+        });
+        $('iCommitMsg').innerHTML = '<span class="aa-ok">Generating questions…</span>';
+        await runSteps(job.id, { bar: 'iBar', status: 'iStatus' }, 'stopIngest');
+        $('iCommitMsg').innerHTML = '<span class="aa-ok">Done — added to everyone\'s quiz.</span>';
+        show($('iPlanBox'), false);
+        $('iText').value = ''; $('iTitle').value = ''; state.ingest = null;
+        await loadCatalog();
+        await loadTranscripts();
+      } catch (e) {
+        $('iCommitMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+      }
+      $('iCommit').disabled = false;
+    };
   }
 
   /* -------------------------------- generate ------------------------------- */
@@ -234,19 +359,20 @@
   }
 
   /* Drive the stepper. One topic per request — see lib/genjobs.js for why the
-     work isn't a server-side loop. */
-  async function runSteps(id) {
+     work isn't a server-side loop. `els` lets the auto-file flow reuse this with
+     its own bar/status; `stopKey` names the state flag that pauses it. */
+  async function runSteps(id, els = { bar: 'gBar', status: 'gStatus', out: 'gOut' }, stopKey = 'stop') {
     for (;;) {
-      if (state.stop) { $('gStatus').textContent = 'Stopped. Press Start to resume where it left off.'; return; }
+      if (state[stopKey]) { $(els.status).textContent = 'Stopped. Press Start to resume where it left off.'; return; }
       const { job } = await api(`/api/admin/genjobs/${id}/step`, { method: 'POST' });
       const p = job.progress || {};
       const pct = p.topicsTotal ? Math.round((p.topicsDone / p.topicsTotal) * 100) : 0;
-      $('gBar').style.width = pct + '%';
-      $('gStatus').textContent =
+      $(els.bar).style.width = pct + '%';
+      $(els.status).textContent =
         `${job.status} — ${p.topicsDone}/${p.topicsTotal} topics · ${p.questionsWritten} questions · $${(p.costUsd || 0).toFixed(4)}`;
-      if (job.errors && job.errors.length) {
-        show($('gOut'), true);
-        $('gOut').textContent = job.errors.map((e) => `${e.topic}: ${e.error}`).join('\n');
+      if (els.out && job.errors && job.errors.length) {
+        show($(els.out), true);
+        $(els.out).textContent = job.errors.map((e) => `${e.topic}: ${e.error}`).join('\n');
       }
       if (job.status === 'done' || job.status === 'cancelled' || !job.remaining) return;
     }
