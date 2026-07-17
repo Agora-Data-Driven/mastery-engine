@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Academy Admin · AGORA Mastery</title>
+  <link rel="icon" href="agora-logo.png" type="image/png" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Deliberately a SEPARATE page from the learner SPA: the admin tools have no business
+       inside app.js (188 KB and growing), and this keeps their failure modes apart. */
+    .aa-wrap { max-width: 1000px; margin: 0 auto; padding: 28px 22px 80px; }
+    .aa-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 18px 0 22px; }
+    .aa-tab { padding: 8px 14px; border: 1px solid #E7E8EE; border-radius: 999px; background: #fff;
+              cursor: pointer; font-size: 13.5px; font-weight: 600; color: #4b5163; }
+    .aa-tab[aria-selected="true"] { background: #0c1022; color: #fff; border-color: #0c1022; }
+    .aa-panel { display: none; }
+    .aa-panel.on { display: block; }
+    .aa-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+    .aa-row > label { font-size: 12px; font-weight: 700; color: #6B7280; text-transform: uppercase; letter-spacing: .5px; }
+    .aa-wrap input[type=text], .aa-wrap input[type=number], .aa-wrap select, .aa-wrap textarea {
+      border: 1px solid #E7E8EE; border-radius: 10px; padding: 9px 11px; font: inherit; font-size: 14px; background: #fff;
+    }
+    .aa-wrap textarea { width: 100%; min-height: 150px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+    .aa-note { color: #6B7280; font-size: 13px; line-height: 1.55; }
+    .aa-out { background: #F7F8F5; border: 1px solid #E7E8EE; border-radius: 10px; padding: 12px;
+              font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px;
+              white-space: pre-wrap; max-height: 320px; overflow: auto; }
+    .aa-bar { height: 8px; background: #E7E8EE; border-radius: 999px; overflow: hidden; margin: 10px 0; }
+    .aa-bar > i { display: block; height: 100%; background: #4FA84A; width: 0; transition: width .25s; }
+    .aa-err { color: #B3261E; font-size: 13px; }
+    .aa-ok { color: #2E7D32; font-size: 13px; }
+    .aa-list { border: 1px solid #E7E8EE; border-radius: 10px; max-height: 260px; overflow: auto; }
+    .aa-list button { display: block; width: 100%; text-align: left; padding: 8px 11px; border: 0;
+                      border-bottom: 1px solid #F0F1F4; background: #fff; cursor: pointer; font: inherit; font-size: 13px; }
+    .aa-list button:hover { background: #F7F8F5; }
+    .aa-list button[aria-selected="true"] { background: #EEF3FF; }
+    .aa-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    @media (max-width: 860px) { .aa-cols { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="aa-wrap">
+    <div class="aa-row" style="justify-content:space-between">
+      <div>
+        <h1 style="margin:0;font-size:26px">Academy Admin</h1>
+        <div class="aa-note" id="who">Checking access…</div>
+      </div>
+      <div class="aa-row" style="margin:0">
+        <label for="program">Program</label>
+        <select id="program"></select>
+        <a class="btn" href="/" style="padding:8px 14px">← App</a>
+      </div>
+    </div>
+
+    <div id="gate" class="hidden">
+      <div class="card" style="padding:24px;text-align:center">
+        <h2 style="margin:0 0 6px">Admins only</h2>
+        <p class="aa-note" style="margin:0">Sign in as an admin to manage the Academy.</p>
+      </div>
+    </div>
+
+    <div id="main" class="hidden">
+      <div class="aa-tabs" role="tablist">
+        <button class="aa-tab" role="tab" data-panel="curriculum" aria-selected="true">Curriculum</button>
+        <button class="aa-tab" role="tab" data-panel="transcripts" aria-selected="false">Transcripts</button>
+        <button class="aa-tab" role="tab" data-panel="generate" aria-selected="false">Generate</button>
+        <button class="aa-tab" role="tab" data-panel="flags" aria-selected="false">Flags</button>
+        <button class="aa-tab" role="tab" data-panel="people" aria-selected="false">People</button>
+      </div>
+
+      <!-- ------------------------------ Curriculum ------------------------------ -->
+      <section class="aa-panel on" id="p-curriculum">
+        <div class="card" style="padding:18px">
+          <h3 style="margin:0 0 6px">Paste an outline</h3>
+          <p class="aa-note">One topic per line, as <code>Track &gt; Course &gt; Lesson &gt; Topic</code>.
+             Lines starting with <code>#</code> are ignored. Preview first — it reports bad lines without writing anything.</p>
+          <textarea id="outline" placeholder="Paid Media > Meta Ads > Unit 1: Campaign Setup > Campaign Objectives
+Paid Media > Meta Ads > Unit 1: Campaign Setup > Budget Types"></textarea>
+          <div class="aa-row" style="margin-top:10px">
+            <button class="btn" id="previewBtn">Preview</button>
+            <button class="btn btn-primary" id="commitBtn" disabled>Commit</button>
+            <span id="curMsg" class="aa-note"></span>
+          </div>
+          <div class="aa-out hidden" id="curOut"></div>
+        </div>
+        <div class="card" style="padding:18px;margin-top:14px">
+          <h3 style="margin:0 0 6px">Current curriculum <span class="aa-note" id="curCount"></span></h3>
+          <div class="aa-out" id="curTree">Loading…</div>
+        </div>
+      </section>
+
+      <!-- ------------------------------ Transcripts ----------------------------- -->
+      <section class="aa-panel" id="p-transcripts">
+        <div class="card" style="padding:18px">
+          <h3 style="margin:0 0 6px">Attach source material</h3>
+          <p class="aa-note">Generation is grounded in these. Attach to a <b>lesson</b> and every topic in it can use them.</p>
+          <div class="aa-row">
+            <select id="tScope"></select>
+            <input type="text" id="tTitle" placeholder="Title" style="min-width:220px" />
+          </div>
+          <textarea id="tText" placeholder="Paste a transcript, or pick a Watcher video below…"></textarea>
+          <div class="aa-row" style="margin-top:10px">
+            <input type="file" id="tFile" accept=".txt,.vtt,.srt,.md" />
+            <button class="btn btn-primary" id="tSave">Attach</button>
+            <span id="tMsg" class="aa-note"></span>
+          </div>
+        </div>
+
+        <div class="card" style="padding:18px;margin-top:14px">
+          <h3 style="margin:0 0 6px">Import from Watcher</h3>
+          <p class="aa-note">Pulls a video transcript straight from Atrium's archive — nothing is re-scraped.</p>
+          <div class="aa-cols">
+            <div><div class="aa-note" style="margin-bottom:4px">Client</div><div class="aa-list" id="wClients"></div></div>
+            <div><div class="aa-note" style="margin-bottom:4px">Channel</div><div class="aa-list" id="wChannels"></div></div>
+            <div><div class="aa-note" style="margin-bottom:4px">Video (with transcript)</div><div class="aa-list" id="wVideos"></div></div>
+          </div>
+          <div class="aa-row" style="margin-top:10px">
+            <button class="btn btn-primary" id="wImport" disabled>Import into the selected lesson</button>
+            <span id="wMsg" class="aa-note"></span>
+          </div>
+        </div>
+
+        <div class="card" style="padding:18px;margin-top:14px">
+          <h3 style="margin:0 0 6px">Attached</h3>
+          <div class="aa-out" id="tList">Loading…</div>
+        </div>
+      </section>
+
+      <!-- ------------------------------- Generate ------------------------------- -->
+      <section class="aa-panel" id="p-generate">
+        <div class="card" style="padding:18px">
+          <h3 style="margin:0 0 6px">Generate questions</h3>
+          <p class="aa-note">Runs one topic at a time so a closed tab or a restart costs at most one topic — leave this page open while it runs.</p>
+          <div class="aa-row">
+            <label for="gScope">Scope</label>
+            <select id="gScope"></select>
+            <label for="gCount">Per topic</label>
+            <input type="number" id="gCount" value="5" min="1" max="25" style="width:70px" />
+            <label for="gModel">Engine</label>
+            <select id="gModel"><option value="deepseek">DeepSeek</option><option value="gemini">Gemini</option></select>
+            <button class="btn btn-primary" id="gStart">Start</button>
+            <button class="btn hidden" id="gStop">Stop</button>
+          </div>
+          <div class="aa-bar"><i id="gBar"></i></div>
+          <div id="gStatus" class="aa-note">Idle.</div>
+          <div class="aa-out hidden" id="gOut"></div>
+        </div>
+        <div class="card" style="padding:18px;margin-top:14px">
+          <h3 style="margin:0 0 6px">Past runs</h3>
+          <p class="aa-note">Pull a whole batch if a run went wrong — it removes its questions and fixes the counts.</p>
+          <div class="aa-out" id="gJobs">Loading…</div>
+        </div>
+      </section>
+
+      <!-- --------------------------------- Flags -------------------------------- -->
+      <section class="aa-panel" id="p-flags">
+        <div class="card" style="padding:18px">
+          <h3 style="margin:0 0 6px">Flagged questions</h3>
+          <p class="aa-note">Generated questions publish straight to the bank; this is the valve. Resolve keeps the question, Delete removes it.</p>
+          <div id="fList" class="aa-note">Loading…</div>
+        </div>
+      </section>
+
+      <!-- -------------------------------- People -------------------------------- -->
+      <section class="aa-panel" id="p-people">
+        <div class="card" style="padding:18px">
+          <h3 style="margin:0 0 6px">Enrolment</h3>
+          <p class="aa-note">Which program someone studies. Leave courses blank for the whole program.
+             Anyone without an enrolment sees the default program, so existing users are unaffected.</p>
+          <div class="aa-row">
+            <input type="text" id="eEmail" placeholder="person@agora.ph" style="min-width:240px" />
+            <button class="btn" id="eLoad">Load</button>
+          </div>
+          <div class="aa-row">
+            <label for="ePrograms">Programs</label>
+            <input type="text" id="ePrograms" placeholder="digital_marketing" style="min-width:220px" />
+            <label for="eCourses">Courses</label>
+            <input type="text" id="eCourses" placeholder="(blank = all)" style="min-width:220px" />
+            <button class="btn btn-primary" id="eSave">Save</button>
+          </div>
+          <div id="eMsg" class="aa-note"></div>
+        </div>
+      </section>
+    </div>
+  </div>
+  <script src="academy-admin.js"></script>
+</body>
+</html>
