@@ -420,8 +420,34 @@ const App = (() => {
     'Data Structures and Algorithms',
   ];
   const COURSE_RANK = new Map(COURSE_ORDER.map((name, i) => [name, i]));
-  // Order two course names by curriculum rank, then alphabetically as a fallback.
+  // Curriculum sequence, data-driven: the minimum stored `order` within each
+  // track/course/lesson. When topics carry a GLOBAL order (as the digital-marketing
+  // bank does), a group's min order is its curriculum position, so tracks, courses
+  // and lessons all sort into the intended flow. Programs whose topics use a
+  // per-lesson order (e.g. data science, 0-based each lesson) tie at 0 here and
+  // fall through to the existing name-based ordering below — so they're unaffected.
+  // Memoised on the catalog array identity; rebuilt when the catalog changes.
+  let _orderMaps = null, _orderMapsFor = null;
+  function orderMaps() {
+    if (_orderMaps && _orderMapsFor === state.catalog) return _orderMaps;
+    const tr = new Map(), co = new Map(), le = new Map();
+    const lo = (m, k, v) => { if (!m.has(k) || v < m.get(k)) m.set(k, v); };
+    for (const r of state.catalog) {
+      if (!Number.isFinite(r.order)) continue;
+      lo(tr, r.track, r.order);
+      lo(co, r.course, r.order);
+      lo(le, `${r.course} ${r.lesson}`, r.order);
+    }
+    _orderMaps = { tr, co, le }; _orderMapsFor = state.catalog;
+    return _orderMaps;
+  }
+  const _minOrder = (m, k) => (m.has(k) ? m.get(k) : Infinity);
+
+  // Order two course names by curriculum order (min topic order), then rank, then name.
   function byCourseName(a, b) {
+    const m = orderMaps().co;
+    const oa = _minOrder(m, a), ob = _minOrder(m, b);
+    if (oa !== ob) return oa - ob;
     const ra = COURSE_RANK.has(a) ? COURSE_RANK.get(a) : Infinity;
     const rb = COURSE_RANK.has(b) ? COURSE_RANK.get(b) : Infinity;
     if (ra !== rb) return ra - rb;
@@ -454,8 +480,12 @@ const App = (() => {
     const i = order.indexOf(lesson);
     return i === -1 ? Infinity : i;
   }
-  // Order two lesson names within a course: recommended rank first, then natural.
+  // Order two lesson names within a course: curriculum order (min topic order)
+  // first, then the recommended rank, then natural name.
   function byLessonName(course, a, b) {
+    const m = orderMaps().le;
+    const oa = _minOrder(m, `${course} ${a}`), ob = _minOrder(m, `${course} ${b}`);
+    if (oa !== ob) return oa - ob;
     const ra = lessonRank(course, a), rb = lessonRank(course, b);
     if (ra !== rb) return ra - rb;
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
@@ -560,20 +590,64 @@ const App = (() => {
     state.mode = mode;
     const mastery = state.authed && !state.guest;
     const isProgress = mode === 'PROGRESS';
+    const isVideos = mode === 'VIDEOS';
 
     document.querySelectorAll('#modeSegment button').forEach((b) =>
       b.classList.toggle('active', b.dataset.mode === mode)
     );
 
-    // Toggle the two panels of the setup card.
-    $('quizBuilder').classList.toggle('hidden', isProgress);
+    // Toggle the panels of the setup card (quiz builder / progress / video lessons).
+    $('quizBuilder').classList.toggle('hidden', isProgress || isVideos);
     $('progressPanel').classList.toggle('hidden', !isProgress);
+    const vp = $('videoPanel');
+    if (vp) vp.classList.toggle('hidden', !isVideos);
     // Mastery Quiz / Flashcards CTAs are available to mastery users on EVERY tab
     // (including My Progress) — they sit above the mode segment so they render on all.
     $('priorityBtnRow').classList.toggle('hidden', !mastery);
 
     if (isProgress) renderProgressTree();
+    else if (isVideos) renderVideoLessons();
     else updateSetupCopy();
+  }
+
+  // Video Lessons: a curated, ordered watch-list per program (static
+  // /video-lessons.json). Watching a course's videos should let a learner answer
+  // its quiz questions; concept-based courses (no video) are flagged. Videos open
+  // on YouTube in a new tab (they can't be embedded here).
+  let _videoData = null;
+  async function renderVideoLessons() {
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const list = $('videoList');
+    const prog = (state.catalog[0] && state.catalog[0].program) || 'data_science';
+    try {
+      if (!_videoData) _videoData = await (await fetch('/video-lessons.json', { cache: 'no-cache' })).json();
+    } catch { _videoData = {}; }
+    const p = _videoData[prog];
+    $('videoIntro').textContent = (p && p.intro) || '';
+    if (!p || !Array.isArray(p.tracks) || !p.tracks.length) {
+      list.innerHTML = '<p class="section-sub">No video lessons are curated for this program yet.</p>';
+      return;
+    }
+    let html = '';
+    for (const t of p.tracks) {
+      html += `<h3 style="margin:22px 0 8px;font-size:16px">${esc(t.track)}</h3>`;
+      for (const c of (t.courses || [])) {
+        html += `<div style="margin:0 0 14px;padding:12px 14px;border:1px solid var(--line,#E7E8EE);border-radius:12px">
+          <div style="font-weight:700;margin-bottom:6px">${esc(c.course)}</div>`;
+        if (c.videos && c.videos.length) {
+          html += '<ol style="margin:0;padding-left:20px;line-height:1.9">'
+            + c.videos.map((v) => `<li><a href="${esc(v.url)}" target="_blank" rel="noopener">${esc(v.title)}</a>`
+              + (v.lessons && v.lessons.length ? ` <span style="color:var(--muted,#6B7280);font-size:12.5px">— ${esc(v.lessons.join(', '))}</span>` : '')
+              + '</li>').join('')
+            + '</ol>';
+        } else {
+          html += `<div style="color:var(--muted,#6B7280);font-size:13px">${esc(c.note || 'No video for this course yet.')}</div>`;
+        }
+        html += '</div>';
+      }
+    }
+    list.innerHTML = html;
   }
 
   function updateSetupCopy() {
@@ -1155,7 +1229,12 @@ const App = (() => {
     }
     empty.classList.add('hidden');
     const root = buildProgressTree(state.catalog);
-    const tracks = [...root.children.values()].sort(byName);
+    // Tracks in curriculum order (min topic order), falling back to name.
+    const tm = orderMaps().tr;
+    const tracks = [...root.children.values()].sort((a, b) => {
+      const oa = _minOrder(tm, a.name), ob = _minOrder(tm, b.name);
+      return oa !== ob ? oa - ob : byName(a, b);
+    });
     if (overview) overview.innerHTML = overviewHtml(tracks);
     tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name })).join('');
   }
