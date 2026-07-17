@@ -2197,6 +2197,55 @@ app.get('/api/programs', requireAuth, async (req, res, next) => {
   }
 });
 
+// Verify an internal service-to-service HMAC (shared platform-sso-key both apps mount
+// as SSO_SECRET). Signature is over `${purpose}:${ts}` with a 5-min replay window.
+// Returns true/false; used for sister-app calls that carry no user session.
+function verifyInternalSig(req, purpose) {
+  const secret = process.env.SSO_SECRET || '';
+  if (!secret) return false;
+  const ts = req.get('x-academy-ts');
+  const sig = req.get('x-academy-sig');
+  if (!ts || !sig) return false;
+  if (Math.abs(Date.now() / 1000 - Number(ts)) > 300) return false;
+  const expected = createHmac('sha256', secret).update(`${purpose}:${ts}`).digest('hex');
+  return expected === sig;
+}
+
+// Internal (HMAC-gated): a user's enrolled courses with progress, for Sentinel's
+// native Academy dashboard. No user session — Sentinel calls this server-to-server
+// with the logged-in worker's email. Returns courses in curriculum order.
+app.get('/api/internal/enrollment-progress', async (req, res, next) => {
+  try {
+    if (!verifyInternalSig(req, 'enrollment-progress')) return res.status(401).json({ error: 'bad signature' });
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const scope = await resolveProgramScope(email, { requested: '', isAdmin: false });
+    const rows = await getCatalog(email, scope);
+    // Aggregate topics into courses; carry the min `order` so the dashboard can sort.
+    const byCourse = new Map();
+    for (const r of rows) {
+      const key = `${r.track} ${r.course}`;
+      let c = byCourse.get(key);
+      if (!c) { c = { track: r.track, course: r.course, total: 0, practiced: 0, progSum: 0, order: Infinity }; byCourse.set(key, c); }
+      c.total += 1;
+      const attempts = r.totalAttempts || 0;
+      if (attempts > 0) { c.practiced += 1; c.progSum += Math.round((r.correctCount || 0) / attempts * 100); }
+      if (Number.isFinite(r.order) && r.order < c.order) c.order = r.order;
+    }
+    const courses = [...byCourse.values()]
+      .map((c) => ({
+        track: c.track, course: c.course,
+        topicsTotal: c.total, topicsPracticed: c.practiced,
+        pct: c.total ? Math.round(c.progSum / c.total) : 0,
+        order: Number.isFinite(c.order) ? c.order : null,
+      }))
+      .sort((a, b) => (a.order ?? Infinity) - (b.order ?? Infinity) || a.course.localeCompare(b.course, undefined, { numeric: true }));
+    res.json({ program: scope.program, courses });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Admin: create/rename a program (merge — a rename keeps its defaultCourses).
 app.post('/api/admin/programs', requireAdmin, async (req, res, next) => {
   try {
