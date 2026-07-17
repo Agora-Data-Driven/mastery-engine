@@ -56,7 +56,24 @@ import {
   saveProgram,
   getEnrollment,
   setEnrollment,
+  upsertTopic,
+  upsertTopics,
+  deleteTopic,
+  addTranscript,
+  getTranscripts,
+  getTranscriptById,
+  deleteTranscript,
+  createGenJob,
+  getGenJob,
+  listGenJobs,
+  updateGenJob,
+  flagQuestion,
+  listQuestionFlags,
+  resolveQuestionFlag,
+  deleteQuestionBatch,
 } from './lib/firestore.js';
+import * as watcher from './lib/watcher.js';
+import { stepGenJob, publicJob } from './lib/genjobs.js';
 import { deriveStats } from './lib/priority.js';
 import { DEFAULT_PROGRAM } from './lib/programs.js';
 import {
@@ -2165,6 +2182,272 @@ app.post('/api/admin/enrollment', requireAdmin, async (req, res, next) => {
 app.post('/api/admin/backfill-programs', requireAdmin, async (_req, res, next) => {
   try {
     res.json({ ok: true, ...(await backfillPrograms()) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------------- curriculum -------------------------------- */
+// Admin: author the catalog in place (the Academy's curriculum is hand-written,
+// not CSV-imported). Idempotent on slug(track,course,lesson,topic).
+app.post('/api/admin/topics', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const id = await upsertTopic({ ...req.body, program: req.body?.program || scope.program });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.delete('/api/admin/topics/:id', requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ ok: await deleteTopic(req.params.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Admin: bulk outline import. Accepts either rows [{track,course,lesson,topic}]
+ * or `text` — one "Track > Course > Lesson > Topic" per line, which is what you
+ * get from pasting a curriculum outline. `preview: true` parses and reports
+ * WITHOUT writing, so a typo in a 200-line paste is caught before it lands.
+ */
+app.post('/api/admin/topics/bulk', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    let rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+    const problems = [];
+
+    if (!rows.length && typeof req.body?.text === 'string') {
+      req.body.text.split('\n').forEach((line, i) => {
+        const raw = line.trim();
+        if (!raw || raw.startsWith('#')) return;
+        const parts = raw.split('>').map((p) => p.trim());
+        if (parts.length !== 4 || parts.some((p) => !p)) {
+          problems.push({ line: i + 1, text: raw.slice(0, 80), error: 'Expected "Track > Course > Lesson > Topic"' });
+          return;
+        }
+        rows.push({ track: parts[0], course: parts[1], lesson: parts[2], topic: parts[3] });
+      });
+    }
+    rows = rows.map((r) => ({ ...r, program }));
+    if (req.body?.preview) return res.json({ ok: true, preview: true, rows, problems, count: rows.length });
+    if (!rows.length) return res.status(400).json({ error: 'Nothing to import', problems });
+
+    const report = await upsertTopics(rows);
+    res.json({ ok: true, ...report, problems });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------------- transcripts ------------------------------- */
+/* Transcripts run to tens of KB and the global express.json cap is 1mb, so these
+ * routes get their own generous limit. */
+const bigJson = express.json({ limit: '12mb' });
+
+app.get('/api/admin/transcripts', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const list = await getTranscripts({ program: scope.program, course: req.query.course, lesson: req.query.lesson });
+    // Never ship every full transcript to the list view.
+    res.json(list.map(({ text, ...rest }) => rest));
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get('/api/admin/transcripts/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const t = await getTranscriptById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    res.json(t);
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: attach source material (paste, uploaded file text, or a Watcher video).
+app.post('/api/admin/transcripts', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const id = await addTranscript({ ...req.body, program: req.body?.program || scope.program });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.delete('/api/admin/transcripts/:id', requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ ok: await deleteTranscript(req.params.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* --------------------------- Watcher import (Atrium) ------------------------ */
+// Admin: browse Atrium's Watcher archive and pull a video's transcript across.
+// Read-only; a missing bucket grant surfaces as a clean message, not a crash.
+app.get('/api/admin/watcher/clients', requireAdmin, async (_req, res, next) => {
+  try {
+    res.json({ clients: await watcher.listClients() });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/watcher/channels', requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ channels: await watcher.listChannels(String(req.query.client || '')) });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+app.get('/api/admin/watcher/videos', requireAdmin, async (req, res, next) => {
+  try {
+    const videos = await watcher.listVideos(String(req.query.client || ''), String(req.query.channel || ''));
+    res.json({ videos });
+  } catch (e) {
+    res.status(502).json({ error: e.message });
+  }
+});
+
+// Admin: copy one Watcher video's transcript in, attached to a lesson/topic.
+app.post('/api/admin/watcher/import', requireAdmin, async (req, res, next) => {
+  try {
+    const { client, channel, video, track, course, lesson, topic } = req.body || {};
+    const v = await watcher.getVideo(client, channel, video);
+    if (!v) return res.status(404).json({ error: 'Video not found in the Watcher archive' });
+    if (!v.transcript) return res.status(400).json({ error: `That video has no transcript yet${v.error ? ` (${v.error})` : ''}` });
+    const scope = await requestScope(req);
+    const id = await addTranscript({
+      program: req.body?.program || scope.program,
+      track, course, lesson, topic,
+      title: v.title,
+      text: v.transcript,
+      source: 'watcher',
+      watcherRef: { client, channel, video, url: v.url },
+    });
+    res.json({ ok: true, id, title: v.title, chars: v.chars });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ---------------------------- generation jobs ------------------------------ */
+/**
+ * Admin: queue a bulk generation over a scope's topics.
+ *
+ * The runner is a STEPPER (see lib/genjobs.js): this only builds the queue. The
+ * caller then POSTs /step repeatedly — which is what survives Cloud Run's
+ * between-request CPU throttling without min-instances or new infra.
+ */
+app.post('/api/admin/genjobs', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, scope);
+    const scoped = scopeCatalog(catalog, req.body || {});
+    const topics = scoped
+      .filter((r) => r.topic)
+      .map((r) => ({ topic: r.topic, track: r.track, course: r.course, lesson: r.lesson }));
+    if (!topics.length) return res.status(400).json({ error: 'No topics in that scope' });
+
+    const job = await createGenJob({
+      program: scope.program,
+      scope: { track: req.body?.track, course: req.body?.course, lesson: req.body?.lesson },
+      targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 5)),
+      provider: req.body?.provider || 'deepseek',
+      model: req.body?.model || null,
+      topics,
+    });
+    res.json({ ok: true, job: publicJob(job) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get('/api/admin/genjobs', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    res.json({ jobs: await listGenJobs(scope.program) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get('/api/admin/genjobs/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const job = await getGenJob(req.params.id);
+    if (!job) return res.status(404).json({ error: 'No such job' });
+    res.json({ job: publicJob(job) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* Advance a job by ONE topic. Deliberately NOT behind rateLimitAI: that limiter
+ * is a per-IP cost guard for learner-facing AI, and this is an admin-triggered
+ * server-internal batch that would trip it within seconds. */
+app.post('/api/admin/genjobs/:id/step', requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ job: await stepGenJob(req.params.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post('/api/admin/genjobs/:id/cancel', requireAdmin, async (req, res, next) => {
+  try {
+    await updateGenJob(req.params.id, { status: 'cancelled', queue: [] });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------- flags (auto-publish valve) ---------------------- */
+// Any signed-in learner can flag a bad question — the safety valve that makes
+// auto-publishing generated questions survivable.
+app.post('/api/questions/:id/flag', requireAuth, async (req, res, next) => {
+  try {
+    const id = await flagQuestion({
+      questionId: req.params.id,
+      email: req.userEmail,
+      reason: req.body?.reason,
+      topic: req.body?.topic,
+    });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get('/api/admin/flags', requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ flags: await listQuestionFlags(req.query.all === '1') });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post('/api/admin/flags/:id/resolve', requireAdmin, async (req, res, next) => {
+  try {
+    const ok = await resolveQuestionFlag(req.params.id, { deleteQuestion: req.body?.deleteQuestion === true });
+    res.json({ ok });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: pull an entire generation batch (the "that run was bad" button).
+app.post('/api/admin/questions/delete-batch', requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ ok: true, ...(await deleteQuestionBatch(String(req.body?.batchTag || ''))) });
   } catch (e) {
     next(e);
   }
