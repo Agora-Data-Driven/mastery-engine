@@ -509,7 +509,10 @@ const App = (() => {
   function filterTopics() {
     const l = $('lessonSel').value;
     if (l !== 'Review All' && l !== '-- N/A --') {
-      const ts = uniqSorted(state.catalog.filter((r) => r.lesson === l).map((r) => r.topic));
+      // Topics in pedagogical study order (stored `order`), not alphabetical.
+      const rows = state.catalog.filter((r) => r.lesson === l)
+        .sort((a, b) => cmpOrderThenName(a.order, a.topic, b.order, b.topic));
+      const ts = [...new Set(rows.map((r) => r.topic))].filter(Boolean);
       $('topicSel').innerHTML =
         '<option value="Review All">Review Full Lesson</option>' +
         ts.map((t) => `<option>${esc(t)}</option>`).join('');
@@ -721,6 +724,30 @@ const App = (() => {
     } catch (e) {
       alert('Fix question formats failed: ' + e.message);
       if (btn) { btn.disabled = false; btn.textContent = 'Fix Question Formats'; }
+    }
+  }
+
+  // Admin: AI-sequence the Machine Learning topics into study order (writes each
+  // topic's `order`). Loops the resumable sweep until no lessons remain. Runs
+  // only on lessons not yet sequenced; pass refresh to re-order everything.
+  async function sequenceMlTopics(refresh = false) {
+    if (!confirm('AI-order the Machine Learning sub-lessons into the best sequence to learn them? This runs a batch of AI calls (a minute or two) and reorders the topic lists for all users. Safe to re-run.')) return;
+    const btn = $('adminSequenceTopics');
+    if (btn) { btn.disabled = true; btn.textContent = 'Sequencing…'; }
+    const q = `?track=${encodeURIComponent('Machine Learning')}&max=40${refresh ? '&refresh=1' : ''}`;
+    let sequenced = 0;
+    try {
+      for (let pass = 0; pass < 20; pass++) {
+        const r = await api(`/api/admin/sequence-topics${q}`, { method: 'POST' });
+        sequenced += r.sequenced || 0;
+        if (btn) btn.textContent = `Sequencing… (${sequenced})`;
+        if (!r.remaining) break;
+      }
+      alert(`Done. Lessons sequenced: ${sequenced}.`);
+      window.location.reload();
+    } catch (e) {
+      alert('Sequence topics failed: ' + e.message);
+      if (btn) { btn.disabled = false; btn.textContent = 'Sequence ML Topics'; }
     }
   }
 
@@ -961,6 +988,7 @@ const App = (() => {
       topic.leaf = true;
       topic.attempts = r.totalAttempts || 0;
       topic.correct = r.correctCount || 0;
+      topic.order = Number.isFinite(r.order) ? r.order : undefined;
     }
     for (const node of root.children.values()) rollupNode(node);
     return root;
@@ -974,6 +1002,21 @@ const App = (() => {
   // everywhere else). NEVER depends on progress, so the tree never reshuffles.
   function byName(a, b) {
     return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  }
+
+  // Compare by a stored pedagogical `order` first (foundational -> advanced),
+  // then natural name. Anything without a numeric order sorts to the end (so a
+  // freshly added, not-yet-sequenced topic just trails the ordered ones). Works
+  // on any object exposing an order + a name string.
+  function cmpOrderThenName(oa, na, ob, nb) {
+    const a = Number.isFinite(oa) ? oa : Infinity;
+    const b = Number.isFinite(ob) ? ob : Infinity;
+    if (a !== b) return a - b;
+    return String(na).localeCompare(String(nb), undefined, { numeric: true, sensitivity: 'base' });
+  }
+  // Topic (sub-lesson) tree nodes: pedagogical order, then natural name.
+  function byTopicOrder(a, b) {
+    return cmpOrderThenName(a.order, a.name, b.order, b.name);
   }
 
   // The Track>Course>Unit>Topic keys, indexed by depth level.
@@ -1029,6 +1072,7 @@ const App = (() => {
     const kids = [...node.children.values()].sort(
       level === 0 ? (a, b) => byCourseName(a.name, b.name)
       : level === 1 ? (a, b) => byLessonName(node.name, a.name, b.name)
+      : level === 2 ? byTopicOrder // a lesson's topics follow their study order
       : byName,
     );
     const hasKids = kids.length > 0 && !node.leaf;
@@ -4401,6 +4445,7 @@ const App = (() => {
     dictateInto,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
+    sequenceMlTopics,
     fixQuestionFormat, fixCardFormat,
     toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
