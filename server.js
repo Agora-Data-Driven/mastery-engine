@@ -10,6 +10,7 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHmac } from 'node:crypto';
 
 import {
   getCatalog,
@@ -2174,6 +2175,30 @@ app.post('/api/admin/enrollment', requireAdmin, async (req, res, next) => {
     res.json({ ok: true, email, ...saved });
   } catch (e) {
     next(e);
+  }
+});
+
+// Admin: the Sentinel people directory, for the enrolment person-picker. Fetched
+// server-side from Sentinel's HMAC-gated internal endpoint using the shared
+// platform-sso-key both apps mount (no CORS, no browser credentials). Degrades
+// gracefully to an empty list (UI falls back to typing an email) if Sentinel is
+// unreachable or the secret/URL isn't configured.
+app.get('/api/admin/people', requireAdmin, async (_req, res) => {
+  const secret = process.env.SSO_SECRET || '';
+  const base = (process.env.SENTINEL_URL || 'https://sentinel.agoradatadriven.com').replace(/\/+$/, '');
+  if (!secret) return res.json({ people: [], error: 'SSO_SECRET not configured' });
+  try {
+    const ts = String(Math.floor(Date.now() / 1000));
+    const sig = createHmac('sha256', secret).update(`academy-people:${ts}`).digest('hex');
+    const r = await fetch(`${base}/api/internal/people`, {
+      headers: { 'x-academy-ts': ts, 'x-academy-sig': sig },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return res.json({ people: [], error: `sentinel ${r.status}` });
+    const data = await r.json();
+    res.json({ people: Array.isArray(data.people) ? data.people : [] });
+  } catch (e) {
+    res.json({ people: [], error: String(e.message || e) });
   }
 });
 

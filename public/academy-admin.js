@@ -306,23 +306,50 @@
   /* --------------------------------- people -------------------------------- */
   function wirePeople() {
     const csv = (s) => String(s || '').split(',').map((x) => x.trim()).filter(Boolean);
+
+    // Program dropdown: the programs that exist (data_science, digital_marketing, …).
+    api('/api/programs').then(({ programs }) => {
+      $('ePrograms').innerHTML = (programs || [])
+        .map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)}</option>`).join('');
+      $('ePrograms').value = 'digital_marketing'; // the common case
+    }).catch(() => {});
+
+    // Person dropdown: the Sentinel directory. Falls back to a free-text email input
+    // (same id) if the list can't be fetched, so enrolment always works.
+    api('/api/admin/people').then(({ people, error }) => {
+      const sel = $('eEmail');
+      if (people && people.length) {
+        sel.innerHTML = '<option value="">— select a person —</option>'
+          + people.map((p) => `<option value="${esc(p.email)}">${esc(p.name)} (${esc(p.email)})</option>`).join('');
+      } else {
+        const inp = document.createElement('input');
+        inp.type = 'text'; inp.id = 'eEmail'; inp.placeholder = 'person@agora.ph'; inp.style.minWidth = '280px';
+        sel.replaceWith(inp);
+        if (error) $('eMsg').innerHTML = `<span class="aa-note">Directory unavailable (${esc(error)}) — type an email.</span>`;
+      }
+    }).catch(() => {});
+
     $('eLoad').onclick = async () => {
+      const email = $('eEmail').value.trim();
+      if (!email) { $('eMsg').textContent = 'Pick a person first.'; return; }
       $('eMsg').textContent = 'Loading…';
       try {
-        const r = await api('/api/admin/enrollment?email=' + encodeURIComponent($('eEmail').value.trim()));
-        $('ePrograms').value = (r.programs || []).join(', ');
+        const r = await api('/api/admin/enrollment?email=' + encodeURIComponent(email));
+        if ((r.programs || []).length) $('ePrograms').value = r.programs[0];
         $('eCourses').value = (r.courses || []).join(', ');
-        $('eMsg').textContent = 'Loaded.';
+        $('eMsg').innerHTML = `<span class="aa-ok">Current: ${esc((r.programs || []).join(', ') || 'default')}${(r.courses || []).length ? ' · ' + esc(r.courses.join(', ')) : ''}</span>`;
       } catch (e) { $('eMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
     };
     $('eSave').onclick = async () => {
+      const email = $('eEmail').value.trim();
+      if (!email) { $('eMsg').textContent = 'Pick a person first.'; return; }
       $('eMsg').textContent = 'Saving…';
       try {
         const r = await api('/api/admin/enrollment', {
           method: 'POST',
-          body: { email: $('eEmail').value.trim(), programs: csv($('ePrograms').value), courses: csv($('eCourses').value) },
+          body: { email, programs: [$('ePrograms').value].filter(Boolean), courses: csv($('eCourses').value) },
         });
-        $('eMsg').innerHTML = `<span class="aa-ok">Saved: ${esc((r.programs || []).join(', '))}${r.courses.length ? ' · ' + esc(r.courses.join(', ')) : ' · all courses'}</span>`;
+        $('eMsg').innerHTML = `<span class="aa-ok">Saved ${esc(email)}: ${esc((r.programs || []).join(', '))}${r.courses.length ? ' · ' + esc(r.courses.join(', ')) : ' · all courses'}</span>`;
       } catch (e) { $('eMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
     };
   }
