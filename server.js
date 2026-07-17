@@ -50,8 +50,15 @@ import {
   addUsage,
   getUsage,
   slug,
+  resolveProgramScope,
+  backfillPrograms,
+  getPrograms,
+  saveProgram,
+  getEnrollment,
+  setEnrollment,
 } from './lib/firestore.js';
 import { deriveStats } from './lib/priority.js';
+import { DEFAULT_PROGRAM } from './lib/programs.js';
 import {
   toNode,
   buildFlowEdges,
@@ -97,6 +104,7 @@ import {
   setActAs,
   clearActAs,
   isAuthed,
+  isAdmin,
   effectiveUser,
   authContext,
   requireAuth,
@@ -193,6 +201,15 @@ function scopeCatalog(catalog, { track, course, lesson, topic }) {
 
 const clampCount = (c) => Math.min(50, Math.max(1, parseInt(c, 10) || 5));
 
+/**
+ * The BigQuery mirror stays on the DEFAULT program deliberately. Its tables feed
+ * the existing data-science dashboards and aren't program-aware, so a second
+ * curriculum's topics must not leak into that snapshot. It's pinned to the
+ * constant rather than the owner's enrollment so enrolling him in another program
+ * later can't silently change what the dashboards report.
+ */
+const BQ_SCOPE = { program: DEFAULT_PROGRAM, courses: [] };
+
 /** The AI engine the client picked (cookies set by the home-page dropdown). */
 function aiChoice(req) {
   const p = req.cookies?.aiProvider;
@@ -281,6 +298,22 @@ function rateLimitAI(req, res, next) {
 // (guest). Guests see the catalog with fresh/zero stats.
 const optionalUser = (req) => (isAuthed(req) ? effectiveUser(req) : null);
 
+/**
+ * The {program, courses} slice of the bank this request may see — pass it to
+ * getCatalog/getQuestionsForTopics so a learner only ever gets their own
+ * curriculum. Resolved from the user's enrollment; `?program=` (or a `program` in
+ * the body) is honoured only for admins and guests, so it can never widen a
+ * learner's access (see lib/programs.js resolveScope).
+ *
+ * Everyone who existed before programs did resolves to the default program with
+ * no course limit, which is exactly the whole catalog they see today.
+ */
+const requestScope = (req) =>
+  resolveProgramScope(optionalUser(req), {
+    requested: req.query?.program || req.body?.program || '',
+    isAdmin: isAdmin(req),
+  });
+
 // AI cost accounting: scope every /api request in an AsyncLocalStorage usage
 // tally that the provider calls write into (lib/usage.js). When the response
 // finishes (works for streaming too) and any tokens were spent, persist the
@@ -354,7 +387,7 @@ app.post('/api/auth/stop-acting', requireAdmin, (req, res) => {
 // Public: guests need the topic tree to pick what to practice.
 app.get('/api/catalog', async (req, res, next) => {
   try {
-    const catalog = await getCatalog(optionalUser(req));
+    const catalog = await getCatalog(optionalUser(req), await requestScope(req));
     res.json(
       catalog.map((t) => ({
         track: t.track,
@@ -403,9 +436,12 @@ app.get('/api/models', async (_req, res, next) => {
 
 // Public: the whole question bank with hierarchy, for offline caching in the
 // browser. Lets the app serve quizzes and render menus without a connection.
-app.get('/api/questions/all', async (_req, res, next) => {
+app.get('/api/questions/all', async (req, res, next) => {
   try {
-    const [catalog, questions] = await Promise.all([getCatalog(null), getAllQuestions()]);
+    // Guests may name any program here (this cache is public and the content
+    // isn't secret); without one they get the default program's bank.
+    const scope = await requestScope(req);
+    const [catalog, questions] = await Promise.all([getCatalog(null, scope), getAllQuestions(scope)]);
     const idx = metaIndex(catalog);
     res.json(
       questions
@@ -510,7 +546,7 @@ function buildStats(catalog, daily, now = new Date()) {
 app.get('/api/stats', requireAuth, async (req, res, next) => {
   try {
     const [catalog, daily] = await Promise.all([
-      getCatalog(req.userEmail),
+      getCatalog(req.userEmail, await requestScope(req)),
       getRecentActivity(req.userEmail, 14),
     ]);
     res.json(buildStats(catalog, daily));
@@ -594,12 +630,13 @@ function buildProgressSummary(catalog) {
 app.post('/api/quiz/guest', async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog(optionalUser(req));
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(optionalUser(req), scope);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topicNames = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
     if (!topicNames.length) return res.json([]);
 
-    const pool = await getQuestionsForTopics(topicNames);
+    const pool = await getQuestionsForTopics(topicNames, scope);
     res.json(packageQuestions(shuffle(pool), metaIndex(catalog), count));
   } catch (e) {
     next(e);
@@ -611,7 +648,8 @@ app.post('/api/quiz/guest', async (req, res, next) => {
 app.post('/api/quiz/select', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog(req.userEmail);
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, scope);
     const seen = await getSeenQuestionTexts(req.userEmail);
 
     const scoped = scopeCatalog(catalog, req.body || {});
@@ -621,7 +659,7 @@ app.post('/api/quiz/select', requireAuth, async (req, res, next) => {
       .slice(0, 15)
       .map((r) => r.topic);
 
-    const valid = await getQuestionsForTopics([...new Set(targetTopics)]);
+    const valid = await getQuestionsForTopics([...new Set(targetTopics)], scope);
     const unseen = shuffle(valid.filter((q) => !seen.has(q.question.trim())));
     const seenQs = shuffle(valid.filter((q) => seen.has(q.question.trim())));
 
@@ -645,8 +683,9 @@ app.post('/api/quiz/multi', async (req, res, next) => {
     if (!topics.length) return res.json([]);
 
     const user = optionalUser(req);
-    const catalog = await getCatalog(user);
-    const pool = await getQuestionsForTopics(topics);
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(user, scope);
+    const pool = await getQuestionsForTopics(topics, scope);
     if (!user) {
       return res.json(packageQuestions(shuffle(pool), metaIndex(catalog), count));
     }
@@ -665,7 +704,8 @@ app.post('/api/quiz/multi', async (req, res, next) => {
 app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog(req.userEmail);
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, scope);
     const idx = metaIndex(catalog);
 
     // Rank each track's topics by priority (weakest/stalest first).
@@ -690,7 +730,7 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
       }
     }
     const topicNames = [...new Set(orderedTopics)].slice(0, 90);
-    const pool = await getQuestionsForTopics(topicNames);
+    const pool = await getQuestionsForTopics(topicNames, scope);
 
     // Group available questions by track, then interleave round-robin across
     // tracks so consecutive questions come from different paths.
@@ -727,7 +767,7 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
 const MASTERY_DECK_SIZE = 24;
 app.post('/api/flashcards/mastery', requireAuth, async (req, res, next) => {
   try {
-    const catalog = await getCatalog(req.userEmail);
+    const catalog = await getCatalog(req.userEmail, await requestScope(req));
     // Priority per topic (weakest/stalest first), carrying its track for interleaving.
     const topicMeta = new Map();
     for (const r of catalog) {
@@ -802,7 +842,7 @@ app.post('/api/quiz/log', requireAuth, async (req, res, next) => {
     // ONLY the default account (the one seeding the dashboards); other users stay in Firestore only.
     if (req.userEmail === DEFAULT_ACCOUNT) {
       streamAttempts(results).catch(() => {});
-      getTopicsRows(DEFAULT_ACCOUNT).then(replaceTopics).catch(() => {});
+      getTopicsRows(DEFAULT_ACCOUNT, new Date(), BQ_SCOPE).then(replaceTopics).catch(() => {});
     }
     res.json({ ok: true, topicsUpdated });
   } catch (e) {
@@ -815,7 +855,8 @@ app.post('/api/quiz/log', requireAuth, async (req, res, next) => {
 app.post('/api/generate', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const catalog = await getCatalog(req.userEmail);
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, scope);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
     if (!topics.length) return res.status(400).json({ error: 'No topics in scope' });
@@ -831,7 +872,7 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
     await mapWithConcurrency(topics, 4, async (topic) => {
       try {
         const [existing, attempts] = await Promise.all([
-          getQuestionsForTopics([topic]),
+          getQuestionsForTopics([topic], scope),
           getTopicAttempts(req.userEmail, topic),
         ]);
         // A few full Q/A for depth calibration; ALL stems as a de-dup avoid-list.
@@ -848,7 +889,7 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
         const prereqs = prereqContext(topic, catalog, graphLinks);
         const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty, prereqs });
         for (const g of generated) {
-          await addQuestion(g);
+          await addQuestion({ ...g, program: scope.program });
           created++;
         }
       } catch (e) {
@@ -895,7 +936,8 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
     if (!topic || !confusion) {
       return res.status(400).json({ error: 'topic and confusion are required' });
     }
-    const catalog = await getCatalog(req.userEmail);
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, scope);
     // Prefer the running question's own hierarchy so a shared topic name drills
     // into (and later logs against) the exact sub-lesson it came from.
     const idx = scopedMetaIndex(catalog, req.body || {});
@@ -911,7 +953,7 @@ app.post('/api/drill/question', requireAuth, rateLimitAI, async (req, res, next)
     );
     // Persist into the bank so it feeds future quizzes for this exact sub-lesson.
     // Tag it `drill` so these can be audited/pruned separately from seeded ones.
-    const id = await addQuestion({ ...drilled, source: 'drill' });
+    const id = await addQuestion({ ...drilled, source: 'drill', program: scope.program });
 
     // Package with the topic's full hierarchy (same shape the quiz endpoints use),
     // carrying the new id so the client can reformat it inline.
@@ -931,7 +973,8 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
     const count = Math.min(10, Math.max(1, parseInt(req.body?.count, 10) || 3));
     if (!topic) return res.status(400).json({ error: 'topic is required' });
 
-    const catalog = await getCatalog(req.userEmail);
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, scope);
     // Prefer the running question's own hierarchy so a shared topic name is
     // resolved to (and logged against) the exact sub-lesson it came from.
     const idx = scopedMetaIndex(catalog, req.body || {});
@@ -941,7 +984,7 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
 
     // Existing stems for this topic become an avoid-list so "more like this"
     // widens coverage instead of re-emitting questions already in the bank.
-    const pool = await getQuestionsForTopics([topic]);
+    const pool = await getQuestionsForTopics([topic], scope);
     const generated = await generateSimilarQuestions(
       { topic, scopeLabel, question: question || '', options: options || [], answer: answer || '', existing: pool.map((q) => q.question) },
       count,
@@ -950,7 +993,9 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
     // Persist into the bank (tagged so these can be audited/pruned separately),
     // carrying each new id back so the client copies can be reformatted inline.
     const banked = [];
-    for (const g of generated) banked.push({ ...g, id: await addQuestion({ ...g, source: 'similar' }) });
+    for (const g of generated) {
+      banked.push({ ...g, id: await addQuestion({ ...g, source: 'similar', program: scope.program }) });
+    }
 
     res.json(packageQuestions(banked, idx, count));
   } catch (e) {
@@ -1042,13 +1087,14 @@ app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, 
     if (!flashcardsEnabledFor(scope.course)) {
       return res.status(403).json({ error: 'Flashcards are not enabled for this course yet' });
     }
-    const catalog = await getCatalog(req.userEmail);
+    const programScope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, programScope);
     const scoped = scopeCatalog(catalog, scope);
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
     if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
 
     // Sample the section's questions so the deck is comprehensive enough to cover them.
-    const pool = await getQuestionsForTopics(topics.slice(0, 60));
+    const pool = await getQuestionsForTopics(topics.slice(0, 60), programScope);
     const questions = shuffle(pool).slice(0, 40)
       .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
 
@@ -1096,7 +1142,8 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     const card = await getFlashcardById(cardId);
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
-    const catalog = await getCatalog(req.userEmail);
+    const programScope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, programScope);
     // Resolve within the card's own deck scope so a topic name shared by two
     // lessons quizzes (and logs) against the section this card belongs to.
     const idx = scopedMetaIndex(catalog, { track: card.track, course: card.course, lesson: card.lesson });
@@ -1110,7 +1157,7 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     // this learner has done on it (difficulty target + missed-question focus),
     // and the graph's prerequisite standing (weak prereqs become sub-steps).
     const [pool, attempts, graphLinks] = await Promise.all([
-      getQuestionsForTopics([card.topic]),
+      getQuestionsForTopics([card.topic], programScope),
       getTopicAttempts(req.userEmail, card.topic),
       getGraphLinks().catch(() => []),
     ]);
@@ -1131,7 +1178,9 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     // Bank each question and carry its new id back so the client copy can be
     // reformatted inline (the admin "Fix format" button needs the id).
     const banked = [];
-    for (const q of qs) banked.push({ ...q, id: await addQuestion({ ...q, source: 'flashcard' }) });
+    for (const q of qs) {
+      banked.push({ ...q, id: await addQuestion({ ...q, source: 'flashcard', program: programScope.program }) });
+    }
     res.json(packageQuestions(banked, idx, count));
   } catch (e) {
     next(e);
@@ -1150,7 +1199,7 @@ app.get('/api/flashcards/card-stats', requireAuth, async (req, res, next) => {
     if (!card.topic) return res.json({ topic: '', questionCount: 0, attempts: 0, correct: 0, accuracy: null, questions: [] });
 
     const [pool, attempts] = await Promise.all([
-      getQuestionsForTopics([card.topic]),
+      getQuestionsForTopics([card.topic], await requestScope(req)),
       getTopicAttempts(req.userEmail, card.topic),
     ]);
     res.json({ topic: card.topic, questionCount: pool.length, ...attempts });
@@ -1179,7 +1228,7 @@ app.post('/api/flashcards/explain', requireAuth, rateLimitAI, async (req, res, n
 
     // Resolve the card's full hierarchy (same lookup the quiz endpoint uses) so
     // the attempt logs against the right Track > Course > Lesson > Topic.
-    const catalog = await getCatalog(req.userEmail);
+    const catalog = await getCatalog(req.userEmail, await requestScope(req));
     const idx = metaIndex(catalog);
     const meta = card.topic && idx.has(card.topic) ? idx.get(card.topic) : null;
     const scopeLabel = meta
@@ -1255,11 +1304,12 @@ app.post('/api/flashcards/chat', requireAuth, rateLimitAI, async (req, res, next
     const baseVisual = existing?.intuition ? existing.visual : card.visual;
 
     // A little context: sample questions from the same topic to gauge depth.
-    const catalog = await getCatalog(req.userEmail);
+    const programScope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, programScope);
     const idx = metaIndex(catalog);
     const meta = card.topic && idx.has(card.topic) ? idx.get(card.topic) : {};
     const scopeLabel = [meta.course, meta.lesson, card.topic].filter(Boolean).join(' › ') || card.topic || '';
-    const pool = card.topic ? await getQuestionsForTopics([card.topic]) : [];
+    const pool = card.topic ? await getQuestionsForTopics([card.topic], programScope) : [];
     const questions = shuffle(pool).slice(0, 8).map((q) => ({ question: q.question, answer: q.answer }));
 
     const out = await generateCardChat(
@@ -1561,7 +1611,8 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
     const message = String(req.body?.message || '').trim();
     if (!message) return res.status(400).json({ error: 'A message is required' });
 
-    const catalog = await getCatalog(req.userEmail);
+    const programScope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, programScope);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
     if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
@@ -1573,7 +1624,7 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
       : !isAll(track) ? track
       : 'Your selection';
 
-    const pool = await getQuestionsForTopics(topics);
+    const pool = await getQuestionsForTopics(topics, programScope);
     const questions = shuffle(pool).slice(0, 30).map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
 
     // Include the section's flashcards when a deck exists (course/lesson scope).
@@ -1667,12 +1718,13 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
 // the concepts the learner needs BEFORE attempting that section.
 app.post('/api/review', requireAuth, async (req, res, next) => {
   try {
-    const catalog = await getCatalog(req.userEmail);
+    const programScope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, programScope);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
     if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
 
-    const pool = await getQuestionsForTopics(topics);
+    const pool = await getQuestionsForTopics(topics, programScope);
     const questions = shuffle(pool)
       .slice(0, 40)
       .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
@@ -1696,7 +1748,7 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
 // the coach can say WHAT to study next, not just where accuracy is low.
 app.post('/api/analyze', requireAuth, async (req, res, next) => {
   try {
-    const catalog = await getCatalog(req.userEmail);
+    const catalog = await getCatalog(req.userEmail, await requestScope(req));
     const summary = buildProgressSummary(catalog);
     try {
       const links = await getGraphLinks();
@@ -1751,7 +1803,7 @@ function kickBackgroundLinking(rows, unlinked, ai) {
 app.get('/api/graph', requireAuth, async (req, res, next) => {
   try {
     const [catalog, links, allCards] = await Promise.all([
-      getCatalog(req.userEmail),
+      getCatalog(req.userEmail, await requestScope(req)),
       getGraphLinks(),
       getAllFlashcardsWithId(),
     ]);
@@ -1808,7 +1860,12 @@ app.get('/api/graph', requireAuth, async (req, res, next) => {
 app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
   try {
     const max = Math.min(parseInt(req.query.max, 10) || 120, 600);
-    const [catalog, links] = await Promise.all([getCatalog(req.userEmail), getGraphLinks()]);
+    // Scoped so a build covers one program's topics at a time (?program=…);
+    // prerequisites never cross curricula.
+    const [catalog, links] = await Promise.all([
+      getCatalog(req.userEmail, await requestScope(req)),
+      getGraphLinks(),
+    ]);
     const rows = catalog.filter((r) => r.topic);
     const linkedIds = new Set(links.map((l) => l.id));
     const pending = req.query.refresh === '1' ? rows : rows.filter((r) => !linkedIds.has(r.id));
@@ -1869,7 +1926,10 @@ const needsLatex = (q) =>
 app.post('/api/admin/latexify', requireAdmin, async (req, res, next) => {
   try {
     const max = Math.min(parseInt(req.query.max, 10) || 200, 800);
-    const all = await getAllQuestions();
+    // Scoped: this is a MATH formatter, so it must not reach a non-maths
+    // program's bank. Defaults to the admin's program (data science today, which
+    // is the whole bank); pass ?program= to sweep another one.
+    const all = await getAllQuestions(await requestScope(req));
     const pending = all.filter(needsLatex);
     const todo = pending.slice(0, max);
 
@@ -1969,7 +2029,8 @@ app.post('/api/admin/fix-flashcard-formats', requireAdmin, async (req, res, next
 app.post('/api/admin/fix-question-formats', requireAdmin, async (req, res, next) => {
   try {
     const max = Math.min(parseInt(req.query.max, 10) || 120, 600);
-    const all = await getAllQuestions();
+    // Scoped like /api/admin/latexify — the reformatter's rules are maths-shaped.
+    const all = await getAllQuestions(await requestScope(req));
     const pending = all.filter(questionNeedsFormatFix);
     const todo = pending.slice(0, max);
 
@@ -2020,8 +2081,74 @@ app.post('/api/admin/merge-math', requireAdmin, async (_req, res, next) => {
   try {
     const report = await mergeIntoMathematics();
     // Refresh the BigQuery topics snapshot to mirror the rename (default account only).
-    getTopicsRows(DEFAULT_ACCOUNT).then(replaceTopics).catch(() => {});
+    getTopicsRows(DEFAULT_ACCOUNT, new Date(), BQ_SCOPE).then(replaceTopics).catch(() => {});
     res.json({ ok: true, ...report });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* -------------------------------- programs -------------------------------- */
+
+// Auth: the programs this user may study + which one this request resolves to.
+// The frontend uses it to know whether to offer a program switcher at all.
+app.get('/api/programs', requireAuth, async (req, res, next) => {
+  try {
+    const [all, enrollment, scope] = await Promise.all([
+      getPrograms(),
+      getEnrollment(req.userEmail),
+      requestScope(req),
+    ]);
+    // Admins may study/inspect anything; a learner sees only what they're enrolled in.
+    const mine = req.isAdmin ? all : all.filter((p) => enrollment.programs.includes(p.id));
+    res.json({ programs: mine, current: scope.program, courses: scope.courses, admin: req.isAdmin });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: create/rename a program (merge — a rename keeps its defaultCourses).
+app.post('/api/admin/programs', requireAdmin, async (req, res, next) => {
+  try {
+    const id = String(req.body?.id || '').trim();
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    await saveProgram({ id, name: req.body?.name, defaultCourses: req.body?.defaultCourses });
+    res.json({ ok: true, id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: read/set any user's enrollment ({programs, courses}); empty courses = all.
+app.get('/api/admin/enrollment', requireAdmin, async (req, res, next) => {
+  try {
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email is required' });
+    res.json({ email, ...(await getEnrollment(email)) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post('/api/admin/enrollment', requireAdmin, async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email is required' });
+    const saved = await setEnrollment(email, {
+      programs: req.body?.programs,
+      courses: req.body?.courses,
+    });
+    res.json({ ok: true, email, ...saved });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: one-time, idempotent tagging of pre-program content as the default
+// program + creation of the starting program docs. Re-running reports zeros.
+app.post('/api/admin/backfill-programs', requireAdmin, async (_req, res, next) => {
+  try {
+    res.json({ ok: true, ...(await backfillPrograms()) });
   } catch (e) {
     next(e);
   }
@@ -2054,7 +2181,7 @@ app.post('/api/admin/bq-backfill', requireAdmin, async (_req, res, next) => {
 // automatically after every logged quiz.
 app.post('/api/admin/bq-sync-topics', requireAdmin, async (_req, res, next) => {
   try {
-    const rows = await getTopicsRows(DEFAULT_ACCOUNT);
+    const rows = await getTopicsRows(DEFAULT_ACCOUNT, new Date(), BQ_SCOPE);
     const synced = await replaceTopics(rows);
     res.json({ ok: true, synced });
   } catch (e) {
