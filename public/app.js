@@ -615,21 +615,36 @@ const App = (() => {
   // its quiz questions; concept-based courses (no video) are flagged. Videos open
   // on YouTube in a new tab (they can't be embedded here).
   let _videoData = null;
+  let _videoProg = null; // admin program override for the tab
   async function renderVideoLessons() {
     const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
       { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
     const list = $('videoList');
-    const prog = (state.catalog[0] && state.catalog[0].program) || 'data_science';
+    // The program to show. `/api/programs` is authoritative (the catalog rows don't
+    // carry a program); admins get a switcher so they can preview any program's videos.
+    let info = { current: 'data_science', programs: [], admin: false };
+    try { info = await api('/api/programs'); } catch { /* fall back to default */ }
+    const prog = _videoProg || info.current || 'data_science';
     try {
       if (!_videoData) _videoData = await (await fetch('/video-lessons.json', { cache: 'no-cache' })).json();
     } catch { _videoData = {}; }
     const p = _videoData[prog];
+
+    // Admin-only program picker (learners just see their enrolled program's videos).
+    const switcher = (info.admin && (info.programs || []).length)
+      ? `<div class="field" style="margin-bottom:14px"><span class="label">Program</span>
+          <div class="select-wrap"><select id="videoProgSel">${info.programs.map((pr) =>
+            `<option value="${esc(pr.id)}"${pr.id === prog ? ' selected' : ''}>${esc(pr.name || pr.id)}</option>`).join('')}</select></div></div>`
+      : '';
+    const wire = () => { const s = $('videoProgSel'); if (s) s.onchange = () => { _videoProg = s.value; renderVideoLessons(); }; };
+
     $('videoIntro').textContent = (p && p.intro) || '';
     if (!p || !Array.isArray(p.tracks) || !p.tracks.length) {
-      list.innerHTML = '<p class="section-sub">No video lessons are curated for this program yet.</p>';
+      list.innerHTML = switcher + '<p class="section-sub">No video lessons are curated for this program yet.</p>';
+      wire();
       return;
     }
-    let html = '';
+    let html = switcher;
     for (const t of p.tracks) {
       html += `<h3 style="margin:22px 0 8px;font-size:16px">${esc(t.track)}</h3>`;
       for (const c of (t.courses || [])) {
@@ -648,6 +663,7 @@ const App = (() => {
       }
     }
     list.innerHTML = html;
+    wire();
   }
 
   function updateSetupCopy() {
