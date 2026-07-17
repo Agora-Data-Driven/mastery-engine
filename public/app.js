@@ -1179,14 +1179,14 @@ const App = (() => {
       ? `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
         ${ringHtml(pct, color, 56)}
         <div class="prog-info">
-          <span class="prog-name">${esc(displayName)}</span>
+          <span class="prog-name" title="${esc(displayName)}">${esc(displayName)}</span>
           <span class="prog-sub">${esc(sub)}</span>
         </div>
         ${actions}`
       : `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
         <span class="prog-dot" style="color:${color};background:${color}"></span>
         <div class="prog-info">
-          <span class="prog-name">${esc(displayName)}</span>
+          <span class="prog-name" title="${esc(displayName)}">${esc(displayName)}</span>
           <span class="prog-sub">${esc(sub)}</span>
         </div>
         <div class="prog-bar-wrap">
