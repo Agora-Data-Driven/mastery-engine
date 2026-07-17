@@ -629,12 +629,41 @@ const App = (() => {
     }
   }
 
+  // Admin: pick a user to impersonate from a dropdown of the Sentinel directory.
+  // Resolves to the chosen email (or null). Falls back to a prompt if the
+  // directory can't be fetched, so impersonation always works.
+  function pickUserModal(people) {
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    return new Promise((resolve) => {
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
+      const opts = people.map((p) => `<option value="${esc(p.email)}">${esc(p.name || p.email)} (${esc(p.email)})</option>`).join('');
+      ov.innerHTML = `<div style="background:#fff;color:#111;border-radius:14px;padding:20px;min-width:340px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+        <div style="font-weight:700;font-size:16px;margin-bottom:10px;">Act as user</div>
+        <select id="__actAsSel" style="width:100%;padding:9px;border-radius:8px;border:1px solid #ccc;font-size:14px;">${opts}</select>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
+          <button id="__actAsCancel" style="padding:7px 15px;border-radius:8px;border:1px solid #ccc;background:#f2f2f2;cursor:pointer;">Cancel</button>
+          <button id="__actAsOk" style="padding:7px 15px;border-radius:8px;border:none;background:#16a34a;color:#fff;font-weight:600;cursor:pointer;">Act as</button>
+        </div></div>`;
+      document.body.appendChild(ov);
+      const close = (val) => { ov.remove(); resolve(val); };
+      ov.querySelector('#__actAsCancel').onclick = () => close(null);
+      ov.querySelector('#__actAsOk').onclick = () => close(ov.querySelector('#__actAsSel').value);
+      ov.onclick = (e) => { if (e.target === ov) close(null); };
+    });
+  }
+
   // Admin: act as another user (impersonation), or stop and return to the default account.
   async function actAs() {
-    const email = window.prompt('Act as which user? Enter their Google email:');
+    let people = [];
+    try { const r = await api('/api/admin/people'); people = (r && r.people) || []; } catch { /* fall back to prompt */ }
+    const email = people.length
+      ? await pickUserModal(people)
+      : window.prompt('Act as which user? Enter their Google email:');
     if (!email) return;
     try {
-      await api('/api/auth/act-as', { method: 'POST', body: JSON.stringify({ email: email.trim() }) });
+      await api('/api/auth/act-as', { method: 'POST', body: JSON.stringify({ email: String(email).trim() }) });
       window.location.reload();
     } catch (e) {
       window.alert(e.message);
@@ -646,21 +675,6 @@ const App = (() => {
       window.location.reload();
     } catch (e) {
       window.alert(e.message);
-    }
-  }
-
-  // Admin: run the one-time math-track merge (idempotent; safe to re-run).
-  async function mergeMath() {
-    if (!confirm('Merge "Math Foundations" and "Mathematics for Machine Learning" into a single "Mathematics" track? This re-keys mastery stats and is safe to re-run.')) return;
-    const btn = $('adminMergeMath');
-    if (btn) { btn.disabled = true; btn.textContent = 'Merging…'; }
-    try {
-      const r = await api('/api/admin/merge-math', { method: 'POST' });
-      alert(`Done. Topics moved: ${r.topicsMoved}, stats moved: ${r.statsMoved}, decks moved: ${r.decksMoved}.`);
-      window.location.reload();
-    } catch (e) {
-      alert('Merge failed: ' + e.message);
-      if (btn) { btn.disabled = false; btn.textContent = 'Merge Math'; }
     }
   }
 
@@ -4386,7 +4400,7 @@ const App = (() => {
   return {
     dictateInto,
     enterMastery, goHome, setMode,
-    submitPassword, actAs, stopActing, mergeMath, fixAllFormats, fixAllQuestionFormats,
+    submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     fixQuestionFormat, fixCardFormat,
     toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
