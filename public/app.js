@@ -625,10 +625,10 @@ const App = (() => {
     let info = { current: 'data_science', programs: [], admin: false };
     try { info = await api('/api/programs'); } catch { /* fall back to default */ }
     const prog = _videoProg || info.current || 'data_science';
-    try {
-      if (!_videoData) _videoData = await (await fetch('/video-lessons.json', { cache: 'no-cache' })).json();
-    } catch { _videoData = {}; }
-    const p = _videoData[prog];
+    // Live: curated baseline + any transcript attached in Academy Admin that has a
+    // video URL. Server-scoped to `prog` (admins may pass ?program= to preview).
+    let p = { tracks: [] };
+    try { p = await api('/api/video-lessons?program=' + encodeURIComponent(prog)); } catch { p = { tracks: [] }; }
 
     // Admin-only program picker (learners just see their enrolled program's videos).
     const switcher = (info.admin && (info.programs || []).length)

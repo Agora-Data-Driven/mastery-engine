@@ -11,6 +11,7 @@ import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 import {
   getCatalog,
@@ -2192,6 +2193,51 @@ app.get('/api/programs', requireAuth, async (req, res, next) => {
     // Admins may study/inspect anything; a learner sees only what they're enrolled in.
     const mine = req.isAdmin ? all : all.filter((p) => enrollment.programs.includes(p.id));
     res.json({ programs: mine, current: scope.program, courses: scope.courses, admin: req.isAdmin });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// The curated video baseline (public/video-lessons.json), read once and cached.
+let _videoSeed = null;
+function videoSeed() {
+  if (_videoSeed) return _videoSeed;
+  try { _videoSeed = JSON.parse(readFileSync(path.join(__dirname, 'public', 'video-lessons.json'), 'utf8')); }
+  catch { _videoSeed = {}; }
+  return _videoSeed;
+}
+
+// Auth: the Video Lessons watch-list for the user's program — the curated baseline
+// PLUS any transcript attached in Academy Admin that carries a video URL (Watcher
+// imports, or a paste with a URL). Admins may pass ?program= to preview another.
+app.get('/api/video-lessons', requireAuth, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = scope.program;
+    // Start from the curated, curriculum-ordered baseline for this program.
+    const base = (videoSeed()[program] && JSON.parse(JSON.stringify(videoSeed()[program]))) || { intro: '', tracks: [] };
+    const tracks = base.tracks || (base.tracks = []);
+    const seenUrls = new Set();
+    for (const t of tracks) for (const c of (t.courses || [])) for (const v of (c.videos || [])) if (v.url) seenUrls.add(v.url);
+
+    const findGroup = (track, course) => {
+      let tg = tracks.find((x) => x.track === track);
+      if (!tg) { tg = { track, courses: [] }; tracks.push(tg); }
+      let cg = tg.courses.find((x) => x.course === course);
+      if (!cg) { cg = { course, videos: [], note: null }; tg.courses.push(cg); }
+      return cg;
+    };
+
+    // Merge in attached transcripts that reference a video URL (deduped).
+    const transcripts = await getTranscripts({ program });
+    for (const tr of transcripts) {
+      const url = tr.watcherRef && tr.watcherRef.url;
+      if (!url || seenUrls.has(url)) continue;
+      seenUrls.add(url);
+      const cg = findGroup(tr.track || 'Other', tr.course || 'Attached videos');
+      cg.videos.push({ title: tr.title || 'Video', url, lessons: tr.lesson ? [tr.lesson] : [] });
+    }
+    res.json({ program, ...base });
   } catch (e) {
     next(e);
   }
