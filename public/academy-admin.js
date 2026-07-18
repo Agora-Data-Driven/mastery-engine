@@ -35,10 +35,14 @@
     show($('main'), true);
 
     const { programs, current } = await api('/api/programs');
-    state.program = current;
+    // Honour a ?program= override (admins can inspect any program); default to the
+    // user's current program. Changing it reloads the whole page so every panel is
+    // rebuilt cleanly for the new program.
+    const urlProg = new URLSearchParams(location.search).get('program');
+    state.program = (urlProg && programs.some((p) => p.id === urlProg)) ? urlProg : current;
     $('program').innerHTML = programs.map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)}</option>`).join('');
-    $('program').value = current;
-    $('program').onchange = () => { state.program = $('program').value; refreshAll(); };
+    $('program').value = state.program;
+    $('program').onchange = () => { location.search = '?program=' + encodeURIComponent($('program').value); };
 
     wireTabs();
     wireCurriculum();
@@ -324,29 +328,44 @@
       renderIngestTopics();
     };
 
+    // Generation is opt-in: reveal the per-topic count only when asked, and relabel
+    // the button so it's clear whether we're just filing it or also building questions.
+    if ($('iGenerate')) $('iGenerate').onchange = () => {
+      const on = $('iGenerate').checked;
+      show($('iGenOpts'), on);
+      $('iCommit').textContent = on ? 'Attach & generate' : 'Attach to Academy';
+    };
+
     $('iCommit').onclick = async () => {
       if (!state.ingest) return;
       const topics = state.ingest.topicRows.filter((r) => r.on).map((r) => r.topic);
       if (!topics.length) { $('iCommitMsg').innerHTML = '<span class="aa-err">Pick at least one topic.</span>'; return; }
+      const generate = !!($('iGenerate') && $('iGenerate').checked);
       $('iCommit').disabled = true;
       state.stopIngest = false;
-      $('iCommitMsg').textContent = 'Creating topics and attaching the material…';
+      $('iCommitMsg').textContent = generate ? 'Filing the material, then generating…' : 'Filing the transcript and curriculum…';
       try {
-        const { job } = await api('/api/admin/ingest/commit', {
+        const { job, generated } = await api('/api/admin/ingest/commit', {
           method: 'POST',
           body: {
             program: state.ingest.program || state.program,
             track: $('iTrack').value.trim(), course: $('iCourse').value.trim(), lesson: $('iLesson').value.trim(),
             topics, text: state.ingest.text, title: $('iTitle').value,
             source: state.ingest.source, watcherRef: state.ingest.watcherRef,
+            generate,
             targetPerTopic: Number($('iCount').value) || 6,
           },
         });
-        $('iCommitMsg').innerHTML = '<span class="aa-ok">Generating questions…</span>';
-        await runSteps(job.id, { bar: 'iBar', status: 'iStatus' }, 'stopIngest');
-        $('iCommitMsg').innerHTML = '<span class="aa-ok">Done — added to everyone\'s quiz.</span>';
+        if (generated && job) {
+          $('iCommitMsg').innerHTML = '<span class="aa-ok">Attached. Generating questions…</span>';
+          await runSteps(job.id, { bar: 'iBar', status: 'iStatus' }, 'stopIngest');
+          $('iCommitMsg').innerHTML = '<span class="aa-ok">Done — transcript filed and questions added.</span>';
+        } else {
+          $('iCommitMsg').innerHTML = '<span class="aa-ok">Attached — transcript and curriculum saved (no questions generated).</span>';
+        }
         show($('iPlanBox'), false);
         $('iText').value = ''; $('iTitle').value = ''; state.ingest = null;
+        if ($('iGenerate')) { $('iGenerate').checked = false; show($('iGenOpts'), false); $('iCommit').textContent = 'Attach to Academy'; }
         await loadCatalog();
         await loadTranscripts();
       } catch (e) {
