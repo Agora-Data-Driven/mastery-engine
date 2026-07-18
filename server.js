@@ -128,6 +128,7 @@ import {
   clearActAs,
   isAuthed,
   isAdmin,
+  isAdminEmail,
   effectiveUser,
   authContext,
   requireAuth,
@@ -2291,7 +2292,9 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
         pct: total ? Math.round(progSum / total) : 0,
       });
     }
-    res.json({ programs });
+    // `admin` lets the Sentinel Academy tab default admins straight to the admin view. The
+    // academy-admin page itself still re-gates the browser, so this is only a UI default.
+    res.json({ programs, admin: isAdminEmail(email) });
   } catch (e) {
     next(e);
   }
