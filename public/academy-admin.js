@@ -122,16 +122,45 @@
   /* ------------------------------- transcripts ----------------------------- */
   const scopeParts = (v) => { const [track, course, lesson] = String(v || '').split(' > '); return { track, course, lesson }; };
 
+  let _transcripts = [];
   async function loadTranscripts() {
     try {
-      const list = await api('/api/admin/transcripts?' + q());
-      $('tList').textContent = list.length
-        ? list.map((t) => `${t.title}\n    ${t.course} > ${t.lesson}${t.topic ? ' > ' + t.topic : ''}  ·  ${t.chars} chars  ·  ${t.source}`).join('\n\n')
-        : 'Nothing attached yet.';
+      _transcripts = await api('/api/admin/transcripts?' + q());
+      renderTranscriptList();
     } catch (e) { $('tList').textContent = 'Error: ' + e.message; }
   }
 
+  // Watcher-style browser: a filterable list on the left, full text on the right.
+  function renderTranscriptList() {
+    const term = (($('tSearch') && $('tSearch').value) || '').toLowerCase();
+    const list = _transcripts.filter((t) => !term
+      || `${t.title} ${t.course} ${t.lesson}`.toLowerCase().includes(term));
+    if ($('tCount')) $('tCount').textContent = `— ${_transcripts.length}`;
+    if (!list.length) { $('tList').innerHTML = '<div class="aa-note" style="padding:10px">Nothing attached yet.</div>'; return; }
+    $('tList').innerHTML = list.map((t) =>
+      `<button data-id="${esc(t.id)}"><b>${esc(t.title)}</b><br>` +
+      `<span style="color:#6B7280;font-size:12px">${esc((t.course || '').split(':')[0])} &rsaquo; ${esc(t.lesson)} &middot; ${t.chars || 0} chars &middot; ${esc(t.source)}</span></button>`
+    ).join('');
+    $('tList').querySelectorAll('button').forEach((b) => { b.onclick = () => openTranscript(b.dataset.id, b); });
+  }
+
+  async function openTranscript(id, btn) {
+    $('tList').querySelectorAll('button').forEach((x) => x.removeAttribute('aria-selected'));
+    if (btn) btn.setAttribute('aria-selected', 'true');
+    $('tView').textContent = 'Loading…';
+    try {
+      const t = await api('/api/admin/transcripts/' + encodeURIComponent(id));
+      const url = t.watcherRef && t.watcherRef.url;
+      const link = url ? ` &middot; <a href="${esc(url)}" target="_blank" rel="noopener">&#9654; Watch video</a>` : '';
+      $('tView').innerHTML =
+        `<div style="position:sticky;top:0;background:#F7F8F5;padding-bottom:8px;border-bottom:1px solid #E7E8EE;margin-bottom:10px">` +
+        `<b>${esc(t.title)}</b><br><span style="color:#6B7280;font-size:12px">${esc(t.course)} &rsaquo; ${esc(t.lesson)} &middot; ${t.chars || 0} chars${link}</span></div>` +
+        `<div style="white-space:pre-wrap;line-height:1.5">${esc(t.text || '')}</div>`;
+    } catch (e) { $('tView').textContent = 'Error: ' + e.message; }
+  }
+
   function wireTranscripts() {
+    if ($('tSearch')) $('tSearch').oninput = renderTranscriptList;
     $('tFile').onchange = async () => {
       const f = $('tFile').files[0];
       if (!f) return;
