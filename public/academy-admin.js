@@ -89,11 +89,43 @@
     const lessons = [...byLesson.keys()];
     const opts = lessons.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
     $('tScope').innerHTML = opts || '<option value="">(no lessons yet)</option>';
-    const courses = [...new Set(state.catalog.map((r) => [r.track, r.course].join(' > ')))];
-    $('gScope').innerHTML = [
-      ...courses.map((c) => `<option value="course::${esc(c)}">Course: ${esc(c)}</option>`),
-      ...lessons.map((l) => `<option value="lesson::${esc(l)}">Lesson: ${esc(l)}</option>`),
-    ].join('') || '<option value="">(nothing to generate yet)</option>';
+    populateGenerate();
+  }
+
+  /* -------- Generate: cascading Course › Lesson › Sub-lesson selectors -------- */
+  const trackOf = (course) => (state.catalog.find((r) => r.course === course) || {}).track || '';
+  function populateGenerate() {
+    const courses = [...new Set(state.catalog.map((r) => r.course))].filter(Boolean);
+    $('gCourse').innerHTML = courses.length
+      ? courses.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')
+      : '<option value="">(no courses yet)</option>';
+    populateGenLessons();
+  }
+  function populateGenLessons() {
+    const course = $('gCourse').value;
+    const lessons = [...new Set(state.catalog.filter((r) => r.course === course).map((r) => r.lesson))].filter(Boolean);
+    $('gLesson').innerHTML = '<option value="">All lessons in this course</option>'
+      + lessons.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+    populateGenTopics();
+  }
+  function populateGenTopics() {
+    const course = $('gCourse').value, lesson = $('gLesson').value;
+    const topics = lesson
+      ? [...new Set(state.catalog.filter((r) => r.course === course && r.lesson === lesson).map((r) => r.topic))].filter(Boolean)
+      : [];
+    $('gTopic').innerHTML = '<option value="">All sub-lessons</option>'
+      + topics.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    $('gTopic').disabled = !lesson;
+    renderGenSources();
+  }
+  function renderGenSources() {
+    const course = $('gCourse').value, lesson = $('gLesson').value;
+    const list = _transcripts.filter((t) => t.course === course && (!lesson || t.lesson === lesson));
+    if (!list.length) { $('gSources').innerHTML = '<div class="aa-note" style="padding:10px">No transcripts attached to this scope — generation will use expert knowledge, or attach some in the Curriculum tab.</div>'; return; }
+    $('gSources').innerHTML = list.map((t) =>
+      `<label style="display:flex;gap:8px;align-items:center;padding:6px 11px;border-bottom:1px solid #F0F1F4;cursor:pointer">
+        <input type="checkbox" data-tid="${esc(t.id)}" style="width:auto">
+        <span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">· ${esc(t.lesson)} · ${t.chars || 0} chars</span></span></label>`).join('');
   }
 
   function wireCurriculum() {
@@ -131,6 +163,7 @@
     try {
       _transcripts = await api('/api/admin/transcripts?' + q());
       renderTranscriptList();
+      if ($('gSources')) renderGenSources(); // Generate tab source list depends on these
     } catch (e) { $('tList').textContent = 'Error: ' + e.message; }
   }
 

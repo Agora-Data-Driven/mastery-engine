@@ -1233,6 +1233,40 @@ const App = (() => {
       </div>`;
   }
 
+  // Restore the learner to where they left off in the progress tree after a quiz
+  // or flashcard round — same expanded nodes, same scroll position — instead of a
+  // collapsed tree scrolled back to the top. A snapshot is captured when they leave
+  // the tree to practise (see startQuiz / openFlashcards) and consumed on the next
+  // render. Keyed by each node's full Track/Course/Unit/Topic scope path.
+  let progressSnapshot = null;
+
+  function progNodeKey(el) {
+    // Joined with a control char that can't appear in a track/course/unit/topic name.
+    return LEVEL_KEYS.map((k) => el.dataset[k] || '').join('');
+  }
+
+  function captureProgressState() {
+    const tree = $('progressTree');
+    if (!tree) return null;
+    const open = [];
+    tree.querySelectorAll('.prog-node.open').forEach((n) => open.push(progNodeKey(n)));
+    return { open, scrollY: window.scrollY || window.pageYOffset || 0 };
+  }
+
+  function applyProgressState(snap) {
+    if (!snap) return;
+    const tree = $('progressTree');
+    if (!tree) return;
+    const want = new Set(snap.open);
+    tree.querySelectorAll('.prog-node.has-children').forEach((n) => {
+      if (want.has(progNodeKey(n))) n.classList.add('open');
+    });
+    // The view was display:none until this render, so defer the scroll to the next
+    // frame once the expanded rows have laid out and the page has its full height.
+    const y = snap.scrollY || 0;
+    requestAnimationFrame(() => window.scrollTo(0, y));
+  }
+
   function renderProgressTree() {
     const tree = $('progressTree');
     const empty = $('progressEmpty');
@@ -1253,6 +1287,8 @@ const App = (() => {
     });
     if (overview) overview.innerHTML = overviewHtml(tracks);
     tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name })).join('');
+    // Returning from a quiz/flashcard round? Re-expand + re-scroll to where they were.
+    if (progressSnapshot) { applyProgressState(progressSnapshot); progressSnapshot = null; }
   }
 
   /* Read a node's scope from its data-* attributes. */
@@ -1333,6 +1369,13 @@ const App = (() => {
     state.score = 0;
     state.log = [];
     state.quizReturn = opts.returnTo || null;
+    // Launching from the progress tree (My Progress view)? Remember its expanded +
+    // scroll state so "Done"/"Back to menu" drops the learner right back where they
+    // were, not at the top of a collapsed tree. Flashcard-origin quizzes return to
+    // the card, so they skip this.
+    if (opts.returnTo !== 'flashcard' && currentView() === 'setup' && state.mode === 'PROGRESS') {
+      progressSnapshot = captureProgressState();
+    }
     // Label the exit button for where this quiz returns to (flashcard vs. menu).
     $('quizExitBtn').textContent = (state.quizReturn === 'flashcard' && fc.view[fc.idx]) ? 'Back to Flashcard' : 'Back to menu';
     showOnly('quizView');
@@ -1879,6 +1922,10 @@ const App = (() => {
 
   async function openFlashcards(scope, label) {
     if (!state.authed) { showLogin(); return; }
+    // Same "return me where I was" snapshot as quizzes, for cards opened from the tree.
+    if (currentView() === 'setup' && state.mode === 'PROGRESS') {
+      progressSnapshot = captureProgressState();
+    }
     fc.mastery = false;
     fc.scope = { track: scope.track, course: scope.course, lesson: scope.lesson || '', topic: scope.topic || '' };
     fc.level = scope.topic ? 'topic' : scope.lesson ? 'lesson' : 'course';
@@ -2849,11 +2896,10 @@ const App = (() => {
     log.innerHTML = '<div class="chat-empty">Loading…</div>';
     try {
       await refreshAssistantChats();
-      // Reopen the last conversation used on this device, else the most recent.
-      const saved = localStorage.getItem('assistant.activeId') || '';
-      const pick = assistant.chats.some((c) => c.id === saved) ? saved
-        : (assistant.chats[0]?.id || '');
-      await openAssistantChat(pick, true);
+      // Open a FRESH chat every time the assistant is opened — a new session should be
+      // a blank slate, not a resumed thread. Past conversations stay one tap away via
+      // the 🕑 History button (and "+ New" here just repeats this).
+      await openAssistantChat('', true);
       assistant.loaded = true;
     } catch (e) {
       log.innerHTML = '<div class="chat-empty">Could not load: ' + esc(e.message) + '</div>';
