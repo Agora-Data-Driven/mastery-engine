@@ -2867,6 +2867,10 @@ const App = (() => {
       updateAssistantHint();
       if (!assistant.loaded) loadAssistant();
       setTimeout(() => $('assistantInput').focus(), 30);
+      syncConvoUi();
+      if (convoOn()) startConvoListening();   // resume hands-free if it was left on
+    } else {
+      stopConvo();                            // never keep the mic open behind a closed panel
     }
   }
 
@@ -2878,6 +2882,7 @@ const App = (() => {
     const opening = box.classList.contains('hidden');
     box.classList.toggle('hidden', !opening);
     $('assistantSettingsBtn')?.classList.toggle('active', opening);
+    if (opening) syncConvoUi();
   }
 
   function updateAssistantHint() {
@@ -3031,6 +3036,7 @@ const App = (() => {
     const thinking = appendBubble(log, 'assistant', 'Thinking…');
     thinking.classList.add('thinking');
     send.disabled = true;
+    if (convoOn()) setConvoStatus('thinking');
     try {
       const r = await api('/api/assistant/chat', {
         method: 'POST',
@@ -3043,6 +3049,8 @@ const App = (() => {
       thinking.remove();
       appendBubble(log, 'assistant', r.reply, r.visual);
       assistant.loaded = true;
+      // Conversation mode: read the answer aloud, then reopen the mic for the next turn.
+      if (convoOn()) speakAssistantReply(r.reply);
       // First message of a new chat gets an id + title — sync the history list.
       if (r.conversationId) {
         assistant.activeId = r.conversationId;
@@ -3053,6 +3061,7 @@ const App = (() => {
     } catch (e) {
       thinking.remove();
       appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
+      if (convoOn()) startConvoListening();   // keep the hands-free loop alive after a failure
     } finally {
       send.disabled = false;
       input.focus();
@@ -4582,8 +4591,107 @@ const App = (() => {
     try { rec.start(); } catch { _dictation = null; if (btn) btn.classList.remove('recording'); }
   }
 
+  /* ----------------------- Conversation mode ---------------------------- */
+  // Hands-free voice chat with the Study Assistant: you talk, it replies aloud, then the mic
+  // reopens for your next turn. Toggled in the assistant settings (⚙) and remembered across
+  // sessions. Needs BOTH speech recognition (to hear you) and synthesis (to reply) — the toggle
+  // hides itself when either is missing, so it degrades silently to the normal typed chat.
+  const convo = { rec: null, listening: false, fatal: null };
+
+  function convoSupported() { return !!SR && !!window.speechSynthesis; }
+  function convoOn() { return convoSupported() && localStorage.getItem('assistant.convoMode') === '1'; }
+  function assistantMicBtn() { return document.querySelector('#assistantPanel .chat-input .me-mic'); }
+
+  function setConvoStatus(state) {
+    const el = $('assistantConvoStatus');
+    if (!el) return;
+    el.classList.remove('listening', 'speaking');
+    if (!state) { el.classList.add('hidden'); el.textContent = ''; return; }
+    el.classList.remove('hidden');
+    if (state === 'listening') { el.classList.add('listening'); el.textContent = 'Listening… speak now'; }
+    else if (state === 'speaking') { el.classList.add('speaking'); el.textContent = 'Speaking…'; }
+    else if (state === 'thinking') { el.textContent = 'Thinking…'; }
+  }
+
+  // Reflect the saved state onto the checkbox and hide the whole row when unsupported.
+  function syncConvoUi() {
+    const wrap = $('asstConvoWrap');
+    if (wrap) wrap.style.display = convoSupported() ? '' : 'none';
+    const chk = $('convoModeChk');
+    if (chk) chk.checked = convoOn();
+  }
+
+  function toggleConvoMode(chk) {
+    localStorage.setItem('assistant.convoMode', chk && chk.checked ? '1' : '0');
+    if (convoOn()) startConvoListening();
+    else stopConvo();
+  }
+
+  async function startConvoListening() {
+    if (!convoOn() || convo.listening) return;
+    if (window.speechSynthesis.speaking) return;               // never listen to our own voice
+    if ($('assistantPanel')?.classList.contains('hidden')) return;  // only while the panel is open
+    const ok = await ensureMicPermission();
+    if (!ok) { forceConvoOff('Microphone is blocked — allow it, then turn Conversation mode back on.'); return; }
+    const input = $('assistantInput');
+    const mic = assistantMicBtn();
+    const rec = new SR();
+    rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false;  // stops on your pause -> auto-send
+    convo.rec = rec; convo.listening = true; convo.fatal = null;
+    rec.onstart = () => { setConvoStatus('listening'); mic?.classList.add('recording'); };
+    rec.onresult = (e) => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      input.value = t;
+    };
+    rec.onerror = (e) => { convo.fatal = e.error; };
+    rec.onend = () => {
+      convo.listening = false; convo.rec = null; mic?.classList.remove('recording');
+      if (convo.fatal === 'not-allowed' || convo.fatal === 'service-not-allowed') {
+        forceConvoOff('Microphone is blocked — allow it, then turn Conversation mode back on.');
+        return;
+      }
+      if (!convoOn()) { setConvoStatus(''); return; }
+      const said = input.value.trim();
+      if (said) sendAssistant();      // its reply gets spoken, which re-opens the mic
+      else startConvoListening();     // silence: keep the ear open
+    };
+    try { rec.start(); } catch { convo.listening = false; convo.rec = null; }
+  }
+
+  function stopConvo() {
+    if (convo.rec) { try { convo.rec.stop(); } catch {} }
+    convo.rec = null; convo.listening = false;
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    assistantMicBtn()?.classList.remove('recording');
+    setConvoStatus('');
+  }
+
+  function forceConvoOff(msg) {
+    localStorage.setItem('assistant.convoMode', '0');
+    stopConvo();
+    syncConvoUi();
+    const log = $('assistantLog');
+    if (msg && log) appendBubble(log, 'assistant', msg);
+  }
+
+  // Speak an assistant reply aloud, then reopen the mic for the next turn.
+  function speakAssistantReply(text) {
+    const synth = window.speechSynthesis;
+    if (!synth || !convoOn()) { setConvoStatus(''); return; }
+    const spoken = plainForSpeech(text);
+    if (!spoken) { startConvoListening(); return; }
+    const u = new SpeechSynthesisUtterance(spoken);
+    u.rate = 1.02;
+    u.onstart = () => setConvoStatus('speaking');
+    u.onend = () => { if (convoOn()) startConvoListening(); else setConvoStatus(''); };
+    u.onerror = () => { if (convoOn()) startConvoListening(); };
+    synth.cancel();
+    synth.speak(u);
+  }
+
   return {
-    dictateInto,
+    dictateInto, toggleConvoMode,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceMlTopics,
