@@ -4629,41 +4629,123 @@ const App = (() => {
   // Toggled in the assistant settings (⚙) and remembered across sessions. Needs BOTH speech
   // recognition and synthesis — the toggle hides itself when either is missing (falls back to
   // typed chat). phase: 'idle' | 'listening' | 'thinking' | 'speaking'.
-  const convo = { rec: null, running: false, starting: false, fatal: null, phase: 'idle', abort: null, spoken: '' };
+  const convo = { rec: null, running: false, starting: false, fatal: null, phase: 'idle', abort: null, spoken: '', voice: null, voices: [], muted: false };
+  // Browser voices load asynchronously (especially in Chrome) — repopulate the picker when they arrive.
+  if (window.speechSynthesis && window.speechSynthesis.addEventListener) {
+    window.speechSynthesis.addEventListener('voiceschanged', () => loadConvoVoices());
+  }
 
   function convoSupported() { return !!SR && !!window.speechSynthesis; }
   function convoOn() { return convoSupported() && localStorage.getItem('assistant.convoMode') === '1'; }
   function convoActive() { return convoOn() && !$('assistantPanel')?.classList.contains('hidden'); }
   function assistantMicBtn() { return document.querySelector('#assistantPanel .chat-input .me-mic'); }
 
+  // Rank the browser's built-in voices by how human they sound (all free). Microsoft "Natural"
+  // (Edge/Windows) and Google network voices are far nicer than the robotic "Desktop"/eSpeak
+  // defaults, so we auto-pick the best one instead of whatever the OS default is.
+  function voiceScore(v) {
+    const n = (v.name || '').toLowerCase();
+    const lang = (v.lang || '').toLowerCase();
+    let s = 0;
+    if (lang.startsWith('en')) s += 10;
+    if (lang === 'en-us') s += 3;
+    if (n.includes('natural')) s += 30;                                  // MS Natural — best
+    if (n.includes('google')) s += 20;                                   // Google network voices
+    if (/\b(aria|jenny|guy|ava|samantha|allison|serena|zoe|neural|premium|enhanced)\b/.test(n)) s += 12;
+    if (v.localService === false) s += 5;                                // network voices are usually higher quality
+    if (/desktop|espeak|compact|pico/.test(n)) s -= 15;                  // known-robotic
+    return s;
+  }
+  function voiceLabel(v) {
+    // Trim the noisy " - English (United States)" tails so the dropdown stays readable.
+    return (v.name || 'Voice').replace(/\s*[-–]\s*English.*$/i, '').replace(/\s*\([^)]*\)\s*$/, '').trim() || v.name;
+  }
+  function loadConvoVoices() {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    const all = synth.getVoices() || [];
+    if (!all.length) return;                                             // not ready yet — voiceschanged will refire
+    const en = all.filter((v) => (v.lang || '').toLowerCase().startsWith('en'));
+    const list = (en.length ? en : all).slice().sort((a, b) => voiceScore(b) - voiceScore(a));
+    convo.voices = list;
+    const saved = localStorage.getItem('assistant.voice') || '';
+    convo.voice = list.find((v) => v.name === saved) || list[0] || null;
+    const sel = $('convoVoiceSel');
+    if (sel) {
+      sel.innerHTML = list
+        .map((v) => `<option value="${esc(v.name)}"${convo.voice && v.name === convo.voice.name ? ' selected' : ''}>${esc(voiceLabel(v))}</option>`)
+        .join('');
+    }
+  }
+  function onConvoVoiceChange(sel) {
+    localStorage.setItem('assistant.voice', sel.value);
+    convo.voice = convo.voices.find((v) => v.name === sel.value) || null;
+    // Quick preview so the choice is audible.
+    try {
+      const synth = window.speechSynthesis;
+      synth.cancel();
+      const u = new SpeechSynthesisUtterance("Hi, this is how I'll sound.");
+      if (convo.voice) u.voice = convo.voice;
+      u.rate = 1.02;
+      synth.speak(u);
+    } catch { /* preview is best-effort */ }
+  }
+
   function setConvoStatus(state) {
     const el = $('assistantConvoStatus');
     if (!el) return;
     const txt = $('assistantConvoText');
     const stop = $('assistantConvoStop');
-    el.classList.remove('listening', 'speaking');
-    if (!state) { el.classList.add('hidden'); if (txt) txt.textContent = ''; stop?.classList.add('hidden'); return; }
+    const mute = $('assistantConvoMute');
+    el.classList.remove('listening', 'speaking', 'muted');
+    if (!state) { el.classList.add('hidden'); if (txt) txt.textContent = ''; stop?.classList.add('hidden'); mute?.classList.add('hidden'); return; }
     el.classList.remove('hidden');
     const label = {
       listening: 'Listening… speak now',
       thinking: 'Thinking… (say something to interrupt)',
       speaking: 'Speaking… (talk over me, or tap Stop)',
+      muted: 'Mic muted — tap Unmute to talk',
     }[state] || '';
     if (txt) txt.textContent = label;
     if (state === 'listening') el.classList.add('listening');
     else if (state === 'speaking') el.classList.add('speaking');
+    else if (state === 'muted') el.classList.add('muted');
     // Interrupt affordance only while there's something to interrupt.
     stop?.classList.toggle('hidden', !(state === 'thinking' || state === 'speaking'));
+    // Mute toggle is offered whenever conversation mode is engaged.
+    if (mute) { mute.classList.remove('hidden'); mute.textContent = convo.muted ? 'Unmute' : 'Mute mic'; }
+  }
+
+  // Mute is a transient control: silence the mic without leaving conversation mode. It still
+  // speaks its replies; it just won't listen (or barge-in) until you unmute. Not persisted —
+  // turning conversation mode off resets it.
+  function convoToggleMute() {
+    convo.muted = !convo.muted;
+    if (convo.muted) {
+      if (convo.rec) { try { convo.rec.stop(); } catch {} }
+      convo.rec = null; convo.running = false;
+      assistantMicBtn()?.classList.remove('recording');
+      if (convo.phase !== 'speaking' && convo.phase !== 'thinking') setConvoStatus('muted');
+      else setConvoStatus(convo.phase);   // keep the current label, just flip the button
+    } else {
+      if (convo.phase !== 'speaking' && convo.phase !== 'thinking') setPhase('listening');
+      else setConvoStatus(convo.phase);
+      ensureListening();
+    }
   }
 
   function setPhase(p) { convo.phase = p; setConvoStatus(p === 'idle' ? '' : p); }
 
   // Reflect the saved state onto the checkbox and hide the whole row when unsupported.
   function syncConvoUi() {
+    const supported = convoSupported();
     const wrap = $('asstConvoWrap');
-    if (wrap) wrap.style.display = convoSupported() ? '' : 'none';
+    if (wrap) wrap.style.display = supported ? '' : 'none';
     const chk = $('convoModeChk');
     if (chk) chk.checked = convoOn();
+    const vwrap = $('asstVoiceWrap');
+    if (vwrap) vwrap.style.display = supported ? '' : 'none';
+    if (supported) loadConvoVoices();
   }
 
   function toggleConvoMode(chk) {
@@ -4692,6 +4774,7 @@ const App = (() => {
   // The single always-restarting recognizer. Runs through every phase so the user can interrupt.
   async function ensureListening() {
     if (!convoActive() || convo.running || convo.starting) return;
+    if (convo.muted) { assistantMicBtn()?.classList.remove('recording'); if (convo.phase !== 'speaking' && convo.phase !== 'thinking') setConvoStatus('muted'); return; }
     convo.starting = true;
     const ok = await ensureMicPermission();
     convo.starting = false;
@@ -4757,6 +4840,7 @@ const App = (() => {
     abortGeneration();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
     convo.spoken = '';
+    convo.muted = false;
     assistantMicBtn()?.classList.remove('recording');
     convo.phase = 'idle';
     setConvoStatus('');
@@ -4778,6 +4862,7 @@ const App = (() => {
     if (!spoken) { setPhase('listening'); ensureListening(); return; }
     convo.spoken = spoken;
     const u = new SpeechSynthesisUtterance(spoken);
+    if (convo.voice) u.voice = convo.voice;   // best available browser voice
     u.rate = 1.02;
     u.onstart = () => setPhase('speaking');
     u.onend = () => { convo.spoken = ''; if (convo.phase === 'speaking') setPhase('listening'); if (convoActive()) ensureListening(); };
@@ -4788,7 +4873,7 @@ const App = (() => {
   }
 
   return {
-    dictateInto, toggleConvoMode, convoInterrupt,
+    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceMlTopics,
