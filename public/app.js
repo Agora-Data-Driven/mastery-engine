@@ -2565,13 +2565,34 @@ const App = (() => {
     synth.speak(u);
   }
 
+  // Turn markdown/LaTeX into something a TTS voice reads naturally — otherwise it literally says
+  // "hashtag hashtag" for an H3, "star star" for bold, and reads out URLs.
   function plainForSpeech(s) {
     return String(s || '')
+      // fenced code blocks -> keep inner text, drop the fences + language tag
+      .replace(/```[a-zA-Z0-9]*\r?\n?/g, ' ').replace(/```/g, ' ')
+      // images ![alt](url) -> alt ; links [text](url) -> text
+      .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      // headings, blockquotes and list bullets at the start of a line
+      .replace(/^[ \t]*#{1,6}[ \t]+/gm, '')
+      .replace(/^[ \t]*>[ \t]?/gm, '')
+      .replace(/^[ \t]*[-*+][ \t]+/gm, '')
+      .replace(/^[ \t]*\d+\.[ \t]+/gm, '')
+      // emphasis + inline code markers
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/(\*\*|__)(.*?)\1/g, '$2')
+      .replace(/(\*|_)(.*?)\1/g, '$2')
+      // LaTeX
       .replace(/\\texttt\{([^}]*)\}/g, '$1')
       .replace(/\${1,2}/g, ' ')
       .replace(/\\[a-zA-Z]+/g, ' ')
       .replace(/[{}\\]/g, ' ')
-      .replace(/\*\*/g, '')
+      // stray table pipes / leftover markers
+      .replace(/\|/g, ' ')
+      .replace(/[ \t]+/g, ' ')
+      .replace(/\s*\n\s*/g, '. ')   // line breaks become sentence pauses
+      .replace(/\.\s*\.\s*/g, '. ')
       .replace(/\s+/g, ' ')
       .trim();
   }
@@ -2868,7 +2889,7 @@ const App = (() => {
       if (!assistant.loaded) loadAssistant();
       setTimeout(() => $('assistantInput').focus(), 30);
       syncConvoUi();
-      if (convoOn()) startConvoListening();   // resume hands-free if it was left on
+      if (convoOn()) startConvo();   // resume hands-free if it was left on
     } else {
       stopConvo();                            // never keep the mic open behind a closed panel
     }
@@ -3036,21 +3057,29 @@ const App = (() => {
     const thinking = appendBubble(log, 'assistant', 'Thinking…');
     thinking.classList.add('thinking');
     send.disabled = true;
-    if (convoOn()) setConvoStatus('thinking');
+    const inConvo = convoOn();
+    if (inConvo) setPhase('thinking');
+    // Barge-in / Stop can abort a still-generating answer.
+    const ac = inConvo ? new AbortController() : null;
+    if (ac) convo.abort = ac;
     try {
       const r = await api('/api/assistant/chat', {
         method: 'POST',
+        signal: ac ? ac.signal : undefined,
         body: JSON.stringify({
           message: msg,
           context: assistantContext(),
           conversationId: assistant.activeId || undefined,
+          // Ask for a spoken-style, markdown-free answer when we're going to read it aloud.
+          conversational: inConvo || undefined,
         }),
       });
+      if (ac && convo.abort === ac) convo.abort = null;
       thinking.remove();
       appendBubble(log, 'assistant', r.reply, r.visual);
       assistant.loaded = true;
-      // Conversation mode: read the answer aloud, then reopen the mic for the next turn.
-      if (convoOn()) speakAssistantReply(r.reply);
+      // Conversation mode: read the answer aloud (mic stays open for barge-in).
+      if (inConvo) speakAssistantReply(r.reply);
       // First message of a new chat gets an id + title — sync the history list.
       if (r.conversationId) {
         assistant.activeId = r.conversationId;
@@ -3060,8 +3089,9 @@ const App = (() => {
       refreshCost();
     } catch (e) {
       thinking.remove();
+      if (e.name === 'AbortError') return;   // superseded by a barge-in / Stop — stay quiet
       appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
-      if (convoOn()) startConvoListening();   // keep the hands-free loop alive after a failure
+      if (convoActive()) ensureListening();  // keep the hands-free loop alive after a failure
     } finally {
       send.disabled = false;
       input.focus();
@@ -4593,25 +4623,40 @@ const App = (() => {
 
   /* ----------------------- Conversation mode ---------------------------- */
   // Hands-free voice chat with the Study Assistant: you talk, it replies aloud, then the mic
-  // reopens for your next turn. Toggled in the assistant settings (⚙) and remembered across
-  // sessions. Needs BOTH speech recognition (to hear you) and synthesis (to reply) — the toggle
-  // hides itself when either is missing, so it degrades silently to the normal typed chat.
-  const convo = { rec: null, listening: false, fatal: null };
+  // reopens for your next turn — AND you can barge in. The mic stays open while it's thinking or
+  // speaking, so talking over it (or the Stop button) interrupts: a spoken reply is cut off and a
+  // still-generating answer is aborted, and whatever you just said becomes the next question.
+  // Toggled in the assistant settings (⚙) and remembered across sessions. Needs BOTH speech
+  // recognition and synthesis — the toggle hides itself when either is missing (falls back to
+  // typed chat). phase: 'idle' | 'listening' | 'thinking' | 'speaking'.
+  const convo = { rec: null, running: false, starting: false, fatal: null, phase: 'idle', abort: null, spoken: '' };
 
   function convoSupported() { return !!SR && !!window.speechSynthesis; }
   function convoOn() { return convoSupported() && localStorage.getItem('assistant.convoMode') === '1'; }
+  function convoActive() { return convoOn() && !$('assistantPanel')?.classList.contains('hidden'); }
   function assistantMicBtn() { return document.querySelector('#assistantPanel .chat-input .me-mic'); }
 
   function setConvoStatus(state) {
     const el = $('assistantConvoStatus');
     if (!el) return;
+    const txt = $('assistantConvoText');
+    const stop = $('assistantConvoStop');
     el.classList.remove('listening', 'speaking');
-    if (!state) { el.classList.add('hidden'); el.textContent = ''; return; }
+    if (!state) { el.classList.add('hidden'); if (txt) txt.textContent = ''; stop?.classList.add('hidden'); return; }
     el.classList.remove('hidden');
-    if (state === 'listening') { el.classList.add('listening'); el.textContent = 'Listening… speak now'; }
-    else if (state === 'speaking') { el.classList.add('speaking'); el.textContent = 'Speaking…'; }
-    else if (state === 'thinking') { el.textContent = 'Thinking…'; }
+    const label = {
+      listening: 'Listening… speak now',
+      thinking: 'Thinking… (say something to interrupt)',
+      speaking: 'Speaking… (talk over me, or tap Stop)',
+    }[state] || '';
+    if (txt) txt.textContent = label;
+    if (state === 'listening') el.classList.add('listening');
+    else if (state === 'speaking') el.classList.add('speaking');
+    // Interrupt affordance only while there's something to interrupt.
+    stop?.classList.toggle('hidden', !(state === 'thinking' || state === 'speaking'));
   }
+
+  function setPhase(p) { convo.phase = p; setConvoStatus(p === 'idle' ? '' : p); }
 
   // Reflect the saved state onto the checkbox and hide the whole row when unsupported.
   function syncConvoUi() {
@@ -4623,47 +4668,97 @@ const App = (() => {
 
   function toggleConvoMode(chk) {
     localStorage.setItem('assistant.convoMode', chk && chk.checked ? '1' : '0');
-    if (convoOn()) startConvoListening();
+    if (convoOn()) startConvo();
     else stopConvo();
   }
 
-  async function startConvoListening() {
-    if (!convoOn() || convo.listening) return;
-    if (window.speechSynthesis.speaking) return;               // never listen to our own voice
-    if ($('assistantPanel')?.classList.contains('hidden')) return;  // only while the panel is open
+  function startConvo() { if (convoActive()) { setPhase('listening'); ensureListening(); } }
+
+  function abortGeneration() { if (convo.abort) { try { convo.abort.abort(); } catch {} convo.abort = null; } }
+  function duckTts() { if (window.speechSynthesis) window.speechSynthesis.cancel(); convo.spoken = ''; }
+
+  // Heuristic to keep the recognizer from hearing our OWN voice while we speak: if most of what
+  // was "heard" is words we're currently saying, it's speaker echo (on devices without hardware
+  // echo-cancellation) — ignore it. Anything else is the user genuinely barging in.
+  function looksLikeEcho(said) {
+    const spoken = (convo.spoken || '').toLowerCase();
+    if (!spoken) return false;                       // nothing playing -> not echo
+    const words = said.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+    if (!words.length) return true;
+    const hit = words.filter((w) => spoken.includes(w)).length;
+    return hit / words.length > 0.6;
+  }
+
+  // The single always-restarting recognizer. Runs through every phase so the user can interrupt.
+  async function ensureListening() {
+    if (!convoActive() || convo.running || convo.starting) return;
+    convo.starting = true;
     const ok = await ensureMicPermission();
+    convo.starting = false;
     if (!ok) { forceConvoOff('Microphone is blocked — allow it, then turn Conversation mode back on.'); return; }
+    if (!convoActive()) return;
     const input = $('assistantInput');
-    const mic = assistantMicBtn();
     const rec = new SR();
-    rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false;  // stops on your pause -> auto-send
-    convo.rec = rec; convo.listening = true; convo.fatal = null;
-    rec.onstart = () => { setConvoStatus('listening'); mic?.classList.add('recording'); };
+    rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = false;  // ends on your pause
+    convo.rec = rec; convo.running = true; convo.fatal = null;
+    let finalText = '';
+    rec.onstart = () => { assistantMicBtn()?.classList.add('recording'); };
     rec.onresult = (e) => {
       let t = '';
       for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
-      input.value = t;
+      finalText = t;
+      const said = t.trim();
+      // Live barge-in: the instant we're sure it's the user (not echo), cut off whatever's happening.
+      if (convo.phase === 'speaking') {
+        if (said && !looksLikeEcho(said)) { duckTts(); setPhase('listening'); input.value = said; }
+      } else if (convo.phase === 'thinking') {
+        if (said.length > 1) { abortGeneration(); setPhase('listening'); input.value = said; }
+      } else {
+        input.value = said;
+      }
     };
     rec.onerror = (e) => { convo.fatal = e.error; };
     rec.onend = () => {
-      convo.listening = false; convo.rec = null; mic?.classList.remove('recording');
+      convo.running = false; convo.rec = null; assistantMicBtn()?.classList.remove('recording');
       if (convo.fatal === 'not-allowed' || convo.fatal === 'service-not-allowed') {
         forceConvoOff('Microphone is blocked — allow it, then turn Conversation mode back on.');
         return;
       }
-      if (!convoOn()) { setConvoStatus(''); return; }
-      const said = input.value.trim();
-      if (said) sendAssistant();      // its reply gets spoken, which re-opens the mic
-      else startConvoListening();     // silence: keep the ear open
+      handleUtterance((finalText || '').trim());
     };
-    try { rec.start(); } catch { convo.listening = false; convo.rec = null; }
+    try { rec.start(); } catch { convo.running = false; convo.rec = null; }
+  }
+
+  // Decide what a finished utterance means, then always keep the ear open for the next one.
+  function handleUtterance(said) {
+    if (!convoActive()) { if (convo.phase !== 'idle') setPhase('idle'); return; }
+    const keepListening = () => setTimeout(ensureListening, 200);   // small gap avoids a tight restart loop
+    if (convo.phase === 'listening') {
+      if (said) { $('assistantInput').value = said; sendAssistant(); }   // reply is spoken; loop continues
+    } else if (convo.phase === 'thinking') {
+      if (said && !looksLikeEcho(said)) { abortGeneration(); $('assistantInput').value = said; sendAssistant(); }
+    } else if (convo.phase === 'speaking') {
+      if (said && !looksLikeEcho(said)) { duckTts(); $('assistantInput').value = said; sendAssistant(); }
+    }
+    keepListening();
+  }
+
+  // Manual interrupt (Stop button): silence any speech, cancel any in-flight answer, go back to listening.
+  function convoInterrupt() {
+    abortGeneration();
+    duckTts();
+    setPhase('listening');
+    ensureListening();
   }
 
   function stopConvo() {
     if (convo.rec) { try { convo.rec.stop(); } catch {} }
-    convo.rec = null; convo.listening = false;
+    convo.rec = null; convo.running = false;
+    abortGeneration();
     if (window.speechSynthesis) window.speechSynthesis.cancel();
+    convo.spoken = '';
     assistantMicBtn()?.classList.remove('recording');
+    convo.phase = 'idle';
     setConvoStatus('');
   }
 
@@ -4675,23 +4770,25 @@ const App = (() => {
     if (msg && log) appendBubble(log, 'assistant', msg);
   }
 
-  // Speak an assistant reply aloud, then reopen the mic for the next turn.
+  // Speak an assistant reply aloud. The mic stays open throughout so the user can talk over it.
   function speakAssistantReply(text) {
     const synth = window.speechSynthesis;
-    if (!synth || !convoOn()) { setConvoStatus(''); return; }
+    if (!synth || !convoOn()) { if (convoOn()) setPhase('listening'); else setConvoStatus(''); return; }
     const spoken = plainForSpeech(text);
-    if (!spoken) { startConvoListening(); return; }
+    if (!spoken) { setPhase('listening'); ensureListening(); return; }
+    convo.spoken = spoken;
     const u = new SpeechSynthesisUtterance(spoken);
     u.rate = 1.02;
-    u.onstart = () => setConvoStatus('speaking');
-    u.onend = () => { if (convoOn()) startConvoListening(); else setConvoStatus(''); };
-    u.onerror = () => { if (convoOn()) startConvoListening(); };
+    u.onstart = () => setPhase('speaking');
+    u.onend = () => { convo.spoken = ''; if (convo.phase === 'speaking') setPhase('listening'); if (convoActive()) ensureListening(); };
+    u.onerror = () => { convo.spoken = ''; if (convo.phase === 'speaking') setPhase('listening'); if (convoActive()) ensureListening(); };
     synth.cancel();
     synth.speak(u);
+    ensureListening();   // arm barge-in while we talk
   }
 
   return {
-    dictateInto, toggleConvoMode,
+    dictateInto, toggleConvoMode, convoInterrupt,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceMlTopics,
