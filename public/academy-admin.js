@@ -119,11 +119,15 @@
   function renderGenSources() {
     const course = $('gCourse').value, lesson = $('gLesson').value;
     const list = _transcripts.filter((t) => t.course === course && (!lesson || t.lesson === lesson));
-    if (!list.length) { $('gSources').innerHTML = '<div class="aa-note" style="padding:10px">No transcripts attached to this scope — generation will use expert knowledge, or attach some in the Curriculum tab.</div>'; return; }
-    $('gSources').innerHTML = list.map((t) =>
-      `<label style="display:flex;gap:8px;align-items:center;padding:6px 11px;border-bottom:1px solid #F0F1F4;cursor:pointer">
-        <input type="checkbox" data-tid="${esc(t.id)}" style="width:auto">
-        <span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">· ${esc(t.lesson)} · ${t.chars || 0} chars</span></span></label>`).join('');
+    const total = _transcripts.length;
+    if (!list.length) {
+      const cShort = esc((course || '').split(':')[0]);
+      $('gSources').innerHTML = `<div class="aa-note" style="padding:10px">No transcripts on <b>${cShort}</b>${lesson ? ' &rsaquo; ' + esc(lesson) : ''} — questions here are written from expert knowledge.${total ? ` <span style="color:#9aa0ae">(${total} transcript${total === 1 ? '' : 's'} exist in this program, attached to other courses.)</span>` : ''}</div>`;
+      return;
+    }
+    $('gSources').innerHTML = `<div class="aa-note" style="padding:6px 10px">${list.length} transcript${list.length === 1 ? '' : 's'} for this scope. Tick specific ones to ground on, or leave all unticked to use them all.</div>`
+      + list.map((t) =>
+      `<label style="display:flex;gap:8px;align-items:center;padding:6px 11px;border-bottom:1px solid #F0F1F4;cursor:pointer"><input type="checkbox" data-tid="${esc(t.id)}" style="width:auto"><span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">&middot; ${esc(t.lesson)} &middot; ${t.chars || 0} chars</span></span></label>`).join('');
   }
 
   // Interactive Track > Course > Lesson > Sub-lesson tree with inline add/remove.
