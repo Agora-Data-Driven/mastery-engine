@@ -116,6 +116,7 @@ import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
 import { deepseekConfigured, listDeepSeekModels } from './lib/deepseek.js';
+import { kimiConfigured, listKimiModels } from './lib/kimi.js';
 import { runMigration } from './lib/migrate.js';
 import {
   checkPassword,
@@ -251,7 +252,7 @@ const BQ_SCOPE = { program: DEFAULT_PROGRAM, courses: [] };
 /** The AI engine the client picked (cookies set by the home-page dropdown). */
 function aiChoice(req) {
   const p = req.cookies?.aiProvider;
-  const provider = ['deepseek', 'ollama', 'lmstudio'].includes(p) ? p : 'gemini';
+  const provider = ['deepseek', 'kimi', 'ollama', 'lmstudio'].includes(p) ? p : 'gemini';
   const model = req.cookies?.aiModel ? decodeURIComponent(req.cookies.aiModel) : undefined;
   // Extended thinking (Gemini): ON unless the user explicitly turned it off, so
   // nothing regresses by default; turning it off trades some depth for speed.
@@ -460,6 +461,8 @@ app.get('/api/models', async (_req, res, next) => {
     const providers = [{ id: 'gemini', label: 'Cloud', models: geminiModels }];
     // DeepSeek (hosted): available whenever an API key is configured.
     if (deepseekConfigured()) providers.push({ id: 'deepseek', label: 'DeepSeek', models: listDeepSeekModels() });
+    // Kimi (hosted): available whenever an API key is configured.
+    if (kimiConfigured()) providers.push({ id: 'kimi', label: 'Kimi', models: listKimiModels() });
     // Local engines only when this server can reach them (i.e. run locally).
     const [ollama, lmstudio] = await Promise.all([listOllamaModels(), listLMStudioModels()]);
     if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
@@ -467,6 +470,7 @@ app.get('/api/models', async (_req, res, next) => {
     res.json({
       providers,
       deepseekAvailable: deepseekConfigured(),
+      kimiAvailable: kimiConfigured(),
       ollamaAvailable: ollama.length > 0,
       lmstudioAvailable: lmstudio.length > 0,
     });
@@ -2609,16 +2613,21 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
       watcherRef: req.body?.watcherRef || null,
     });
 
-    // 3. Queue generation over exactly the chosen topics.
+    // 3. Generation is OPT-IN. By default this just files the transcript + curriculum
+    // rows and stops — attaching material and building questions are separate acts.
+    if (req.body?.generate !== true) {
+      return res.json({ ok: true, generated: false, topics: topics.length });
+    }
     const job = await createGenJob({
       program,
       scope: { track, course, lesson },
       targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
       provider: req.body?.provider || 'deepseek',
       model: req.body?.model || null,
+      instructions: req.body?.instructions || '',
       topics: topics.map((topic) => ({ topic, track, course, lesson })),
     });
-    res.json({ ok: true, job: publicJob(job) });
+    res.json({ ok: true, generated: true, job: publicJob(job) });
   } catch (e) {
     next(e);
   }

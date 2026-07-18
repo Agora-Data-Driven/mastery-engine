@@ -122,6 +122,14 @@ gcloud run deploy mastery-engine `
 #   then add to --set-secrets:  ,DEEPSEEK_API_KEY=DEEPSEEK_API_KEY:latest
 # (optional env: DEEPSEEK_MODEL default deepseek-v4-flash, DEEPSEEK_BASE_URL default https://api.deepseek.com)
 
+# Kimi (optional AI engine, selectable from the "AI model" dropdown). Same secret
+# drill: create it from a file, grant the SA access, redeploy with the secret added.
+# Once present, "Kimi · K2.6/K3" appear in the model picker.
+#   gcloud secrets create KIMI_API_KEY --data-file="C:\path\to\kimi-key.txt"; Remove-Item "C:\path\to\kimi-key.txt"
+#   gcloud secrets add-iam-policy-binding KIMI_API_KEY --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
+#   then add to --set-secrets:  ,KIMI_API_KEY=KIMI_API_KEY:latest
+# (optional env: KIMI_MODEL default kimi-k2.6, KIMI_BASE_URL default https://api.moonshot.ai/v1)
+
 # 5. One-time data import: open the app URL, click "Mastery Mode", sign in,
 #    then run the migration (uses your session cookie):
 #    POST <URL>/api/admin/migrate    (or use the browser console / curl with cookie)
@@ -132,13 +140,13 @@ bank and quiz history imported — confirmed live at the URL above.
 
 ---
 
-## AI engine: cloud (Gemini / DeepSeek) or local (Ollama / LM Studio)
+## AI engine: cloud (Gemini / DeepSeek / Kimi) or local (Ollama / LM Studio)
 
 Every AI feature (flashcards, hints, explanations, question generation, section
 reviews, progress analysis, the LaTeX migration) goes through a single
 dispatcher in `lib/gemini.js` (`complete()` / `completeStream()`), which routes
-to Gemini, DeepSeek, a local [Ollama](https://ollama.com) instance, or a local
-[LM Studio](https://lmstudio.ai) server based on the engine picked in the
+to Gemini, DeepSeek, Kimi, a local [Ollama](https://ollama.com) instance, or a
+local [LM Studio](https://lmstudio.ai) server based on the engine picked in the
 **AI model** dropdown (top of the Mastery setup card). The choice is stored in
 cookies the server reads on each request (`aiProvider` / `aiModel`), so it
 governs flashcards, explanations, and question generation alike.
@@ -151,6 +159,9 @@ governs flashcards, explanations, and question generation alike.
 - **Cloud — DeepSeek:** appears when `DEEPSEEK_API_KEY` is set (see deploy
   runbook). Offers **Chat (V3)** and **Reasoner (R1)** via DeepSeek's
   OpenAI-compatible API (`lib/deepseek.js`).
+- **Cloud — Kimi:** appears when `KIMI_API_KEY` is set (see deploy runbook).
+  Offers **K2.6** (fast, the default) and **K3** (flagship quality) via
+  Moonshot AI's OpenAI-compatible API (`lib/kimi.js`).
 - **Local (Ollama):** only appears when the server can reach a running Ollama
   (`127.0.0.1:11434`).
 - **Local (LM Studio):** only appears when the server can reach LM Studio's
