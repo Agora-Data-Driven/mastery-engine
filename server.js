@@ -2658,6 +2658,7 @@ app.post('/api/admin/genjobs', requireAdmin, async (req, res, next) => {
       provider: req.body?.provider || 'deepseek',
       model: req.body?.model || null,
       instructions: req.body?.instructions || '',
+      transcriptIds: Array.isArray(req.body?.transcriptIds) ? req.body.transcriptIds : [],
       topics,
     });
     res.json({ ok: true, job: publicJob(job) });
