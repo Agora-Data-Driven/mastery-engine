@@ -343,6 +343,7 @@
       ...(kind === 'lesson' ? { lesson: s.lesson } : {}),
       targetPerTopic: Number($('gCount').value) || 5,
       provider: $('gModel').value,
+      instructions: ($('gInstr') && $('gInstr').value) || '',
     };
     $('gStart').disabled = true; show($('gStop'), true); state.stop = false;
     $('gStatus').textContent = 'Queueing…';

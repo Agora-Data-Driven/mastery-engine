@@ -1140,7 +1140,7 @@ app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, 
       .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
 
     const cards = await generateFlashcards(
-      { scopeLabel: flashcardScopeLabel(scope), level: scope.level, topics, questions },
+      { scopeLabel: flashcardScopeLabel(scope), level: scope.level, topics, questions, instructions: req.body?.instructions || '' },
       aiChoice(req),
     );
     if (!cards.length) return res.status(502).json({ error: 'No flashcards were generated; try again' });
@@ -2648,6 +2648,7 @@ app.post('/api/admin/genjobs', requireAdmin, async (req, res, next) => {
       targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 5)),
       provider: req.body?.provider || 'deepseek',
       model: req.body?.model || null,
+      instructions: req.body?.instructions || '',
       topics,
     });
     res.json({ ok: true, job: publicJob(job) });
