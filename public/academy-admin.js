@@ -126,7 +126,7 @@
         <span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">· ${esc(t.lesson)} · ${t.chars || 0} chars</span></span></label>`).join('');
   }
 
-  // Interactive Track › Course › Lesson › Sub-lesson tree with inline add/remove.
+  // Interactive Track > Course > Lesson > Sub-lesson tree with inline add/remove.
   function renderCurriculumTree() {
     const el = $('curTree');
     if (!state.catalog.length) { el.innerHTML = '<div class="aa-note" style="padding:12px">No topics yet — add one above, or paste an outline.</div>'; return; }
@@ -143,25 +143,21 @@
         html += `<div style="padding:4px 10px 2px;font-weight:700;font-size:14px">${esc(course)}</div>`;
         for (const [lesson, topics] of Object.entries(lessons)) {
           const li = lessonRefs.push({ track, course, lesson }) - 1;
-          html += `<div style="padding:3px 10px 3px 22px;display:flex;justify-content:space-between;align-items:center;gap:8px">
-            <span style="font-weight:600;color:#374151;font-size:13px">${esc(lesson)}</span>
-            <button class="btn" data-addtopic="${esc(track)}${esc(course)}${esc(lesson)}" style="padding:1px 8px;font-size:11px">+ sub-lesson</button></div>`;
+          html += `<div style="padding:3px 10px 3px 22px;display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="font-weight:600;color:#374151;font-size:13px">${esc(lesson)}</span><button class="btn" data-li="${li}" style="padding:1px 8px;font-size:11px">+ sub-lesson</button></div>`;
           for (const r of topics) {
-            html += `<div style="padding:1px 10px 1px 38px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px">
-              <span>· ${esc(r.topic)}</span>
-              <button class="btn" data-del="${esc(r.id)}" title="Remove this sub-lesson" style="padding:0 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">✕</button></div>`;
+            html += `<div style="padding:1px 10px 1px 38px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px"><span>&middot; ${esc(r.topic)}</span><button class="btn" data-del="${esc(r.id)}" title="Remove this sub-lesson" style="padding:0 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">&times;</button></div>`;
           }
         }
       }
     }
     el.innerHTML = html;
     el.querySelectorAll('button[data-li]').forEach((b) => { b.onclick = () => {
-      const [track, course, lesson] = b.dataset.addtopic.split('');
+      const ref = lessonRefs[Number(b.dataset.li)];
       const name = window.prompt(`New sub-lesson under "${ref.lesson}":`);
       if (name && name.trim()) addTopicRow(ref.track, ref.course, ref.lesson, name.trim());
     }; });
     el.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => {
-      if (window.confirm('Remove this sub-lesson from the curriculum? (Any banked questions stay — they are keyed by name.)')) delTopicRow(b.dataset.del);
+      if (window.confirm('Remove this sub-lesson from the curriculum? (Banked questions stay, keyed by name.)')) delTopicRow(b.dataset.del);
     }; });
   }
   async function addTopicRow(track, course, lesson, topic) {
