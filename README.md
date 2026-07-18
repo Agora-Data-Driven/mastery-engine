@@ -1,5 +1,10 @@
 # AGORA Mastery Engine
 
+> **How it works, the exact formulas, and the learning-science research behind it:**
+> [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md). That doc is also injected into the in-app Study
+> Assistant, so you can just ask it "what's your mastery formula?" or "what research is this based
+> on?" and get an accurate answer.
+
 A spaced-repetition quiz web app. Formerly a Google Sheet + Apps Script tool
 (`Code.gs` / `index.html`), now a real web app:
 
