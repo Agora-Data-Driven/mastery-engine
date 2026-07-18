@@ -81,9 +81,7 @@
       if (!byLesson.has(key)) byLesson.set(key, []);
       byLesson.get(key).push(r.topic);
     }
-    $('curTree').textContent = byLesson.size
-      ? [...byLesson.entries()].map(([k, v]) => `${k}\n${v.map((t) => '    · ' + t).join('\n')}`).join('\n\n')
-      : 'No topics in this program yet — paste an outline above.';
+    renderCurriculumTree();
 
     // Lesson pickers (transcripts + generation scope) come from the live catalog.
     const lessons = [...byLesson.keys()];
@@ -128,7 +126,64 @@
         <span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">· ${esc(t.lesson)} · ${t.chars || 0} chars</span></span></label>`).join('');
   }
 
+  // Interactive Track › Course › Lesson › Sub-lesson tree with inline add/remove.
+  function renderCurriculumTree() {
+    const el = $('curTree');
+    if (!state.catalog.length) { el.innerHTML = '<div class="aa-note" style="padding:12px">No topics yet — add one above, or paste an outline.</div>'; return; }
+    const tree = {};
+    const lessonRefs = [];
+    for (const r of state.catalog) {
+      ((tree[r.track] ||= {})[r.course] ||= {})[r.lesson] ||= [];
+      tree[r.track][r.course][r.lesson].push(r);
+    }
+    let html = '';
+    for (const [track, courses] of Object.entries(tree)) {
+      html += `<div style="padding:8px 10px 2px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6B7280">${esc(track)}</div>`;
+      for (const [course, lessons] of Object.entries(courses)) {
+        html += `<div style="padding:4px 10px 2px;font-weight:700;font-size:14px">${esc(course)}</div>`;
+        for (const [lesson, topics] of Object.entries(lessons)) {
+          const li = lessonRefs.push({ track, course, lesson }) - 1;
+          html += `<div style="padding:3px 10px 3px 22px;display:flex;justify-content:space-between;align-items:center;gap:8px">
+            <span style="font-weight:600;color:#374151;font-size:13px">${esc(lesson)}</span>
+            <button class="btn" data-addtopic="${esc(track)}${esc(course)}${esc(lesson)}" style="padding:1px 8px;font-size:11px">+ sub-lesson</button></div>`;
+          for (const r of topics) {
+            html += `<div style="padding:1px 10px 1px 38px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px">
+              <span>· ${esc(r.topic)}</span>
+              <button class="btn" data-del="${esc(r.id)}" title="Remove this sub-lesson" style="padding:0 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">✕</button></div>`;
+          }
+        }
+      }
+    }
+    el.innerHTML = html;
+    el.querySelectorAll('button[data-li]').forEach((b) => { b.onclick = () => {
+      const [track, course, lesson] = b.dataset.addtopic.split('');
+      const name = window.prompt(`New sub-lesson under "${ref.lesson}":`);
+      if (name && name.trim()) addTopicRow(ref.track, ref.course, ref.lesson, name.trim());
+    }; });
+    el.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => {
+      if (window.confirm('Remove this sub-lesson from the curriculum? (Any banked questions stay — they are keyed by name.)')) delTopicRow(b.dataset.del);
+    }; });
+  }
+  async function addTopicRow(track, course, lesson, topic) {
+    try { await api('/api/admin/topics', { method: 'POST', body: { program: state.program, track, course, lesson, topic } }); await loadCatalog(); }
+    catch (e) { alert(e.message); }
+  }
+  async function delTopicRow(id) {
+    try { await api('/api/admin/topics/' + encodeURIComponent(id), { method: 'DELETE' }); await loadCatalog(); }
+    catch (e) { alert(e.message); }
+  }
+
   function wireCurriculum() {
+    $('nAdd').onclick = async () => {
+      const track = $('nTrack').value.trim(), course = $('nCourse').value.trim(), lesson = $('nLesson').value.trim(), topic = $('nTopic').value.trim();
+      if (!track || !course || !lesson || !topic) { $('nMsg').innerHTML = '<span class="aa-err">Fill Track, Course, Lesson and Sub-lesson.</span>'; return; }
+      try {
+        await api('/api/admin/topics', { method: 'POST', body: { program: state.program, track, course, lesson, topic } });
+        $('nTopic').value = '';
+        $('nMsg').innerHTML = '<span class="aa-ok">Added.</span>';
+        await loadCatalog();
+      } catch (e) { $('nMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+    };
     $('previewBtn').onclick = async () => {
       $('curMsg').textContent = 'Checking…';
       try {
@@ -410,34 +465,57 @@
 
   /* -------------------------------- generate ------------------------------- */
   function wireGenerate() {
+    $('gCourse').onchange = populateGenLessons;
+    $('gLesson').onchange = populateGenTopics;
+    $('gDoQuestions').onchange = () => show($('gQOpts'), $('gDoQuestions').checked);
     $('gStart').onclick = startJob;
     $('gStop').onclick = () => { state.stop = true; $('gStatus').textContent = 'Stopping after this topic…'; };
   }
 
   async function startJob() {
-    const v = $('gScope').value;
-    if (!v) return;
-    const [kind, rest] = v.split('::');
-    const s = scopeParts(rest);
-    const body = {
-      program: state.program, track: s.track, course: s.course,
-      ...(kind === 'lesson' ? { lesson: s.lesson } : {}),
-      targetPerTopic: Number($('gCount').value) || 5,
-      provider: $('gModel').value,
-      instructions: ($('gInstr') && $('gInstr').value) || '',
-    };
-    $('gStart').disabled = true; show($('gStop'), true); state.stop = false;
-    $('gStatus').textContent = 'Queueing…';
+    const course = $('gCourse').value;
+    if (!course) { $('gStatus').innerHTML = '<span class="aa-err">Pick a course.</span>'; return; }
+    const lesson = $('gLesson').value || '';
+    const topic = $('gTopic').value || '';
+    const doQ = $('gDoQuestions').checked, doC = $('gDoCards').checked;
+    if (!doQ && !doC) { $('gStatus').innerHTML = '<span class="aa-err">Pick Questions and/or Flashcards.</span>'; return; }
+    const track = trackOf(course);
+    const transcriptIds = [...$('gSources').querySelectorAll('input[data-tid]:checked')].map((c) => c.dataset.tid);
+
+    $('gStart').disabled = true; state.stop = false; $('gStatus').textContent = 'Starting…';
     try {
-      const { job } = await api('/api/admin/genjobs', { method: 'POST', body });
-      state.job = job;
-      await runSteps(job.id);
+      if (doC) {
+        // Flashcards: one deck for the chosen scope (course/lesson/topic level).
+        $('gStatus').textContent = 'Building flashcards…';
+        const level = topic ? 'topic' : lesson ? 'lesson' : 'course';
+        const r = await api('/api/flashcards/generate', {
+          method: 'POST',
+          body: { program: state.program, track, course, lesson, topic, level, instructions: ($('gInstr') && $('gInstr').value) || '' },
+        });
+        $('gStatus').innerHTML = `<span class="aa-ok">${(r.cards || []).length} flashcards built.</span>`;
+      }
+      if (doQ) {
+        show($('gStop'), true);
+        $('gStatus').textContent = 'Queueing questions…';
+        const { job } = await api('/api/admin/genjobs', {
+          method: 'POST',
+          body: {
+            program: state.program, track, course, ...(lesson ? { lesson } : {}), ...(topic ? { topic } : {}),
+            targetPerTopic: Number($('gCount').value) || 5,
+            provider: $('gModel').value,
+            instructions: ($('gInstr') && $('gInstr').value) || '',
+            transcriptIds,
+          },
+        });
+        state.job = job;
+        await runSteps(job.id);
+        await loadJobs();
+      }
+      await loadCatalog();
     } catch (e) {
       $('gStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
     }
     $('gStart').disabled = false; show($('gStop'), false);
-    await loadJobs();
-    await loadCatalog();
   }
 
   /* Drive the stepper. One topic per request — see lib/genjobs.js for why the

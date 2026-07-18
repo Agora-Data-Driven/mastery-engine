@@ -429,6 +429,7 @@ app.get('/api/catalog', async (req, res, next) => {
     const catalog = await getCatalog(optionalUser(req), await requestScope(req));
     res.json(
       catalog.map((t) => ({
+        id: t.id,
         track: t.track,
         course: t.course,
         lesson: t.lesson,
