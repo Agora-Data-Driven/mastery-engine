@@ -1749,10 +1749,12 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const conversationId = req.body?.conversationId ? String(req.body.conversationId) : '';
     // Voice conversation mode: the answer will be read aloud, so ask for spoken-style prose.
     const conversational = !!req.body?.conversational;
+    // Web access: Google Search grounding (Gemini only — ignored for other providers downstream).
+    const search = !!req.body?.web;
 
     const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
     const history = existing ? existing.messages : [];
-    const out = await generateAssistantChat({ context, history, message, conversational }, aiChoice(req));
+    const out = await generateAssistantChat({ context, history, message, conversational, search }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);

@@ -3072,6 +3072,8 @@ const App = (() => {
           conversationId: assistant.activeId || undefined,
           // Ask for a spoken-style, markdown-free answer when we're going to read it aloud.
           conversational: inConvo || undefined,
+          // Let the assistant search the web (Gemini-grounded) when the user enabled it.
+          web: webAccessOn() || undefined,
         }),
       });
       if (ac && convo.abort === ac) convo.abort = null;
@@ -4637,6 +4639,11 @@ const App = (() => {
 
   function convoSupported() { return !!SR && !!window.speechSynthesis; }
   function convoOn() { return convoSupported() && localStorage.getItem('assistant.convoMode') === '1'; }
+
+  // Web access (Google Search grounding) — applies to any assistant chat, not just voice. Gemini-only
+  // server-side; harmless to request on other providers (it's ignored). Persisted, default off.
+  function webAccessOn() { return localStorage.getItem('assistant.web') === '1'; }
+  function onWebAccessChange(chk) { localStorage.setItem('assistant.web', chk && chk.checked ? '1' : '0'); }
   function convoActive() { return convoOn() && !$('assistantPanel')?.classList.contains('hidden'); }
   function assistantMicBtn() { return document.querySelector('#assistantPanel .chat-input .me-mic'); }
 
@@ -4746,6 +4753,8 @@ const App = (() => {
     const vwrap = $('asstVoiceWrap');
     if (vwrap) vwrap.style.display = supported ? '' : 'none';
     if (supported) loadConvoVoices();
+    const webChk = $('asstWebChk');
+    if (webChk) webChk.checked = webAccessOn();
   }
 
   function toggleConvoMode(chk) {
@@ -4873,7 +4882,7 @@ const App = (() => {
   }
 
   return {
-    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange,
+    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onWebAccessChange,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceMlTopics,
