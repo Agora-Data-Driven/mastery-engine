@@ -146,8 +146,8 @@
       for (const [course, lessons] of Object.entries(courses)) {
         html += `<div style="padding:4px 10px 2px;font-weight:700;font-size:14px">${esc(course)}</div>`;
         for (const [lesson, topics] of Object.entries(lessons)) {
-          const li = lessonRefs.push({ track, course, lesson }) - 1;
-          html += `<div style="padding:3px 10px 3px 22px;display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="font-weight:600;color:#374151;font-size:13px">${esc(lesson)}</span><button class="btn" data-li="${li}" style="padding:1px 8px;font-size:11px">+ sub-lesson</button></div>`;
+          const li = lessonRefs.push({ track, course, lesson, ids: topics.map((r) => r.id) }) - 1;
+          html += `<div style="padding:3px 10px 3px 22px;display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="font-weight:600;color:#374151;font-size:13px">${esc(lesson)}</span><span style="display:flex;gap:6px"><button class="btn" data-li="${li}" style="padding:1px 8px;font-size:11px">+ sub-lesson</button><button class="btn" data-dellesson="${li}" title="Delete this whole lesson and its sub-lessons" style="padding:1px 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">&times;</button></span></div>`;
           for (const r of topics) {
             html += `<div style="padding:1px 10px 1px 38px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px"><span>&middot; ${esc(r.topic)}</span><button class="btn" data-del="${esc(r.id)}" title="Remove this sub-lesson" style="padding:0 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">&times;</button></div>`;
           }
@@ -163,6 +163,16 @@
     el.querySelectorAll('button[data-del]').forEach((b) => { b.onclick = () => {
       if (window.confirm('Remove this sub-lesson from the curriculum? (Banked questions stay, keyed by name.)')) delTopicRow(b.dataset.del);
     }; });
+    el.querySelectorAll('button[data-dellesson]').forEach((b) => { b.onclick = () => {
+      const ref = lessonRefs[Number(b.dataset.dellesson)];
+      if (window.confirm(`Delete the whole lesson "${ref.lesson}" and all ${ref.ids.length} sub-lesson(s)? (Banked questions stay, keyed by name.)`)) delLessonRows(ref.ids);
+    }; });
+  }
+  async function delLessonRows(ids) {
+    try {
+      for (const id of ids) await api('/api/admin/topics/' + encodeURIComponent(id), { method: 'DELETE' });
+      await loadCatalog();
+    } catch (e) { alert(e.message); }
   }
   async function addTopicRow(track, course, lesson, topic) {
     try { await api('/api/admin/topics', { method: 'POST', body: { program: state.program, track, course, lesson, topic } }); await loadCatalog(); }

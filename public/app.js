@@ -1130,25 +1130,22 @@ const App = (() => {
     </div>`;
   }
 
-  // The three action groups (root / Learn / AI Support) are identical at every
-  // level, so build them once.
+  // One action group behind an "AI Support ▸" entry: Quiz, Cards (where the
+  // course has decks) and Review all live under it. The root shows just the
+  // entry button so rows stay compact; ‹ collapses back. Identical at every
+  // level, so build it once.
   function progActionsHtml(level, scope) {
     return `<div class="prog-actions" data-menu="root">
           <div class="menu-group root">
-            <button class="prog-btn learn" data-action="learn" title="Quiz or study cards for this section">Learn ▸</button>
-            <button class="prog-btn ai" data-action="ai" title="AI review or chat for this section">AI Support ▸</button>
+            <button class="prog-btn ai" data-action="ai" title="Quiz, study cards or AI review for this section">AI Support ▸</button>
           </div>
-          <div class="menu-group learn">
+          <div class="menu-group ai">
             <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
             <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
             ${level >= 1 && flashcardsEnabled(scope.course)
               ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
               : ''}
-          </div>
-          <div class="menu-group ai">
-            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
             <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
-            <button class="prog-btn chat" data-action="chat" title="Chat about this section: reads its cards & questions">Chat</button>
           </div>
         </div>`;
   }
@@ -2618,55 +2615,6 @@ const App = (() => {
     typeset(el.lastElementChild);
     el.scrollTop = el.scrollHeight;
     return el.lastElementChild;
-  }
-
-  /* ---- Scope chat: reads a section's cards + questions (AI Support) ------ */
-  let scopeChat = { scope: null, label: '' };
-
-  async function openScopeChat(scope, label) {
-    if (!state.authed) { showLogin(); return; }
-    scopeChat = { scope, label: label || scope.course || scope.track || 'Section' };
-    $('chatTitle').textContent = 'Chat: ' + scopeChat.label;
-    const log = $('scopeChatLog');
-    log.innerHTML = '<div class="chat-empty">Loading…</div>';
-    show('chatModal');
-    $('scopeChatInput').focus();
-    try {
-      const p = new URLSearchParams();
-      for (const k of ['track', 'course', 'lesson']) if (scope[k]) p.set(k, scope[k]);
-      const r = await api('/api/chat?' + p.toString());
-      renderChatLog(log, r.messages);
-    } catch (e) {
-      log.innerHTML = '<div class="chat-empty">Could not load chat: ' + esc(e.message) + '</div>';
-    }
-  }
-
-  function closeScopeChat() { hide('chatModal'); }
-
-  async function sendScopeChat() {
-    const input = $('scopeChatInput');
-    const msg = input.value.trim();
-    if (!msg || !scopeChat.scope) return;
-    const log = $('scopeChatLog');
-    const send = $('scopeChatSend');
-    input.value = '';
-    appendBubble(log, 'user', msg);
-    const thinking = appendBubble(log, 'assistant', 'Thinking…');
-    thinking.classList.add('thinking');
-    send.disabled = true;
-    try {
-      const r = await api('/api/chat', {
-        method: 'POST', body: JSON.stringify({ ...scopeChat.scope, message: msg }),
-      });
-      thinking.remove();
-      appendBubble(log, 'assistant', r.reply, r.visual);
-    } catch (e) {
-      thinking.remove();
-      appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
-    } finally {
-      send.disabled = false;
-      input.focus();
-    }
   }
 
   /* -------------------- Card visuals: safe function plots ----------------- */
@@ -4579,13 +4527,12 @@ const App = (() => {
         const scope = nodeScope(node);
         const act = actionBtn.dataset.action;
         const menu = actionBtn.closest('.prog-actions');
-        // Two-level menu: Learn / AI Support open a sub-menu; ‹ goes back.
-        if (act === 'learn' || act === 'ai') { if (menu) menu.dataset.menu = act; return; }
+        // AI Support opens the action group; ‹ goes back to the compact row.
+        if (act === 'ai') { if (menu) menu.dataset.menu = act; return; }
         if (act === 'back') { if (menu) menu.dataset.menu = 'root'; return; }
         if (act === 'quiz') quizFromScope(scope);
         else if (act === 'review') reviewFromScope(scope, node.dataset.label);
         else if (act === 'cards') openFlashcards(scope, node.dataset.label);
-        else if (act === 'chat') openScopeChat(scope, node.dataset.label);
         return; // don't also toggle the row
       }
       const row = e.target.closest('.prog-row');
@@ -4899,7 +4846,6 @@ const App = (() => {
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openSpeaker, closeSpeaker, toggleSpeaking, gradeSpeaking, toggleSpeakerType,
     restartSpeaking, speakerNextCard, readAssessment,
-    openScopeChat, closeScopeChat, sendScopeChat,
     toggleAssistant, sendAssistant, newAssistantChat, deleteAssistantChat,
     toggleAssistantHistory, openAssistantChatById, toggleAssistantSettings,
     toggleCostDetail, msClear,
