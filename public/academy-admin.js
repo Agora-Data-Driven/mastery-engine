@@ -24,6 +24,7 @@
     watcher: { client: '', channel: '', video: null, title: '' },
     job: null, stop: false,
     ingest: null, stopIngest: false, // the AI auto-file proposal + its run
+    goal: null, stopGoal: false, // the "learn a goal" plan + its run
   };
 
   /* ------------------------------- bootstrap ------------------------------- */
@@ -48,6 +49,7 @@
     wireCurriculum();
     wireTranscripts();
     wireIngest();
+    wireGoalPlan();
     wireGenerate();
     wirePeople();
     refreshAll();
@@ -75,18 +77,7 @@
   async function loadCatalog() {
     state.catalog = await api('/api/catalog?' + q());
     $('curCount').textContent = `— ${state.catalog.length} topic${state.catalog.length === 1 ? '' : 's'}`;
-    const byLesson = new Map();
-    for (const r of state.catalog) {
-      const key = [r.track, r.course, r.lesson].join(' > ');
-      if (!byLesson.has(key)) byLesson.set(key, []);
-      byLesson.get(key).push(r.topic);
-    }
     renderCurriculumTree();
-
-    // Lesson pickers (transcripts + generation scope) come from the live catalog.
-    const lessons = [...byLesson.keys()];
-    const opts = lessons.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
-    $('tScope').innerHTML = opts || '<option value="">(no lessons yet)</option>';
     populateGenerate();
   }
 
@@ -221,8 +212,6 @@
   }
 
   /* ------------------------------- transcripts ----------------------------- */
-  const scopeParts = (v) => { const [track, course, lesson] = String(v || '').split(' > '); return { track, course, lesson }; };
-
   let _transcripts = [];
   async function loadTranscripts() {
     try {
@@ -263,31 +252,6 @@
 
   function wireTranscripts() {
     if ($('tSearch')) $('tSearch').oninput = renderTranscriptList;
-    $('tFile').onchange = async () => {
-      const f = $('tFile').files[0];
-      if (!f) return;
-      let text = await f.text();
-      // Strip WebVTT/SRT timing so the model sees prose, not timestamps.
-      text = text.replace(/^WEBVTT.*$/gm, '')
-        .replace(/^\d+$/gm, '')
-        .replace(/^[\d:.,]+\s*-->\s*[\d:.,]+.*$/gm, '')
-        .replace(/\n{3,}/g, '\n\n').trim();
-      $('tText').value = text;
-      if (!$('tTitle').value) $('tTitle').value = f.name.replace(/\.[^.]+$/, '');
-    };
-    $('tSave').onclick = async () => {
-      $('tMsg').textContent = 'Saving…';
-      try {
-        const s = scopeParts($('tScope').value);
-        await api('/api/admin/transcripts', {
-          method: 'POST',
-          body: { program: state.program, ...s, title: $('tTitle').value || 'Untitled', text: $('tText').value, source: 'paste' },
-        });
-        $('tMsg').innerHTML = '<span class="aa-ok">Attached.</span>';
-        $('tText').value = ''; $('tTitle').value = '';
-        await loadTranscripts();
-      } catch (e) { $('tMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
-    };
     loadWatcherClients();
     // "Use this video": hand the selection to the auto-file box above. The heavy
     // transcript text is only fetched server-side when Analyze runs, so nothing
@@ -349,8 +313,8 @@
     .replace(/\n{3,}/g, '\n\n').trim();
 
   const badge = (isNew) => isNew
-    ? '<span style="color:#2E7D32;font-weight:700;font-size:12px">new</span>'
-    : '<span class="aa-note" style="font-size:12px">existing</span>';
+    ? '<span class="aa-badge-new">new</span>'
+    : '<span class="aa-badge-old">existing</span>';
 
   // Offer the Track/Course/Lesson that already exist, cascading by what's filled
   // in above. Typing anything not on the list still works — that's a new one.
@@ -379,21 +343,99 @@
   function renderIngestTopics() {
     const rows = (state.ingest && state.ingest.topicRows) || [];
     $('iTopics').innerHTML = rows.length
-      ? rows.map((r, i) => `<label style="display:flex;gap:8px;align-items:center;padding:4px 0">
+      ? rows.map((r, i) => `<label>
           <input type="checkbox" data-i="${i}" ${r.on ? 'checked' : ''} />
           <span>${esc(r.topic)}</span> ${badge(r.isNew)}
         </label>`).join('')
-      : '<span class="aa-note">No topics — add one below.</span>';
+      : '<span class="aa-note" style="padding:6px 8px;display:block">No topics yet — add the ones this material should build questions for, or leave empty to just file the transcript.</span>';
     $('iTopics').querySelectorAll('input[data-i]').forEach((cb) => {
-      cb.onchange = () => { state.ingest.topicRows[Number(cb.dataset.i)].on = cb.checked; };
+      cb.onchange = () => { if (state.ingest) state.ingest.topicRows[Number(cb.dataset.i)].on = cb.checked; };
     });
+  }
+
+  // Reset the "generate now" toggle so its state can't leak when the SAME review box
+  // is reopened by the other path (AI ↔ manual).
+  function resetGenerateToggle() {
+    if ($('iGenerate')) $('iGenerate').checked = false;
+    show($('iGenOpts'), false);
+    $('iCommit').textContent = 'Attach to Academy';
+  }
+
+  // Snap a typed Track/Course/Lesson to the catalog's canonical casing when it matches
+  // case-insensitively (scoped: course under its track, lesson under its course), so a
+  // case/whitespace variant doesn't fork a row or file a transcript the exact-match
+  // Generate tab won't surface.
+  function canonicalScope(track, course, lesson) {
+    const cat = state.catalog || [];
+    const ci = (a, b) => String(a || '').toLowerCase() === String(b || '').toLowerCase();
+    const t = (cat.find((r) => ci(track, r.track)) || {}).track || track;
+    const c = (cat.find((r) => ci(t, r.track) && ci(course, r.course)) || {}).course || course;
+    const l = (cat.find((r) => ci(t, r.track) && ci(c, r.course) && ci(lesson, r.lesson)) || {}).lesson || lesson;
+    return { track: t, course: c, lesson: l };
+  }
+
+  // The topics label reads differently for AI vs manual placement (manual can file
+  // with zero topics; AI always proposes some).
+  function setIngestTopicsLabel(manual) {
+    $('iTopicsLabel').innerHTML = manual
+      ? 'Topics <span class="aa-note">(optional — add topics to build questions for, or leave empty to just file it)</span>'
+      : 'Topics to build <span class="aa-note">(uncheck to skip; “new” = created)</span>';
+  }
+
+  // Manual placement: skip the AI router and open the SAME review box blank, for the
+  // admin to assign Track/Course/Lesson themselves (datalists still offer existing
+  // names) and add topics — or none, to just file the transcript.
+  function openManualPlacement() {
+    const text = $('iText').value.trim();
+    if (!text) {
+      $('iMsg').innerHTML = '<span class="aa-err">Paste a transcript (or load a file) to place it yourself. To pull a Watcher video’s transcript, use “Analyze &amp; place with AI”.</span>';
+      return;
+    }
+    state.ingest = {
+      program: state.program, text, title: $('iTitle').value.trim(),
+      source: 'paste', watcherRef: null, manual: true, topicRows: [],
+    };
+    $('iTrack').value = ''; $('iCourse').value = ''; $('iLesson').value = '';
+    $('iTrackNew').innerHTML = ''; $('iCourseNew').innerHTML = ''; $('iLessonNew').innerHTML = '';
+    populateIngestLists();
+    $('iSummary').innerHTML = `Manual placement · choose where this goes below. <span class="aa-note">· ${text.length} chars</span>`;
+    setIngestTopicsLabel(true);
+    show($('iPullTopics'), true);
+    resetGenerateToggle();
+    renderIngestTopics();
+    $('iBar').style.width = '0%';
+    $('iStatus').textContent = '';
+    $('iCommitMsg').textContent = '';
+    show($('iPlanBox'), true);
+    $('iMsg').textContent = '';
+    $('iTrack').focus();
+  }
+
+  // Convenience for manual placement: if the chosen Track/Course/Lesson matches an
+  // existing lesson, offer its current topics (unchecked) so the admin can reinforce
+  // them without retyping. Preserves any topics the admin already added by hand.
+  function autoloadLessonTopics() {
+    if (!state.ingest) return;
+    const cat = state.catalog || [];
+    const track = $('iTrack').value.trim(), course = $('iCourse').value.trim(), lesson = $('iLesson').value.trim();
+    if (!track || !course || !lesson) { $('iCommitMsg').innerHTML = '<span class="aa-err">Fill in Track, Course and Lesson first.</span>'; return; }
+    const existing = [...new Set(cat.filter((r) => (r.track || '') === track && (r.course || '') === course && (r.lesson || '') === lesson)
+      .map((r) => r.topic).filter(Boolean))];
+    if (!existing.length) { $('iCommitMsg').innerHTML = '<span class="aa-note">That lesson has no topics yet — add your own below.</span>'; return; }
+    const userAdded = (state.ingest.topicRows || []).filter((t) => t.isNew);
+    const names = new Set(existing.map((n) => n.toLowerCase()));
+    const rows = existing.map((topic) => ({ topic, isNew: false, on: false }));
+    for (const u of userAdded) if (!names.has(u.topic.toLowerCase())) rows.push(u);
+    state.ingest.topicRows = rows;
+    renderIngestTopics();
+    $('iCommitMsg').textContent = '';
   }
 
   function renderPlan(data) {
     // Everything /commit needs, kept exactly as the AI proposed + the admin approves.
     state.ingest = {
       program: data.program, text: data.text, title: data.title,
-      source: data.source, watcherRef: data.watcherRef,
+      source: data.source, watcherRef: data.watcherRef, manual: false,
       topicRows: (data.topics || []).map((t) => ({ topic: t.topic, isNew: t.isNew, on: true })),
     };
     $('iTitle').value = data.title || '';
@@ -405,7 +447,10 @@
     $('iCourseNew').innerHTML = badge(pl.courseIsNew);
     $('iLessonNew').innerHTML = badge(pl.lessonIsNew);
     populateIngestLists();
-    $('iSummary').innerHTML = `${esc(data.summary || '')} <span class="aa-note">· ${data.chars} chars · source: ${esc(data.source)}</span>`;
+    $('iSummary').innerHTML = `<b>AI placement</b> · ${esc(data.summary || '')} <span class="aa-note">· ${data.chars} chars · source: ${esc(data.source)}</span>`;
+    setIngestTopicsLabel(false);
+    show($('iPullTopics'), false);
+    resetGenerateToggle();
     renderIngestTopics();
     $('iBar').style.width = '0%';
     $('iStatus').textContent = '';
@@ -418,11 +463,20 @@
       const f = $('iFile').files[0];
       if (!f) return;
       $('iText').value = stripTiming(await f.text());
-      state.ingest = null; // a fresh paste supersedes any picked Watcher video
+      $('iFileName').textContent = f.name;
+      // Fresh file content supersedes any in-progress plan/manual placement: drop it
+      // and close the review box so its (now stale) state can't be committed.
+      state.ingest = null;
+      show($('iPlanBox'), false);
+      $('iMsg').textContent = '';
       if (!$('iTitle').value) $('iTitle').value = f.name.replace(/\.[^.]+$/, '');
     };
     // Typing/pasting into the box means "use this text", not the Watcher pick.
     $('iText').oninput = () => { if ($('iText').value.trim() && state.ingest && state.ingest.source === 'watcher') state.ingest = null; };
+
+    // "Place it myself": skip the AI call, open the review box for manual assignment.
+    $('iManual').onclick = openManualPlacement;
+    $('iPullTopics').onclick = autoloadLessonTopics;
 
     $('iPlan').onclick = async () => {
       const text = $('iText').value.trim();
@@ -467,19 +521,33 @@
 
     $('iCommit').onclick = async () => {
       if (!state.ingest) return;
+      let track = $('iTrack').value.trim(), course = $('iCourse').value.trim(), lesson = $('iLesson').value.trim();
+      if (!track || !course || !lesson) { $('iCommitMsg').innerHTML = '<span class="aa-err">Fill in Track, Course and Lesson.</span>'; return; }
+      ({ track, course, lesson } = canonicalScope(track, course, lesson));
       const topics = state.ingest.topicRows.filter((r) => r.on).map((r) => r.topic);
-      if (!topics.length) { $('iCommitMsg').innerHTML = '<span class="aa-err">Pick at least one topic.</span>'; return; }
       const generate = !!($('iGenerate') && $('iGenerate').checked);
+      // Topics are only required when generating — otherwise this just files the transcript.
+      if (generate && !topics.length) { $('iCommitMsg').innerHTML = '<span class="aa-err">Pick at least one topic to build questions for.</span>'; return; }
+      // A brand-new lesson needs at least one topic, or it gets no catalog row and the
+      // transcript is orphaned (invisible to the curriculum tree + Generate tab).
+      const lessonExists = (state.catalog || []).some((r) => (r.track || '') === track && (r.course || '') === course && (r.lesson || '') === lesson);
+      if (!topics.length && !lessonExists) {
+        $('iCommitMsg').innerHTML = '<span class="aa-err">A new lesson needs at least one topic so it shows in the curriculum. Add a topic above, or file this to an existing lesson.</span>';
+        return;
+      }
       $('iCommit').disabled = true;
       state.stopIngest = false;
       $('iCommitMsg').textContent = generate ? 'Filing the material, then generating…' : 'Filing the transcript and curriculum…';
+      // Watcher picks carry server-fetched text (the box is empty); paste/manual use the
+      // live textarea so any edits made after opening the review box are honoured.
+      const text = state.ingest.source === 'watcher' ? state.ingest.text : ($('iText').value.trim() || state.ingest.text);
       try {
         const { job, generated } = await api('/api/admin/ingest/commit', {
           method: 'POST',
           body: {
             program: state.ingest.program || state.program,
-            track: $('iTrack').value.trim(), course: $('iCourse').value.trim(), lesson: $('iLesson').value.trim(),
-            topics, text: state.ingest.text, title: $('iTitle').value,
+            track, course, lesson,
+            topics, text, title: $('iTitle').value,
             source: state.ingest.source, watcherRef: state.ingest.watcherRef,
             generate,
             targetPerTopic: Number($('iCount').value) || 6,
@@ -490,11 +558,13 @@
           await runSteps(job.id, { bar: 'iBar', status: 'iStatus' }, 'stopIngest');
           $('iCommitMsg').innerHTML = '<span class="aa-ok">Done — transcript filed and questions added.</span>';
         } else {
-          $('iCommitMsg').innerHTML = '<span class="aa-ok">Attached — transcript and curriculum saved (no questions generated).</span>';
+          $('iCommitMsg').innerHTML = topics.length
+            ? '<span class="aa-ok">Attached — transcript and curriculum saved (no questions generated).</span>'
+            : '<span class="aa-ok">Attached — transcript filed to that lesson.</span>';
         }
         show($('iPlanBox'), false);
-        $('iText').value = ''; $('iTitle').value = ''; state.ingest = null;
-        if ($('iGenerate')) { $('iGenerate').checked = false; show($('iGenOpts'), false); $('iCommit').textContent = 'Attach to Academy'; }
+        $('iText').value = ''; $('iTitle').value = ''; $('iFileName').textContent = ''; state.ingest = null;
+        resetGenerateToggle();
         await loadCatalog();
         await loadTranscripts();
       } catch (e) {
@@ -502,6 +572,152 @@
       }
       $('iCommit').disabled = false;
     };
+  }
+
+  /* ----------------------- learn a goal (AI module) ------------------------ */
+  // Recompute the new/existing badges on the plan's track/course as the admin edits.
+  function refreshGoalBadges() {
+    const cat = state.catalog || [];
+    const has = (field, val) => !!val && cat.some((r) => (r[field] || '').toLowerCase() === val.toLowerCase());
+    $('gpTrackNew').innerHTML = badge(!has('track', $('gpTrack').value.trim()));
+    $('gpCourseNew').innerHTML = badge(!has('course', $('gpCourse').value.trim()));
+  }
+  function populateGoalLists() {
+    const cat = state.catalog || [];
+    const track = $('gpTrack').value.trim().toLowerCase();
+    fillList('gpTrackList', cat.map((r) => r.track));
+    fillList('gpCourseList', cat.filter((r) => !track || (r.track || '').toLowerCase() === track).map((r) => r.course));
+  }
+
+  function renderGoalLessons() {
+    const lessons = (state.goal && state.goal.lessons) || [];
+    $('gpLessons').innerHTML = lessons.length
+      ? lessons.map((l, li) => `
+        <div style="margin:0 0 10px;padding:8px 10px;border:1px solid #E7E8EE;border-radius:8px">
+          <div style="font-weight:700;margin-bottom:2px">${esc(l.lesson)} ${badge(l.isNew)}</div>
+          ${l.rationale ? `<div class="aa-note" style="margin-bottom:6px">${esc(l.rationale)}</div>` : ''}
+          ${l.topics.map((t, ti) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0">
+            <input type="checkbox" data-li="${li}" data-ti="${ti}" ${t.on ? 'checked' : ''} />
+            <span>${esc(t.topic)}</span> ${badge(t.isNew)}
+          </label>`).join('')}
+        </div>`).join('')
+      : '<span class="aa-note">No lessons — try drafting again.</span>';
+    $('gpLessons').querySelectorAll('input[data-li]').forEach((cb) => {
+      cb.onchange = () => { state.goal.lessons[Number(cb.dataset.li)].topics[Number(cb.dataset.ti)].on = cb.checked; };
+    });
+  }
+
+  function renderGoalPlan(data) {
+    state.goal = {
+      program: data.program, goal: $('gpGoal').value.trim(), reference: data.reference || '',
+      assumedKnowledge: data.assumedKnowledge || [],
+      lessons: (data.lessons || []).map((l) => ({
+        lesson: l.lesson, rationale: l.rationale, isNew: l.lessonIsNew,
+        topics: (l.topics || []).map((t) => ({ topic: t.topic, isNew: t.isNew, on: true })),
+      })),
+    };
+    $('gpTrack').value = data.track || '';
+    $('gpCourse').value = data.course || '';
+    $('gpTrackNew').innerHTML = badge(data.trackIsNew);
+    $('gpCourseNew').innerHTML = badge(data.courseIsNew);
+    populateGoalLists();
+    const assumed = data.assumedKnowledge || [];
+    show($('gpAssumedWrap'), assumed.length > 0);
+    $('gpAssumed').innerHTML = assumed
+      .map((a) => `<span class="aa-note" style="background:#EEF0F6;border-radius:12px;padding:2px 10px">${esc(a)}</span>`).join('');
+    const topicCount = state.goal.lessons.reduce((n, l) => n + l.topics.length, 0);
+    $('gpSummary').innerHTML = `${esc(data.summary || '')} <span class="aa-note">· ${state.goal.lessons.length} lessons · ${topicCount} topics</span>`;
+    renderGoalLessons();
+    $('gpBar').style.width = '0%';
+    $('gpStatus').textContent = '';
+    $('gpCommitMsg').textContent = '';
+    show($('gpPlanBox'), true);
+  }
+
+  function wireGoalPlan() {
+    $('gpTrack').oninput = () => { populateGoalLists(); refreshGoalBadges(); };
+    $('gpCourse').oninput = refreshGoalBadges;
+    $('gpStop').onclick = () => { state.stopGoal = true; $('gpStatus').textContent = 'Stopping after this topic…'; };
+
+    $('gpDraft').onclick = async () => {
+      const goal = $('gpGoal').value.trim();
+      if (!goal) { $('gpMsg').innerHTML = '<span class="aa-err">Describe what you want to learn first.</span>'; return; }
+      $('gpDraft').disabled = true;
+      $('gpMsg').textContent = 'Reading your progress and drafting a plan…';
+      try {
+        const data = await api('/api/admin/goal/plan', {
+          method: 'POST',
+          body: { program: state.program, goal, reference: $('gpRef').value.trim(), provider: $('gpModel').value },
+        });
+        renderGoalPlan(data);
+        $('gpMsg').innerHTML = '<span class="aa-ok">Here is your plan — review, then add it.</span>';
+      } catch (e) {
+        $('gpMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+      }
+      $('gpDraft').disabled = false;
+    };
+
+    $('gpCommit').onclick = async () => {
+      if (!state.goal) return;
+      const lessons = state.goal.lessons
+        .map((l) => ({ lesson: l.lesson, topics: l.topics.filter((t) => t.on).map((t) => t.topic) }))
+        .filter((l) => l.topics.length);
+      if (!lessons.length) { $('gpCommitMsg').innerHTML = '<span class="aa-err">Pick at least one topic.</span>'; return; }
+      const buildCards = $('gpCards').checked;
+      $('gpCommit').disabled = true; state.stopGoal = false; show($('gpStop'), true);
+      $('gpCommitMsg').textContent = 'Writing lessons and generating…';
+      try {
+        const res = await api('/api/admin/goal/commit', {
+          method: 'POST',
+          body: {
+            program: state.goal.program || state.program,
+            track: $('gpTrack').value.trim(), course: $('gpCourse').value.trim(),
+            goal: state.goal.goal, reference: state.goal.reference,
+            assumedKnowledge: state.goal.assumedKnowledge,
+            lessons, buildCards,
+            provider: $('gpModel').value,
+            targetPerTopic: Number($('gpCount').value) || 6,
+          },
+        });
+        if (res.job) {
+          $('gpCommitMsg').innerHTML = '<span class="aa-ok">Module created. Generating questions…</span>';
+          await runSteps(res.job.id, { bar: 'gpBar', status: 'gpStatus' }, 'stopGoal');
+        }
+        if (buildCards && !state.stopGoal && res.lessons) await buildGoalCards(res.lessons);
+        $('gpCommitMsg').innerHTML = state.stopGoal
+          ? '<span class="aa-ok">Stopped — what generated so far is saved. Press Add to Academy to resume.</span>'
+          : '<span class="aa-ok">Done — module added with lessons, questions and flashcards.</span>';
+        if (!state.stopGoal) {
+          show($('gpPlanBox'), false);
+          $('gpGoal').value = ''; $('gpRef').value = ''; state.goal = null;
+        }
+        await loadCatalog();
+        await loadTranscripts();
+      } catch (e) {
+        $('gpCommitMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+      }
+      $('gpCommit').disabled = false; show($('gpStop'), false);
+    };
+  }
+
+  // Build one flashcard deck per lesson of a freshly-committed module. Best-effort:
+  // a deck that fails doesn't abort the rest (the module + questions already exist).
+  async function buildGoalCards(lessons) {
+    const assume = (state.goal && state.goal.assumedKnowledge) || [];
+    const instructions = assume.length ? `The learner already knows: ${assume.join(', ')}. Teach only the delta.` : '';
+    let done = 0;
+    for (const l of lessons) {
+      if (state.stopGoal) return;
+      $('gpStatus').textContent = `Building flashcards… (${done}/${lessons.length} lessons)`;
+      try {
+        await api('/api/flashcards/generate', {
+          method: 'POST',
+          body: { program: state.program, track: l.track, course: l.course, lesson: l.lesson, level: 'lesson', instructions },
+        });
+      } catch (e) { /* keep going; cards are a bonus layer over the questions */ }
+      done += 1;
+    }
+    $('gpStatus').textContent = `Flashcards built for ${done} lesson${done === 1 ? '' : 's'}.`;
   }
 
   /* -------------------------------- generate ------------------------------- */

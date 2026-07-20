@@ -105,6 +105,8 @@ import {
   generateTopicLinks,
   generateTopicOrder,
   classifyTranscript,
+  planCurriculum,
+  writeLessonBrief,
   latexifyQuestions,
   reformatFlashcards,
   editFlashcard,
@@ -2606,8 +2608,10 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
       .map((t) => String(t || '').trim()).filter(Boolean))];
     const text = String(req.body?.text || '').trim();
     if (!track || !course || !lesson) return res.status(400).json({ error: 'Track, course and lesson are all required' });
-    if (!topics.length) return res.status(400).json({ error: 'Pick at least one topic to build' });
     if (!text) return res.status(400).json({ error: 'The source material is empty' });
+    // Topics are only mandatory when generating: manual placement can just FILE the
+    // transcript against a lesson (the old "attach manually" flow), building nothing.
+    if (req.body?.generate === true && !topics.length) return res.status(400).json({ error: 'Pick at least one topic to build questions for' });
 
     // 1. Ensure the topic rows exist (new ones created, existing ones untouched).
     await upsertTopics(topics.map((topic) => ({ program, track, course, lesson, topic })));
@@ -2636,6 +2640,132 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
       topics: topics.map((topic) => ({ topic, track, course, lesson })),
     });
     res.json({ ok: true, generated: true, job: publicJob(job) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* --------------------- goal-based module planner --------------------------- */
+/**
+ * Summarise a user's catalog into what they've MASTERED vs are still LEARNING, as
+ * plain topic-name lists — the baseline the goal planner builds on. `accuracy` is
+ * a 0..100 percentage (see lib/priority.js deriveStats).
+ */
+function masteryDigest(catalog) {
+  const known = []; const learning = [];
+  for (const r of catalog || []) {
+    if (!r.topic) continue;
+    if (r.accuracy != null && r.accuracy >= 80 && (r.totalAttempts || 0) >= 3) known.push(r.topic);
+    else if ((r.totalAttempts || 0) > 0 && r.accuracy != null && r.accuracy < 80) learning.push(r.topic);
+  }
+  const cap = (a) => [...new Set(a)].slice(0, 120);
+  return { known: cap(known), learning: cap(learning) };
+}
+
+/**
+ * Admin: draft a whole MODULE from a stated learning goal, building on what the
+ * acting user already knows. Pure planning — new-vs-existing is decided HERE from
+ * the live catalog (never trusted from the model); the tree is returned for review
+ * and the companion /goal/commit writes it. Mirrors /ingest/plan.
+ */
+app.post('/api/admin/goal/plan', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const goal = String(req.body?.goal || '').trim();
+    const reference = String(req.body?.reference || '').trim();
+    if (!goal) return res.status(400).json({ error: 'Describe what you want to learn first' });
+
+    const catalog = await getCatalog(req.userEmail, scope);
+    const { known, learning } = masteryDigest(catalog);
+    const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+    const plan = await planCurriculum(
+      { goal, known, learning, catalog, programName, reference },
+      { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) },
+    );
+
+    const has = (le, to) => catalog.some((r) => r.track === plan.track && r.course === plan.course
+      && (le == null || r.lesson === le) && (to == null || r.topic === to));
+    res.json({
+      program,
+      track: plan.track,
+      course: plan.course,
+      summary: plan.summary,
+      assumedKnowledge: plan.assumedKnowledge,
+      reference,
+      trackIsNew: !catalog.some((r) => r.track === plan.track),
+      courseIsNew: !catalog.some((r) => r.track === plan.track && r.course === plan.course),
+      lessons: plan.lessons.map((l) => ({
+        lesson: l.lesson,
+        rationale: l.rationale,
+        lessonIsNew: !has(l.lesson),
+        topics: l.topics.map((t) => ({ topic: t, isNew: !has(l.lesson, t) })),
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Admin: materialise an approved goal-plan. Upserts every topic, writes+attaches a
+ * short brief per lesson (the stored "lesson" AND the grounding material), and
+ * queues ONE topic-anchored generation job over all topics. Flashcards are built
+ * client-side per lesson afterwards. Auto-publish + batchTag/flag valves still apply.
+ */
+app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const track = String(req.body?.track || '').trim();
+    const course = String(req.body?.course || '').trim();
+    const goal = String(req.body?.goal || '').trim();
+    const reference = String(req.body?.reference || '').trim();
+    const assumedKnowledge = (Array.isArray(req.body?.assumedKnowledge) ? req.body.assumedKnowledge : [])
+      .map((s) => String(s || '').trim()).filter(Boolean);
+    if (!track || !course) return res.status(400).json({ error: 'Track and course are required' });
+
+    // The approved lesson tree: {lesson, topics:[...]}, empties dropped.
+    const lessons = (Array.isArray(req.body?.lessons) ? req.body.lessons : [])
+      .map((l) => ({
+        lesson: String(l?.lesson || '').trim(),
+        topics: [...new Set((Array.isArray(l?.topics) ? l.topics : []).map((t) => String(t || '').trim()).filter(Boolean))],
+      }))
+      .filter((l) => l.lesson && l.topics.length);
+    if (!lessons.length) return res.status(400).json({ error: 'Pick at least one topic to build' });
+
+    // 1. Ensure every topic row exists (new ones created, existing untouched).
+    const flat = [];
+    for (const l of lessons) for (const topic of l.topics) flat.push({ program, track, course, lesson: l.lesson, topic });
+    await upsertTopics(flat);
+
+    // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
+    const ai = { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) };
+    await Promise.all(lessons.map(async (l) => {
+      const brief = await writeLessonBrief({ course, lesson: l.lesson, topics: l.topics, assumedKnowledge, goal, reference }, ai);
+      if (brief) await addTranscript({ program, track, course, lesson: l.lesson, title: l.lesson, text: brief, source: 'goal-plan' });
+    }));
+
+    // 3. One topic-anchored generation job over all topics (the briefs are the reference).
+    const assumeNote = assumedKnowledge.length
+      ? `The learner already knows: ${assumedKnowledge.join(', ')}. Do not test these directly; build on them.` : '';
+    const job = await createGenJob({
+      program,
+      scope: { track, course },
+      targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
+      provider: ai.provider,
+      model: ai.model || null,
+      grounding: 'topic',
+      instructions: [assumeNote, String(req.body?.instructions || '').trim()].filter(Boolean).join(' '),
+      topics: flat.map(({ topic, track: tr, course: co, lesson }) => ({ topic, track: tr, course: co, lesson })),
+    });
+
+    res.json({
+      ok: true,
+      job: publicJob(job),
+      buildCards: req.body?.buildCards !== false,
+      lessons: lessons.map((l) => ({ track, course, lesson: l.lesson, topics: l.topics })),
+    });
   } catch (e) {
     next(e);
   }

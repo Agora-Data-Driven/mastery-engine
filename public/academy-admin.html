@@ -37,6 +37,23 @@
     .aa-list button[aria-selected="true"] { background: #EEF3FF; }
     .aa-cols { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
     @media (max-width: 860px) { .aa-cols { grid-template-columns: 1fr; } }
+    /* Shared polish for the "add content" flows: a shaded review step, tidy field
+       labels, pill badges, hoverable topic rows, and a styled file picker. */
+    .aa-review { background: #F7F8F5; border: 1px solid #E7E8EE; border-radius: 12px; padding: 16px; margin-top: 16px; }
+    .aa-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .aa-field-label { font-size: 11px; font-weight: 700; color: #6B7280; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 5px; }
+    /* Badges keep their own lowercase casing even inside an uppercase field label; #6B7280 clears AA on the panel. */
+    .aa-badge-new { color: #2E7D32; font-weight: 700; font-size: 11px; text-transform: none; letter-spacing: 0; }
+    .aa-badge-old { color: #6B7280; font-weight: 600; font-size: 11px; text-transform: none; letter-spacing: 0; }
+    .aa-topics { display: flex; flex-direction: column; gap: 1px; }
+    .aa-topics label { display: flex; gap: 9px; align-items: center; padding: 6px 8px; border-radius: 8px; cursor: pointer; }
+    .aa-topics label:hover { background: #fff; }
+    .aa-topics input[type=checkbox] { width: auto; }
+    .aa-file { cursor: pointer; font-weight: 600; }
+    /* Visually-hidden but keyboard-FOCUSABLE file input (not display:none) so the styled
+       label stays reachable by Tab + Enter/Space; the label shows the focus ring. */
+    .aa-file-input { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0; }
+    .aa-file-input:focus-visible + .aa-file { outline: 2px solid #0c1022; outline-offset: 2px; }
   </style>
 </head>
 <body>
@@ -98,52 +115,101 @@
           </details>
         </div>
 
-        <!-- ============ Sources (transcripts) ============ -->
-        <!-- Auto-file: paste/pick → AI decides where it goes → attach (generate optional). -->
-        <div class="card" style="padding:18px">
-          <h3 style="margin:0 0 6px">Add something new to the Academy</h3>
-          <p class="aa-note">Paste a transcript or pick a Watcher video below, then let AI file it into the program.
-             It slots into an existing lesson where it fits, or suggests a new one — you review the plan before anything is written.
-             By default this only saves the transcript and curriculum; generating questions is a separate, optional step.</p>
-          <div class="aa-row">
-            <input type="text" id="iTitle" placeholder="Title (optional — AI fills it in)" style="flex:1;min-width:240px" />
-          </div>
+        <!-- ============ Add content (transcripts) ============ -->
+        <!-- One flow: paste/pick a transcript, then either let AI place it OR assign it yourself.
+             Both paths share the review step below and the same "attach (+ optional generate)" commit. -->
+        <div class="card" style="padding:20px">
+          <h3 style="margin:0 0 4px">Add something new to the Academy</h3>
+          <p class="aa-note" style="margin:0 0 14px">Paste a transcript (or pick a Watcher video). Let <b>AI suggest</b> where it belongs, or
+             <b>place it yourself</b> — you review everything before anything is written. Filing the transcript and generating
+             questions are separate steps, so by default nothing is generated.</p>
+          <input type="text" id="iTitle" placeholder="Title (optional — AI fills it in)" style="width:100%;margin-bottom:10px" />
           <textarea id="iText" placeholder="Paste a transcript here, or pick a Watcher video below…"></textarea>
-          <div class="aa-row" style="margin-top:10px">
-            <input type="file" id="iFile" accept=".txt,.vtt,.srt,.md" />
+          <div class="aa-actions" style="margin-top:12px">
             <button class="btn btn-primary" id="iPlan">Analyze &amp; place with AI</button>
+            <button class="btn" id="iManual">Place it myself</button>
+            <input type="file" id="iFile" class="aa-file-input" accept=".txt,.vtt,.srt,.md" />
+            <label class="btn aa-file" for="iFile">Choose file…</label>
+            <span id="iFileName" class="aa-note"></span>
             <span id="iMsg" class="aa-note"></span>
           </div>
 
-          <!-- Editable proposal — revealed after Analyze. -->
-          <div id="iPlanBox" class="hidden" style="margin-top:16px;border-top:1px solid #E7E8EE;padding-top:14px">
-            <div class="aa-note" id="iSummary" style="margin-bottom:10px"></div>
-            <div class="aa-cols" style="margin-bottom:10px">
-              <div><div class="aa-note" style="margin-bottom:4px">Track <span id="iTrackNew"></span></div><input type="text" id="iTrack" list="iTrackList" autocomplete="off" style="width:100%" /><datalist id="iTrackList"></datalist></div>
-              <div><div class="aa-note" style="margin-bottom:4px">Course <span id="iCourseNew"></span></div><input type="text" id="iCourse" list="iCourseList" autocomplete="off" style="width:100%" /><datalist id="iCourseList"></datalist></div>
-              <div><div class="aa-note" style="margin-bottom:4px">Lesson <span id="iLessonNew"></span></div><input type="text" id="iLesson" list="iLessonList" autocomplete="off" style="width:100%" /><datalist id="iLessonList"></datalist></div>
+          <!-- Editable placement — revealed after Analyze OR Place-it-myself. Same box, both paths. -->
+          <div id="iPlanBox" class="hidden aa-review">
+            <div class="aa-note" id="iSummary" style="margin-bottom:12px"></div>
+            <div class="aa-cols" style="margin-bottom:12px">
+              <div><div class="aa-field-label">Track <span id="iTrackNew"></span></div><input type="text" id="iTrack" list="iTrackList" autocomplete="off" style="width:100%" /><datalist id="iTrackList"></datalist></div>
+              <div><div class="aa-field-label">Course <span id="iCourseNew"></span></div><input type="text" id="iCourse" list="iCourseList" autocomplete="off" style="width:100%" /><datalist id="iCourseList"></datalist></div>
+              <div><div class="aa-field-label">Lesson <span id="iLessonNew"></span></div><input type="text" id="iLesson" list="iLessonList" autocomplete="off" style="width:100%" /><datalist id="iLessonList"></datalist></div>
             </div>
-            <div class="aa-note" style="margin-bottom:4px">Topics to build (uncheck to skip; “new” = created)</div>
-            <div id="iTopics" style="margin-bottom:10px"></div>
-            <div class="aa-row">
-              <input type="text" id="iNewTopic" placeholder="Add another topic…" style="min-width:220px" />
+            <div class="aa-field-label" id="iTopicsLabel" style="text-transform:none;letter-spacing:0;font-size:13px;color:#0c1022">Topics to build <span class="aa-note">(uncheck to skip; “new” = created)</span></div>
+            <div id="iTopics" class="aa-topics" style="margin-bottom:8px"></div>
+            <div class="aa-actions">
+              <input type="text" id="iNewTopic" placeholder="Add a topic…" style="min-width:200px" />
               <button class="btn" id="iAddTopic">Add topic</button>
+              <button class="btn hidden" id="iPullTopics">Pull this lesson’s topics</button>
             </div>
-            <div class="aa-row" style="margin-top:10px;align-items:center">
+            <div class="aa-actions" style="margin-top:14px;padding-top:12px;border-top:1px dashed #E7E8EE">
               <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:500;color:#111;letter-spacing:0">
-                <input type="checkbox" id="iGenerate" style="width:auto" /> Also generate questions now (optional)
+                <input type="checkbox" id="iGenerate" style="width:auto" /> Also generate questions now
               </label>
               <span id="iGenOpts" class="hidden" style="display:flex;gap:8px;align-items:center">
                 <label for="iCount">per topic</label>
                 <input type="number" id="iCount" value="6" min="1" max="25" style="width:70px" />
               </span>
             </div>
-            <div class="aa-row" style="margin-top:10px">
+            <div class="aa-actions" style="margin-top:12px">
               <button class="btn btn-primary" id="iCommit">Attach to Academy</button>
               <span id="iCommitMsg" class="aa-note"></span>
             </div>
             <div class="aa-bar"><i id="iBar"></i></div>
             <div id="iStatus" class="aa-note"></div>
+          </div>
+        </div>
+
+        <!-- Learn a goal: describe what you want to learn → AI drafts a whole module that
+             builds on what you already know → review → attach + generate cards & questions. -->
+        <div class="card" style="padding:18px;margin-top:14px">
+          <h3 style="margin:0 0 6px">Learn a goal <span class="aa-note">— AI builds a module from what you already know</span></h3>
+          <p class="aa-note">Describe what you want to learn. AI reads your mastery so far and drafts a whole module (a course of lessons)
+             that builds on it instead of re-teaching it. You review the plan, then it writes a short lesson for each part and generates
+             flashcards + questions — so the new module joins your normal quizzes, progress and Knowledge Map.</p>
+          <textarea id="gpGoal" placeholder="e.g. Teach me how this repo works — I already know math, programming fundamentals and ML" style="min-height:70px"></textarea>
+          <textarea id="gpRef" placeholder="Optional: paste reference material to ground it in (key repo files, docs, notes)…" style="min-height:60px;margin-top:10px"></textarea>
+          <div class="aa-row" style="margin-top:10px;align-items:center">
+            <label for="gpModel">engine</label>
+            <select id="gpModel"><option value="deepseek">DeepSeek</option><option value="kimi">Kimi</option><option value="gemini">Gemini</option></select>
+            <button class="btn btn-primary" id="gpDraft">Draft my plan</button>
+            <span id="gpMsg" class="aa-note"></span>
+          </div>
+
+          <!-- Editable proposal — revealed after Draft. -->
+          <div id="gpPlanBox" class="hidden" style="margin-top:16px;border-top:1px solid #E7E8EE;padding-top:14px">
+            <div class="aa-note" id="gpSummary" style="margin-bottom:10px"></div>
+            <div class="aa-cols" style="margin-bottom:10px">
+              <div><div class="aa-note" style="margin-bottom:4px">Track <span id="gpTrackNew"></span></div><input type="text" id="gpTrack" list="gpTrackList" autocomplete="off" style="width:100%" /><datalist id="gpTrackList"></datalist></div>
+              <div><div class="aa-note" style="margin-bottom:4px">Course (the module) <span id="gpCourseNew"></span></div><input type="text" id="gpCourse" list="gpCourseList" autocomplete="off" style="width:100%" /><datalist id="gpCourseList"></datalist></div>
+            </div>
+            <div id="gpAssumedWrap" class="hidden" style="margin-bottom:10px">
+              <div class="aa-note" style="margin-bottom:4px">Assuming you already know (won't be re-taught)</div>
+              <div id="gpAssumed" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+            </div>
+            <div class="aa-note" style="margin-bottom:4px">Lessons &amp; topics (uncheck to skip; “new” = created)</div>
+            <div id="gpLessons" style="margin-bottom:10px"></div>
+            <div class="aa-row" style="margin-top:10px;align-items:center">
+              <label for="gpCount">questions per topic</label>
+              <input type="number" id="gpCount" value="6" min="1" max="25" style="width:70px" />
+              <label style="display:flex;gap:8px;align-items:center;text-transform:none;font-weight:500;color:#111;letter-spacing:0;margin-left:10px">
+                <input type="checkbox" id="gpCards" checked style="width:auto" /> Build flashcards too
+              </label>
+            </div>
+            <div class="aa-row" style="margin-top:10px">
+              <button class="btn btn-primary" id="gpCommit">Add to Academy</button>
+              <button class="btn hidden" id="gpStop">Stop</button>
+              <span id="gpCommitMsg" class="aa-note"></span>
+            </div>
+            <div class="aa-bar"><i id="gpBar"></i></div>
+            <div id="gpStatus" class="aa-note"></div>
           </div>
         </div>
 
@@ -160,22 +226,6 @@
             <span id="wMsg" class="aa-note"></span>
           </div>
         </div>
-
-        <!-- Manual attach: still here for when you know exactly where it goes. -->
-        <details class="card" style="padding:18px;margin-top:14px">
-          <summary style="cursor:pointer;font-weight:700">Attach manually to a specific lesson</summary>
-          <p class="aa-note" style="margin-top:10px">Skips the AI router — attaches to the lesson you pick, and you generate from the Generate tab.</p>
-          <div class="aa-row">
-            <select id="tScope"></select>
-            <input type="text" id="tTitle" placeholder="Title" style="min-width:220px" />
-          </div>
-          <textarea id="tText" placeholder="Paste a transcript…"></textarea>
-          <div class="aa-row" style="margin-top:10px">
-            <input type="file" id="tFile" accept=".txt,.vtt,.srt,.md" />
-            <button class="btn btn-primary" id="tSave">Attach</button>
-            <span id="tMsg" class="aa-note"></span>
-          </div>
-        </details>
 
         <div class="card" style="padding:18px;margin-top:14px">
           <h3 style="margin:0 0 6px">Source transcripts <span class="aa-note" id="tCount"></span></h3>
