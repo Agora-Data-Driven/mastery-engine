@@ -25,13 +25,14 @@
     job: null, stop: false,
     ingest: null, stopIngest: false, // the AI auto-file proposal + its run
     goal: null, stopGoal: false, // the "learn a goal" plan + its run
+    assignments: [], // the People tab's who's-assigned-to-what table
   };
 
   /* ------------------------------- bootstrap ------------------------------- */
   async function boot() {
     let auth;
     try { auth = await api('/api/auth/status'); } catch { auth = { authed: false }; }
-    if (!auth.authed || !auth.admin) { $('who').textContent = 'Not signed in as an admin.'; show($('gate'), true); return; }
+    if (!auth.authed || !auth.admin) { $('who').textContent = 'Not signed in as an admin.'; show($('gate'), true); show($('progNew'), false); return; }
     $('who').textContent = `${auth.email}${auth.actingAs ? ` (acting as ${auth.actingAs})` : ''}`;
     show($('main'), true);
 
@@ -52,6 +53,7 @@
     wireGoalPlan();
     wireGenerate();
     wirePeople();
+    wireAddProgram();
     refreshAll();
   }
 
@@ -62,6 +64,7 @@
         document.querySelectorAll('.aa-panel').forEach((p) => p.classList.toggle('on', p.id === 'p-' + t.dataset.panel));
         if (t.dataset.panel === 'flags') loadFlags();
         if (t.dataset.panel === 'generate') loadJobs();
+        if (t.dataset.panel === 'people') loadAssignments();
       };
     });
   }
@@ -236,18 +239,81 @@
   }
 
   async function openTranscript(id, btn) {
-    $('tList').querySelectorAll('button').forEach((x) => x.removeAttribute('aria-selected'));
-    if (btn) btn.setAttribute('aria-selected', 'true');
+    if (btn) {
+      $('tList').querySelectorAll('button').forEach((x) => x.removeAttribute('aria-selected'));
+      btn.setAttribute('aria-selected', 'true');
+    }
     $('tView').textContent = 'Loading…';
     try {
       const t = await api('/api/admin/transcripts/' + encodeURIComponent(id));
-      const url = t.watcherRef && t.watcherRef.url;
-      const link = url ? ` &middot; <a href="${esc(url)}" target="_blank" rel="noopener">&#9654; Watch video</a>` : '';
-      $('tView').innerHTML =
-        `<div style="position:sticky;top:0;background:#F7F8F5;padding-bottom:8px;border-bottom:1px solid #E7E8EE;margin-bottom:10px">` +
-        `<b>${esc(t.title)}</b><br><span style="color:#6B7280;font-size:12px">${esc(t.course)} &rsaquo; ${esc(t.lesson)} &middot; ${t.chars || 0} chars${link}</span></div>` +
-        `<div style="white-space:pre-wrap;line-height:1.5">${esc(t.text || '')}</div>`;
+      renderTranscriptRead(t);
     } catch (e) { $('tView').textContent = 'Error: ' + e.message; }
+  }
+
+  // Read view: the full text + an Edit button that swaps in the edit form.
+  function renderTranscriptRead(t) {
+    const url = t.watcherRef && t.watcherRef.url;
+    const link = url ? ` &middot; <a href="${esc(url)}" target="_blank" rel="noopener">&#9654; Watch video</a>` : '';
+    $('tView').innerHTML =
+      `<div style="position:sticky;top:0;background:#F7F8F5;padding-bottom:8px;border-bottom:1px solid #E7E8EE;margin-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px">` +
+        `<div><b>${esc(t.title)}</b><br><span style="color:#6B7280;font-size:12px">${esc(t.course)} &rsaquo; ${esc(t.lesson)} &middot; ${t.chars || 0} chars${link}</span></div>` +
+        `<button class="btn" id="tEdit" style="padding:3px 12px;font-size:12px;flex-shrink:0">Edit</button>` +
+      `</div>` +
+      `<div style="white-space:pre-wrap;line-height:1.5">${esc(t.text || '')}</div>`;
+    $('tEdit').onclick = () => renderTranscriptEdit(t);
+  }
+
+  // Edit form: title, scope (with catalog datalists), and the transcript text — plus Delete.
+  function renderTranscriptEdit(t) {
+    const cat = state.catalog || [];
+    const opts = (vals) => [...new Set(vals)].filter(Boolean).sort().map((v) => `<option value="${esc(v)}"></option>`).join('');
+    // Sans font on the wrapper (tView is a monospace .aa-out panel); the textarea keeps
+    // its own monospace rule. Captions are real <label for> so they focus their field.
+    $('tView').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:10px;font-family:system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif">
+        <div><label class="aa-field-label" for="teTitle" style="display:block">Title</label><input type="text" id="teTitle" style="width:100%"></div>
+        <div class="aa-cols">
+          <div><label class="aa-field-label" for="teTrack" style="display:block">Track</label><input type="text" id="teTrack" list="teTrackList" autocomplete="off" style="width:100%"><datalist id="teTrackList">${opts(cat.map((r) => r.track))}</datalist></div>
+          <div><label class="aa-field-label" for="teCourse" style="display:block">Course</label><input type="text" id="teCourse" list="teCourseList" autocomplete="off" style="width:100%"><datalist id="teCourseList">${opts(cat.map((r) => r.course))}</datalist></div>
+          <div><label class="aa-field-label" for="teLesson" style="display:block">Lesson</label><input type="text" id="teLesson" list="teLessonList" autocomplete="off" style="width:100%"><datalist id="teLessonList">${opts(cat.map((r) => r.lesson))}</datalist></div>
+        </div>
+        <div><label class="aa-field-label" for="teText" style="display:block">Transcript text</label><textarea id="teText" style="width:100%;min-height:300px"></textarea></div>
+        <div class="aa-actions">
+          <button class="btn btn-primary" id="teSave">Save changes</button>
+          <button class="btn" id="teCancel">Cancel</button>
+          <span id="teMsg" class="aa-note"></span>
+          <button class="btn" id="teDelete" style="margin-left:auto;color:#B3261E">Delete</button>
+        </div>
+      </div>`;
+    $('teTitle').value = t.title || '';
+    $('teTrack').value = t.track || '';
+    $('teCourse').value = t.course || '';
+    $('teLesson').value = t.lesson || '';
+    $('teText').value = t.text || '';
+    $('teCancel').onclick = () => renderTranscriptRead(t);
+    $('teSave').onclick = async () => {
+      const body = {
+        title: $('teTitle').value.trim(), track: $('teTrack').value.trim(),
+        course: $('teCourse').value.trim(), lesson: $('teLesson').value.trim(), text: $('teText').value,
+      };
+      if (!body.text.trim()) { $('teMsg').innerHTML = '<span class="aa-err">Text cannot be empty.</span>'; return; }
+      $('teSave').disabled = true; $('teMsg').textContent = 'Saving…';
+      try {
+        await api('/api/admin/transcripts/' + encodeURIComponent(t.id), { method: 'PUT', body });
+        await loadTranscripts();
+        const row = $('tList').querySelector(`button[data-id="${t.id}"]`);
+        await openTranscript(t.id, row); // reopen with saved data, restoring the list highlight
+      } catch (e) { $('teMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; $('teSave').disabled = false; }
+    };
+    $('teDelete').onclick = async () => {
+      if (!window.confirm(`Delete transcript "${t.title || 'Untitled'}"? This can't be undone.`)) return;
+      $('teDelete').disabled = true; $('teMsg').textContent = 'Deleting…';
+      try {
+        await api('/api/admin/transcripts/' + encodeURIComponent(t.id), { method: 'DELETE' });
+        $('tView').textContent = 'Select a transcript on the left to read it.';
+        await loadTranscripts();
+      } catch (e) { $('teMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; $('teDelete').disabled = false; }
+    };
   }
 
   function wireTranscripts() {
@@ -893,7 +959,78 @@
           body: { email, programs: [$('ePrograms').value].filter(Boolean), courses: csv($('eCourses').value) },
         });
         $('eMsg').innerHTML = `<span class="aa-ok">Saved ${esc(email)}: ${esc((r.programs || []).join(', '))}${r.courses.length ? ' · ' + esc(r.courses.join(', ')) : ' · all courses'}</span>`;
+        loadAssignments(); // reflect the change in the table below
       } catch (e) { $('eMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+    };
+
+    $('aRefresh').onclick = loadAssignments;
+    if ($('aSearch')) $('aSearch').oninput = renderAssignments;
+  }
+
+  // The "who's assigned to what" table: every directory person + their program/courses.
+  async function loadAssignments() {
+    $('aList').textContent = 'Loading…';
+    try {
+      const { assignments, error } = await api('/api/admin/assignments');
+      state.assignments = assignments || [];
+      if (error && !state.assignments.length) {
+        $('aList').innerHTML = `<span class="aa-note">Directory unavailable (${esc(error)}) — assignments still apply, they just can't be listed here.</span>`;
+        return;
+      }
+      renderAssignments();
+    } catch (e) { $('aList').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+  }
+
+  function renderAssignments() {
+    const term = (($('aSearch') && $('aSearch').value) || '').toLowerCase();
+    const rows = (state.assignments || []).filter((a) => !term
+      || `${a.name} ${a.email} ${a.programs.map((p) => p.name).join(' ')} ${a.courses.join(' ')}`.toLowerCase().includes(term));
+    if (!rows.length) { $('aList').innerHTML = '<span class="aa-note">No one to show.</span>'; return; }
+    $('aList').innerHTML = `<div style="overflow-x:auto"><table class="aa-table">`
+      + `<thead><tr><th>Person</th><th>Program</th><th>Courses</th></tr></thead><tbody>`
+      + rows.map((a) => `<tr>
+          <td><b>${esc(a.name)}</b><br><span class="aa-note" style="font-size:12px">${esc(a.email)}</span></td>
+          <td>${a.programs.length ? a.programs.map((p) => esc(p.name)).join(', ') : '<span class="aa-note">—</span>'}</td>
+          <td>${a.courses.length ? a.courses.map((c) => `<span class="aa-chip">${esc(c)}</span>`).join('') : '<span class="aa-chip-all">All courses</span>'}</td>
+        </tr>`).join('')
+      + `</tbody></table></div>`;
+  }
+
+  /* ------------------------------ add a program ---------------------------- */
+  function wireAddProgram() {
+    const slug = (s) => String(s || '').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    $('progNew').onclick = () => {
+      const opening = $('progNewBox').classList.contains('hidden');
+      show($('progNewBox'), opening);
+      $('progNew').setAttribute('aria-expanded', String(opening));
+      if (opening) $('progName').focus();
+    };
+    $('progCancel').onclick = () => {
+      show($('progNewBox'), false);
+      $('progNew').setAttribute('aria-expanded', 'false');
+      $('progName').value = ''; $('progId').value = ''; $('progMsg').textContent = '';
+      delete $('progId').dataset.touched;
+      $('progNew').focus(); // return focus to the trigger, not lost to <body>
+    };
+    // Auto-derive the ID from the name until the admin edits the ID themselves. Don't
+    // re-slug the ID field on each keystroke (that strips a just-typed trailing "_"); the
+    // final value is slugged on create.
+    $('progName').oninput = () => { if (!$('progId').dataset.touched) $('progId').value = slug($('progName').value); };
+    $('progId').oninput = () => { $('progId').dataset.touched = '1'; };
+    $('progCreate').onclick = async () => {
+      const name = $('progName').value.trim();
+      const id = slug($('progId').value || name);
+      if (!name) { $('progMsg').innerHTML = '<span class="aa-err">Give it a name.</span>'; return; }
+      if (!id) { $('progMsg').innerHTML = '<span class="aa-err">Need a valid ID (letters, numbers, underscores).</span>'; return; }
+      if ([...$('program').options].some((o) => o.value === id)) {
+        $('progMsg').innerHTML = '<span class="aa-err">A program with that ID already exists — pick another.</span>'; return;
+      }
+      $('progCreate').disabled = true; $('progMsg').textContent = 'Creating…';
+      try {
+        await api('/api/admin/programs', { method: 'POST', body: { id, name } });
+        $('progMsg').innerHTML = '<span class="aa-ok">Created — switching…</span>';
+        location.search = '?program=' + encodeURIComponent(id); // reload into the new program
+      } catch (e) { $('progMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; $('progCreate').disabled = false; }
     };
   }
 

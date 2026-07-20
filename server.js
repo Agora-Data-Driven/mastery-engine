@@ -66,6 +66,7 @@ import {
   getTranscripts,
   getTranscriptById,
   deleteTranscript,
+  updateTranscript,
   createGenJob,
   getGenJob,
   listGenJobs,
@@ -2348,10 +2349,13 @@ app.post('/api/admin/enrollment', requireAdmin, async (req, res, next) => {
 // platform-sso-key both apps mount (no CORS, no browser credentials). Degrades
 // gracefully to an empty list (UI falls back to typing an email) if Sentinel is
 // unreachable or the secret/URL isn't configured.
-app.get('/api/admin/people', requireAdmin, async (_req, res) => {
+// Fetch the Sentinel people directory over the shared HMAC. Returns { people, error }
+// and never throws — a missing secret / unreachable Sentinel degrades to an empty list.
+// Shared by /api/admin/people (enrolment picker) and /api/admin/assignments (the view).
+async function fetchSentinelPeople() {
   const secret = process.env.SSO_SECRET || '';
   const base = (process.env.SENTINEL_URL || 'https://sentinel.agoradatadriven.com').replace(/\/+$/, '');
-  if (!secret) return res.json({ people: [], error: 'SSO_SECRET not configured' });
+  if (!secret) return { people: [], error: 'SSO_SECRET not configured' };
   try {
     const ts = String(Math.floor(Date.now() / 1000));
     const sig = createHmac('sha256', secret).update(`academy-people:${ts}`).digest('hex');
@@ -2359,11 +2363,40 @@ app.get('/api/admin/people', requireAdmin, async (_req, res) => {
       headers: { 'x-academy-ts': ts, 'x-academy-sig': sig },
       signal: AbortSignal.timeout(8000),
     });
-    if (!r.ok) return res.json({ people: [], error: `sentinel ${r.status}` });
+    if (!r.ok) return { people: [], error: `sentinel ${r.status}` };
     const data = await r.json();
-    res.json({ people: Array.isArray(data.people) ? data.people : [] });
+    return { people: Array.isArray(data.people) ? data.people : [] };
   } catch (e) {
-    res.json({ people: [], error: String(e.message || e) });
+    return { people: [], error: String(e.message || e) };
+  }
+}
+
+app.get('/api/admin/people', requireAdmin, async (_req, res) => {
+  res.json(await fetchSentinelPeople());
+});
+
+// Admin: everyone in the directory with the program(s) + courses they're assigned.
+// Empty courses = the whole program. Enrolment reads run concurrently; a person with
+// no explicit enrolment shows their effective default (default program, all courses).
+app.get('/api/admin/assignments', requireAdmin, async (_req, res, next) => {
+  try {
+    const [{ people, error }, programs] = await Promise.all([fetchSentinelPeople(), getPrograms()]);
+    const nameOf = (id) => (programs.find((p) => p.id === id) || {}).name || id;
+    const assignments = await Promise.all((people || []).map(async (p) => {
+      const enr = await getEnrollment(p.email);
+      return {
+        email: p.email,
+        name: p.name || p.email,
+        programs: (enr.programs || []).map((id) => ({ id, name: nameOf(id) })),
+        courses: enr.courses || [],
+      };
+    }));
+    // Explicit course assignments first, then alphabetical — the interesting rows on top.
+    assignments.sort((a, b) => (b.courses.length ? 1 : 0) - (a.courses.length ? 1 : 0)
+      || String(a.name).localeCompare(String(b.name)));
+    res.json({ assignments, error });
+  } catch (e) {
+    next(e);
   }
 });
 
@@ -2474,6 +2507,24 @@ app.post('/api/admin/transcripts', requireAdmin, bigJson, async (req, res, next)
 app.delete('/api/admin/transcripts/:id', requireAdmin, async (req, res, next) => {
   try {
     res.json({ ok: await deleteTranscript(req.params.id) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: edit an attached transcript in place (title, scope, and/or text).
+app.put('/api/admin/transcripts/:id', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const existing = await getTranscriptById(req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Not found' });
+    await updateTranscript(req.params.id, {
+      title: req.body?.title,
+      text: req.body?.text,
+      track: req.body?.track,
+      course: req.body?.course,
+      lesson: req.body?.lesson,
+    });
+    res.json({ ok: true, id: req.params.id });
   } catch (e) {
     next(e);
   }
