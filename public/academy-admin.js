@@ -342,6 +342,30 @@
     ? '<span style="color:#2E7D32;font-weight:700;font-size:12px">new</span>'
     : '<span class="aa-note" style="font-size:12px">existing</span>';
 
+  // Offer the Track/Course/Lesson that already exist, cascading by what's filled
+  // in above. Typing anything not on the list still works — that's a new one.
+  const fillList = (id, values) => {
+    $(id).innerHTML = [...new Set(values)].filter(Boolean).sort()
+      .map((v) => `<option value="${esc(v)}"></option>`).join('');
+  };
+  function populateIngestLists() {
+    const cat = state.catalog || [];
+    const track = $('iTrack').value.trim().toLowerCase();
+    const course = $('iCourse').value.trim().toLowerCase();
+    fillList('iTrackList', cat.map((r) => r.track));
+    fillList('iCourseList', cat.filter((r) => !track || (r.track || '').toLowerCase() === track).map((r) => r.course));
+    fillList('iLessonList', cat.filter((r) => (!track || (r.track || '').toLowerCase() === track) && (!course || (r.course || '').toLowerCase() === course)).map((r) => r.lesson));
+  }
+  // Recompute the new/existing badges as the admin edits the placement.
+  function refreshIngestBadges() {
+    const cat = state.catalog || [];
+    const has = (field, val) => !!val && cat.some((r) => (r[field] || '').toLowerCase() === val.toLowerCase());
+    const track = $('iTrack').value.trim(), course = $('iCourse').value.trim(), lesson = $('iLesson').value.trim();
+    $('iTrackNew').innerHTML = badge(!has('track', track));
+    $('iCourseNew').innerHTML = badge(!has('course', course));
+    $('iLessonNew').innerHTML = badge(!has('lesson', lesson));
+  }
+
   function renderIngestTopics() {
     const rows = (state.ingest && state.ingest.topicRows) || [];
     $('iTopics').innerHTML = rows.length
@@ -370,6 +394,7 @@
     $('iTrackNew').innerHTML = badge(pl.trackIsNew);
     $('iCourseNew').innerHTML = badge(pl.courseIsNew);
     $('iLessonNew').innerHTML = badge(pl.lessonIsNew);
+    populateIngestLists();
     $('iSummary').innerHTML = `${esc(data.summary || '')} <span class="aa-note">· ${data.chars} chars · source: ${esc(data.source)}</span>`;
     renderIngestTopics();
     $('iBar').style.width = '0%';
@@ -415,6 +440,12 @@
       $('iNewTopic').value = '';
       renderIngestTopics();
     };
+
+    // Keep the datalists cascading and the new/existing badges honest while the
+    // admin edits the placement by hand.
+    $('iTrack').oninput = () => { populateIngestLists(); refreshIngestBadges(); };
+    $('iCourse').oninput = () => { populateIngestLists(); refreshIngestBadges(); };
+    $('iLesson').oninput = refreshIngestBadges;
 
     // Generation is opt-in: reveal the per-topic count only when asked, and relabel
     // the button so it's clear whether we're just filing it or also building questions.
