@@ -1847,6 +1847,26 @@ app.delete('/api/assistant/chat', requireAuth, async (req, res, next) => {
   }
 });
 
+// A content-location question ("which card teaches X", "where is Y", "is there a
+// lesson on Z") — only then do we spend tokens grounding the assistant in the full
+// catalog so it answers from real topics instead of inventing a card name.
+function looksLikeCatalogLookup(msg) {
+  return /\b(card|deck|topic|sub-?lesson|lesson|course|track|section|module|curriculum|syllabus|teach|cover|where|study|learn about|is there|which|list|find)\b/i.test(String(msg || ''));
+}
+
+/** The learner's accessible catalog (their Mastery-Engine shelf), as {track,course,lesson,topic}
+ *  rows — the real curriculum the assistant grounds "which card teaches X" answers in. */
+async function learnerCatalog(email) {
+  if (!email) return [];
+  const tracks = (await effectiveShelf(email)) || [];
+  if (!tracks.length) return [];
+  const set = new Set(tracks.map((t) => JSON.stringify([t.program, t.track])));
+  const full = await getCatalog(email, null);
+  return full
+    .filter((t) => set.has(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track])))
+    .map((t) => ({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic }));
+}
+
 // Auth: send a message to the always-available assistant. The client passes a
 // STRUCTURED snapshot of what's on screen (view, selection, current question or
 // flashcard, recent answers) as `context`; the assistant answers grounded in it.
@@ -1864,7 +1884,8 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
 
     const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
     const history = existing ? existing.messages : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search }, aiChoice(req));
+    const catalog = looksLikeCatalogLookup(message) ? await learnerCatalog(req.userEmail) : [];
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -1907,8 +1928,9 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
       && history[history.length - 1]?.role === 'assistant')
       ? history.slice(0, -2) : history;
 
+    const catalog = looksLikeCatalogLookup(message) ? await learnerCatalog(req.userEmail) : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog }, aiChoice(req),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 

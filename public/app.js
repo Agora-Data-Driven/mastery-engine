@@ -1661,7 +1661,7 @@ const App = (() => {
 
   async function toggleBankTrack(program, track, on) {
     try {
-      await api('/api/me/tracks', { method: 'POST', body: { program, track, action: on ? 'remove' : 'add' } });
+      await api('/api/me/tracks', { method: 'POST', body: JSON.stringify({ program, track, action: on ? 'remove' : 'add' }) });
       await reloadCatalog();
       renderAddTracks();     // reflect new add/remove state
       renderProgressTree();  // Mastery Engine tree updates behind the modal
@@ -1673,7 +1673,7 @@ const App = (() => {
     if (!scope || !scope.track) return;
     if (!confirm(`Remove "${scope.track}" from your Mastery Engine? (The content stays in the bank — re-add it anytime.)`)) return;
     try {
-      await api('/api/me/tracks', { method: 'POST', body: { program: scope.program || '', track: scope.track, action: 'remove' } });
+      await api('/api/me/tracks', { method: 'POST', body: JSON.stringify({ program: scope.program || '', track: scope.track, action: 'remove' }) });
       await reloadCatalog();
       renderProgressTree();
     } catch (e) { alert('Error: ' + e.message); }
