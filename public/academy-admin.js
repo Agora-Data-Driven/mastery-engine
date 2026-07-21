@@ -91,6 +91,7 @@
     goal: null, stopGoal: false, // the "learn a goal" plan + its run
     bulk: null, stopBulk: false, // the "bulk-build lessons" parsed preview + its run
     assignments: [], // the People tab's who's-assigned-to-what table
+    roadmap: null, // the roadmap plan being reviewed/edited in the Chart tab
   };
 
   /* ------------------------------- bootstrap ------------------------------- */
@@ -121,6 +122,7 @@
     wireGenerate();
     loadEngines();
     wirePeople();
+    wireRoadmaps();
     wireAddProgram();
     refreshAll();
   }
@@ -133,6 +135,7 @@
         if (t.dataset.panel === 'flags') loadFlags();
         if (t.dataset.panel === 'generate') loadJobs();
         if (t.dataset.panel === 'people') loadAssignments();
+        if (t.dataset.panel === 'roadmaps') loadRoadmaps();
       };
     });
   }
@@ -290,7 +293,19 @@
       _transcripts = await api('/api/admin/transcripts?' + q());
       renderTranscriptList();
       if ($('gSources')) renderGenSources(); // Generate tab source list depends on these
+      if ($('gpSources')) renderGoalSources(); // goal pane's optional grounding picker
     } catch (e) { $('tList').textContent = 'Error: ' + e.message; }
+  }
+
+  // Goal pane: optional "base on transcripts" picker over the WHOLE program (a goal
+  // module can span several lessons, so we don't scope to a course here). Ticking
+  // any grounds generation strictly on those; leaving all unticked uses the briefs.
+  function renderGoalSources() {
+    const el = $('gpSources');
+    if (!el) return;
+    if (!_transcripts.length) { el.innerHTML = '<div class="aa-note" style="padding:8px">No transcripts in this program — questions come from the AI-written lesson briefs.</div>'; return; }
+    el.innerHTML = _transcripts.map((t) =>
+      `<label style="display:flex;gap:8px;align-items:center;padding:6px 11px;border-bottom:1px solid #F0F1F4;cursor:pointer"><input type="checkbox" data-tid="${esc(t.id)}" style="width:auto"><span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">&middot; ${esc(t.course || '—')} &rsaquo; ${esc(t.lesson || '—')} &middot; ${t.chars || 0} chars</span></span></label>`).join('');
   }
 
   // Watcher-style browser: a filterable list on the left, full text on the right.
@@ -821,6 +836,7 @@
             lessons, buildCards,
             ...engineBody(),
             targetPerTopic: Number($('gpCount').value) || 6,
+            transcriptIds: [...$('gpSources').querySelectorAll('input[data-tid]:checked')].map((c) => c.dataset.tid),
           },
         });
         if (res.job) {
@@ -832,6 +848,11 @@
           ? '<span class="aa-ok">Stopped — what generated so far is saved. Press Add to Academy to resume.</span>'
           : '<span class="aa-ok">Done — module added with lessons, questions and flashcards.</span>';
         if (!state.stopGoal) {
+          // Phase 2 handoff: offer to chart a roadmap over the content just built.
+          const chartGoal = (state.goal && state.goal.goal) || '';
+          const chartTitle = $('gpCourse').value.trim();
+          const chartBtn = $('gpChartBtn');
+          if (chartBtn) { show(chartBtn, true); chartBtn.onclick = () => startRoadmapFromGoal(chartTitle, chartGoal); }
           show($('gpPlanBox'), false);
           show($('aeThink'), false);
           $('gpGoal').value = ''; $('gpRef').value = ''; state.goal = null;
@@ -863,6 +884,202 @@
       done += 1;
     }
     $('gpStatus').textContent = `Flashcards built for ${done} lesson${done === 1 ? '' : 's'}.`;
+  }
+
+  /* -------------------------------- roadmaps ------------------------------- */
+  // A roadmap is a curated PATH over existing topics: the AI SELECTS + ORDERS
+  // topics from this program's catalog into stages toward a goal, and we let the
+  // admin edit the result before saving. Content generation is NOT here — the
+  // goal builder (Compose) does that; a roadmap only re-groups. Phase 2 of the
+  // goal flow hands off here via startRoadmapFromGoal().
+  let _roadmapsCache = [];
+
+  function switchToTab(panel) {
+    const tab = document.querySelector(`.aa-tab[data-panel="${panel}"]`);
+    if (tab) tab.click();
+  }
+
+  async function loadRoadmaps() {
+    const rp = $('rmProgName'); if (rp) rp.textContent = state.program;
+    const list = $('rmList');
+    if (!list) return;
+    list.textContent = 'Loading…';
+    try {
+      const { roadmaps } = await api('/api/admin/roadmaps?' + q());
+      renderRoadmapAdminList(roadmaps);
+      const rr = $('railRoadmaps'); if (rr) rr.textContent = roadmaps.length ? String(roadmaps.length) : '';
+    } catch (e) { list.textContent = 'Error: ' + e.message; }
+  }
+
+  function renderRoadmapAdminList(roadmaps) {
+    _roadmapsCache = roadmaps || [];
+    $('rmCount').textContent = `— ${_roadmapsCache.length} roadmap${_roadmapsCache.length === 1 ? '' : 's'}`;
+    const list = $('rmList');
+    if (!_roadmapsCache.length) { list.innerHTML = '<div class="aa-note">No roadmaps yet — chart one above.</div>'; return; }
+    list.innerHTML = _roadmapsCache.map((r) => `
+      <div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #E7E8EE">
+        <div style="flex:1;min-width:0">
+          <b>${esc(r.title)}</b> <span class="aa-note">· ${r.stages.length} stage${r.stages.length === 1 ? '' : 's'} · ${r.topicCount} topics · ${r.audience === 'everyone' ? 'everyone' : 'this program'}</span>
+          <div class="aa-note" style="margin-top:2px">${esc(r.summary || r.goal || '')}</div>
+        </div>
+        <button class="btn" data-edit="${esc(r.id)}" style="padding:3px 10px;font-size:12px">Edit</button>
+        <button class="btn" data-del="${esc(r.id)}" style="padding:3px 10px;font-size:12px">Delete</button>
+      </div>`).join('');
+  }
+
+  async function roadmapDraft() {
+    const goal = $('rmGoal').value.trim();
+    const title = $('rmTitle').value.trim();
+    if (!goal) { $('rmMsg').innerHTML = '<span class="aa-err">Describe the goal first.</span>'; return; }
+    $('rmDraft').disabled = true;
+    $('rmMsg').textContent = 'Selecting and ordering topics…';
+    const panel = thinkPanel('aeThink'); panel.start();
+    try {
+      const data = await streamSSE('/api/admin/roadmap/plan/stream', {
+        program: state.program, goal, title, reference: $('rmRef').value.trim(), ...engineBody(),
+      }, { onThinking: panel.thinking, onContent: panel.content });
+      panel.done('Roadmap ready');
+      state.roadmap = {
+        id: null, title: data.title || title, summary: data.summary || '', goal,
+        program: data.program || state.program, audience: $('rmAudience').value,
+        stages: data.stages || [], gaps: data.gaps || [],
+      };
+      if (data.title) $('rmTitle').value = data.title;
+      renderRoadmapReview();
+      const topics = (data.stages || []).reduce((n, s) => n + (s.items ? s.items.length : 0), 0);
+      $('rmMsg').innerHTML = `<span class="aa-ok">Charted ${data.stages.length} stage${data.stages.length === 1 ? '' : 's'} · ${topics} topics — review, then save.</span>`;
+    } catch (e) {
+      panel.fail('Draft failed');
+      $('rmMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+    }
+    $('rmDraft').disabled = false;
+  }
+
+  function renderRoadmapReview() {
+    const rm = state.roadmap; if (!rm) return;
+    $('rmSummary').value = rm.summary || '';
+    const gaps = rm.gaps || [];
+    show($('rmGapsWrap'), gaps.length > 0);
+    $('rmGaps').innerHTML = gaps
+      .map((g) => `<span class="aa-note" style="background:#FBECEC;color:#B4413B;border-radius:12px;padding:2px 10px">${esc(g)}</span>`).join('');
+    $('rmStages').innerHTML = (rm.stages || []).length
+      ? rm.stages.map((s, si) => renderRmStage(s, si)).join('')
+      : '<span class="aa-note">No stages — try drafting again.</span>';
+    show($('rmPlanBox'), true);
+  }
+
+  function renderRmStage(s, si) {
+    const items = (s.items || []).map((it, ii) => `
+      <div data-si="${si}" data-ii="${ii}" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-top:1px solid #F0F1F4">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:600">${esc(it.topic)}</div>
+          <div class="aa-note">${esc([it.course, it.lesson].filter(Boolean).join(' › '))}</div>
+          <input type="text" data-f="itemNote" data-si="${si}" data-ii="${ii}" value="${esc(it.note || '')}" placeholder="note (optional)" style="width:100%;margin-top:3px;font-size:12px" />
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <button class="btn" data-act="itemUp" data-si="${si}" data-ii="${ii}" style="padding:1px 7px;font-size:12px" title="Move up">↑</button>
+          <button class="btn" data-act="itemDown" data-si="${si}" data-ii="${ii}" style="padding:1px 7px;font-size:12px" title="Move down">↓</button>
+          <button class="btn" data-act="itemDel" data-si="${si}" data-ii="${ii}" style="padding:1px 7px;font-size:12px" title="Remove">✕</button>
+        </div>
+      </div>`).join('');
+    return `<div style="border:1px solid #E7E8EE;border-radius:10px;padding:10px 12px;margin-bottom:10px">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+        <span style="font-weight:800;color:#16a34a;font-variant-numeric:tabular-nums">${String(si + 1).padStart(2, '0')}</span>
+        <input type="text" data-f="stageTitle" data-si="${si}" value="${esc(s.title)}" style="flex:1;font-weight:700" />
+        <button class="btn" data-act="stageUp" data-si="${si}" style="padding:2px 8px;font-size:12px" title="Move up">↑</button>
+        <button class="btn" data-act="stageDown" data-si="${si}" style="padding:2px 8px;font-size:12px" title="Move down">↓</button>
+        <button class="btn" data-act="stageDel" data-si="${si}" style="padding:2px 8px;font-size:12px">Remove</button>
+      </div>
+      <input type="text" data-f="stageSummary" data-si="${si}" value="${esc(s.summary || '')}" placeholder="one line: what they can do after this stage" style="width:100%;margin-bottom:6px;font-size:13px" />
+      <div class="aa-note">${(s.items || []).length} topic${(s.items || []).length === 1 ? '' : 's'}</div>
+      ${items}
+    </div>`;
+  }
+
+  async function saveRoadmap() {
+    const rm = state.roadmap; if (!rm) return;
+    const title = $('rmTitle').value.trim();
+    if (!title) { $('rmSaveMsg').innerHTML = '<span class="aa-err">Give the roadmap a title.</span>'; return; }
+    if (!rm.stages || !rm.stages.length) { $('rmSaveMsg').innerHTML = '<span class="aa-err">The roadmap has no stages.</span>'; return; }
+    $('rmSave').disabled = true; $('rmSaveMsg').textContent = 'Saving…';
+    try {
+      await api('/api/admin/roadmaps', { method: 'POST', body: {
+        id: rm.id || undefined, title, goal: $('rmGoal').value.trim(),
+        summary: $('rmSummary').value.trim(), program: state.program,
+        audience: $('rmAudience').value, stages: rm.stages, source: rm.id ? 'admin-edit' : 'goal',
+      } });
+      $('rmSaveMsg').innerHTML = '<span class="aa-ok">Saved — learners see it in the app\'s Roadmaps tab.</span>';
+      state.roadmap = null; show($('rmPlanBox'), false);
+      await loadRoadmaps();
+    } catch (e) { $('rmSaveMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+    $('rmSave').disabled = false;
+  }
+
+  function editRoadmap(id) {
+    const r = _roadmapsCache.find((x) => x.id === id);
+    if (!r) return;
+    state.roadmap = {
+      id: r.id, title: r.title, summary: r.summary, goal: r.goal, program: r.program,
+      audience: r.audience, stages: JSON.parse(JSON.stringify(r.stages || [])), gaps: [],
+    };
+    $('rmTitle').value = r.title || '';
+    $('rmGoal').value = r.goal || '';
+    $('rmAudience').value = r.audience === 'everyone' ? 'everyone' : 'program';
+    renderRoadmapReview();
+    $('rmMsg').textContent = 'Editing an existing roadmap. Re-draft to re-select topics, or edit the stages directly.';
+    $('rmPlanBox').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  async function deleteRoadmapAdmin(id) {
+    if (!confirm('Delete this roadmap? The topics it points to are not affected.')) return;
+    try { await api('/api/admin/roadmaps/' + encodeURIComponent(id), { method: 'DELETE' }); await loadRoadmaps(); }
+    catch (e) { alert('Error: ' + e.message); }
+  }
+
+  // Phase 2 of the goal flow: jump here from the goal pane with the goal pre-filled
+  // and auto-draft the path over the content just built.
+  function startRoadmapFromGoal(title, goal) {
+    switchToTab('roadmaps');
+    $('rmTitle').value = title || '';
+    $('rmGoal').value = goal || '';
+    $('rmAudience').value = 'program';
+    roadmapDraft();
+  }
+
+  function wireRoadmaps() {
+    const draft = $('rmDraft'); if (draft) draft.onclick = roadmapDraft;
+    const save = $('rmSave'); if (save) save.onclick = saveRoadmap;
+    const summ = $('rmSummary'); if (summ) summ.oninput = () => { if (state.roadmap) state.roadmap.summary = summ.value; };
+    const stages = $('rmStages');
+    if (stages) {
+      stages.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-act]'); if (!b) return;
+        const rm = state.roadmap; if (!rm) return;
+        const si = Number(b.dataset.si), ii = Number(b.dataset.ii), act = b.dataset.act;
+        const st = rm.stages;
+        if (act === 'stageUp' && si > 0) { [st[si - 1], st[si]] = [st[si], st[si - 1]]; }
+        else if (act === 'stageDown' && si < st.length - 1) { [st[si + 1], st[si]] = [st[si], st[si + 1]]; }
+        else if (act === 'stageDel') { st.splice(si, 1); }
+        else if (act === 'itemUp' && ii > 0) { const its = st[si].items; [its[ii - 1], its[ii]] = [its[ii], its[ii - 1]]; }
+        else if (act === 'itemDown') { const its = st[si].items; if (ii < its.length - 1) [its[ii + 1], its[ii]] = [its[ii], its[ii + 1]]; }
+        else if (act === 'itemDel') { st[si].items.splice(ii, 1); if (!st[si].items.length) st.splice(si, 1); }
+        else return;
+        renderRoadmapReview();
+      });
+      stages.addEventListener('input', (e) => {
+        const f = e.target.closest('[data-f]'); if (!f) return;
+        const rm = state.roadmap; if (!rm) return;
+        const si = Number(f.dataset.si), ii = Number(f.dataset.ii);
+        if (f.dataset.f === 'stageTitle') rm.stages[si].title = f.value;
+        else if (f.dataset.f === 'stageSummary') rm.stages[si].summary = f.value;
+        else if (f.dataset.f === 'itemNote') rm.stages[si].items[ii].note = f.value;
+      });
+    }
+    const list = $('rmList');
+    if (list) list.addEventListener('click', (e) => {
+      const ed = e.target.closest('[data-edit]'); if (ed) { editRoadmap(ed.dataset.edit); return; }
+      const del = e.target.closest('[data-del]'); if (del) { deleteRoadmapAdmin(del.dataset.del); }
+    });
   }
 
   /* ---------------------------- bulk-build lessons ------------------------- */

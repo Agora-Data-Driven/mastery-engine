@@ -634,14 +634,17 @@ const App = (() => {
     const mastery = state.authed && !state.guest;
     const isProgress = mode === 'PROGRESS';
     const isVideos = mode === 'VIDEOS';
+    const isRoadmap = mode === 'ROADMAP';
 
     document.querySelectorAll('#modeSegment button').forEach((b) =>
       b.classList.toggle('active', b.dataset.mode === mode)
     );
 
-    // Toggle the panels of the setup card (quiz builder / progress / video lessons).
-    $('quizBuilder').classList.toggle('hidden', isProgress || isVideos);
+    // Toggle the panels of the setup card (quiz builder / progress / roadmaps / video lessons).
+    $('quizBuilder').classList.toggle('hidden', isProgress || isVideos || isRoadmap);
     $('progressPanel').classList.toggle('hidden', !isProgress);
+    const rp = $('roadmapPanel');
+    if (rp) rp.classList.toggle('hidden', !isRoadmap);
     const vp = $('videoPanel');
     if (vp) vp.classList.toggle('hidden', !isVideos);
     // Mastery Quiz / Flashcards CTAs are available to mastery users on EVERY tab
@@ -649,6 +652,7 @@ const App = (() => {
     $('priorityBtnRow').classList.toggle('hidden', !mastery);
 
     if (isProgress) renderProgressTree();
+    else if (isRoadmap) renderRoadmapList();
     else if (isVideos) renderVideoLessons();
     else updateSetupCopy();
   }
@@ -1362,6 +1366,170 @@ const App = (() => {
     tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name })).join('');
     // Returning from a quiz/flashcard round? Re-expand + re-scroll to where they were.
     if (progressSnapshot) { applyProgressState(progressSnapshot); progressSnapshot = null; }
+  }
+
+  /* ------------------------------ Roadmaps ------------------------------- */
+  // A roadmap is a curated PATH over existing topics: ordered STAGES, each a set
+  // of topics pulled from anywhere in the catalog. It renders like the progress
+  // tree (mastery bar + Quiz/Cards/Review per topic) but grouped by stage; each
+  // topic's mastery is DERIVED by joining the item to the learner's own catalog,
+  // so a roadmap never stores per-user progress and never re-files the content.
+  const RM_STRONG = 80; // accuracy at/above which a topic counts as "mastered"
+  let _roadmaps = null;      // cached list from /api/roadmaps
+  let _openRoadmapId = null; // which one is expanded in the view
+
+  // Index the learner's catalog by stable topic id AND by name-path, so an item
+  // resolves to their mastery however it was stored (id preferred; path as fallback).
+  function roadmapCatalogIndex() {
+    const byId = new Map();
+    const byPath = new Map();
+    for (const r of state.catalog) {
+      if (r.id) byId.set(r.id, r);
+      byPath.set(JSON.stringify([r.track || '', r.course || '', r.lesson || '', r.topic || '']), r);
+    }
+    return { byId, byPath };
+  }
+  function resolveRoadmapItem(item, idx) {
+    let row = item.topicId ? idx.byId.get(item.topicId) : null;
+    if (!row) row = idx.byPath.get(JSON.stringify([item.track || '', item.course || '', item.lesson || '', item.topic || '']));
+    return row || null;
+  }
+  const itemAccuracy = (row) => (row && row.totalAttempts ? Math.round((row.correctCount / row.totalAttempts) * 100) : 0);
+
+  // Roll a roadmap (or one stage's items) up to {pct, done, total}: pct = mean
+  // accuracy over all items (0 for unattempted / unavailable), done = mastered.
+  function rollRoadmap(items, idx) {
+    let sum = 0, done = 0;
+    const total = items.length;
+    for (const it of items) {
+      const row = resolveRoadmapItem(it, idx);
+      const acc = itemAccuracy(row);
+      sum += acc;
+      if (row && row.totalAttempts && acc >= RM_STRONG) done += 1;
+    }
+    return { pct: total ? Math.round(sum / total) : 0, done, total };
+  }
+  const allItems = (rm) => rm.stages.reduce((a, s) => a.concat(s.items), []);
+
+  async function renderRoadmapList() {
+    const listEl = $('roadmapList');
+    const emptyEl = $('roadmapEmpty');
+    const viewEl = $('roadmapView');
+    if (viewEl) viewEl.classList.add('hidden');
+    if (listEl) listEl.classList.remove('hidden');
+    if (emptyEl) emptyEl.classList.add('hidden');
+    if (!listEl) return;
+    listEl.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Loading roadmaps…</div>';
+    try {
+      const res = await api('/api/roadmaps');
+      _roadmaps = res.roadmaps || [];
+    } catch (e) {
+      listEl.innerHTML = '<span class="err">Couldn\'t load roadmaps: ' + esc(e.message) + '</span>';
+      return;
+    }
+    if (!_roadmaps.length) {
+      listEl.innerHTML = '';
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      return;
+    }
+    const idx = roadmapCatalogIndex();
+    listEl.innerHTML = _roadmaps.map((rm) => {
+      const p = rollRoadmap(allItems(rm), idx);
+      const color = accColor(p.pct);
+      return `<button type="button" class="rm-card" data-rm="${esc(rm.id)}">
+        ${ringHtml(p.pct, color, 60)}
+        <div class="rm-card-body">
+          <div class="rm-card-title">${esc(rm.title)}</div>
+          <div class="rm-card-sub">${esc(rm.summary || rm.goal || '')}</div>
+          <div class="rm-card-meta">${rm.stages.length} stage${rm.stages.length === 1 ? '' : 's'} · ${p.done}/${p.total} topics mastered</div>
+        </div>
+        <span class="rm-card-go" aria-hidden="true">›</span>
+      </button>`;
+    }).join('');
+  }
+
+  function openRoadmap(id) {
+    const rm = (_roadmaps || []).find((r) => r.id === id);
+    if (!rm) return;
+    _openRoadmapId = id;
+    const idx = roadmapCatalogIndex();
+    $('roadmapList').classList.add('hidden');
+    $('roadmapEmpty').classList.add('hidden');
+    const view = $('roadmapView');
+    view.classList.remove('hidden');
+    const p = rollRoadmap(allItems(rm), idx);
+    const color = accColor(p.pct);
+    $('roadmapHead').innerHTML = `
+      <div class="rm-head-top">
+        ${ringHtml(p.pct, color, 72)}
+        <div class="rm-head-body">
+          <h3 class="rm-title">${esc(rm.title)}</h3>
+          <p class="rm-goal">${esc(rm.summary || rm.goal || '')}</p>
+          <div class="po-bar rm-headbar"><span style="width:${p.pct}%;background:${color}"></span></div>
+          <div class="rm-head-meta">${p.done}/${p.total} topics mastered · ${rm.stages.length} stage${rm.stages.length === 1 ? '' : 's'}</div>
+        </div>
+      </div>`;
+    $('roadmapStages').innerHTML = rm.stages.map((s, i) => renderRoadmapStage(s, i, idx)).join('');
+    window.scrollTo(0, 0);
+  }
+
+  function renderRoadmapStage(stage, i, idx) {
+    const p = rollRoadmap(stage.items, idx);
+    const color = accColor(p.pct);
+    const itemsHtml = stage.items.map((it) => {
+      const row = resolveRoadmapItem(it, idx);
+      const available = !!row;
+      const attempted = !!(row && row.totalAttempts);
+      const acc = itemAccuracy(row);
+      const c = attempted ? accColor(acc) : 'var(--border-strong, #cbd5e1)';
+      const scopeAttrs = available
+        ? LEVEL_KEYS.filter((k) => it[k]).map((k) => `data-${k}="${esc(it[k])}"`).join(' ')
+        : '';
+      const status = !available ? 'Not in your program'
+        : attempted ? `${acc}% · ${row.totalAttempts} attempt${row.totalAttempts === 1 ? '' : 's'}`
+        : 'Not started';
+      const bar = available
+        ? `<div class="prog-bar-wrap"><span class="mini-bar"><span class="mini-fill" style="width:${attempted ? acc : 0}%;background:${c}"></span></span><span class="prog-pct" style="color:${c}">${attempted ? acc + '%' : '–'}</span></div>`
+        : '';
+      const actions = available
+        ? `<div class="rm-item-actions">
+            <button class="prog-btn" data-rmaction="quiz" title="Live quiz on this topic">Quiz</button>
+            ${flashcardsEnabled(it.course) ? `<button class="prog-btn cards" data-rmaction="cards" title="Study flashcards for this topic">Cards</button>` : ''}
+            <button class="prog-btn review" data-rmaction="review" title="AI teaches this topic">Review</button>
+          </div>`
+        : '';
+      const path = [it.course, it.lesson].filter(Boolean).join(' › ');
+      return `<div class="rm-item ${available ? '' : 'locked'}" ${scopeAttrs} data-label="${esc(it.topic || '')}">
+        <span class="prog-dot" style="color:${c};background:${c}"></span>
+        <div class="rm-item-info">
+          <span class="rm-item-name" title="${esc(it.topic || '')}">${esc(it.topic || '')}</span>
+          ${path ? `<span class="rm-item-path">${esc(path)}</span>` : ''}
+          ${it.note ? `<span class="rm-item-note">${esc(it.note)}</span>` : ''}
+          <span class="rm-item-status">${esc(status)}</span>
+        </div>
+        ${bar}
+        ${actions}
+      </div>`;
+    }).join('');
+    return `<div class="rm-stage">
+      <div class="rm-stage-head">
+        <span class="rm-stage-num">${String(i + 1).padStart(2, '0')}</span>
+        ${ringHtml(p.pct, color, 46)}
+        <div class="rm-stage-info">
+          <div class="rm-stage-title">${esc(stage.title)}</div>
+          ${stage.summary ? `<div class="rm-stage-sum">${esc(stage.summary)}</div>` : ''}
+          <div class="rm-stage-meta">${p.done}/${stage.items.length} mastered</div>
+        </div>
+      </div>
+      <div class="rm-items">${itemsHtml}</div>
+    </div>`;
+  }
+
+  function closeRoadmap() {
+    _openRoadmapId = null;
+    const view = $('roadmapView');
+    if (view) view.classList.add('hidden');
+    renderRoadmapList(); // re-fetch so mastery reflects any quiz just taken
   }
 
   /* Read a node's scope from its data-* attributes. */
@@ -4807,6 +4975,22 @@ const App = (() => {
       if (node.classList.contains('has-children')) node.classList.toggle('open');
     });
 
+    // Roadmaps: open a roadmap card, or launch a topic's Quiz/Cards/Review.
+    const rmPanel = $('roadmapPanel');
+    if (rmPanel) rmPanel.addEventListener('click', (e) => {
+      const card = e.target.closest('.rm-card');
+      if (card) { openRoadmap(card.dataset.rm); return; }
+      const actBtn = e.target.closest('[data-rmaction]');
+      if (!actBtn) return;
+      const item = actBtn.closest('.rm-item');
+      if (!item) return;
+      const scope = nodeScope(item); // reads data-track/course/lesson/topic
+      const act = actBtn.dataset.rmaction;
+      if (act === 'quiz') quizFromScope(scope);
+      else if (act === 'review') reviewFromScope(scope, item.dataset.label);
+      else if (act === 'cards') openFlashcards(scope, item.dataset.label);
+    });
+
     // Clicking a "Builds on / Leads to" chip opens that referred lesson.
     $('reviewLinks').addEventListener('click', (e) => {
       const chip = e.target.closest('.rl-chip');
@@ -5116,6 +5300,7 @@ const App = (() => {
     toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
+    closeRoadmap,
     openGraph, setGraphLevel,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,

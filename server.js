@@ -79,6 +79,10 @@ import {
   listQuestionFlags,
   resolveQuestionFlag,
   deleteQuestionBatch,
+  saveRoadmap,
+  getRoadmap,
+  listRoadmaps,
+  deleteRoadmap,
 } from './lib/firestore.js';
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
@@ -113,6 +117,7 @@ import {
   generateTopicOrder,
   classifyTranscript,
   planCurriculum,
+  planRoadmap,
   writeLessonBrief,
   latexifyQuestions,
   reformatFlashcards,
@@ -3276,6 +3281,12 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
     // 3. One topic-anchored generation job over all topics (the briefs are the reference).
     const assumeNote = assumedKnowledge.length
       ? `The learner already knows: ${assumedKnowledge.join(', ')}. Do not test these directly; build on them.` : '';
+    // Optional: exact transcripts the admin picked to ground generation on. When
+    // present, stepGenJob uses these as the source material (overriding the thin
+    // per-lesson briefs) — right when real practitioner transcripts exist for the goal.
+    const transcriptIds = Array.isArray(req.body?.transcriptIds)
+      ? req.body.transcriptIds.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 20)
+      : [];
     const job = await createGenJob({
       program,
       scope: { track, course },
@@ -3285,6 +3296,7 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
       thinking: ai.thinking,
       grounding: 'topic',
       instructions: [assumeNote, String(req.body?.instructions || '').trim()].filter(Boolean).join(' '),
+      transcriptIds,
       topics: flat.map(({ topic, track: tr, course: co, lesson }) => ({ topic, track: tr, course: co, lesson })),
     });
 
@@ -3465,6 +3477,169 @@ app.post('/api/admin/genjobs/:id/cancel', requireAdmin, async (req, res, next) =
     res.json({ ok: true });
   } catch (e) {
     next(e);
+  }
+});
+
+/* -------------------------------- roadmaps --------------------------------- */
+/**
+ * A ROADMAP is a curated PATH over existing catalog topics — a second lens on the
+ * shared bank (see lib/firestore.js). The admin plans one from a goal (the AI
+ * SELECTS existing topics and orders them into stages; it never invents a topic —
+ * it only returns indices into the catalog we hand it, resolved to real rows in
+ * planRoadmap). Learners see the roadmaps for their program and take them straight
+ * from the "Roadmap" tab, their per-topic mastery derived from what they already
+ * track. Content generation stays the goal flow's job — a roadmap only re-groups.
+ */
+
+/** Shape one stored roadmap for a client, adding progress the caller can compute. */
+function publicRoadmap(rm) {
+  if (!rm) return null;
+  return {
+    id: rm.id,
+    title: rm.title || 'Roadmap',
+    goal: rm.goal || '',
+    summary: rm.summary || '',
+    program: rm.program || DEFAULT_PROGRAM,
+    audience: rm.audience === 'everyone' ? 'everyone' : 'program',
+    stages: (Array.isArray(rm.stages) ? rm.stages : []).map((s) => ({
+      id: s.id,
+      title: s.title || '',
+      summary: s.summary || '',
+      items: (Array.isArray(s.items) ? s.items : []).map((it) => ({
+        topicId: it.topicId || '',
+        track: it.track || '',
+        course: it.course || '',
+        lesson: it.lesson || '',
+        topic: it.topic || '',
+        note: it.note || '',
+      })),
+    })),
+    topicCount: (Array.isArray(rm.stages) ? rm.stages : []).reduce((n, s) => n + (s.items?.length || 0), 0),
+    updatedAt: rm.updatedAt?.toMillis?.() || null,
+  };
+}
+
+// Learner: the roadmaps visible in my program (plus any 'everyone' roadmap). The
+// client joins each topic to its own catalog mastery — no per-user state stored.
+app.get('/api/roadmaps', requireAuth, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const list = await listRoadmaps({ program: scope.program });
+    res.json({ roadmaps: list.map(publicRoadmap) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.get('/api/roadmaps/:id', requireAuth, async (req, res, next) => {
+  try {
+    const rm = await getRoadmap(req.params.id);
+    if (!rm) return res.status(404).json({ error: 'No such roadmap' });
+    // A learner may only open a roadmap in a program they can see.
+    const scope = await requestScope(req);
+    if (!isAdmin(req) && rm.audience !== 'everyone' && rm.program !== scope.program) {
+      return res.status(403).json({ error: 'Not available in your program' });
+    }
+    res.json({ roadmap: publicRoadmap(rm) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: manage roadmaps (list/save/delete) and plan one from a goal.
+app.get('/api/admin/roadmaps', requireAdmin, async (req, res, next) => {
+  try {
+    const program = req.query?.program || undefined;
+    res.json({ roadmaps: (await listRoadmaps({ program })).map(publicRoadmap) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+app.post('/api/admin/roadmaps', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const saved = await saveRoadmap({
+      id: req.body?.id,
+      title: req.body?.title,
+      goal: req.body?.goal,
+      summary: req.body?.summary,
+      program: req.body?.program || scope.program,
+      audience: req.body?.audience,
+      stages: req.body?.stages,
+      source: req.body?.source || 'admin',
+      createdBy: req.userEmail,
+      updatedBy: req.userEmail,
+    });
+    res.json({ ok: true, roadmap: publicRoadmap(saved) });
+  } catch (e) {
+    if (String(e.message || '').includes('title')) return res.status(400).json({ error: e.message });
+    next(e);
+  }
+});
+
+app.delete('/api/admin/roadmaps/:id', requireAdmin, async (req, res, next) => {
+  try {
+    await deleteRoadmap(req.params.id);
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Gather the goal + the program's live catalog the roadmap planner selects from. */
+async function prepareRoadmap(req) {
+  const scope = await requestScope(req);
+  const program = req.body?.program || scope.program;
+  const goal = String(req.body?.goal || '').trim();
+  if (!goal) throw Object.assign(new Error('Describe the goal of the roadmap first'), { status: 400 });
+  const catalog = await getCatalog(req.userEmail, { ...scope, program });
+  const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+  return { program, programName, catalog, goal, title: String(req.body?.title || '').trim(), reference: String(req.body?.reference || '').trim() };
+}
+
+/** Attach the program to a resolved roadmap plan (planRoadmap already resolved refs to real rows). */
+function shapeRoadmapPlan(plan, { program }) {
+  return {
+    program,
+    title: plan.title,
+    summary: plan.summary,
+    stages: plan.stages,
+    gaps: plan.gaps || [],
+  };
+}
+
+app.post('/api/admin/roadmap/plan', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const ctx = await prepareRoadmap(req);
+    const plan = await planRoadmap(
+      { goal: ctx.goal, title: ctx.title, catalog: ctx.catalog, programName: ctx.programName, reference: ctx.reference },
+      aiFromBody(req),
+    );
+    res.json(shapeRoadmapPlan(plan, ctx));
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+
+// Streaming sibling: reasoning streams live (SSE), finished plan arrives as 'result'.
+app.post('/api/admin/roadmap/plan/stream', requireAdmin, bigJson, async (req, res) => {
+  let started = false;
+  try {
+    const ctx = await prepareRoadmap(req);
+    sseInit(res); started = true;
+    const plan = await planRoadmap(
+      { goal: ctx.goal, title: ctx.title, catalog: ctx.catalog, programName: ctx.programName, reference: ctx.reference },
+      aiFromBody(req),
+      (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
+    );
+    sseSend(res, 'result', shapeRoadmapPlan(plan, ctx));
+    sseSend(res, 'done', {});
+    res.end();
+  } catch (e) {
+    if (started) { try { sseSend(res, 'error', { error: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ } }
+    else res.status(e.status || 500).json({ error: e.message || 'AI request failed' });
   }
 });
 
