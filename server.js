@@ -1867,6 +1867,28 @@ async function learnerCatalog(email) {
     .map((t) => ({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic }));
 }
 
+/** Every transcript in the learner's enrolled programs (title + scope) — so the
+ *  assistant is aware of the source videos/notes and can point to them by real name. */
+async function learnerTranscripts(email) {
+  if (!email) return [];
+  const enr = await getEnrollment(email);
+  const seen = new Set();
+  const out = [];
+  for (const program of enr.programs) {
+    let list = [];
+    try { list = await getTranscripts({ program }); } catch { list = []; }
+    for (const t of list) {
+      if (!t || !t.title) continue;
+      const k = t.id || `${t.title}|${t.lesson || ''}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push({ title: t.title, track: t.track, course: t.course, lesson: t.lesson });
+      if (out.length >= 500) return out;
+    }
+  }
+  return out;
+}
+
 // Auth: send a message to the always-available assistant. The client passes a
 // STRUCTURED snapshot of what's on screen (view, selection, current question or
 // flashcard, recent answers) as `context`; the assistant answers grounded in it.
@@ -1884,8 +1906,11 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
 
     const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
     const history = existing ? existing.messages : [];
-    const catalog = looksLikeCatalogLookup(message) ? await learnerCatalog(req.userEmail) : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog }, aiChoice(req));
+    const lookup = looksLikeCatalogLookup(message);
+    const [catalog, transcripts] = lookup
+      ? await Promise.all([learnerCatalog(req.userEmail), learnerTranscripts(req.userEmail)])
+      : [[], []];
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -1909,6 +1934,7 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
   const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
   const conversationId = req.body?.conversationId ? String(req.body.conversationId) : '';
   const steer = String(req.body?.steer || '').trim();
+  const search = !!req.body?.web; // web access now streams (grounded plain text) so pause still works
 
   // If the client aborts (a Pause), the socket closes: don't persist the turn the
   // user is about to discard/steer, and stop trying to write to a dead stream.
@@ -1928,9 +1954,12 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
       && history[history.length - 1]?.role === 'assistant')
       ? history.slice(0, -2) : history;
 
-    const catalog = looksLikeCatalogLookup(message) ? await learnerCatalog(req.userEmail) : [];
+    const lookup = looksLikeCatalogLookup(message);
+    const [catalog, transcripts] = lookup
+      ? await Promise.all([learnerCatalog(req.userEmail), learnerTranscripts(req.userEmail)])
+      : [[], []];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search }, aiChoice(req),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
