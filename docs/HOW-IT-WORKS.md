@@ -141,12 +141,17 @@ your weak prerequisites as sub-steps.
 ## 10. Academy Admin
 
 A separate admin console (`/academy-admin.html`, gated by `requireAdmin`) for authoring the
-curriculum for a team. Four tabs:
+curriculum for a team. Stations:
 
-- **Curriculum & Sources** — edit the Track→Course→Lesson→Topic tree; **auto-file ingest**: paste a
-  transcript (or pick an Atrium "Watcher" video) → AI proposes where it belongs (reusing existing
-  names or proposing new ones; new-vs-existing is decided **server-side against the live catalog**,
-  never trusted from the model) → you review/edit → attach, optionally generating questions.
+- **Compose (Curriculum & Sources)** — edit the Track→Course→Lesson→Topic tree; **auto-file ingest**:
+  paste a transcript (or pick an Atrium "Watcher" video) → AI proposes where it belongs (reusing
+  existing names or proposing new ones; new-vs-existing is decided **server-side against the live
+  catalog**, never trusted from the model) → you review/edit → attach, optionally generating
+  questions. Also **Build with AI**: describe a **goal** in plain English (optionally pick source
+  transcripts) and the app drafts a whole **module** — a course of lessons and sub-lessons built on
+  top of what the learner already knows — then writes questions and flashcards for it; or paste an
+  **outline** to build many lessons at once. This is how new curriculum gets created from a goal
+  (e.g. to fill a learner's gaps), and it hands off to a roadmap.
 - **Generate** — bulk question generation runs as a **stepper** (one topic per HTTP call, because
   Cloud Run throttles CPU between requests), so a closed tab costs at most one topic; every run is
   tagged with a `batchTag` and is fully reversible via "Delete batch." Flashcards generate in a
@@ -154,6 +159,15 @@ curriculum for a team. Four tabs:
 - **Flags** — learners flag bad questions; admins keep-or-delete them (the safety valve for
   auto-published generated content).
 - **People** — set each person's **enrollment** (`{programs, courses}`; empty courses = all).
+- **Chart (Roadmaps)** — a roadmap is a curated PATH over existing content: the AI selects and
+  orders tracks / courses / lessons / sub-lessons into stages toward a goal (mixed grain), and it's
+  editable before saving. Admins can **assign** a roadmap to people (a soft "Assigned" badge that
+  also auto-adds its tracks to their Mastery Engine — it grants no exclusive access; the bank is
+  open). Learners take roadmaps from the app's **Roadmaps** tab.
+
+Learner-side note: the tab formerly called "My Progress" is now the **Mastery Engine** — a
+user-curated set of **tracks** the learner adds from the open bank (enrolled/assigned roadmaps
+auto-populate it), not a whole program they're force-fed.
 
 **Sentinel tie-in:** the team portal's Academy tab reads `/api/internal/enrollment-progress`
 (HMAC-signed, 5-minute replay window on the shared `SSO_SECRET`) to show each person's per-program
