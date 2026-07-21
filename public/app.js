@@ -67,6 +67,49 @@ const App = (() => {
     return acc;
   }
 
+  /** Parse one SSE frame ("event: x\ndata: {...}") and dispatch to onEvent(event, data).
+   *  Comment heartbeats (": open") and dataless frames are ignored. */
+  function dispatchSSE(frame, onEvent) {
+    let ev = 'message', data = '';
+    for (const line of frame.split('\n')) {
+      if (line.startsWith('event:')) ev = line.slice(6).trim();
+      else if (line.startsWith('data:')) data += line.slice(5).trim();
+    }
+    if (!data) return;
+    let parsed;
+    try { parsed = JSON.parse(data); } catch { return; }
+    onEvent(ev, parsed);
+  }
+
+  /** POST that reads a Server-Sent-Events stream, calling onEvent(event, data) per
+   *  frame. `signal` lets the caller abort (pause). Errors before the stream opens
+   *  surface as thrown Errors; in-stream failures arrive as an 'error' event. */
+  async function apiStreamSSE(path, body, onEvent, signal) {
+    const res = await fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify(body),
+      signal,
+    });
+    if (!res.ok || !res.body) {
+      const e = await res.json().catch(() => ({}));
+      throw new Error(e.error || `Request failed (${res.status})`);
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const frames = buf.split('\n\n');
+      buf = frames.pop();               // keep the incomplete tail
+      for (const f of frames) dispatchSSE(f, onEvent);
+    }
+    if (buf.trim()) dispatchSSE(buf, onEvent);
+  }
+
   /* ---------------------- Offline cache + sync queue --------------------- */
   const LS = { catalog: 'agora.catalog', qbank: 'agora.qbank', qbankTs: 'agora.qbank.ts', queue: 'agora.logqueue' };
   const lsGet = (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
@@ -214,11 +257,11 @@ const App = (() => {
     syncThinkingVisibility(provider);
   }
 
-  // Extended thinking applies to the cloud engines that support it (Gemini and
-  // DeepSeek V4 — whose Flash model defaults to thinking ON, hence slow); hide the
-  // toggle for the local engines that don't take the lever.
+  // Extended thinking applies to the cloud engines that support it (Gemini,
+  // DeepSeek V4, and Kimi K2.6 — all of which default thinking ON, hence slow);
+  // hide the toggle for the local engines that don't take the lever.
   function syncThinkingVisibility(provider) {
-    const supported = provider === 'gemini' || provider === 'deepseek';
+    const supported = provider === 'gemini' || provider === 'deepseek' || provider === 'kimi';
     AI_THINKING_WRAPS.forEach((id) => $(id)?.classList.toggle('hidden', !supported));
   }
 
@@ -2880,7 +2923,7 @@ const App = (() => {
   // Always-available tutor that answers with a STRUCTURED snapshot of what's on
   // screen (view, selection, current question/flashcard, recent answers).
   // activeId '' = a fresh, unsent conversation (created on first message).
-  const assistant = { loaded: false, activeId: '', chats: [] };
+  const assistant = { loaded: false, activeId: '', chats: [], abort: null };
 
   function assistantContext() {
     const view = currentView();
@@ -3024,6 +3067,8 @@ const App = (() => {
   // Load and show a conversation by id ('' = fresh blank chat).
   async function openAssistantChat(id, silent) {
     const log = $('assistantLog');
+    // Abort any in-flight stream so it can't write into the conversation we're leaving.
+    if (assistant.abort) { try { assistant.abort.abort(); } catch { /* closed */ } assistant.abort = null; }
     assistant.activeId = id || '';
     localStorage.setItem('assistant.activeId', assistant.activeId);
     renderAssistantHistList();
@@ -3073,7 +3118,6 @@ const App = (() => {
     const msg = input.value.trim();
     if (!msg) return;
     const log = $('assistantLog');
-    const send = $('assistantSend');
     input.value = '';
     appendBubble(log, 'user', msg);
     // Quick command: "fixformat" cleans up the current card instead of chatting.
@@ -3082,35 +3126,44 @@ const App = (() => {
       input.focus();
       return;
     }
+    // Two turns still use the blocking path: hands-free VOICE (the whole reply is
+    // needed for TTS) and WEB SEARCH (Gemini grounding forbids the streaming+JSON
+    // combo, so there's no live thinking to show). Everything else streams, so you
+    // can watch the AI think and pause + steer it (see streamAssistantAnswer).
+    if (convoOn()) { await sendAssistantBlocking(log, msg, true); return; }
+    if (webAccessOn()) { await sendAssistantBlocking(log, msg, false); input.focus(); return; }
+    await streamAssistantAnswer(log, msg, '');
+    input.focus();
+  }
+
+  // The blocking send path: one request, full reply rendered at once. `spoken`
+  // asks for TTS-friendly prose and reads it aloud (voice mode); otherwise it's a
+  // normal markdown+visual reply (used for web-search turns).
+  async function sendAssistantBlocking(log, msg, spoken) {
+    const send = $('assistantSend');
     const thinking = appendBubble(log, 'assistant', 'Thinking…');
     thinking.classList.add('thinking');
     send.disabled = true;
-    const inConvo = convoOn();
-    if (inConvo) setPhase('thinking');
-    // Barge-in / Stop can abort a still-generating answer.
-    const ac = inConvo ? new AbortController() : null;
-    if (ac) convo.abort = ac;
+    if (spoken) setPhase('thinking');
+    const ac = new AbortController();           // barge-in / Stop can abort it
+    if (spoken) convo.abort = ac;
     try {
       const r = await api('/api/assistant/chat', {
         method: 'POST',
-        signal: ac ? ac.signal : undefined,
+        signal: ac.signal,
         body: JSON.stringify({
           message: msg,
           context: assistantContext(),
           conversationId: assistant.activeId || undefined,
-          // Ask for a spoken-style, markdown-free answer when we're going to read it aloud.
-          conversational: inConvo || undefined,
-          // Let the assistant search the web (Gemini-grounded) when the user enabled it.
+          conversational: spoken || undefined,
           web: webAccessOn() || undefined,
         }),
       });
-      if (ac && convo.abort === ac) convo.abort = null;
+      if (spoken && convo.abort === ac) convo.abort = null;
       thinking.remove();
       appendBubble(log, 'assistant', r.reply, r.visual);
       assistant.loaded = true;
-      // Conversation mode: read the answer aloud (mic stays open for barge-in).
-      if (inConvo) speakAssistantReply(r.reply);
-      // First message of a new chat gets an id + title — sync the history list.
+      if (spoken) speakAssistantReply(r.reply);
       if (r.conversationId) {
         assistant.activeId = r.conversationId;
         localStorage.setItem('assistant.activeId', assistant.activeId);
@@ -3119,13 +3172,145 @@ const App = (() => {
       refreshCost();
     } catch (e) {
       thinking.remove();
-      if (e.name === 'AbortError') return;   // superseded by a barge-in / Stop — stay quiet
+      if (e.name === 'AbortError') return;      // superseded by a barge-in / Stop — stay quiet
       appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
-      if (convoActive()) ensureListening();  // keep the hands-free loop alive after a failure
+      if (spoken && convoActive()) ensureListening();  // keep the hands-free loop alive after a failure
     } finally {
       send.disabled = false;
-      input.focus();
     }
+  }
+
+  // Build an assistant bubble wired for streaming: a collapsible live "thinking"
+  // panel, the answer body, and a controls row (Pause, later the steer box).
+  function appendStreamingBubble(log) {
+    const empty = log.querySelector('.chat-empty');
+    if (empty) empty.remove();
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-msg ai';
+    wrap.innerHTML = '<div class="chat-bubble">'
+      + '<details class="chat-think is-live" open><summary>Thinking</summary><div class="chat-think-body"></div></details>'
+      + '<div class="chat-answer"></div>'
+      + '<div class="chat-controls"></div></div>';
+    log.appendChild(wrap);
+    log.scrollTop = log.scrollHeight;
+    return {
+      wrap,
+      think: wrap.querySelector('.chat-think'),
+      thinkBody: wrap.querySelector('.chat-think-body'),
+      thinkSummary: wrap.querySelector('summary'),
+      answer: wrap.querySelector('.chat-answer'),
+      controls: wrap.querySelector('.chat-controls'),
+    };
+  }
+
+  // Stream one assistant answer, showing the reasoning live and letting the user
+  // Pause (abort) + steer (re-run with added guidance) — Atrium's pause-&-steer,
+  // which is client abort + re-POST of the SAME message with an accumulated steer.
+  // `els` is reused across steer restarts so the answer stays in one bubble.
+  async function streamAssistantAnswer(log, msg, steer, els) {
+    const send = $('assistantSend');
+    els = els || appendStreamingBubble(log);
+    // Reset the bubble for this (re)run.
+    els.thinkBody.textContent = '';
+    els.answer.innerHTML = '';
+    els.think.classList.remove('hidden');
+    els.think.classList.add('is-live');
+    els.think.open = true;
+    els.thinkSummary.textContent = 'Thinking';
+    els.controls.innerHTML = '<button type="button" class="chat-pause">⏸ Pause &amp; steer</button>';
+    const pauseBtn = els.controls.querySelector('.chat-pause');
+    send.disabled = true;
+
+    const ac = new AbortController();
+    assistant.abort = ac;
+    let thinkText = '', answerText = '', gotThinking = false, gotAnswer = false, paused = false, done = false;
+
+    pauseBtn.onclick = () => {
+      if (done) return;
+      paused = true;
+      try { ac.abort(); } catch { /* already closed */ }
+      els.think.classList.remove('is-live');
+      showSteerBox(log, msg, steer, els);
+    };
+
+    try {
+      await apiStreamSSE('/api/assistant/chat/stream', {
+        message: msg,
+        context: assistantContext(),
+        conversationId: assistant.activeId || undefined,
+        steer: steer || undefined,
+      }, (ev, data) => {
+        if (ev === 'thinking') {
+          gotThinking = true;
+          thinkText += (data.text || '');
+          els.thinkBody.textContent = thinkText;
+          log.scrollTop = log.scrollHeight;
+        } else if (ev === 'content') {
+          if (!gotAnswer) {                 // first answer token — collapse the thinking panel
+            gotAnswer = true;
+            els.think.classList.remove('is-live');
+            els.think.open = false;
+            els.thinkSummary.textContent = 'Thoughts';
+          }
+          answerText += (data.text || '');
+          els.answer.innerHTML = renderMarkdown(answerText);
+          log.scrollTop = log.scrollHeight;
+        } else if (ev === 'done') {
+          done = true;
+          if (data.conversationId) {
+            assistant.activeId = data.conversationId;
+            localStorage.setItem('assistant.activeId', assistant.activeId);
+          }
+        } else if (ev === 'error') {
+          throw new Error(data.message || 'AI request failed');
+        }
+      }, ac.signal);
+
+      // Finalize: drop the (empty) thinking panel if the model never reasoned,
+      // typeset any math, sync the history list + cost.
+      els.think.classList.remove('is-live');
+      if (!gotThinking) els.think.classList.add('hidden');
+      els.controls.innerHTML = '';
+      typeset(els.answer);
+      assistant.loaded = true;
+      if (done) { await refreshAssistantChats(); refreshCost(); }
+    } catch (e) {
+      if (e.name === 'AbortError' || paused) return;   // paused → steer box already shown
+      els.think.classList.remove('is-live');
+      els.controls.innerHTML = '';
+      els.answer.innerHTML = renderMarkdown('Sorry, that failed: ' + e.message);
+    } finally {
+      if (assistant.abort === ac) assistant.abort = null;
+      send.disabled = false;
+    }
+  }
+
+  // The paused steer box: type extra direction, then Continue (re-run with the
+  // accumulated steer) or Stop (keep whatever streamed so far).
+  function showSteerBox(log, msg, steer, els) {
+    els.thinkSummary.textContent = 'Paused';
+    els.controls.innerHTML =
+      '<div class="chat-steer">'
+      + '<textarea class="chat-steer-input" rows="2" placeholder="Add direction, e.g. \'be more concise\', \'focus on the intuition\', \'show a worked example\'…"></textarea>'
+      + '<div class="chat-steer-actions">'
+      + '<button type="button" class="chat-steer-go">▶ Continue with guidance</button>'
+      + '<button type="button" class="chat-steer-stop">Stop</button>'
+      + '</div></div>';
+    const ta = els.controls.querySelector('.chat-steer-input');
+    ta.focus();
+    els.controls.querySelector('.chat-steer-go').onclick = () => {
+      const g = ta.value.trim();
+      const combined = steer ? (g ? steer + ' ' + g : steer) : g;
+      streamAssistantAnswer(log, msg, combined, els);   // re-run into the SAME bubble
+    };
+    els.controls.querySelector('.chat-steer-stop').onclick = () => {
+      els.controls.innerHTML = '';
+      els.think.open = false;
+      els.thinkSummary.textContent = 'Thoughts';
+      if (!els.answer.innerHTML.trim()) els.answer.innerHTML = renderMarkdown('_Stopped._');
+      typeset(els.answer);
+      $('assistantSend').disabled = false;
+    };
   }
 
   // Handle the "fixformat" quick command: reformat the CURRENT flashcard's code
