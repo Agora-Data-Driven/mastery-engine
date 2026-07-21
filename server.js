@@ -107,6 +107,7 @@ import {
   generateCardChat,
   generateScopeChat,
   generateAssistantChat,
+  streamAssistantChat,
   generateFlashcardQuestions,
   generateTopicLinks,
   generateTopicOrder,
@@ -320,6 +321,34 @@ async function streamText(res, produce) {
     else { try { res.end(); } catch { /* already closed */ } }
   }
 }
+
+/**
+ * Server-Sent Events for the admin planners: open the stream, then push typed
+ * events — 'thinking'/'content' token deltas while the model works, then one
+ * 'result' with the finished plan, then 'done'. The Composing Room renders the
+ * thinking live so you can watch the model reason instead of staring at a spinner.
+ * Disabling buffering + an opening comment defeats proxy buffering on Cloud Run.
+ */
+function sseInit(res) {
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders?.();
+  res.write(': open\n\n');
+}
+function sseSend(res, event, data) {
+  // JSON.stringify keeps the payload to a single line, so the `data:` framing holds.
+  res.write(`event: ${event}\ndata: ${JSON.stringify(data ?? {})}\n\n`);
+}
+
+/** The AI engine an admin composer request picked (provider/model/thinking in the
+ *  body, written by the Composing Room's rail control). Thinking defaults ON. */
+const aiFromBody = (req) => ({
+  provider: req.body?.provider || 'deepseek',
+  ...(req.body?.model ? { model: req.body.model } : {}),
+  thinking: req.body?.thinking !== false,
+});
 
 /* Lightweight per-IP rate limiter for the public AI endpoints (cost guard). */
 const aiHits = new Map(); // ip -> { count, resetAt }
@@ -1803,6 +1832,57 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
   }
 });
 
+// Auth: STREAMING assistant (SSE) — the text-chat path. Emits the model's
+// reasoning ('thinking') and answer ('content') deltas live so the chat shows
+// what the AI is doing, and can be paused + steered: the client aborts the
+// stream and re-POSTs the SAME message with an accumulated `steer` note (see the
+// Atrium assistant — no server-side run state; abort + resend is the mechanism).
+// Streams PLAIN MARKDOWN (no visual), unlike the blocking sibling above. The
+// turn is persisted on 'done'. Heavy setup runs inside the stream, after the
+// heartbeat, so a failure surfaces as an 'error' event, not a dropped connection.
+app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res, next) => {
+  const message = String(req.body?.message || '').trim();
+  if (!message) return res.status(400).json({ error: 'A message is required' });
+  const context = req.body?.context && typeof req.body.context === 'object' ? req.body.context : {};
+  const conversationId = req.body?.conversationId ? String(req.body.conversationId) : '';
+  const steer = String(req.body?.steer || '').trim();
+
+  // If the client aborts (a Pause), the socket closes: don't persist the turn the
+  // user is about to discard/steer, and stop trying to write to a dead stream.
+  let clientGone = false;
+  res.on('close', () => { clientGone = true; });
+
+  sseInit(res);
+  try {
+    const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
+    const history = existing ? existing.messages : [];
+
+    // A steer restart re-sends the SAME message (with an added steer note) against
+    // the same conversation, so the first pass's turn is already saved. Drop that
+    // turn here so the model re-answers cleanly (not seeing its own draft in the
+    // history), and so we overwrite it rather than duplicating on save.
+    const baseHistory = (steer && history.length >= 2
+      && history[history.length - 1]?.role === 'assistant')
+      ? history.slice(0, -2) : history;
+
+    const out = await streamAssistantChat(
+      { context, history: baseHistory, message, steer }, aiChoice(req),
+      (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
+    );
+
+    if (clientGone) return;   // paused/navigated away — leave the prior turn untouched
+    const reply = String(out.reply || '').trim();
+    const messages = [...baseHistory, { role: 'user', text: message }, { role: 'assistant', text: reply }];
+    const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
+    sseSend(res, 'done', { conversationId: saved.id, title: saved.title });
+    res.end();
+  } catch (e) {
+    if (clientGone) return;
+    // Headers are already sent (sseInit), so surface the failure as an event.
+    try { sseSend(res, 'error', { message: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ }
+  }
+});
+
 /* --------------------------- progress AI features ------------------------- */
 // Shared by /api/review and /api/lesson: narrow the catalog to a scope and pull
 // a question sample + a scope label for the study-guide generators.
@@ -2876,55 +2956,84 @@ app.post('/api/admin/watcher/import', requireAdmin, async (req, res, next) => {
  * against the live catalog, never trusting the model) plus the resolved transcript
  * text, so /commit acts on exactly what the admin saw and approved.
  */
+/**
+ * Resolve the source material for an ingest plan: pasted text wins; otherwise pull
+ * the chosen Watcher video's transcript. Returns everything the classifier + the
+ * response shaper need, or throws an Error tagged with an HTTP `.status`.
+ */
+async function prepareIngest(req) {
+  const scope = await requestScope(req);
+  const program = req.body?.program || scope.program;
+  let text = String(req.body?.text || '').trim();
+  let title = String(req.body?.title || '').trim();
+  let watcherRef = null;
+  let source = 'paste';
+  if (!text && req.body?.watcher) {
+    const { client, channel, video } = req.body.watcher;
+    const v = await watcher.getVideo(client, channel, video);
+    if (!v) throw Object.assign(new Error('Video not found in the Watcher archive'), { status: 404 });
+    if (!v.transcript) throw Object.assign(new Error(`That video has no transcript yet${v.error ? ` (${v.error})` : ''}`), { status: 400 });
+    text = v.transcript;
+    source = 'watcher';
+    if (!title) title = v.title;
+    watcherRef = { client, channel, video, url: v.url };
+  }
+  if (!text) throw Object.assign(new Error('Paste a transcript or pick a Watcher video first'), { status: 400 });
+  const catalog = await getCatalog(req.userEmail, scope);
+  const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+  return { program, programName, catalog, text, title, watcherRef, source };
+}
+
+// New-vs-existing is decided HERE, from the live catalog — never trusted from the model.
+function shapeIngestPlan(p, { program, title, source, watcherRef, text, catalog }) {
+  const has = (tr, co, le, to) => catalog.some((r) => r.track === tr && r.course === co && r.lesson === le && (to == null || r.topic === to));
+  return {
+    program,
+    title: title || p.title,
+    summary: p.summary,
+    source,
+    watcherRef,
+    chars: text.length,
+    text,
+    placement: {
+      track: p.track, course: p.course, lesson: p.lesson,
+      trackIsNew: !catalog.some((r) => r.track === p.track),
+      courseIsNew: !catalog.some((r) => r.track === p.track && r.course === p.course),
+      lessonIsNew: !has(p.track, p.course, p.lesson),
+    },
+    topics: p.topics.map((t) => ({ topic: t, isNew: !has(p.track, p.course, p.lesson, t) })),
+  };
+}
+
 app.post('/api/admin/ingest/plan', requireAdmin, bigJson, async (req, res, next) => {
   try {
-    const scope = await requestScope(req);
-    const program = req.body?.program || scope.program;
-
-    // Resolve the source material: pasted text wins; otherwise pull the Watcher video.
-    let text = String(req.body?.text || '').trim();
-    let title = String(req.body?.title || '').trim();
-    let watcherRef = null;
-    let source = 'paste';
-    if (!text && req.body?.watcher) {
-      const { client, channel, video } = req.body.watcher;
-      const v = await watcher.getVideo(client, channel, video);
-      if (!v) return res.status(404).json({ error: 'Video not found in the Watcher archive' });
-      if (!v.transcript) return res.status(400).json({ error: `That video has no transcript yet${v.error ? ` (${v.error})` : ''}` });
-      text = v.transcript;
-      source = 'watcher';
-      if (!title) title = v.title;
-      watcherRef = { client, channel, video, url: v.url };
-    }
-    if (!text) return res.status(400).json({ error: 'Paste a transcript or pick a Watcher video first' });
-
-    const catalog = await getCatalog(req.userEmail, scope);
-    const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
-    const p = await classifyTranscript(
-      { transcript: text, catalog, programName },
-      { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) },
-    );
-
-    // New-vs-existing is decided here, from the live catalog — never from the model.
-    const has = (tr, co, le, to) => catalog.some((r) => r.track === tr && r.course === co && r.lesson === le && (to == null || r.topic === to));
-    res.json({
-      program,
-      title: title || p.title,
-      summary: p.summary,
-      source,
-      watcherRef,
-      chars: text.length,
-      text,
-      placement: {
-        track: p.track, course: p.course, lesson: p.lesson,
-        trackIsNew: !catalog.some((r) => r.track === p.track),
-        courseIsNew: !catalog.some((r) => r.track === p.track && r.course === p.course),
-        lessonIsNew: !has(p.track, p.course, p.lesson),
-      },
-      topics: p.topics.map((t) => ({ topic: t, isNew: !has(p.track, p.course, p.lesson, t) })),
-    });
+    const ctx = await prepareIngest(req);
+    const p = await classifyTranscript({ transcript: ctx.text, catalog: ctx.catalog, programName: ctx.programName }, aiFromBody(req));
+    res.json(shapeIngestPlan(p, ctx));
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);
+  }
+});
+
+// Streaming sibling: same plan, but the model's thinking is streamed live (SSE) and
+// the finished placement arrives as a single 'result' event. See sseInit/sseSend.
+app.post('/api/admin/ingest/plan/stream', requireAdmin, bigJson, async (req, res) => {
+  let started = false;
+  try {
+    const ctx = await prepareIngest(req);
+    sseInit(res); started = true;
+    const p = await classifyTranscript(
+      { transcript: ctx.text, catalog: ctx.catalog, programName: ctx.programName },
+      aiFromBody(req),
+      (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
+    );
+    sseSend(res, 'result', shapeIngestPlan(p, ctx));
+    sseSend(res, 'done', {});
+    res.end();
+  } catch (e) {
+    if (started) { try { sseSend(res, 'error', { error: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ } }
+    else res.status(e.status || 500).json({ error: e.message || 'AI request failed' });
   }
 });
 
@@ -3019,6 +3128,7 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
       targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
       provider: req.body?.provider || 'deepseek',
       model: req.body?.model || null,
+      thinking: req.body?.thinking !== false,
       instructions: req.body?.instructions || '',
       topics: topics.map((topic) => ({ topic, track, course, lesson })),
     });
@@ -3052,42 +3162,74 @@ function masteryDigest(catalog) {
  * the live catalog (never trusted from the model); the tree is returned for review
  * and the companion /goal/commit writes it. Mirrors /ingest/plan.
  */
+/** Gather the goal + the learner's baseline the planner builds on, or throw a
+ *  status-tagged Error. Shared by the JSON and streaming plan endpoints. */
+async function prepareGoal(req) {
+  const scope = await requestScope(req);
+  const program = req.body?.program || scope.program;
+  const goal = String(req.body?.goal || '').trim();
+  const reference = String(req.body?.reference || '').trim();
+  if (!goal) throw Object.assign(new Error('Describe what you want to learn first'), { status: 400 });
+  const catalog = await getCatalog(req.userEmail, scope);
+  const { known, learning } = masteryDigest(catalog);
+  const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+  return { program, programName, catalog, goal, reference, known, learning };
+}
+
+// New-vs-existing decided HERE from the live catalog, never from the model.
+function shapeGoalPlan(plan, { program, reference, catalog }) {
+  const has = (le, to) => catalog.some((r) => r.track === plan.track && r.course === plan.course
+    && (le == null || r.lesson === le) && (to == null || r.topic === to));
+  return {
+    program,
+    track: plan.track,
+    course: plan.course,
+    summary: plan.summary,
+    assumedKnowledge: plan.assumedKnowledge,
+    reference,
+    trackIsNew: !catalog.some((r) => r.track === plan.track),
+    courseIsNew: !catalog.some((r) => r.track === plan.track && r.course === plan.course),
+    lessons: plan.lessons.map((l) => ({
+      lesson: l.lesson,
+      rationale: l.rationale,
+      lessonIsNew: !has(l.lesson),
+      topics: l.topics.map((t) => ({ topic: t, isNew: !has(l.lesson, t) })),
+    })),
+  };
+}
+
 app.post('/api/admin/goal/plan', requireAdmin, bigJson, async (req, res, next) => {
   try {
-    const scope = await requestScope(req);
-    const program = req.body?.program || scope.program;
-    const goal = String(req.body?.goal || '').trim();
-    const reference = String(req.body?.reference || '').trim();
-    if (!goal) return res.status(400).json({ error: 'Describe what you want to learn first' });
-
-    const catalog = await getCatalog(req.userEmail, scope);
-    const { known, learning } = masteryDigest(catalog);
-    const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+    const ctx = await prepareGoal(req);
     const plan = await planCurriculum(
-      { goal, known, learning, catalog, programName, reference },
-      { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) },
+      { goal: ctx.goal, known: ctx.known, learning: ctx.learning, catalog: ctx.catalog, programName: ctx.programName, reference: ctx.reference },
+      aiFromBody(req),
     );
-
-    const has = (le, to) => catalog.some((r) => r.track === plan.track && r.course === plan.course
-      && (le == null || r.lesson === le) && (to == null || r.topic === to));
-    res.json({
-      program,
-      track: plan.track,
-      course: plan.course,
-      summary: plan.summary,
-      assumedKnowledge: plan.assumedKnowledge,
-      reference,
-      trackIsNew: !catalog.some((r) => r.track === plan.track),
-      courseIsNew: !catalog.some((r) => r.track === plan.track && r.course === plan.course),
-      lessons: plan.lessons.map((l) => ({
-        lesson: l.lesson,
-        rationale: l.rationale,
-        lessonIsNew: !has(l.lesson),
-        topics: l.topics.map((t) => ({ topic: t, isNew: !has(l.lesson, t) })),
-      })),
-    });
+    res.json(shapeGoalPlan(plan, ctx));
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);
+  }
+});
+
+// Streaming sibling: the model's reasoning streams live (SSE) while it drafts the
+// module, then the finished plan arrives as one 'result' event.
+app.post('/api/admin/goal/plan/stream', requireAdmin, bigJson, async (req, res) => {
+  let started = false;
+  try {
+    const ctx = await prepareGoal(req);
+    sseInit(res); started = true;
+    const plan = await planCurriculum(
+      { goal: ctx.goal, known: ctx.known, learning: ctx.learning, catalog: ctx.catalog, programName: ctx.programName, reference: ctx.reference },
+      aiFromBody(req),
+      (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
+    );
+    sseSend(res, 'result', shapeGoalPlan(plan, ctx));
+    sseSend(res, 'done', {});
+    res.end();
+  } catch (e) {
+    if (started) { try { sseSend(res, 'error', { error: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ } }
+    else res.status(e.status || 500).json({ error: e.message || 'AI request failed' });
   }
 });
 
@@ -3125,7 +3267,7 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
     await placeNewTopicsInOrder(program); // slot new lessons/topics into order, not the bottom
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
-    const ai = { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) };
+    const ai = aiFromBody(req);
     await Promise.all(lessons.map(async (l) => {
       const brief = await writeLessonBrief({ course, lesson: l.lesson, topics: l.topics, assumedKnowledge, goal, reference }, ai);
       if (brief) await addTranscript({ program, track, course, lesson: l.lesson, title: l.lesson, text: brief, source: 'goal-plan' });
@@ -3140,6 +3282,7 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
       targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
       provider: ai.provider,
       model: ai.model || null,
+      thinking: ai.thinking,
       grounding: 'topic',
       instructions: [assumeNote, String(req.body?.instructions || '').trim()].filter(Boolean).join(' '),
       topics: flat.map(({ topic, track: tr, course: co, lesson }) => ({ topic, track: tr, course: co, lesson })),
@@ -3220,7 +3363,7 @@ app.post('/api/admin/lessons/bulk-commit', requireAdmin, bigJson, async (req, re
     await placeNewTopicsInOrder(program); // slot new lessons/topics into order, not the bottom
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
-    const ai = { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) };
+    const ai = aiFromBody(req);
     const instructions = String(req.body?.instructions || '').trim();
     await Promise.all(lessons.map(async (l) => {
       const brief = await writeLessonBrief({ course: l.course, lesson: l.lesson, topics: l.topics, reference: instructions }, ai);
@@ -3234,6 +3377,7 @@ app.post('/api/admin/lessons/bulk-commit', requireAdmin, bigJson, async (req, re
       targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
       provider: ai.provider,
       model: ai.model || null,
+      thinking: ai.thinking,
       grounding: 'topic',
       instructions,
       topics: flat.map(({ topic, track, course, lesson }) => ({ topic, track, course, lesson })),
@@ -3274,6 +3418,7 @@ app.post('/api/admin/genjobs', requireAdmin, async (req, res, next) => {
       targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 5)),
       provider: req.body?.provider || 'deepseek',
       model: req.body?.model || null,
+      thinking: req.body?.thinking !== false,
       instructions: req.body?.instructions || '',
       transcriptIds: Array.isArray(req.body?.transcriptIds) ? req.body.transcriptIds : [],
       topics,
