@@ -80,6 +80,7 @@
   async function loadCatalog() {
     state.catalog = await api('/api/catalog?' + q());
     $('curCount').textContent = `— ${state.catalog.length} topic${state.catalog.length === 1 ? '' : 's'}`;
+    const rt = $('railTopics'); if (rt) rt.textContent = String(state.catalog.length); // mirror into the run-sheet rail
     renderCurriculumTree();
     populateGenerate();
   }
@@ -890,6 +891,7 @@
   async function loadFlags() {
     try {
       const { flags } = await api('/api/admin/flags');
+      const rf = $('railFlags'); if (rf) rf.textContent = flags.length ? String(flags.length) : ''; // mirror flag count into the rail
       if (!flags.length) { $('fList').textContent = 'Nothing flagged.'; return; }
       $('fList').innerHTML = flags.map((f) => `
         <div style="padding:8px 0;border-bottom:1px solid #E7E8EE">
