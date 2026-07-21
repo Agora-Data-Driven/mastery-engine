@@ -127,13 +127,15 @@ gcloud run deploy mastery-engine `
 #   then add to --set-secrets:  ,DEEPSEEK_API_KEY=DEEPSEEK_API_KEY:latest
 # (optional env: DEEPSEEK_MODEL default deepseek-v4-flash, DEEPSEEK_BASE_URL default https://api.deepseek.com)
 
-# Kimi (optional AI engine, selectable from the "AI model" dropdown). Same secret
+# Kimi (optional AI engine, selectable from the "AI model" dropdown). This is the
+# "Kimi Code" SUBSCRIPTION plan (console https://platform.kimi.ai) — its keys
+# (sk-kimi-…) work ONLY against api.kimi.com/coding, NOT api.moonshot.ai. Same secret
 # drill: create it from a file, grant the SA access, redeploy with the secret added.
-# Once present, "Kimi · K2.6/K3" appear in the model picker.
+# Once present, "Kimi · k3 / kimi-for-coding / -highspeed" appear in the model picker.
 #   gcloud secrets create KIMI_API_KEY --data-file="C:\path\to\kimi-key.txt"; Remove-Item "C:\path\to\kimi-key.txt"
 #   gcloud secrets add-iam-policy-binding KIMI_API_KEY --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
 #   then add to --set-secrets:  ,KIMI_API_KEY=KIMI_API_KEY:latest
-# (optional env: KIMI_MODEL default kimi-k2.6, KIMI_BASE_URL default https://api.moonshot.ai/v1)
+#   and set env:  KIMI_BASE_URL=https://api.kimi.com/coding/v1  (KIMI_MODEL default k3)
 
 # 5. One-time data import: open the app URL, click "Mastery Mode", sign in,
 #    then run the migration (uses your session cookie):

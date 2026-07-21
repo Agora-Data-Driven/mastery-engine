@@ -19,6 +19,70 @@
     return data;
   }
 
+  /* POST `body` and consume a Server-Sent Events response: handlers.onThinking /
+   * handlers.onContent receive token deltas as the model works; resolves with the
+   * 'result' event's payload, rejects on an 'error' event (or a non-stream error
+   * response, surfaced like api()). This is what makes the composer show the model's
+   * thinking live instead of a spinner. */
+  async function streamSSE(path, body, handlers = {}) {
+    const res = await fetch(path, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const ct = res.headers.get('content-type') || '';
+    if (!res.ok || !ct.includes('text/event-stream')) {
+      const data = ct.includes('application/json') ? await res.json().catch(() => null) : await res.text().catch(() => '');
+      throw new Error((data && data.error) || res.statusText || 'Request failed');
+    }
+    const reader = res.body.getReader();
+    const dec = new TextDecoder();
+    let buf = '', result, failed;
+    const handle = (event, dataStr) => {
+      let d = {}; try { d = JSON.parse(dataStr); } catch { /* keep-alive / partial */ }
+      if (event === 'thinking') handlers.onThinking && handlers.onThinking(d.text || '');
+      else if (event === 'content') handlers.onContent && handlers.onContent(d.text || '');
+      else if (event === 'result') result = d;
+      else if (event === 'error') failed = new Error(d.error || 'AI request failed');
+    };
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let sep;
+      while ((sep = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, sep); buf = buf.slice(sep + 2);
+        let event = 'message', dataStr = '';
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataStr += line.slice(5).replace(/^ /, '');
+        }
+        if (event !== 'message' || dataStr) handle(event, dataStr);
+      }
+    }
+    if (failed) throw failed;
+    if (!result) throw new Error('The model did not return a result');
+    return result;
+  }
+
+  /* A live "thinking" panel bound to a #thinking element (head + body). Shows the
+   * model's reasoning as it streams, falling back to the raw draft if a model emits
+   * no separate reasoning — so the panel is never dead. */
+  function thinkPanel(id) {
+    const el = $(id);
+    const headEl = el.querySelector('.aa-think-head');
+    const bodyEl = el.querySelector('.aa-think-body');
+    let think = '', content = '';
+    const render = () => { bodyEl.textContent = think || content; bodyEl.scrollTop = bodyEl.scrollHeight; };
+    return {
+      start() { think = ''; content = ''; show(el, true); el.classList.add('live'); headEl.innerHTML = '<span class="aa-think-dot"></span> Thinking…'; bodyEl.textContent = ''; },
+      thinking(t) { think += t; render(); },
+      content(t) { content += t; render(); },
+      done(label) { el.classList.remove('live'); headEl.innerHTML = `<span class="aa-think-dot done"></span> ${esc(label || 'Done')}`; if (!think && !content) show(el, false); },
+      fail(label) { el.classList.remove('live'); headEl.innerHTML = `<span class="aa-think-dot err"></span> ${esc(label || 'Stopped')}`; },
+    };
+  }
+
   const state = {
     program: '', catalog: [],
     watcher: { client: '', channel: '', video: null, title: '' },
@@ -53,6 +117,7 @@
     wireIngest();
     wireGoalPlan();
     wireBulk();
+    wireBuildModes();
     wireGenerate();
     loadEngines();
     wirePeople();
@@ -332,8 +397,9 @@
       $('iText').value = '';
       if (!$('iTitle').value) $('iTitle').value = w.title || '';
       state.ingest = { source: 'watcher', watcher: { client: w.client, channel: w.channel, video: w.video }, watcherTitle: w.title };
-      $('wMsg').innerHTML = `<span class="aa-ok">Loaded “${esc(w.title || 'video')}”. Click “Analyze &amp; place with AI” above.</span>`;
+      $('wMsg').innerHTML = `<span class="aa-ok">Loaded “${esc(w.title || 'video')}”. Press “Analyze &amp; place with AI” below.</span>`;
       $('iMsg').textContent = 'Watcher video ready — press Analyze & place.';
+      if ($('wDetails')) $('wDetails').open = false; // collapse the fold-out; the pick is now staged
       $('iPlan').scrollIntoView({ behavior: 'smooth', block: 'center' });
     };
   }
@@ -476,6 +542,7 @@
     $('iBar').style.width = '0%';
     $('iStatus').textContent = '';
     $('iCommitMsg').textContent = '';
+    show($('iThink'), false); // no AI on the manual path — clear any prior thinking panel
     show($('iPlanBox'), true);
     $('iMsg').textContent = '';
     $('iTrack').focus();
@@ -538,6 +605,7 @@
       // and close the review box so its (now stale) state can't be committed.
       state.ingest = null;
       show($('iPlanBox'), false);
+      show($('iThink'), false);
       $('iMsg').textContent = '';
       if (!$('iTitle').value) $('iTitle').value = f.name.replace(/\.[^.]+$/, '');
     };
@@ -551,17 +619,19 @@
     $('iPlan').onclick = async () => {
       const text = $('iText').value.trim();
       const watcher = (!text && state.ingest && state.ingest.watcher) ? state.ingest.watcher : null;
-      if (!text && !watcher) { $('iMsg').innerHTML = '<span class="aa-err">Paste a transcript or pick a Watcher video first.</span>'; return; }
+      if (!text && !watcher) { $('iMsg').innerHTML = '<span class="aa-err">Paste a transcript, upload a file, or pull a Watcher video first.</span>'; return; }
       $('iPlan').disabled = true;
       $('iMsg').textContent = 'Reading the material and finding where it fits…';
+      const panel = thinkPanel('iThink'); panel.start();
       try {
-        const data = await api('/api/admin/ingest/plan', {
-          method: 'POST',
-          body: { program: state.program, title: $('iTitle').value, ...(text ? { text } : { watcher }) },
-        });
+        const data = await streamSSE('/api/admin/ingest/plan/stream', {
+          program: state.program, title: $('iTitle').value, ...(text ? { text } : { watcher }), ...engineBody(),
+        }, { onThinking: panel.thinking, onContent: panel.content });
+        panel.done('Placement ready');
         renderPlan(data);
         $('iMsg').innerHTML = '<span class="aa-ok">Here is the plan — review, then add it.</span>';
       } catch (e) {
+        panel.fail('Analysis failed');
         $('iMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
       }
       $('iPlan').disabled = false;
@@ -621,6 +691,7 @@
             source: state.ingest.source, watcherRef: state.ingest.watcherRef,
             generate,
             targetPerTopic: Number($('iCount').value) || 6,
+            ...engineBody(),
           },
         });
         if (generated && job) {
@@ -633,6 +704,7 @@
             : '<span class="aa-ok">Attached — transcript filed to that lesson.</span>';
         }
         show($('iPlanBox'), false);
+        show($('iThink'), false);
         $('iText').value = ''; $('iTitle').value = ''; $('iFileName').textContent = ''; state.ingest = null;
         resetGenerateToggle();
         await loadCatalog();
@@ -714,14 +786,16 @@
       if (!goal) { $('gpMsg').innerHTML = '<span class="aa-err">Describe what you want to learn first.</span>'; return; }
       $('gpDraft').disabled = true;
       $('gpMsg').textContent = 'Reading your progress and drafting a plan…';
+      const panel = thinkPanel('gpThink'); panel.start();
       try {
-        const data = await api('/api/admin/goal/plan', {
-          method: 'POST',
-          body: { program: state.program, goal, reference: $('gpRef').value.trim(), provider: $('gpModel').value },
-        });
+        const data = await streamSSE('/api/admin/goal/plan/stream', {
+          program: state.program, goal, reference: $('gpRef').value.trim(), ...engineBody(),
+        }, { onThinking: panel.thinking, onContent: panel.content });
+        panel.done('Plan ready');
         renderGoalPlan(data);
         $('gpMsg').innerHTML = '<span class="aa-ok">Here is your plan — review, then add it.</span>';
       } catch (e) {
+        panel.fail('Draft failed');
         $('gpMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
       }
       $('gpDraft').disabled = false;
@@ -745,7 +819,7 @@
             goal: state.goal.goal, reference: state.goal.reference,
             assumedKnowledge: state.goal.assumedKnowledge,
             lessons, buildCards,
-            provider: $('gpModel').value,
+            ...engineBody(),
             targetPerTopic: Number($('gpCount').value) || 6,
           },
         });
@@ -759,6 +833,7 @@
           : '<span class="aa-ok">Done — module added with lessons, questions and flashcards.</span>';
         if (!state.stopGoal) {
           show($('gpPlanBox'), false);
+          show($('gpThink'), false);
           $('gpGoal').value = ''; $('gpRef').value = ''; state.goal = null;
         }
         await loadCatalog();
@@ -823,7 +898,7 @@
             program: state.program,
             lessons: state.bulk,
             buildCards,
-            provider: $('blModel').value,
+            ...engineBody(),
             targetPerTopic: Number($('blCount').value) || 6,
           },
         });
@@ -846,6 +921,22 @@
       }
       $('blCommit').disabled = false; show($('blStop'), false);
     };
+  }
+
+  // "Build with AI" has two modes — from a goal, or from a pasted outline — behind
+  // a segmented control. They share the card, the rail engine/thinking, and (for the
+  // goal path) the streaming thinking panel.
+  function wireBuildModes() {
+    const set = (mode) => {
+      const goal = mode === 'goal';
+      $('bmGoal').setAttribute('aria-selected', String(goal));
+      $('bmOutline').setAttribute('aria-selected', String(!goal));
+      show($('bmGoalPane'), goal);
+      show($('bmOutlinePane'), !goal);
+    };
+    $('bmGoal').onclick = () => set('goal');
+    $('bmOutline').onclick = () => set('outline');
+    set('goal');
   }
 
   function renderBulkPreview(data) {
@@ -885,29 +976,52 @@
     $('blStatus').textContent = `Flashcards built for ${done} lesson${done === 1 ? '' : 's'}.`;
   }
 
-  /* -------------------------------- generate ------------------------------- */
-  // The engine dropdown lives at the TOP of the Composing Room and governs
-  // EVERYTHING built here. It writes the same aiProvider/aiModel cookies the
-  // home page uses, so flashcards / lessons / reviews (which read the cookie
-  // server-side via aiChoice) all follow it; questions also get it in the body.
+  /* --------------------------- AI engine + thinking ------------------------ */
+  // The engine dropdown + thinking switch live in the run-sheet RAIL and govern
+  // EVERYTHING built in this room. They write the same aiProvider/aiModel/aiThinking
+  // cookies the learner home page uses, so cookie-reading builds (flashcards,
+  // lessons, reviews via aiChoice) follow them; the composer boxes also send
+  // {provider, model, thinking} explicitly in their request bodies via engineBody().
   function parseEngine(v) {
     const s = v || 'gemini|';
     const i = s.indexOf('|');
     return { provider: (i >= 0 ? s.slice(0, i) : s) || 'gemini', model: i >= 0 ? s.slice(i + 1) : '' };
   }
+  const thinkingOn = () => !!($('aeThinking') && $('aeThinking').checked);
   function applyEngine() {
-    const { provider, model } = parseEngine($('gEngine').value);
+    const { provider, model } = parseEngine($('aeEngine').value);
     document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
     document.cookie = `aiModel=${encodeURIComponent(model || '')}; path=/; max-age=31536000; samesite=lax`;
     try { localStorage.setItem('aiProvider', provider); localStorage.setItem('aiModel', model || ''); } catch { /* ignore */ }
   }
-  const engineChoice = () => parseEngine($('gEngine').value);
+  function applyThinking() {
+    const on = thinkingOn();
+    document.cookie = `aiThinking=${on ? 'on' : 'off'}; path=/; max-age=31536000; samesite=lax`;
+    try { localStorage.setItem('aiThinking', on ? 'on' : 'off'); } catch { /* ignore */ }
+  }
+  const engineChoice = () => parseEngine($('aeEngine').value);
+  // The body fields every AI composer request sends, so the server uses the engine
+  // and thinking mode the admin picked in the rail.
+  const engineBody = () => {
+    const { provider, model } = engineChoice();
+    return { provider, ...(model ? { model } : {}), thinking: thinkingOn() };
+  };
+
+  // Restore + wire the thinking switch (default ON unless a saved pref says off).
+  function wireThinking() {
+    const cb = $('aeThinking');
+    if (!cb) return;
+    let saved; try { saved = localStorage.getItem('aiThinking'); } catch { saved = null; }
+    cb.checked = saved !== 'off';
+    applyThinking();
+    cb.onchange = applyThinking;
+  }
 
   async function loadEngines() {
-    const sel = $('gEngine');
-    if (!sel) return;
+    const sel = $('aeEngine');
+    if (!sel) { wireThinking(); return; }
     let data;
-    try { data = await api('/api/models'); } catch { sel.innerHTML = '<option value="gemini|">Cloud (Gemini)</option>'; applyEngine(); return; }
+    try { data = await api('/api/models'); } catch { sel.innerHTML = '<option value="gemini|">Cloud (Gemini)</option>'; applyEngine(); wireThinking(); return; }
     const opts = [];
     for (const p of data.providers || []) {
       for (const m of p.models || []) opts.push(`<option value="${esc(p.id)}|${esc(m)}">${esc(p.label)} · ${esc(m)}</option>`);
@@ -923,6 +1037,7 @@
     else if (byProvider) sel.value = byProvider.value;
     applyEngine(); // keep the cookie in sync with whatever ends up shown
     sel.onchange = applyEngine;
+    wireThinking();
   }
 
   function wireGenerate() {
@@ -973,6 +1088,7 @@
             targetPerTopic: Number($('gCount').value) || 5,
             provider: eng.provider,
             ...(eng.model ? { model: eng.model } : {}),
+            thinking: thinkingOn(),
             instructions: ($('gInstr') && $('gInstr').value) || '',
             transcriptIds,
           },
