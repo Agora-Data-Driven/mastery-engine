@@ -922,9 +922,51 @@
           <b>${esc(r.title)}</b> <span class="aa-note">· ${r.stages.length} stage${r.stages.length === 1 ? '' : 's'} · ${r.topicCount} topics · ${r.audience === 'everyone' ? 'everyone' : 'this program'}</span>
           <div class="aa-note" style="margin-top:2px">${esc(r.summary || r.goal || '')}</div>
         </div>
+        <button class="btn" data-assign="${esc(r.id)}" style="padding:3px 10px;font-size:12px">Assign</button>
         <button class="btn" data-edit="${esc(r.id)}" style="padding:3px 10px;font-size:12px">Edit</button>
         <button class="btn" data-del="${esc(r.id)}" style="padding:3px 10px;font-size:12px">Delete</button>
       </div>`).join('');
+  }
+
+  // Assign a roadmap to workers: a soft label + auto-populates their Mastery Engine
+  // (no exclusive access — the bank is open to all). People come from the directory.
+  let _assignPeople = null;
+  async function openAssignPanel(roadmapId) {
+    const rm = _roadmapsCache.find((x) => x.id === roadmapId);
+    if (!rm) return;
+    if (!_assignPeople) {
+      try { const { people } = await api('/api/admin/people'); _assignPeople = people || []; }
+      catch { _assignPeople = []; }
+    }
+    let ov = $('rmAssignOverlay');
+    if (!ov) {
+      ov = document.createElement('div');
+      ov.id = 'rmAssignOverlay';
+      ov.style.cssText = 'position:fixed;inset:0;z-index:300;display:flex;align-items:center;justify-content:center;background:rgba(14,21,18,.42);padding:20px';
+      document.body.appendChild(ov);
+      ov.addEventListener('click', (e) => { if (e.target === ov) ov.remove(); });
+    }
+    const peopleHtml = _assignPeople.length
+      ? _assignPeople.map((p) => `<label style="display:flex;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid #F0F1F4;cursor:pointer"><input type="checkbox" value="${esc(p.email)}" style="width:auto"><span>${esc(p.name || p.email)} <span class="aa-note">${esc(p.email)}</span></span></label>`).join('')
+      : '<div class="aa-note" style="padding:8px">No directory people found — they appear once they\'ve signed in.</div>';
+    ov.innerHTML = `<div style="background:#fff;border-radius:16px;max-width:520px;width:100%;max-height:80vh;display:flex;flex-direction:column;gap:12px;padding:20px;box-shadow:0 20px 60px rgba(14,21,18,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center"><h3 style="margin:0">Assign “${esc(rm.title)}”</h3><button class="btn" id="rmAssignClose" style="padding:2px 9px">✕</button></div>
+      <p class="aa-note" style="margin:0">Assigned people get an <b>Assigned</b> badge and this roadmap's tracks auto-appear in their Mastery Engine. Everyone still has access to every roadmap regardless.</p>
+      <div style="overflow-y:auto;flex:1;border:1px solid #E7E8EE;border-radius:10px;padding:4px 10px">${peopleHtml}</div>
+      <div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary" id="rmAssignGo">Assign selected</button><button class="btn" id="rmUnassignGo">Unassign selected</button><span id="rmAssignMsg" class="aa-note"></span></div>
+    </div>`;
+    $('rmAssignClose').onclick = () => ov.remove();
+    const doAssign = async (action) => {
+      const emails = [...ov.querySelectorAll('input[type=checkbox]:checked')].map((c) => c.value);
+      if (!emails.length) { $('rmAssignMsg').innerHTML = '<span class="aa-err">Pick at least one person.</span>'; return; }
+      $('rmAssignMsg').textContent = action === 'unassign' ? 'Unassigning…' : 'Assigning…';
+      try {
+        const r = await api(`/api/admin/roadmaps/${encodeURIComponent(roadmapId)}/assign`, { method: 'POST', body: { emails, action } });
+        $('rmAssignMsg').innerHTML = `<span class="aa-ok">${action === 'unassign' ? 'Unassigned' : 'Assigned'} ${r.count} ${r.count === 1 ? 'person' : 'people'}.</span>`;
+      } catch (e) { $('rmAssignMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+    };
+    $('rmAssignGo').onclick = () => doAssign('assign');
+    $('rmUnassignGo').onclick = () => doAssign('unassign');
   }
 
   async function roadmapDraft() {
@@ -969,11 +1011,19 @@
   }
 
   function renderRmStage(s, si) {
-    const items = (s.items || []).map((it, ii) => `
+    const items = (s.items || []).map((it, ii) => {
+      const lvl = it.level || 'topic';
+      const name = lvl === 'topic' ? it.topic : (it.lesson || it.course || it.track);
+      const kind = lvl === 'topic' ? ''
+        : ` <span style="font-size:10px;text-transform:uppercase;letter-spacing:.05em;background:#EEF0F6;color:#6B7280;border-radius:8px;padding:1px 6px">${esc(lvl)}</span>`;
+      const path = (lvl === 'topic' ? [it.course, it.lesson]
+        : lvl === 'lesson' ? [it.track, it.course]
+        : lvl === 'course' ? [it.track] : []).filter(Boolean).join(' › ');
+      return `
       <div data-si="${si}" data-ii="${ii}" style="display:flex;gap:8px;align-items:flex-start;padding:5px 0;border-top:1px solid #F0F1F4">
         <div style="flex:1;min-width:0">
-          <div style="font-weight:600">${esc(it.topic)}</div>
-          <div class="aa-note">${esc([it.course, it.lesson].filter(Boolean).join(' › '))}</div>
+          <div style="font-weight:600">${esc(name || '(unnamed)')}${kind}</div>
+          ${path ? `<div class="aa-note">${esc(path)}</div>` : ''}
           <input type="text" data-f="itemNote" data-si="${si}" data-ii="${ii}" value="${esc(it.note || '')}" placeholder="note (optional)" style="width:100%;margin-top:3px;font-size:12px" />
         </div>
         <div style="display:flex;flex-direction:column;gap:2px">
@@ -981,7 +1031,8 @@
           <button class="btn" data-act="itemDown" data-si="${si}" data-ii="${ii}" style="padding:1px 7px;font-size:12px" title="Move down">↓</button>
           <button class="btn" data-act="itemDel" data-si="${si}" data-ii="${ii}" style="padding:1px 7px;font-size:12px" title="Remove">✕</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
     return `<div style="border:1px solid #E7E8EE;border-radius:10px;padding:10px 12px;margin-bottom:10px">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
         <span style="font-weight:800;color:#16a34a;font-variant-numeric:tabular-nums">${String(si + 1).padStart(2, '0')}</span>
@@ -991,7 +1042,7 @@
         <button class="btn" data-act="stageDel" data-si="${si}" style="padding:2px 8px;font-size:12px">Remove</button>
       </div>
       <input type="text" data-f="stageSummary" data-si="${si}" value="${esc(s.summary || '')}" placeholder="one line: what they can do after this stage" style="width:100%;margin-bottom:6px;font-size:13px" />
-      <div class="aa-note">${(s.items || []).length} topic${(s.items || []).length === 1 ? '' : 's'}</div>
+      <div class="aa-note">${(s.items || []).length} item${(s.items || []).length === 1 ? '' : 's'}</div>
       ${items}
     </div>`;
   }
@@ -1077,6 +1128,7 @@
     }
     const list = $('rmList');
     if (list) list.addEventListener('click', (e) => {
+      const asg = e.target.closest('[data-assign]'); if (asg) { openAssignPanel(asg.dataset.assign); return; }
       const ed = e.target.closest('[data-edit]'); if (ed) { editRoadmap(ed.dataset.edit); return; }
       const del = e.target.closest('[data-del]'); if (del) { deleteRoadmapAdmin(del.dataset.del); }
     });
