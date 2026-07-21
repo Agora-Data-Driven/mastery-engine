@@ -83,6 +83,10 @@ import {
   getRoadmap,
   listRoadmaps,
   deleteRoadmap,
+  collectRoadmapTracks,
+  getShelf,
+  setShelf,
+  listBankTracks,
 } from './lib/firestore.js';
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
@@ -467,12 +471,45 @@ app.post('/api/auth/stop-acting', requireAdmin, (req, res) => {
 
 /* -------------------------------- catalog --------------------------------- */
 // Public: guests need the topic tree to pick what to practice.
+/**
+ * The learner's Mastery-Engine shelf as a concrete (program, track) set: their
+ * CURATED shelf if they have one, else DERIVED from enrollment (every track in
+ * their enrolled programs) so never-curated users are unaffected. null for guests.
+ */
+async function effectiveShelf(email) {
+  if (!email) return null;
+  const shelf = await getShelf(email);
+  if (shelf && shelf.tracks.length) return shelf.tracks;
+  const enr = await getEnrollment(email);
+  const set = new Map();
+  for (const program of enr.programs) {
+    const cat = await getCatalog(email, { program, courses: enr.courses });
+    for (const r of cat) if (r.track) set.set(JSON.stringify([program, r.track]), { program, track: r.track });
+  }
+  return [...set.values()];
+}
+
 app.get('/api/catalog', async (req, res, next) => {
   try {
-    const catalog = await getCatalog(optionalUser(req), await requestScope(req));
+    const email = optionalUser(req);
+    let catalog;
+    // Learner app (no ?program) → the user's Mastery-Engine shelf (curated tracks,
+    // may span programs). Admin/curation loads pass ?program → the old program
+    // scope, unchanged. Guests → their default program scope.
+    if (email && !req.query.program) {
+      const tracks = (await effectiveShelf(email)) || [];
+      const set = new Set(tracks.map((t) => JSON.stringify([t.program, t.track])));
+      const full = await getCatalog(email, null); // whole bank + this user's stats
+      catalog = full.filter((t) => set.has(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track])));
+    } else {
+      catalog = await getCatalog(email, await requestScope(req));
+    }
     res.json(
       catalog.map((t) => ({
         id: t.id,
+        // The topic's program — carried so a track pulled from any program launches
+        // its quizzes correctly (the learner shelf can span programs).
+        program: t.program || DEFAULT_PROGRAM,
         track: t.track,
         course: t.course,
         lesson: t.lesson,
@@ -3506,6 +3543,8 @@ function publicRoadmap(rm) {
       title: s.title || '',
       summary: s.summary || '',
       items: (Array.isArray(s.items) ? s.items : []).map((it) => ({
+        level: it.level || 'topic',
+        program: it.program || rm.program || DEFAULT_PROGRAM,
         topicId: it.topicId || '',
         track: it.track || '',
         course: it.course || '',
@@ -3514,18 +3553,30 @@ function publicRoadmap(rm) {
         note: it.note || '',
       })),
     })),
+    itemCount: (Array.isArray(rm.stages) ? rm.stages : []).reduce((n, s) => n + (s.items?.length || 0), 0),
+    // Kept as topicCount for back-compat with existing admin list rendering.
     topicCount: (Array.isArray(rm.stages) ? rm.stages : []).reduce((n, s) => n + (s.items?.length || 0), 0),
     updatedAt: rm.updatedAt?.toMillis?.() || null,
   };
 }
 
-// Learner: the roadmaps visible in my program (plus any 'everyone' roadmap). The
-// client joins each topic to its own catalog mastery — no per-user state stored.
+// Learner: the roadmaps visible in my program (plus any 'everyone' roadmap), each
+// flagged with whether I'm enrolled / it was assigned to me. Access is OPEN — the
+// flags are soft labels, not gates. The client joins topics to its own mastery.
 app.get('/api/roadmaps', requireAuth, async (req, res, next) => {
   try {
     const scope = await requestScope(req);
     const list = await listRoadmaps({ program: scope.program });
-    res.json({ roadmaps: list.map(publicRoadmap) });
+    const shelf = (await getShelf(req.userEmail)) || { roadmaps: [], assignedRoadmaps: [] };
+    const enrolled = new Set(shelf.roadmaps);
+    const assigned = new Set(shelf.assignedRoadmaps);
+    res.json({
+      roadmaps: list.map((rm) => ({
+        ...publicRoadmap(rm),
+        enrolled: enrolled.has(rm.id),
+        assigned: assigned.has(rm.id),
+      })),
+    });
   } catch (e) {
     next(e);
   }
@@ -3640,6 +3691,150 @@ app.post('/api/admin/roadmap/plan/stream', requireAdmin, bigJson, async (req, re
   } catch (e) {
     if (started) { try { sseSend(res, 'error', { error: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ } }
     else res.status(e.status || 500).json({ error: e.message || 'AI request failed' });
+  }
+});
+
+/* ------------------- Mastery Engine shelf (user-curated tracks) ------------- */
+/*
+ * The learner curates their own Mastery Engine by adding TRACKS from the open
+ * bank. Adding a track also ensures its program is in the user's enrollment, so
+ * the program-scoped quiz/review endpoints keep working for a track from any
+ * program. A roadmap can be added in one click — it drops its referenced tracks
+ * onto the shelf.
+ */
+
+// The bank browser: every (program, track) with counts. Open — any track addable.
+app.get('/api/bank/tracks', requireAuth, async (_req, res, next) => {
+  try {
+    res.json({ tracks: await listBankTracks() });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// My current shelf (resolved: curated, else enrollment-derived).
+app.get('/api/me/shelf', requireAuth, async (req, res, next) => {
+  try {
+    res.json({ tracks: (await effectiveShelf(req.userEmail)) || [] });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Materialise the user's shelf (from enrollment if they've never curated), apply
+ *  a set of {program, track} mutations, and ensure each added track's program is in
+ *  their enrollment so quizzes resolve. `add`/`remove` are arrays of {program, track}. */
+async function mutateShelf(email, add = [], remove = []) {
+  const base = (await effectiveShelf(email)) || [];
+  const map = new Map(base.map((t) => [JSON.stringify([t.program, t.track]), t]));
+  for (const t of remove) if (t && t.track) map.delete(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track]));
+  const addPrograms = new Set();
+  for (const t of add) {
+    if (!t || !t.track) continue;
+    const rec = { program: t.program || DEFAULT_PROGRAM, track: t.track };
+    map.set(JSON.stringify([rec.program, rec.track]), rec);
+    addPrograms.add(rec.program);
+  }
+  const saved = await setShelf(email, { tracks: [...map.values()] });
+  // Open bank: adding a track from a program you're not enrolled in enrolls you in
+  // it (courses stay "all"), so requestScope honours that program for quizzes.
+  if (addPrograms.size) {
+    const enr = await getEnrollment(email);
+    const programs = new Set(enr.programs);
+    let changed = false;
+    for (const p of addPrograms) if (!programs.has(p)) { programs.add(p); changed = true; }
+    if (changed) await setEnrollment(email, { programs: [...programs], courses: enr.courses });
+  }
+  return saved;
+}
+
+/** Enrol `email` in a roadmap: auto-add its tracks to their Mastery Engine and
+ *  record the roadmap id (assigned=true also badges it "Assigned"). */
+async function enrollRoadmap(email, roadmap, { assigned = false } = {}) {
+  await mutateShelf(email, collectRoadmapTracks(roadmap), []);
+  const shelf = (await getShelf(email)) || { roadmaps: [], assignedRoadmaps: [] };
+  const roadmaps = new Set(shelf.roadmaps); roadmaps.add(roadmap.id);
+  const assignedRoadmaps = new Set(shelf.assignedRoadmaps);
+  if (assigned) assignedRoadmaps.add(roadmap.id);
+  await setShelf(email, { roadmaps: [...roadmaps], assignedRoadmaps: [...assignedRoadmaps] });
+}
+
+/** Un-enrol: drop the roadmap id and (by default) its tracks from the shelf. */
+async function unenrollRoadmap(email, roadmap, { removeTracks = true } = {}) {
+  const shelf = (await getShelf(email)) || { tracks: [], roadmaps: [], assignedRoadmaps: [] };
+  const roadmaps = shelf.roadmaps.filter((x) => x !== roadmap.id);
+  const assignedRoadmaps = shelf.assignedRoadmaps.filter((x) => x !== roadmap.id);
+  const patch = { roadmaps, assignedRoadmaps };
+  if (removeTracks) {
+    const drop = new Set(collectRoadmapTracks(roadmap).map((t) => JSON.stringify([t.program, t.track])));
+    const base = (await effectiveShelf(email)) || [];
+    patch.tracks = base.filter((t) => !drop.has(JSON.stringify([t.program, t.track])));
+  }
+  await setShelf(email, patch);
+}
+
+// Add or remove one track from my Mastery Engine.
+app.post('/api/me/tracks', requireAuth, async (req, res, next) => {
+  try {
+    const program = String(req.body?.program || DEFAULT_PROGRAM);
+    const track = String(req.body?.track || '').trim();
+    if (!track) return res.status(400).json({ error: 'track is required' });
+    const action = req.body?.action === 'remove' ? 'remove' : 'add';
+    const saved = await mutateShelf(
+      req.userEmail,
+      action === 'add' ? [{ program, track }] : [],
+      action === 'remove' ? [{ program, track }] : [],
+    );
+    res.json({ ok: true, ...saved });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Enrol in / add a whole roadmap to my Mastery Engine (auto-adds its tracks).
+app.post('/api/me/roadmaps/:id/add', requireAuth, async (req, res, next) => {
+  try {
+    const rm = await getRoadmap(req.params.id);
+    if (!rm) return res.status(404).json({ error: 'No such roadmap' });
+    const tracks = collectRoadmapTracks(rm);
+    if (!tracks.length) return res.status(400).json({ error: 'This roadmap has no tracks to add' });
+    await enrollRoadmap(req.userEmail, rm, { assigned: false });
+    res.json({ ok: true, added: tracks.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Remove a roadmap from my Mastery Engine (drops its tracks too).
+app.post('/api/me/roadmaps/:id/remove', requireAuth, async (req, res, next) => {
+  try {
+    const rm = await getRoadmap(req.params.id);
+    if (!rm) return res.status(404).json({ error: 'No such roadmap' });
+    await unenrollRoadmap(req.userEmail, rm, { removeTracks: true });
+    res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: assign / unassign a roadmap to workers. Assignment is a SOFT label +
+// auto-populates their Mastery Engine — it grants no exclusive access (the bank
+// is open to everyone regardless).
+app.post('/api/admin/roadmaps/:id/assign', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const rm = await getRoadmap(req.params.id);
+    if (!rm) return res.status(404).json({ error: 'No such roadmap' });
+    const emails = (Array.isArray(req.body?.emails) ? req.body.emails : [])
+      .map((e) => String(e || '').trim().toLowerCase()).filter(Boolean);
+    if (!emails.length) return res.status(400).json({ error: 'Pick at least one person' });
+    const unassign = req.body?.action === 'unassign';
+    for (const email of emails) {
+      if (unassign) await unenrollRoadmap(email, rm, { removeTracks: false });
+      else await enrollRoadmap(email, rm, { assigned: true });
+    }
+    res.json({ ok: true, count: emails.length, action: unassign ? 'unassign' : 'assign' });
+  } catch (e) {
+    next(e);
   }
 });
 

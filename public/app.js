@@ -1189,6 +1189,9 @@ const App = (() => {
     const root = { children: new Map() };
     for (const r of catalog) {
       const track = upsertChild(root, r.track || 'Unknown Track');
+      // A track's rows all share a program; stash it so scopes/quiz launches carry
+      // the right program (the Mastery-Engine shelf can span programs).
+      if (r.program) track.program = r.program;
       const course = upsertChild(track, r.course || 'Unknown Course');
       const lesson = upsertChild(course, r.lesson || 'Unknown Unit');
       const topic = upsertChild(lesson, r.topic || 'Unknown Topic');
@@ -1290,10 +1293,12 @@ const App = (() => {
       : `${node.attemptedCount}/${node.topicCount} topics practised`;
 
     // data-* carry this node's full scope so the action buttons know what to launch.
+    // `program` rides along (from the track node) so quizzes resolve to the right
+    // program even when the shelf mixes programs.
     const dataAttrs = LEVEL_KEYS
       .filter((k) => scope[k] != null)
       .map((k) => `data-${k}="${esc(scope[k])}"`)
-      .join(' ');
+      .join(' ') + (scope.program ? ` data-program="${esc(scope.program)}"` : '');
 
     const childKey = LEVEL_KEYS[level + 1];
     const childHtml = hasKids
@@ -1313,7 +1318,8 @@ const App = (() => {
           <span class="prog-name" title="${esc(displayName)}">${esc(displayName)}</span>
           <span class="prog-sub">${esc(sub)}</span>
         </div>
-        ${actions}`
+        ${actions}
+        <button class="me-track-remove" data-action="removetrack" title="Remove this track from your Mastery Engine" aria-label="Remove track">✕</button>`
       : `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
         <span class="prog-dot" style="color:${color};background:${color}"></span>
         <div class="prog-info">
@@ -1401,7 +1407,7 @@ const App = (() => {
       return oa !== ob ? oa - ob : byName(a, b);
     });
     if (overview) overview.innerHTML = overviewHtml(tracks);
-    tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name })).join('');
+    tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name, program: t.program })).join('');
     // Returning from a quiz/flashcard round? Re-expand + re-scroll to where they were.
     if (progressSnapshot) { applyProgressState(progressSnapshot); progressSnapshot = null; }
   }
@@ -1416,38 +1422,46 @@ const App = (() => {
   let _roadmaps = null;      // cached list from /api/roadmaps
   let _openRoadmapId = null; // which one is expanded in the view
 
-  // Index the learner's catalog by stable topic id AND by name-path, so an item
-  // resolves to their mastery however it was stored (id preferred; path as fallback).
-  function roadmapCatalogIndex() {
-    const byId = new Map();
-    const byPath = new Map();
-    for (const r of state.catalog) {
-      if (r.id) byId.set(r.id, r);
-      byPath.set(JSON.stringify([r.track || '', r.course || '', r.lesson || '', r.topic || '']), r);
-    }
-    return { byId, byPath };
+  // All catalog rows an item covers. A coarse item (level track/course/lesson)
+  // expands to every matching topic; a topic item resolves to its one row. Matched
+  // within the item's program so a shelf spanning programs stays correct.
+  function itemRows(item) {
+    const lvl = item.level || 'topic';
+    const prog = item.program || '';
+    return state.catalog.filter((r) => {
+      if (prog && (r.program || '') !== prog) return false;
+      if (lvl === 'topic') {
+        return (item.topicId && r.id === item.topicId)
+          || (r.track === item.track && r.course === item.course && r.lesson === item.lesson && r.topic === item.topic);
+      }
+      if (!item.track || r.track !== item.track) return false;
+      if (lvl === 'track') return true;
+      if (r.course !== item.course) return false;
+      if (lvl === 'course') return true;
+      if (lvl === 'lesson') return r.lesson === item.lesson;
+      return false;
+    });
   }
-  function resolveRoadmapItem(item, idx) {
-    let row = item.topicId ? idx.byId.get(item.topicId) : null;
-    if (!row) row = idx.byPath.get(JSON.stringify([item.track || '', item.course || '', item.lesson || '', item.topic || '']));
-    return row || null;
-  }
-  const itemAccuracy = (row) => (row && row.totalAttempts ? Math.round((row.correctCount / row.totalAttempts) * 100) : 0);
-
-  // Roll a roadmap (or one stage's items) up to {pct, done, total}: pct = mean
-  // accuracy over all items (0 for unattempted / unavailable), done = mastered.
-  function rollRoadmap(items, idx) {
+  const rowAcc = (r) => (r.totalAttempts ? Math.round((r.correctCount / r.totalAttempts) * 100) : 0);
+  // Roll a set of catalog rows to {pct, done, total}: pct = mean accuracy (0 for
+  // untouched), done = topics at/above the mastery bar.
+  function rollRows(rows) {
     let sum = 0, done = 0;
-    const total = items.length;
-    for (const it of items) {
-      const row = resolveRoadmapItem(it, idx);
-      const acc = itemAccuracy(row);
-      sum += acc;
-      if (row && row.totalAttempts && acc >= RM_STRONG) done += 1;
-    }
-    return { pct: total ? Math.round(sum / total) : 0, done, total };
+    for (const r of rows) { const a = rowAcc(r); sum += a; if (r.totalAttempts && a >= RM_STRONG) done += 1; }
+    return { pct: rows.length ? Math.round(sum / rows.length) : 0, done, total: rows.length };
+  }
+  // Every distinct topic row across a set of items (coarse items expanded, deduped).
+  function itemsRows(items) {
+    const seen = new Set();
+    const out = [];
+    for (const it of items) for (const r of itemRows(it)) if (r.id && !seen.has(r.id)) { seen.add(r.id); out.push(r); }
+    return out;
   }
   const allItems = (rm) => rm.stages.reduce((a, s) => a.concat(s.items), []);
+
+  async function reloadCatalog() {
+    try { state.catalog = await api('/api/catalog'); lsSet(LS.catalog, state.catalog); } catch { /* keep cached */ }
+  }
 
   async function renderRoadmapList() {
     const listEl = $('roadmapList');
@@ -1470,16 +1484,17 @@ const App = (() => {
       if (emptyEl) emptyEl.classList.remove('hidden');
       return;
     }
-    const idx = roadmapCatalogIndex();
     listEl.innerHTML = _roadmaps.map((rm) => {
-      const p = rollRoadmap(allItems(rm), idx);
+      const p = rollRows(itemsRows(allItems(rm)));
       const color = accColor(p.pct);
+      const badge = rm.assigned ? '<span class="rm-badge assigned">Assigned</span>'
+        : rm.enrolled ? '<span class="rm-badge added">In your engine</span>' : '';
       return `<button type="button" class="rm-card" data-rm="${esc(rm.id)}">
         ${ringHtml(p.pct, color, 60)}
         <div class="rm-card-body">
-          <div class="rm-card-title">${esc(rm.title)}</div>
+          <div class="rm-card-title">${esc(rm.title)} ${badge}</div>
           <div class="rm-card-sub">${esc(rm.summary || rm.goal || '')}</div>
-          <div class="rm-card-meta">${rm.stages.length} stage${rm.stages.length === 1 ? '' : 's'} · ${p.done}/${p.total} topics mastered</div>
+          <div class="rm-card-meta">${rm.stages.length} stage${rm.stages.length === 1 ? '' : 's'} · ${p.total} topics · ${p.done} mastered</div>
         </div>
         <span class="rm-card-go" aria-hidden="true">›</span>
       </button>`;
@@ -1490,57 +1505,72 @@ const App = (() => {
     const rm = (_roadmaps || []).find((r) => r.id === id);
     if (!rm) return;
     _openRoadmapId = id;
-    const idx = roadmapCatalogIndex();
     $('roadmapList').classList.add('hidden');
     $('roadmapEmpty').classList.add('hidden');
     const view = $('roadmapView');
     view.classList.remove('hidden');
-    const p = rollRoadmap(allItems(rm), idx);
+    // Enrol/remove button reflects whether this roadmap is on your shelf.
+    const addBtn = $('rmAddBtn');
+    if (addBtn) {
+      addBtn.textContent = rm.enrolled ? '✓ In your Mastery Engine — Remove' : '＋ Add to my Mastery Engine';
+      addBtn.classList.toggle('btn-primary', !rm.enrolled);
+      addBtn.classList.toggle('btn-ghost', !!rm.enrolled);
+    }
+    const p = rollRows(itemsRows(allItems(rm)));
     const color = accColor(p.pct);
+    const badge = rm.assigned ? '<span class="rm-badge assigned">Assigned to you</span>'
+      : rm.enrolled ? '<span class="rm-badge added">In your engine</span>' : '';
     $('roadmapHead').innerHTML = `
       <div class="rm-head-top">
         ${ringHtml(p.pct, color, 72)}
         <div class="rm-head-body">
-          <h3 class="rm-title">${esc(rm.title)}</h3>
+          <h3 class="rm-title">${esc(rm.title)} ${badge}</h3>
           <p class="rm-goal">${esc(rm.summary || rm.goal || '')}</p>
           <div class="po-bar rm-headbar"><span style="width:${p.pct}%;background:${color}"></span></div>
           <div class="rm-head-meta">${p.done}/${p.total} topics mastered · ${rm.stages.length} stage${rm.stages.length === 1 ? '' : 's'}</div>
         </div>
       </div>`;
-    $('roadmapStages').innerHTML = rm.stages.map((s, i) => renderRoadmapStage(s, i, idx)).join('');
+    $('roadmapStages').innerHTML = rm.stages.map((s, i) => renderRoadmapStage(s, i)).join('');
     window.scrollTo(0, 0);
   }
 
-  function renderRoadmapStage(stage, i, idx) {
-    const p = rollRoadmap(stage.items, idx);
+  function renderRoadmapStage(stage, i) {
+    const p = rollRows(itemsRows(stage.items));
     const color = accColor(p.pct);
     const itemsHtml = stage.items.map((it) => {
-      const row = resolveRoadmapItem(it, idx);
-      const available = !!row;
-      const attempted = !!(row && row.totalAttempts);
-      const acc = itemAccuracy(row);
-      const c = attempted ? accColor(acc) : 'var(--border-strong, #cbd5e1)';
+      const lvl = it.level || 'topic';
+      const rws = itemRows(it);
+      const available = rws.length > 0;
+      const ip = rollRows(rws);
+      const attempted = rws.some((r) => r.totalAttempts);
+      const c = attempted ? accColor(ip.pct) : 'var(--border-strong, #cbd5e1)';
       const scopeAttrs = available
-        ? LEVEL_KEYS.filter((k) => it[k]).map((k) => `data-${k}="${esc(it[k])}"`).join(' ')
+        ? ['program', 'track', 'course', 'lesson', 'topic'].filter((k) => it[k]).map((k) => `data-${k}="${esc(it[k])}"`).join(' ')
         : '';
-      const status = !available ? 'Not in your program'
-        : attempted ? `${acc}% · ${row.totalAttempts} attempt${row.totalAttempts === 1 ? '' : 's'}`
-        : 'Not started';
+      const name = lvl === 'topic' ? it.topic : (it.lesson || it.course || it.track);
+      const kind = lvl === 'topic' ? '' : `<span class="rm-item-kind">${esc(lvl)}</span>`;
+      const path = (lvl === 'topic' ? [it.course, it.lesson]
+        : lvl === 'lesson' ? [it.track, it.course]
+        : lvl === 'course' ? [it.track] : []).filter(Boolean).join(' › ');
+      const status = !available ? 'Not in your catalog'
+        : lvl === 'topic'
+          ? (attempted ? `${ip.pct}% · ${rws[0].totalAttempts} attempt${rws[0].totalAttempts === 1 ? '' : 's'}` : 'Not started')
+          : `${ip.total} topics · ${ip.done} mastered`;
+      const showPct = lvl !== 'topic' || attempted;
       const bar = available
-        ? `<div class="prog-bar-wrap"><span class="mini-bar"><span class="mini-fill" style="width:${attempted ? acc : 0}%;background:${c}"></span></span><span class="prog-pct" style="color:${c}">${attempted ? acc + '%' : '–'}</span></div>`
+        ? `<div class="prog-bar-wrap"><span class="mini-bar"><span class="mini-fill" style="width:${ip.pct}%;background:${c}"></span></span><span class="prog-pct" style="color:${c}">${showPct ? ip.pct + '%' : '–'}</span></div>`
         : '';
       const actions = available
         ? `<div class="rm-item-actions">
-            <button class="prog-btn" data-rmaction="quiz" title="Live quiz on this topic">Quiz</button>
-            ${flashcardsEnabled(it.course) ? `<button class="prog-btn cards" data-rmaction="cards" title="Study flashcards for this topic">Cards</button>` : ''}
-            <button class="prog-btn review" data-rmaction="review" title="AI teaches this topic">Review</button>
+            <button class="prog-btn" data-rmaction="quiz" title="Quiz on this">Quiz</button>
+            ${(lvl !== 'track' && flashcardsEnabled(it.course)) ? `<button class="prog-btn cards" data-rmaction="cards" title="Study flashcards">Cards</button>` : ''}
+            <button class="prog-btn review" data-rmaction="review" title="AI teaches this">Review</button>
           </div>`
         : '';
-      const path = [it.course, it.lesson].filter(Boolean).join(' › ');
-      return `<div class="rm-item ${available ? '' : 'locked'}" ${scopeAttrs} data-label="${esc(it.topic || '')}">
+      return `<div class="rm-item ${available ? '' : 'locked'}" ${scopeAttrs} data-label="${esc(name || '')}">
         <span class="prog-dot" style="color:${c};background:${c}"></span>
         <div class="rm-item-info">
-          <span class="rm-item-name" title="${esc(it.topic || '')}">${esc(it.topic || '')}</span>
+          <span class="rm-item-name" title="${esc(name || '')}">${esc(name || '')} ${kind}</span>
           ${path ? `<span class="rm-item-path">${esc(path)}</span>` : ''}
           ${it.note ? `<span class="rm-item-note">${esc(it.note)}</span>` : ''}
           <span class="rm-item-status">${esc(status)}</span>
@@ -1556,11 +1586,29 @@ const App = (() => {
         <div class="rm-stage-info">
           <div class="rm-stage-title">${esc(stage.title)}</div>
           ${stage.summary ? `<div class="rm-stage-sum">${esc(stage.summary)}</div>` : ''}
-          <div class="rm-stage-meta">${p.done}/${stage.items.length} mastered</div>
+          <div class="rm-stage-meta">${p.done}/${p.total} topics mastered</div>
         </div>
       </div>
       <div class="rm-items">${itemsHtml}</div>
     </div>`;
+  }
+
+  // Toggle this roadmap on/off your Mastery Engine (auto-adds/removes its tracks).
+  async function addRoadmapToEngine() {
+    const rm = (_roadmaps || []).find((r) => r.id === _openRoadmapId);
+    if (!rm) return;
+    const btn = $('rmAddBtn');
+    if (btn) btn.disabled = true;
+    try {
+      const path = rm.enrolled ? 'remove' : 'add';
+      await api(`/api/me/roadmaps/${encodeURIComponent(rm.id)}/${path}`, { method: 'POST' });
+      rm.enrolled = !rm.enrolled;
+      await reloadCatalog();  // Mastery-Engine tracks changed
+      openRoadmap(rm.id);     // re-render button + progress
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+    if (btn) btn.disabled = false;
   }
 
   function closeRoadmap() {
@@ -1570,10 +1618,72 @@ const App = (() => {
     renderRoadmapList(); // re-fetch so mastery reflects any quiz just taken
   }
 
-  /* Read a node's scope from its data-* attributes. */
+  /* ---- Mastery Engine curation: add/remove tracks from the open bank -------- */
+  let _bankTracks = null;
+  const shelfHasTrack = (program, track) =>
+    state.catalog.some((r) => (r.program || '') === (program || '') && r.track === track);
+
+  async function openAddTracks() {
+    const modal = $('addTracksModal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    const list = $('addTracksList');
+    list.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Loading the bank…</div>';
+    try {
+      const res = await api('/api/bank/tracks');
+      _bankTracks = res.tracks || [];
+    } catch (e) {
+      list.innerHTML = '<span class="err">Couldn\'t load the bank: ' + esc(e.message) + '</span>';
+      return;
+    }
+    renderAddTracks();
+  }
+  function closeAddTracks() { const m = $('addTracksModal'); if (m) m.classList.add('hidden'); }
+  function filterAddTracks() { renderAddTracks(); }
+
+  function renderAddTracks() {
+    const list = $('addTracksList');
+    if (!list || !_bankTracks) return;
+    const term = ($('addTrackSearch').value || '').toLowerCase();
+    const rows = _bankTracks.filter((t) => !term || t.track.toLowerCase().includes(term) || t.program.toLowerCase().includes(term));
+    if (!rows.length) { list.innerHTML = '<div class="section-sub" style="padding:12px">No tracks match.</div>'; return; }
+    list.innerHTML = rows.map((t) => {
+      const on = shelfHasTrack(t.program, t.track);
+      return `<div class="me-track-row">
+        <div class="me-track-info">
+          <span class="me-track-name">${esc(t.track)}</span>
+          <span class="me-track-meta">${esc(t.program)} · ${t.courses} course${t.courses === 1 ? '' : 's'} · ${t.topics} topics</span>
+        </div>
+        <button type="button" class="btn ${on ? 'btn-ghost' : 'btn-primary'} me-track-toggle" data-prog="${esc(t.program)}" data-track="${esc(t.track)}" data-on="${on ? '1' : '0'}">${on ? '✓ Added — Remove' : '＋ Add'}</button>
+      </div>`;
+    }).join('');
+  }
+
+  async function toggleBankTrack(program, track, on) {
+    try {
+      await api('/api/me/tracks', { method: 'POST', body: { program, track, action: on ? 'remove' : 'add' } });
+      await reloadCatalog();
+      renderAddTracks();     // reflect new add/remove state
+      renderProgressTree();  // Mastery Engine tree updates behind the modal
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  // Remove one track straight from a track card in the Mastery Engine tree.
+  async function removeTrackScope(scope) {
+    if (!scope || !scope.track) return;
+    if (!confirm(`Remove "${scope.track}" from your Mastery Engine? (The content stays in the bank — re-add it anytime.)`)) return;
+    try {
+      await api('/api/me/tracks', { method: 'POST', body: { program: scope.program || '', track: scope.track, action: 'remove' } });
+      await reloadCatalog();
+      renderProgressTree();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  /* Read a node's scope from its data-* attributes (incl. program for quiz routing). */
   function nodeScope(el) {
     const s = {};
     for (const k of LEVEL_KEYS) if (el.dataset[k]) s[k] = el.dataset[k];
+    if (el.dataset.program) s.program = el.dataset.program;
     return s;
   }
 
@@ -5005,6 +5115,7 @@ const App = (() => {
         else if (act === 'review') reviewFromScope(scope, node.dataset.label);
         else if (act === 'lesson') lessonFromScope(scope, node.dataset.label);
         else if (act === 'cards') openFlashcards(scope, node.dataset.label);
+        else if (act === 'removetrack') removeTrackScope(scope);
         return; // don't also toggle the row
       }
       const row = e.target.closest('.prog-row');
@@ -5015,6 +5126,16 @@ const App = (() => {
 
     // Grouped dropdown mode-nav (open/close menus).
     wireModeNav();
+
+    // Add-tracks modal: toggle a bank track on/off your Mastery Engine.
+    const atl = $('addTracksList');
+    if (atl) atl.addEventListener('click', (e) => {
+      const b = e.target.closest('.me-track-toggle');
+      if (!b) return;
+      toggleBankTrack(b.dataset.prog, b.dataset.track, b.dataset.on === '1');
+    });
+    const atModal = $('addTracksModal');
+    if (atModal) atModal.addEventListener('click', (e) => { if (e.target === atModal) closeAddTracks(); });
 
     // Roadmaps: open a roadmap card, or launch a topic's Quiz/Cards/Review.
     const rmPanel = $('roadmapPanel');
@@ -5341,7 +5462,8 @@ const App = (() => {
     toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
-    closeRoadmap,
+    closeRoadmap, addRoadmapToEngine,
+    openAddTracks, closeAddTracks, filterAddTracks,
     openGraph, setGraphLevel,
     generateFlashcards, regenerateFlashcards, toggleHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
