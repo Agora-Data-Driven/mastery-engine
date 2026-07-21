@@ -636,9 +636,7 @@ const App = (() => {
     const isVideos = mode === 'VIDEOS';
     const isRoadmap = mode === 'ROADMAP';
 
-    document.querySelectorAll('#modeSegment button').forEach((b) =>
-      b.classList.toggle('active', b.dataset.mode === mode)
-    );
+    updateModeNav(mode);
 
     // Toggle the panels of the setup card (quiz builder / progress / roadmaps / video lessons).
     $('quizBuilder').classList.toggle('hidden', isProgress || isVideos || isRoadmap);
@@ -655,6 +653,46 @@ const App = (() => {
     else if (isRoadmap) renderRoadmapList();
     else if (isVideos) renderVideoLessons();
     else updateSetupCopy();
+  }
+
+  // Grouped dropdown nav: light up the active item, relabel its group's trigger to
+  // the active child (so the current view shows without opening the menu), and close
+  // any open menu.
+  function updateModeNav(mode) {
+    document.querySelectorAll('#modeNav .modenav-group').forEach((g) => {
+      let active = null;
+      g.querySelectorAll('[data-mode]').forEach((b) => {
+        const on = b.dataset.mode === mode;
+        b.classList.toggle('active', on);
+        if (on) active = b;
+      });
+      const trigger = g.querySelector('.modenav-trigger');
+      trigger.classList.toggle('active', !!active);
+      g.querySelector('.mn-label').textContent = active ? active.textContent : g.dataset.groupLabel;
+      trigger.setAttribute('aria-expanded', 'false');
+      g.classList.remove('open');
+    });
+  }
+
+  // Open/close the dropdown menus (one at a time; outside-click closes).
+  function wireModeNav() {
+    const nav = $('modeNav');
+    if (!nav) return;
+    const closeAll = () => nav.querySelectorAll('.modenav-group.open').forEach((g) => {
+      g.classList.remove('open');
+      g.querySelector('.modenav-trigger').setAttribute('aria-expanded', 'false');
+    });
+    nav.querySelectorAll('.modenav-trigger').forEach((t) => {
+      t.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const g = t.closest('.modenav-group');
+        const willOpen = !g.classList.contains('open');
+        closeAll();
+        if (willOpen) { g.classList.add('open'); t.setAttribute('aria-expanded', 'true'); }
+      });
+    });
+    document.addEventListener('click', closeAll);
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
   }
 
   // Video Lessons: a curated, ordered watch-list per program (static
@@ -4974,6 +5012,9 @@ const App = (() => {
       const node = row.parentElement;
       if (node.classList.contains('has-children')) node.classList.toggle('open');
     });
+
+    // Grouped dropdown mode-nav (open/close menus).
+    wireModeNav();
 
     // Roadmaps: open a roadmap card, or launch a topic's Quiz/Cards/Review.
     const rmPanel = $('roadmapPanel');
