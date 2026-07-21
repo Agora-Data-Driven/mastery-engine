@@ -25,6 +25,7 @@
     job: null, stop: false,
     ingest: null, stopIngest: false, // the AI auto-file proposal + its run
     goal: null, stopGoal: false, // the "learn a goal" plan + its run
+    bulk: null, stopBulk: false, // the "bulk-build lessons" parsed preview + its run
     assignments: [], // the People tab's who's-assigned-to-what table
   };
 
@@ -51,6 +52,7 @@
     wireTranscripts();
     wireIngest();
     wireGoalPlan();
+    wireBulk();
     wireGenerate();
     wirePeople();
     wireAddProgram();
@@ -787,6 +789,101 @@
     $('gpStatus').textContent = `Flashcards built for ${done} lesson${done === 1 ? '' : 's'}.`;
   }
 
+  /* ---------------------------- bulk-build lessons ------------------------- */
+  function wireBulk() {
+    $('blStop').onclick = () => { state.stopBulk = true; $('blStatus').textContent = 'Stopping after this topic…'; };
+
+    $('blPreview').onclick = async () => {
+      const text = $('blText').value.trim();
+      if (!text) { $('blMsg').innerHTML = '<span class="aa-err">Paste an outline first.</span>'; return; }
+      $('blPreview').disabled = true; $('blMsg').textContent = 'Parsing…';
+      try {
+        const data = await api('/api/admin/lessons/bulk-commit', {
+          method: 'POST',
+          body: { program: state.program, text, preview: true },
+        });
+        state.bulk = data.lessons || [];
+        renderBulkPreview(data);
+      } catch (e) {
+        $('blMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+      }
+      $('blPreview').disabled = false;
+    };
+
+    $('blCommit').onclick = async () => {
+      if (!state.bulk || !state.bulk.length) return;
+      const buildCards = $('blCards').checked;
+      $('blCommit').disabled = true; state.stopBulk = false; show($('blStop'), true);
+      $('blMsg').textContent = 'Writing lessons and generating…';
+      try {
+        const res = await api('/api/admin/lessons/bulk-commit', {
+          method: 'POST',
+          body: {
+            program: state.program,
+            lessons: state.bulk,
+            buildCards,
+            provider: $('blModel').value,
+            targetPerTopic: Number($('blCount').value) || 6,
+          },
+        });
+        if (res.job) {
+          $('blMsg').innerHTML = '<span class="aa-ok">Lessons created. Generating questions…</span>';
+          await runSteps(res.job.id, { bar: 'blBar', status: 'blStatus' }, 'stopBulk');
+        }
+        if (buildCards && !state.stopBulk && res.lessons) await buildBulkCards(res.lessons);
+        $('blMsg').innerHTML = state.stopBulk
+          ? '<span class="aa-ok">Stopped — what generated so far is saved. Press Build all to resume.</span>'
+          : '<span class="aa-ok">Done — lessons added with questions and flashcards.</span>';
+        if (!state.stopBulk) {
+          $('blText').value = ''; state.bulk = null;
+          show($('blPreviewBox'), false); show($('blCommit'), false);
+        }
+        await loadCatalog();
+        await loadTranscripts();
+      } catch (e) {
+        $('blMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+      }
+      $('blCommit').disabled = false; show($('blStop'), false);
+    };
+  }
+
+  function renderBulkPreview(data) {
+    const lessons = data.lessons || [];
+    const box = $('blPreviewBox');
+    if (!lessons.length) {
+      box.innerHTML = '<span class="aa-err">No valid lessons found. Use "Track &gt; Course &gt; Lesson &gt; Topic" per line.</span>';
+      show(box, true); show($('blCommit'), false);
+      $('blMsg').textContent = '';
+      return;
+    }
+    box.innerHTML = `<div class="aa-note" style="margin-bottom:8px">${data.count} lesson${data.count === 1 ? '' : 's'} · ${data.topicCount} topic${data.topicCount === 1 ? '' : 's'} will be built:</div>`
+      + lessons.map((l) => `<div style="margin-bottom:6px">
+          <b>${esc(l.track)} › ${esc(l.course)} › ${esc(l.lesson)}</b>
+          <div class="aa-note">${l.topics.map((t) => esc(t)).join(' · ')}</div>
+        </div>`).join('');
+    show(box, true);
+    show($('blCommit'), true);
+    $('blMsg').innerHTML = '<span class="aa-ok">Looks good? Press Build all.</span>';
+  }
+
+  // One flashcard deck per freshly-built lesson. Best-effort: a deck that fails
+  // doesn't abort the rest (the lessons + questions already exist).
+  async function buildBulkCards(lessons) {
+    let done = 0;
+    for (const l of lessons) {
+      if (state.stopBulk) return;
+      $('blStatus').textContent = `Building flashcards… (${done}/${lessons.length} lessons)`;
+      try {
+        await api('/api/flashcards/generate', {
+          method: 'POST',
+          body: { program: state.program, track: l.track, course: l.course, lesson: l.lesson, level: 'lesson' },
+        });
+      } catch (e) { /* keep going; cards are a bonus layer over the questions */ }
+      done += 1;
+    }
+    $('blStatus').textContent = `Flashcards built for ${done} lesson${done === 1 ? '' : 's'}.`;
+  }
+
   /* -------------------------------- generate ------------------------------- */
   function wireGenerate() {
     $('gCourse').onchange = populateGenLessons;
@@ -967,6 +1064,19 @@
 
     $('aRefresh').onclick = loadAssignments;
     if ($('aSearch')) $('aSearch').oninput = renderAssignments;
+
+    // Unenroll: the × on a program chip removes that program from the student.
+    $('aList').addEventListener('click', async (e) => {
+      const x = e.target.closest('.aa-chip-x');
+      if (!x) return;
+      const { email, program, name } = x.dataset;
+      if (!confirm(`Unenroll ${email} from "${name || program}"?`)) return;
+      x.disabled = true;
+      try {
+        await api('/api/admin/enrollment/remove', { method: 'POST', body: { email, program } });
+        await loadAssignments();
+      } catch (err) { alert(err.message); x.disabled = false; }
+    });
   }
 
   // The "who's assigned to what" table: every directory person + their program/courses.
@@ -992,7 +1102,9 @@
       + `<thead><tr><th>Person</th><th>Program</th><th>Courses</th></tr></thead><tbody>`
       + rows.map((a) => `<tr>
           <td><b>${esc(a.name)}</b><br><span class="aa-note" style="font-size:12px">${esc(a.email)}</span></td>
-          <td>${a.programs.length ? a.programs.map((p) => esc(p.name)).join(', ') : '<span class="aa-note">—</span>'}</td>
+          <td>${a.programs.length
+            ? a.programs.map((p) => `<span class="aa-chip">${esc(p.name)}<button type="button" class="aa-chip-x" data-email="${esc(a.email)}" data-program="${esc(p.id)}" data-name="${esc(p.name)}" title="Unenroll from ${esc(p.name)}" aria-label="Unenroll ${esc(a.name)} from ${esc(p.name)}">×</button></span>`).join('')
+            : '<span class="aa-note">—</span>'}</td>
           <td>${a.courses.length ? a.courses.map((c) => `<span class="aa-chip">${esc(c)}</span>`).join('') : '<span class="aa-chip-all">All courses</span>'}</td>
         </tr>`).join('')
       + `</tbody></table></div>`;
