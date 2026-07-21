@@ -3290,7 +3290,12 @@ const App = (() => {
     const opening = box.classList.contains('hidden');
     box.classList.toggle('hidden', !opening);
     $('assistantSettingsBtn')?.classList.toggle('active', opening);
-    if (opening) syncConvoUi();
+    if (opening) {
+      syncConvoUi();
+      // Reflect saved toggle state so the checkboxes aren't stuck unchecked.
+      const wc = $('asstWebChk'); if (wc) wc.checked = webAccessOn();
+      const cc = $('asstCoachChk'); if (cc) cc.checked = coachOn();
+    }
   }
 
   function updateAssistantHint() {
@@ -3554,6 +3559,7 @@ const App = (() => {
         conversationId: assistant.activeId || undefined,
         steer: steer || undefined,
         web: webAccessOn() || undefined,
+        coach: coachOn() || undefined,
       }, (ev, data) => {
         if (ev === 'thinking') {
           gotThinking = true;
@@ -5211,6 +5217,10 @@ const App = (() => {
   // server-side; harmless to request on other providers (it's ignored). Persisted, default off.
   function webAccessOn() { return localStorage.getItem('assistant.web') === '1'; }
   function onWebAccessChange(chk) { localStorage.setItem('assistant.web', chk && chk.checked ? '1' : '0'); }
+  // Coach mode: ground answers in the learner's progress + curriculum + transcripts and
+  // recommend a personalised study path. Heavier per turn, so it's opt-in. Default off.
+  function coachOn() { return localStorage.getItem('assistant.coach') === '1'; }
+  function onCoachChange(chk) { localStorage.setItem('assistant.coach', chk && chk.checked ? '1' : '0'); }
   function convoActive() { return convoOn() && !$('assistantPanel')?.classList.contains('hidden'); }
   function assistantMicBtn() { return document.querySelector('#assistantPanel .chat-input .me-mic'); }
 
@@ -5449,7 +5459,7 @@ const App = (() => {
   }
 
   return {
-    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onWebAccessChange,
+    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onWebAccessChange, onCoachChange,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceMlTopics,

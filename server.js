@@ -1864,7 +1864,27 @@ async function learnerCatalog(email) {
   const full = await getCatalog(email, null);
   return full
     .filter((t) => set.has(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track])))
-    .map((t) => ({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic }));
+    // carry mastery stats too, for Coach mode's progress digest (outline ignores them)
+    .map((t) => ({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic, totalAttempts: t.totalAttempts || 0, correctCount: t.correctCount || 0 }));
+}
+
+/** A compact progress digest for Coach mode: overall accuracy + the topics the
+ *  learner has mastered vs is weak on, so the assistant tailors its recommended path. */
+function coachDigest(rows) {
+  let attempted = 0; let sumAcc = 0; const mastered = []; const weak = [];
+  for (const r of rows || []) {
+    if (!r.totalAttempts) continue;
+    const acc = Math.round((r.correctCount / r.totalAttempts) * 100);
+    attempted += 1; sumAcc += acc;
+    if (acc >= 80) mastered.push(r.topic);
+    else if (acc < 60) weak.push(r.topic);
+  }
+  const cap = (a) => [...new Set(a.filter(Boolean))].slice(0, 60);
+  const m = cap(mastered); const w = cap(weak);
+  const parts = [`Overall: ${attempted ? Math.round(sumAcc / attempted) : 0}% across ${attempted} practised topic${attempted === 1 ? '' : 's'} (of ${(rows || []).length} in their engine; ${(rows || []).length - attempted} not yet started).`];
+  if (m.length) parts.push(`Mastered (≥80%): ${m.join(', ')}.`);
+  if (w.length) parts.push(`Weak / still learning (<60%): ${w.join(', ')}.`);
+  return parts.join('\n');
 }
 
 /** Every transcript in the learner's enrolled programs (title + scope) — so the
@@ -1906,11 +1926,12 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
 
     const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
     const history = existing ? existing.messages : [];
-    const lookup = looksLikeCatalogLookup(message);
-    const [catalog, transcripts] = lookup
+    const coach = !!req.body?.coach;
+    const [catalog, transcripts] = (coach || looksLikeCatalogLookup(message))
       ? await Promise.all([learnerCatalog(req.userEmail), learnerTranscripts(req.userEmail)])
       : [[], []];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts }, aiChoice(req));
+    const progress = coach ? coachDigest(catalog) : '';
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -1954,12 +1975,15 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
       && history[history.length - 1]?.role === 'assistant')
       ? history.slice(0, -2) : history;
 
-    const lookup = looksLikeCatalogLookup(message);
-    const [catalog, transcripts] = lookup
+    // Coach mode forces full grounding (progress + catalog + transcripts) so it can
+    // recommend a personalised path; otherwise ground only on content-lookup turns.
+    const coach = !!req.body?.coach;
+    const [catalog, transcripts] = (coach || looksLikeCatalogLookup(message))
       ? await Promise.all([learnerCatalog(req.userEmail), learnerTranscripts(req.userEmail)])
       : [[], []];
+    const progress = coach ? coachDigest(catalog) : '';
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress }, aiChoice(req),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
