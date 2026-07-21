@@ -3442,12 +3442,10 @@ const App = (() => {
       input.focus();
       return;
     }
-    // Two turns still use the blocking path: hands-free VOICE (the whole reply is
-    // needed for TTS) and WEB SEARCH (Gemini grounding forbids the streaming+JSON
-    // combo, so there's no live thinking to show). Everything else streams, so you
-    // can watch the AI think and pause + steer it (see streamAssistantAnswer).
+    // Only hands-free VOICE still blocks (TTS needs the whole reply at once). Web
+    // search now STREAMS too (grounded plain text), so every typed turn shows the
+    // live thinking + ⏸ Pause & steer controls (see streamAssistantAnswer).
     if (convoOn()) { await sendAssistantBlocking(log, msg, true); return; }
-    if (webAccessOn()) { await sendAssistantBlocking(log, msg, false); input.focus(); return; }
     await streamAssistantAnswer(log, msg, '');
     input.focus();
   }
@@ -3555,6 +3553,7 @@ const App = (() => {
         context: assistantContext(),
         conversationId: assistant.activeId || undefined,
         steer: steer || undefined,
+        web: webAccessOn() || undefined,
       }, (ev, data) => {
         if (ev === 'thinking') {
           gotThinking = true;
