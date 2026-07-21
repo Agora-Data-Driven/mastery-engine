@@ -1744,9 +1744,15 @@ const App = (() => {
     try {
       const ctx = await api('/api/lesson/context', { method: 'POST', body: JSON.stringify(scope) });
       const prereqs = ctx.prereqs || [], deps = ctx.dependents || [];
-      wrap.innerHTML =
-        (prereqs.length ? `<div class="rl-sec"><span class="rl-lbl">Builds on</span>${prereqs.map((p) => lessonLinkChip(p, 'prereq')).join('')}</div>` : '')
-        + (deps.length ? `<div class="rl-sec"><span class="rl-lbl">Leads to</span>${deps.map((p) => lessonLinkChip(p, 'dep')).join('')}</div>` : '');
+      // Each group collapses to ONE row by default (chips scroll sideways); the
+      // label is a toggle that expands it to wrap onto multiple rows.
+      const sec = (label, items, kind) => items.length
+        ? `<div class="rl-sec collapsed">
+             <button type="button" class="rl-toggle"><span class="rl-lbl">${label}</span><span class="rl-count">${items.length}</span><span class="rl-caret" aria-hidden="true">▾</span></button>
+             <div class="rl-chips">${items.map((p) => lessonLinkChip(p, kind)).join('')}</div>
+           </div>`
+        : '';
+      wrap.innerHTML = sec('Builds on', prereqs, 'prereq') + sec('Leads to', deps, 'dep');
     } catch { wrap.innerHTML = ''; }
   }
 
@@ -5158,8 +5164,11 @@ const App = (() => {
       else if (act === 'cards') openFlashcards(scope, item.dataset.label);
     });
 
-    // Clicking a "Builds on / Leads to" chip opens that referred lesson.
+    // Clicking a "Builds on / Leads to" chip opens that referred lesson; clicking the
+    // group label toggles that group between one row and fully expanded.
     $('reviewLinks').addEventListener('click', (e) => {
+      const toggle = e.target.closest('.rl-toggle');
+      if (toggle) { toggle.closest('.rl-sec')?.classList.toggle('collapsed'); return; }
       const chip = e.target.closest('.rl-chip');
       if (!chip) return;
       const scope = {};

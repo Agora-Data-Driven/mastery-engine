@@ -1931,7 +1931,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
       ? await Promise.all([learnerCatalog(req.userEmail), learnerTranscripts(req.userEmail)])
       : [[], []];
     const progress = coach ? coachDigest(catalog) : '';
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress }, aiChoice(req));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, admin: isAdmin(req) }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -1983,7 +1983,7 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
       : [[], []];
     const progress = coach ? coachDigest(catalog) : '';
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, admin: isAdmin(req) }, aiChoice(req),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
