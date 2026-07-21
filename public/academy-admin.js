@@ -542,7 +542,7 @@
     $('iBar').style.width = '0%';
     $('iStatus').textContent = '';
     $('iCommitMsg').textContent = '';
-    show($('iThink'), false); // no AI on the manual path — clear any prior thinking panel
+    show($('aeThink'), false); // no AI on the manual path — clear any prior thinking panel
     show($('iPlanBox'), true);
     $('iMsg').textContent = '';
     $('iTrack').focus();
@@ -605,7 +605,7 @@
       // and close the review box so its (now stale) state can't be committed.
       state.ingest = null;
       show($('iPlanBox'), false);
-      show($('iThink'), false);
+      show($('aeThink'), false);
       $('iMsg').textContent = '';
       if (!$('iTitle').value) $('iTitle').value = f.name.replace(/\.[^.]+$/, '');
     };
@@ -622,7 +622,7 @@
       if (!text && !watcher) { $('iMsg').innerHTML = '<span class="aa-err">Paste a transcript, upload a file, or pull a Watcher video first.</span>'; return; }
       $('iPlan').disabled = true;
       $('iMsg').textContent = 'Reading the material and finding where it fits…';
-      const panel = thinkPanel('iThink'); panel.start();
+      const panel = thinkPanel('aeThink'); panel.start();
       try {
         const data = await streamSSE('/api/admin/ingest/plan/stream', {
           program: state.program, title: $('iTitle').value, ...(text ? { text } : { watcher }), ...engineBody(),
@@ -704,7 +704,7 @@
             : '<span class="aa-ok">Attached — transcript filed to that lesson.</span>';
         }
         show($('iPlanBox'), false);
-        show($('iThink'), false);
+        show($('aeThink'), false);
         $('iText').value = ''; $('iTitle').value = ''; $('iFileName').textContent = ''; state.ingest = null;
         resetGenerateToggle();
         await loadCatalog();
@@ -786,7 +786,7 @@
       if (!goal) { $('gpMsg').innerHTML = '<span class="aa-err">Describe what you want to learn first.</span>'; return; }
       $('gpDraft').disabled = true;
       $('gpMsg').textContent = 'Reading your progress and drafting a plan…';
-      const panel = thinkPanel('gpThink'); panel.start();
+      const panel = thinkPanel('aeThink'); panel.start();
       try {
         const data = await streamSSE('/api/admin/goal/plan/stream', {
           program: state.program, goal, reference: $('gpRef').value.trim(), ...engineBody(),
@@ -833,7 +833,7 @@
           : '<span class="aa-ok">Done — module added with lessons, questions and flashcards.</span>';
         if (!state.stopGoal) {
           show($('gpPlanBox'), false);
-          show($('gpThink'), false);
+          show($('aeThink'), false);
           $('gpGoal').value = ''; $('gpRef').value = ''; state.goal = null;
         }
         await loadCatalog();
