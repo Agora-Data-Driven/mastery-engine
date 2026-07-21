@@ -93,6 +93,7 @@ import {
   generateHint,
   generateExplanation,
   generateReview,
+  generateLesson,
   generateAnalysis,
   generateConfusions,
   generateDrillQuestion,
@@ -915,6 +916,19 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
     const errors = [];
     const ai = aiChoice(req);
     const difficulty = difficultyChoice(req);
+    // Optional learner steer: free-text focus + transcripts to base questions on.
+    const instructions = String(req.body?.instructions || '').trim().slice(0, 2000);
+    let reference = '';
+    const wantIds = new Set((Array.isArray(req.body?.transcriptIds) ? req.body.transcriptIds : [])
+      .map((v) => String(v || '').trim()).filter(Boolean).slice(0, 10));
+    if (wantIds.size) {
+      // Fetch within the learner's program only (no cross-program leakage).
+      const docs = (await getTranscripts({ program: scope.program })).filter((t) => wantIds.has(t.id));
+      reference = docs
+        .map((t) => `# ${t.title || t.lesson || 'Source'}\n${t.text || ''}`)
+        .join('\n\n---\n\n')
+        .slice(0, 8000);
+    }
     // Knowledge-graph links (best-effort): each topic's prompt gets the learner's
     // standing on its prerequisites, steering questions toward weak sub-steps.
     const graphLinks = await getGraphLinks().catch(() => []);
@@ -937,7 +951,7 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
           missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
         };
         const prereqs = prereqContext(topic, catalog, graphLinks);
-        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty, prereqs });
+        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty, prereqs, instructions, reference });
         for (const g of generated) {
           await addQuestion({ ...g, program: scope.program });
           created++;
@@ -947,6 +961,24 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
       }
     });
     res.json({ ok: true, created, topics: topics.length, errors });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: a light list of transcripts the learner can base generated questions on,
+// scoped to their program (id/title/course/lesson only — never the full text).
+// Optional ?course=/?lesson= narrow it to the scope the learner is generating for.
+app.get('/api/transcripts', requireAuth, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const filter = { program: scope.program };
+    if (req.query.course && !isAll(req.query.course)) filter.course = String(req.query.course);
+    if (req.query.lesson && !isAll(req.query.lesson)) filter.lesson = String(req.query.lesson);
+    const list = (await getTranscripts(filter))
+      .map((t) => ({ id: t.id, title: t.title || t.lesson || 'Untitled', course: t.course || '', lesson: t.lesson || '' }))
+      .sort((a, b) => `${a.course} ${a.lesson} ${a.title}`.localeCompare(`${b.course} ${b.lesson} ${b.title}`, undefined, { numeric: true }));
+    res.json({ transcripts: list });
   } catch (e) {
     next(e);
   }
@@ -1768,32 +1800,104 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
 });
 
 /* --------------------------- progress AI features ------------------------- */
-// Auth: AI study guide for a scope — reads the existing questions and teaches
-// the concepts the learner needs BEFORE attempting that section.
+// Shared by /api/review and /api/lesson: narrow the catalog to a scope and pull
+// a question sample + a scope label for the study-guide generators.
+async function reviewScopeInputs(req) {
+  const programScope = await requestScope(req);
+  const catalog = await getCatalog(req.userEmail, programScope);
+  const scoped = scopeCatalog(catalog, req.body || {});
+  const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
+  if (!topics.length) return null;
+  const pool = await getQuestionsForTopics(topics, programScope);
+  const questions = shuffle(pool).slice(0, 40).map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
+  const { track, course, lesson, topic } = req.body || {};
+  const scopeLabel = !isAll(topic) ? topic
+    : !isAll(lesson) ? lesson
+    : !isAll(course) ? course
+    : !isAll(track) ? track
+    : 'Your selection';
+  return { catalog, scoped, topics, questions, scopeLabel };
+}
+
+/**
+ * The prerequisite context for a Lesson scope, derived from the same stored graph
+ * the Knowledge Map uses: which sections OUTSIDE this scope it builds on
+ * (`prereqs`, with the graph's "why") and which OUTSIDE sections it unlocks
+ * (`dependents`). Each entry is a full {track,course,lesson,topic} scope so the
+ * client can render a clickable chip that opens that lesson, and the names feed
+ * the Lesson generator so it teaches the delta instead of from scratch.
+ */
+function lessonGraphContext(scoped, catalog, links) {
+  const rows = catalog.filter((r) => r.topic && r.id);
+  const edges = buildPrereqEdges(links, rows);
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const scopeIds = new Set(scoped.map((r) => r.id).filter(Boolean));
+  const toScope = (r, why) => ({
+    track: r.track, course: r.course, lesson: r.lesson, topic: r.topic, ...(why ? { why } : {}),
+  });
+  const prereqs = new Map();
+  const dependents = new Map();
+  for (const e of edges) {
+    if (scopeIds.has(e.to) && !scopeIds.has(e.from) && byId.has(e.from) && !prereqs.has(e.from)) {
+      prereqs.set(e.from, toScope(byId.get(e.from), e.why));
+    }
+    if (scopeIds.has(e.from) && !scopeIds.has(e.to) && byId.has(e.to) && !dependents.has(e.to)) {
+      dependents.set(e.to, toScope(byId.get(e.to)));
+    }
+  }
+  return { prereqs: [...prereqs.values()].slice(0, 12), dependents: [...dependents.values()].slice(0, 12) };
+}
+
+// Auth: the original self-contained AI study guide for a scope — reads the
+// existing questions and teaches the concepts from scratch (the "Review" button).
 app.post('/api/review', requireAuth, async (req, res, next) => {
+  try {
+    const inp = await reviewScopeInputs(req);
+    if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
+    await streamText(res, (onToken) =>
+      generateReview({ scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, aiChoice(req), onToken));
+  } catch (e) {
+    if (!res.headersSent) next(e);
+  }
+});
+
+// Auth: the prerequisite-aware study guide (the "Lesson" button) — same scope,
+// but built ON the section's prerequisites from the graph (teaches the delta)
+// rather than from scratch.
+app.post('/api/lesson', requireAuth, async (req, res, next) => {
+  try {
+    const inp = await reviewScopeInputs(req);
+    if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
+    let graphCtx = { prereqs: [], dependents: [] };
+    try {
+      graphCtx = lessonGraphContext(inp.scoped, inp.catalog, await getGraphLinks());
+    } catch { /* graph unavailable — falls back to a plain from-scratch lesson */ }
+    await streamText(res, (onToken) =>
+      generateLesson({
+        scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
+        prereqs: graphCtx.prereqs, dependents: graphCtx.dependents,
+      }, aiChoice(req), onToken));
+  } catch (e) {
+    if (!res.headersSent) next(e);
+  }
+});
+
+// Auth: the prereq/dependent context for a Lesson scope (non-streaming), so the
+// modal can render clickable "Builds on / Leads to" chips while the guide streams.
+// Reuses the exact graph computation the streamed Lesson is built on.
+app.post('/api/lesson/context', requireAuth, async (req, res, next) => {
   try {
     const programScope = await requestScope(req);
     const catalog = await getCatalog(req.userEmail, programScope);
     const scoped = scopeCatalog(catalog, req.body || {});
-    const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
-    if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
-
-    const pool = await getQuestionsForTopics(topics, programScope);
-    const questions = shuffle(pool)
-      .slice(0, 40)
-      .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
-
-    const { track, course, lesson, topic } = req.body || {};
-    const scopeLabel = !isAll(topic) ? topic
-      : !isAll(lesson) ? lesson
-      : !isAll(course) ? course
-      : !isAll(track) ? track
-      : 'Your selection';
-
-    await streamText(res, (onToken) =>
-      generateReview({ scopeLabel, topics, questions }, aiChoice(req), onToken));
+    if (!scoped.length) return res.json({ prereqs: [], dependents: [] });
+    try {
+      return res.json(lessonGraphContext(scoped, catalog, await getGraphLinks()));
+    } catch {
+      return res.json({ prereqs: [], dependents: [] });
+    }
   } catch (e) {
-    if (!res.headersSent) next(e);
+    next(e);
   }
 });
 
@@ -2344,6 +2448,26 @@ app.post('/api/admin/enrollment', requireAdmin, async (req, res, next) => {
   }
 });
 
+// Admin: unenroll a student from ONE program. Drops that program from their list
+// and clears course filters (courses aren't program-keyed, so we don't want a
+// removed program's course filter to leak onto what remains). Removing their last
+// program reverts them to the platform default (normalizeEnrollment never leaves
+// programs empty) — an explicit "remove this program" action, not "block access".
+app.post('/api/admin/enrollment/remove', requireAdmin, async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const program = String(req.body?.program || '').trim();
+    if (!email) return res.status(400).json({ error: 'email is required' });
+    if (!program) return res.status(400).json({ error: 'program is required' });
+    const current = await getEnrollment(email);
+    const programs = (current.programs || []).filter((p) => p !== program);
+    const saved = await setEnrollment(email, { programs, courses: [] });
+    res.json({ ok: true, email, ...saved });
+  } catch (e) {
+    next(e);
+  }
+});
+
 // Admin: the Sentinel people directory, for the enrolment person-picker. Fetched
 // server-side from Sentinel's HMAC-gated internal endpoint using the shared
 // platform-sso-key both apps mount (no CORS, no browser credentials). Degrades
@@ -2642,6 +2766,49 @@ app.post('/api/admin/ingest/plan', requireAdmin, bigJson, async (req, res, next)
 });
 
 /**
+ * Give freshly-created topics a sensible study `order` so new content lands in
+ * place instead of at the very bottom of the tree (every view sorts topics by
+ * `order`, and lessons/courses by their MIN topic order — a topic with no order
+ * sorts last). We touch ONLY topics that have no order yet, appending them after
+ * the highest order already used in their lesson — or, for a brand-new lesson,
+ * after the highest order in their course — so a new sub-lesson trails its lesson
+ * and a new lesson trails its course, never disturbing an existing sequence (safe
+ * for both globally-ordered and per-lesson-ordered programs). Finer pedagogical
+ * ordering is still a manual "Sequence Topics" sweep away.
+ */
+async function placeNewTopicsInOrder(program) {
+  const catalog = (await getCatalog(null, { program })).filter((r) => r.topic && r.id);
+  // Unambiguous tuple keys (no separator char to collide with names).
+  const ck = (r) => JSON.stringify([r.track, r.course]);
+  const lk = (r) => JSON.stringify([r.track, r.course, r.lesson]);
+  const courseMax = new Map();
+  const lessonMax = new Map();
+  const bump = (m, k, v) => { if (!m.has(k) || v > m.get(k)) m.set(k, v); };
+  for (const r of catalog) {
+    if (!Number.isFinite(r.order)) continue;
+    bump(courseMax, ck(r), r.order);
+    bump(lessonMax, lk(r), r.order);
+  }
+  const groups = new Map(); // lessonKey -> [rows with no order yet]
+  for (const r of catalog) {
+    if (Number.isFinite(r.order)) continue;
+    if (!groups.has(lk(r))) groups.set(lk(r), []);
+    groups.get(lk(r)).push(r);
+  }
+  const updates = [];
+  for (const rows of groups.values()) {
+    const r0 = rows[0];
+    const base = lessonMax.has(lk(r0)) ? lessonMax.get(lk(r0))
+      : courseMax.has(ck(r0)) ? courseMax.get(ck(r0))
+      : -1;
+    rows.sort((a, b) => String(a.topic).localeCompare(String(b.topic), undefined, { numeric: true, sensitivity: 'base' }));
+    rows.forEach((r, i) => updates.push({ id: r.id, order: base + 1 + i }));
+  }
+  if (updates.length) await setTopicOrders(updates);
+  return updates.length;
+}
+
+/**
  * Admin: act on an approved placement. Creates any new topic rows, attaches the
  * transcript at the lesson level (so every chosen topic can use it), and queues a
  * generation job over exactly those topics. Returns the job; the admin page then
@@ -2666,6 +2833,8 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
 
     // 1. Ensure the topic rows exist (new ones created, existing ones untouched).
     await upsertTopics(topics.map((topic) => ({ program, track, course, lesson, topic })));
+    // Slot the new topics/lesson into study order instead of the bottom of the tree.
+    await placeNewTopicsInOrder(program);
 
     // 2. Attach the transcript at the lesson level, so every chosen topic can draw on it.
     await addTranscript({
@@ -2698,19 +2867,20 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
 
 /* --------------------- goal-based module planner --------------------------- */
 /**
- * Summarise a user's catalog into what they've MASTERED vs are still LEARNING, as
- * plain topic-name lists — the baseline the goal planner builds on. `accuracy` is
- * a 0..100 percentage (see lib/priority.js deriveStats).
+ * Summarise a user's catalog into the baseline the goal planner builds on. We
+ * deliberately IGNORE quiz performance: everything already in the curriculum is
+ * treated as "known" (content that exists and shouldn't be re-taught), so a new
+ * module builds on top of the whole catalog regardless of how the learner has
+ * scored. `learning` is kept for the planner's stable signature but is empty —
+ * there is no performance-derived "shaky" list any more.
  */
 function masteryDigest(catalog) {
-  const known = []; const learning = [];
+  const known = [];
   for (const r of catalog || []) {
-    if (!r.topic) continue;
-    if (r.accuracy != null && r.accuracy >= 80 && (r.totalAttempts || 0) >= 3) known.push(r.topic);
-    else if ((r.totalAttempts || 0) > 0 && r.accuracy != null && r.accuracy < 80) learning.push(r.topic);
+    if (r.topic) known.push(r.topic);
   }
   const cap = (a) => [...new Set(a)].slice(0, 120);
-  return { known: cap(known), learning: cap(learning) };
+  return { known: cap(known), learning: [] };
 }
 
 /**
@@ -2789,6 +2959,7 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
     const flat = [];
     for (const l of lessons) for (const topic of l.topics) flat.push({ program, track, course, lesson: l.lesson, topic });
     await upsertTopics(flat);
+    await placeNewTopicsInOrder(program); // slot new lessons/topics into order, not the bottom
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
     const ai = { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) };
@@ -2816,6 +2987,100 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
       job: publicJob(job),
       buildCards: req.body?.buildCards !== false,
       lessons: lessons.map((l) => ({ track, course, lesson: l.lesson, topics: l.topics })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------- bulk lesson builder ----------------------------- */
+/** Clean a structured [{track,course,lesson,topics[]}] list from the client. */
+function normalizeBulkLessons(arr) {
+  return (Array.isArray(arr) ? arr : [])
+    .map((l) => ({
+      track: String(l?.track || '').trim(),
+      course: String(l?.course || '').trim(),
+      lesson: String(l?.lesson || '').trim(),
+      topics: [...new Set((Array.isArray(l?.topics) ? l.topics : []).map((t) => String(t || '').trim()).filter(Boolean))],
+    }))
+    .filter((l) => l.track && l.course && l.lesson && l.topics.length);
+}
+
+/**
+ * Parse a pasted outline into lessons. One "Track > Course > Lesson > Topic" per
+ * line (# comments and blanks ignored); lines sharing a Track/Course/Lesson are
+ * grouped into a single lesson with several topics. Mirrors the splitter used by
+ * /api/admin/topics/bulk, but rolls rows up to the lesson grain.
+ */
+function lessonsFromOutline(text) {
+  const byKey = new Map();
+  String(text || '').split('\n').forEach((line) => {
+    const raw = line.trim();
+    if (!raw || raw.startsWith('#')) return;
+    const parts = raw.split('>').map((p) => p.trim());
+    if (parts.length !== 4 || parts.some((p) => !p)) return;
+    const [track, course, lesson, topic] = parts;
+    const key = JSON.stringify([track, course, lesson]);
+    if (!byKey.has(key)) byKey.set(key, { track, course, lesson, topics: [] });
+    byKey.get(key).topics.push(topic);
+  });
+  return [...byKey.values()]
+    .map((l) => ({ ...l, topics: [...new Set(l.topics)] }))
+    .filter((l) => l.topics.length);
+}
+
+/**
+ * Admin: build MANY complete lessons in one run. For every lesson it upserts the
+ * topic rows, writes a study brief (the stored lesson + generation grounding),
+ * and queues ONE topic-anchored generation job across all topics. Flashcards are
+ * built client-side per lesson afterwards. This is the bulk sibling of
+ * /goal/commit and /ingest/commit. `preview:true` just parses and echoes back.
+ */
+app.post('/api/admin/lessons/bulk-commit', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+
+    let lessons = normalizeBulkLessons(req.body?.lessons);
+    if (!lessons.length && typeof req.body?.text === 'string') lessons = lessonsFromOutline(req.body.text);
+
+    if (req.body?.preview) {
+      const topicCount = lessons.reduce((n, l) => n + l.topics.length, 0);
+      return res.json({ ok: true, preview: true, lessons, count: lessons.length, topicCount });
+    }
+    if (!lessons.length) return res.status(400).json({ error: 'Add at least one lesson with a track, course, lesson and topics' });
+
+    // 1. Ensure every topic row exists (new ones created, existing untouched).
+    const flat = [];
+    for (const l of lessons) for (const topic of l.topics) flat.push({ program, track: l.track, course: l.course, lesson: l.lesson, topic });
+    await upsertTopics(flat);
+    await placeNewTopicsInOrder(program); // slot new lessons/topics into order, not the bottom
+
+    // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
+    const ai = { provider: req.body?.provider || 'deepseek', ...(req.body?.model ? { model: req.body.model } : {}) };
+    const instructions = String(req.body?.instructions || '').trim();
+    await Promise.all(lessons.map(async (l) => {
+      const brief = await writeLessonBrief({ course: l.course, lesson: l.lesson, topics: l.topics, reference: instructions }, ai);
+      if (brief) await addTranscript({ program, track: l.track, course: l.course, lesson: l.lesson, title: l.lesson, text: brief, source: 'bulk' });
+    }));
+
+    // 3. One topic-anchored generation job over all topics (the briefs are the reference).
+    const job = await createGenJob({
+      program,
+      scope: {},
+      targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
+      provider: ai.provider,
+      model: ai.model || null,
+      grounding: 'topic',
+      instructions,
+      topics: flat.map(({ topic, track, course, lesson }) => ({ topic, track, course, lesson })),
+    });
+
+    res.json({
+      ok: true,
+      job: publicJob(job),
+      buildCards: req.body?.buildCards !== false,
+      lessons: lessons.map((l) => ({ track: l.track, course: l.course, lesson: l.lesson, topics: l.topics })),
     });
   } catch (e) {
     next(e);

@@ -671,15 +671,42 @@ const App = (() => {
     // Live Quiz uses the multi-select tree; Generate keeps the single-scope selects.
     $('multiSelect').classList.toggle('hidden', isGen);
     $('cascadeSelect').classList.toggle('hidden', !isGen);
+    $('genExtras').classList.toggle('hidden', !isGen);
     if (isGen) {
       $('setupTitle').textContent = 'Generate mastery questions';
       $('setupSub').textContent = 'Pick a scope and let the Wise Teacher write harder questions into your bank.';
       $('launchBtn').textContent = 'Generate Questions';
+      loadGenSources();
     } else {
       $('setupTitle').textContent = 'Build your quiz';
       $('setupSub').textContent = 'Search and tick any mix of tracks, courses, and units to quiz on.';
       $('launchBtn').textContent = 'Launch Engine';
       renderMultiTree();
+    }
+  }
+
+  // Fill the GEN-mode "Base on transcripts" picker with the learner's program
+  // transcripts (best-effort; the picker is optional). Loaded once per entry to
+  // GEN mode. Cached so re-entering doesn't refetch.
+  let _genSourcesLoaded = false;
+  async function loadGenSources() {
+    const box = $('genSources');
+    if (!box || _genSourcesLoaded) return;
+    box.innerHTML = '<span class="gen-sources-empty">Loading sources…</span>';
+    try {
+      const { transcripts } = await api('/api/transcripts');
+      _genSourcesLoaded = true;
+      if (!transcripts || !transcripts.length) {
+        box.innerHTML = '<span class="gen-sources-empty">No transcripts in your program yet.</span>';
+        return;
+      }
+      box.innerHTML = transcripts.map((t) => {
+        const scopeLabel = [t.course, t.lesson].filter(Boolean).join(' › ');
+        return `<label class="gen-source"><input type="checkbox" value="${esc(t.id)}" />
+          <span class="gen-source-title">${esc(t.title)}</span>${scopeLabel ? `<span class="gen-source-scope">${esc(scopeLabel)}</span>` : ''}</label>`;
+      }).join('');
+    } catch (e) {
+      box.innerHTML = `<span class="gen-sources-empty">Couldn't load sources: ${esc(e.message)}</span>`;
     }
   }
 
@@ -872,7 +899,12 @@ const App = (() => {
     setLoading(true);
     try {
       if (state.mode === 'GEN') {
-        const r = await api('/api/generate', { method: 'POST', body: JSON.stringify(selection()) });
+        const body = {
+          ...selection(),
+          instructions: ($('genInstr').value || '').trim(),
+          transcriptIds: [...$('genSources').querySelectorAll('input[type="checkbox"]:checked')].map((c) => c.value),
+        };
+        const r = await api('/api/generate', { method: 'POST', body: JSON.stringify(body) });
         let msg = `Generated ${r.created} question(s) across ${r.topics} topic(s).`;
         if (r.errors && r.errors.length) msg += `\n\nSome failed:\n` + r.errors.join('\n');
         alert(msg);
@@ -1145,7 +1177,8 @@ const App = (() => {
             ${level >= 1 && flashcardsEnabled(scope.course)
               ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
               : ''}
-            <button class="prog-btn review" data-action="review" title="AI teaches this section first">Review</button>
+            <button class="prog-btn review" data-action="review" title="AI teaches this section from scratch">Review</button>
+            <button class="prog-btn lesson" data-action="lesson" title="A lesson that builds on this section's prerequisites">Lesson</button>
           </div>
         </div>`;
   }
@@ -1314,9 +1347,12 @@ const App = (() => {
 
   let reviewScope = null; // remember scope so "quiz me on this" works from the modal
 
+  // Original self-contained study guide (the "Review" button): teaches the
+  // section from scratch, no cross-lesson links.
   async function reviewFromScope(scope, label) {
     reviewScope = scope;
     $('reviewTitle').textContent = 'Review: ' + (label || 'Section');
+    $('reviewLinks').innerHTML = ''; // the plain Review has no prereq chips
     const box = $('reviewBody');
     box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your review…</div>';
     show('reviewModal');
@@ -1325,6 +1361,50 @@ const App = (() => {
       typeset(box);
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t build a review: ' + esc(e.message) + '</span>';
+    }
+  }
+
+  // A clickable chip for a prerequisite / dependent lesson. Carries the referred
+  // section's full scope in data-* so clicking it opens that lesson.
+  function lessonLinkChip(item, kind) {
+    const data = LEVEL_KEYS
+      .filter((k) => item[k] != null)
+      .map((k) => `data-${k}="${esc(item[k])}"`)
+      .join(' ');
+    const why = kind === 'prereq' && item.why ? `<span class="rl-why">${esc(item.why)}</span>` : '';
+    return `<button type="button" class="rl-chip" ${data} data-label="${esc(item.topic || '')}">${esc(item.topic || '')}${why}</button>`;
+  }
+
+  // Fetch this section's prereq/dependent context (same graph as the Knowledge
+  // Map) and render "Builds on / Leads to" chips above the guide. Best-effort —
+  // the guide still streams if this fails or there are no links.
+  async function loadLessonLinks(scope) {
+    const wrap = $('reviewLinks');
+    if (!wrap) return;
+    wrap.innerHTML = '';
+    try {
+      const ctx = await api('/api/lesson/context', { method: 'POST', body: JSON.stringify(scope) });
+      const prereqs = ctx.prereqs || [], deps = ctx.dependents || [];
+      wrap.innerHTML =
+        (prereqs.length ? `<div class="rl-sec"><span class="rl-lbl">Builds on</span>${prereqs.map((p) => lessonLinkChip(p, 'prereq')).join('')}</div>` : '')
+        + (deps.length ? `<div class="rl-sec"><span class="rl-lbl">Leads to</span>${deps.map((p) => lessonLinkChip(p, 'dep')).join('')}</div>` : '');
+    } catch { wrap.innerHTML = ''; }
+  }
+
+  // Prerequisite-aware study guide (the "Lesson" button): builds ON the section's
+  // prerequisites and shows clickable "Builds on / Leads to" links to jump around.
+  async function lessonFromScope(scope, label) {
+    reviewScope = scope;
+    $('reviewTitle').textContent = 'Lesson: ' + (label || 'Section');
+    const box = $('reviewBody');
+    box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your lesson…</div>';
+    show('reviewModal');
+    loadLessonLinks(scope); // fire-and-forget; chips fill in when ready
+    try {
+      await apiStream('/api/lesson', scope, (acc) => { box.innerHTML = renderMarkdown(acc); });
+      typeset(box);
+    } catch (e) {
+      box.innerHTML = '<span class="err">Couldn\'t build a lesson: ' + esc(e.message) + '</span>';
     }
   }
 
@@ -4532,6 +4612,7 @@ const App = (() => {
         if (act === 'back') { if (menu) menu.dataset.menu = 'root'; return; }
         if (act === 'quiz') quizFromScope(scope);
         else if (act === 'review') reviewFromScope(scope, node.dataset.label);
+        else if (act === 'lesson') lessonFromScope(scope, node.dataset.label);
         else if (act === 'cards') openFlashcards(scope, node.dataset.label);
         return; // don't also toggle the row
       }
@@ -4539,6 +4620,15 @@ const App = (() => {
       if (!row) return;
       const node = row.parentElement;
       if (node.classList.contains('has-children')) node.classList.toggle('open');
+    });
+
+    // Clicking a "Builds on / Leads to" chip opens that referred lesson.
+    $('reviewLinks').addEventListener('click', (e) => {
+      const chip = e.target.closest('.rl-chip');
+      if (!chip) return;
+      const scope = {};
+      for (const k of LEVEL_KEYS) if (chip.dataset[k]) scope[k] = chip.dataset[k];
+      lessonFromScope(scope, chip.dataset.label);
     });
 
     init();
