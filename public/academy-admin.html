@@ -411,6 +411,11 @@
           <span class="no">04</span>
           <span class="lbl"><span class="nm">Distribute</span><span class="ds">People &amp; enrolment</span></span>
         </button>
+        <button class="aa-tab" role="tab" data-panel="roadmaps" aria-selected="false">
+          <span class="no">05</span>
+          <span class="lbl"><span class="nm">Chart</span><span class="ds">Roadmaps</span></span>
+          <span class="ct" id="railRoadmaps"></span>
+        </button>
       </nav>
 
       <div class="aa-foot">
@@ -563,6 +568,12 @@
                    flashcards + questions — so the module joins your normal quizzes, progress and Knowledge Map.</p>
                 <textarea id="gpGoal" placeholder="e.g. Teach me how this repo works — I already know math, programming fundamentals and ML" style="min-height:70px"></textarea>
                 <textarea id="gpRef" placeholder="Optional: paste reference material to ground it in (key repo files, docs, notes)…" style="min-height:60px;margin-top:10px"></textarea>
+                <!-- Optional: ground question generation on specific existing transcripts (Watcher videos / uploads)
+                     instead of only the AI-written lesson briefs. Leave all unticked to use the briefs. -->
+                <details id="gpSourcesWrap" style="margin-top:10px">
+                  <summary class="aa-field-label" style="cursor:pointer;text-transform:none;letter-spacing:0">Base on transcripts (optional)</summary>
+                  <div id="gpSources" class="aa-list" style="max-height:180px;margin-top:6px">No transcripts in this program yet.</div>
+                </details>
                 <div class="aa-row" style="margin-top:10px;align-items:center">
                   <button class="btn btn-ai" id="gpDraft">Draft my plan</button>
                   <span id="gpMsg" class="aa-note"></span>
@@ -596,6 +607,9 @@
                 </div>
                 <div class="aa-bar"><i id="gpBar"></i></div>
                 <div id="gpStatus" class="aa-note"></div>
+                <!-- Phase 2: once the content is built into the catalog, chart the path over it.
+                     Jumps to the Roadmaps station with the goal pre-filled and auto-drafts. -->
+                <button class="btn btn-ai hidden" id="gpChartBtn" style="margin-top:12px">📍 Chart a roadmap for this goal →</button>
               </div>
             </div>
 
@@ -723,6 +737,61 @@ Machine Learning &gt; Supervised Learning &gt; Trees &gt; Decision trees" style=
               <p class="aa-note">Everyone in the directory with the program and courses they're assigned. A blank course list means the whole program. Load a person above to change theirs.</p>
               <input type="search" id="aSearch" placeholder="Filter by name, email, program or course…" style="width:100%;margin-bottom:10px" />
               <div id="aList" class="aa-note">Open this tab to load.</div>
+            </div>
+          </section>
+
+          <!-- ------------------------------- Roadmaps ------------------------------- -->
+          <!-- A roadmap is a curated PATH over EXISTING topics: the AI selects and orders
+               topics from anywhere in this program's catalog into stages that build toward
+               a goal, without changing how the content is filed. Learners take it from the
+               "Roadmaps" tab in the app. To build MISSING content first, use Compose ›
+               Build with AI (a goal), then chart the roadmap here. -->
+          <section class="aa-panel" id="p-roadmaps">
+            <div class="card" style="padding:20px">
+              <h3 style="margin:0 0 6px">Chart a roadmap</h3>
+              <p class="aa-note" style="margin:0 0 12px">Describe a goal. AI SELECTS and ORDERS existing topics from anywhere in
+                <b id="rmProgName">this program</b> into stages that build on each other — a guided path, laid over the same content, that
+                learners take from the app's <b>Roadmaps</b> tab. It doesn't create content; anything the goal needs but the catalog lacks
+                comes back as <b>gaps</b> to build first (via <b>Compose › Build with AI</b>). The <b>AI engine</b> is set in the rail.</p>
+              <div class="aa-cols" style="margin-bottom:10px">
+                <div><div class="aa-field-label">Roadmap title</div><input type="text" id="rmTitle" placeholder="e.g. Agora Backend Developer" style="width:100%" /></div>
+                <div><div class="aa-field-label">Who can see it</div>
+                  <select id="rmAudience" style="width:100%">
+                    <option value="program">This program's learners</option>
+                    <option value="everyone">Everyone (all signed-in learners)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="aa-field-label">Goal</div>
+              <textarea id="rmGoal" placeholder="e.g. Get someone from zero to able to open, read, edit and rebuild any file in the Agora repos, using only lightweight local AI as a helper." style="min-height:80px"></textarea>
+              <textarea id="rmRef" placeholder="Optional: reference material to ground the path in (repo overview, stack notes)…" style="min-height:56px;margin-top:10px"></textarea>
+              <div class="aa-row" style="margin-top:10px;align-items:center">
+                <button class="btn btn-ai" id="rmDraft">Draft roadmap</button>
+                <span id="rmMsg" class="aa-note"></span>
+              </div>
+
+              <!-- Editable proposal — revealed after Draft. -->
+              <div id="rmPlanBox" class="hidden aa-review" style="margin-top:16px">
+                <div class="aa-field-label">Summary</div>
+                <input type="text" id="rmSummary" style="width:100%;margin-bottom:12px" placeholder="One line: who this is for and what they'll be able to do." />
+                <div id="rmGapsWrap" class="hidden" style="margin-bottom:12px">
+                  <div class="aa-field-label" style="text-transform:none;letter-spacing:0">Gaps — the goal needs these, but no topic covers them yet</div>
+                  <div id="rmGaps" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px"></div>
+                  <p class="aa-note" style="margin:6px 0 0">Build these into the catalog from <b>Compose › Build with AI</b>, then re-draft to fold them in.</p>
+                </div>
+                <div class="aa-field-label" style="text-transform:none;letter-spacing:0;font-size:13px">Stages <span class="aa-note">(rename, reorder, or drop topics before saving)</span></div>
+                <div id="rmStages" style="margin:6px 0 10px"></div>
+                <div class="aa-row" style="margin-top:10px">
+                  <button class="btn btn-primary" id="rmSave">Save roadmap</button>
+                  <span id="rmSaveMsg" class="aa-note"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="card" style="padding:20px;margin-top:14px">
+              <h3 style="margin:0 0 6px">Roadmaps <span class="aa-note" id="rmCount"></span></h3>
+              <p class="aa-note">Every roadmap in this program. Edit re-opens it above; delete removes it (the content it points to is untouched).</p>
+              <div id="rmList" class="aa-note">Open this tab to load.</div>
             </div>
           </section>
         </div>
