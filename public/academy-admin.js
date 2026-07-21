@@ -54,6 +54,7 @@
     wireGoalPlan();
     wireBulk();
     wireGenerate();
+    loadEngines();
     wirePeople();
     wireAddProgram();
     refreshAll();
@@ -885,10 +886,52 @@
   }
 
   /* -------------------------------- generate ------------------------------- */
+  // The engine dropdown lives at the TOP of the Composing Room and governs
+  // EVERYTHING built here. It writes the same aiProvider/aiModel cookies the
+  // home page uses, so flashcards / lessons / reviews (which read the cookie
+  // server-side via aiChoice) all follow it; questions also get it in the body.
+  function parseEngine(v) {
+    const s = v || 'gemini|';
+    const i = s.indexOf('|');
+    return { provider: (i >= 0 ? s.slice(0, i) : s) || 'gemini', model: i >= 0 ? s.slice(i + 1) : '' };
+  }
+  function applyEngine() {
+    const { provider, model } = parseEngine($('gEngine').value);
+    document.cookie = `aiProvider=${encodeURIComponent(provider)}; path=/; max-age=31536000; samesite=lax`;
+    document.cookie = `aiModel=${encodeURIComponent(model || '')}; path=/; max-age=31536000; samesite=lax`;
+    try { localStorage.setItem('aiProvider', provider); localStorage.setItem('aiModel', model || ''); } catch { /* ignore */ }
+  }
+  const engineChoice = () => parseEngine($('gEngine').value);
+
+  async function loadEngines() {
+    const sel = $('gEngine');
+    if (!sel) return;
+    let data;
+    try { data = await api('/api/models'); } catch { sel.innerHTML = '<option value="gemini|">Cloud (Gemini)</option>'; applyEngine(); return; }
+    const opts = [];
+    for (const p of data.providers || []) {
+      for (const m of p.models || []) opts.push(`<option value="${esc(p.id)}|${esc(m)}">${esc(p.label)} · ${esc(m)}</option>`);
+    }
+    sel.innerHTML = opts.join('') || '<option value="gemini|">Cloud (Gemini)</option>';
+    // Restore the saved engine if it's still on offer.
+    let savedP, savedM;
+    try { savedP = localStorage.getItem('aiProvider'); savedM = localStorage.getItem('aiModel') || ''; } catch { savedP = null; }
+    const want = `${savedP || 'gemini'}|${savedM}`;
+    const byExact = [...sel.options].find((o) => o.value === want);
+    const byProvider = [...sel.options].find((o) => o.value.split('|')[0] === (savedP || 'gemini'));
+    if (byExact) sel.value = byExact.value;
+    else if (byProvider) sel.value = byProvider.value;
+    applyEngine(); // keep the cookie in sync with whatever ends up shown
+    sel.onchange = applyEngine;
+  }
+
   function wireGenerate() {
     $('gCourse').onchange = populateGenLessons;
     $('gLesson').onchange = populateGenTopics;
     $('gDoQuestions').onchange = () => show($('gQOpts'), $('gDoQuestions').checked);
+    const toggleGuideOpts = () => show($('gGuideOpts'), $('gDoLessons').checked || $('gDoReviews').checked);
+    $('gDoLessons').onchange = toggleGuideOpts;
+    $('gDoReviews').onchange = toggleGuideOpts;
     $('gStart').onclick = startJob;
     $('gStop').onclick = () => { state.stop = true; $('gStatus').textContent = 'Stopping after this topic…'; };
   }
@@ -899,8 +942,13 @@
     const lesson = $('gLesson').value || '';
     const topic = $('gTopic').value || '';
     const doQ = $('gDoQuestions').checked, doC = $('gDoCards').checked;
-    if (!doQ && !doC) { $('gStatus').innerHTML = '<span class="aa-err">Pick Questions and/or Flashcards.</span>'; return; }
+    const doL = $('gDoLessons').checked, doR = $('gDoReviews').checked;
+    if (!doQ && !doC && !doL && !doR) { $('gStatus').innerHTML = '<span class="aa-err">Pick something to build.</span>'; return; }
+    if ((doL || doR) && !$('gGrainTopic').checked && !$('gGrainLesson').checked) {
+      $('gStatus').innerHTML = '<span class="aa-err">For Lessons/Reviews, pick at least one grain (sub-lesson or lesson).</span>'; return;
+    }
     const track = trackOf(course);
+    const eng = engineChoice();
     const transcriptIds = [...$('gSources').querySelectorAll('input[data-tid]:checked')].map((c) => c.dataset.tid);
 
     $('gStart').disabled = true; state.stop = false; $('gStatus').textContent = 'Starting…';
@@ -923,7 +971,8 @@
           body: {
             program: state.program, track, course, ...(lesson ? { lesson } : {}), ...(topic ? { topic } : {}),
             targetPerTopic: Number($('gCount').value) || 5,
-            provider: $('gModel').value,
+            provider: eng.provider,
+            ...(eng.model ? { model: eng.model } : {}),
             instructions: ($('gInstr') && $('gInstr').value) || '',
             transcriptIds,
           },
@@ -931,6 +980,27 @@
         state.job = job;
         await runSteps(job.id);
         await loadJobs();
+        show($('gStop'), false);
+      }
+      if (doL || doR) {
+        // Pre-build (cache) Lesson/Review study guides for the scope, in parallel.
+        const kindsLabel = [doL && 'Lessons', doR && 'Reviews'].filter(Boolean).join(' & ');
+        $('gStatus').textContent = `Pre-building ${kindsLabel} in parallel…`;
+        const r = await api('/api/admin/study-guides/build', {
+          method: 'POST',
+          body: {
+            program: state.program, track, course, ...(lesson ? { lesson } : {}), ...(topic ? { topic } : {}),
+            doLesson: doL, doReview: doR,
+            grains: { topic: $('gGrainTopic').checked, lesson: $('gGrainLesson').checked },
+            force: $('gForceGuides').checked,
+          },
+        });
+        const parts = [];
+        if (r.built) parts.push(`${r.built} built`);
+        if (r.skipped) parts.push(`${r.skipped} already cached`);
+        if (r.failed) parts.push(`${r.failed} failed`);
+        $('gStatus').innerHTML = `<span class="aa-ok">${esc(kindsLabel)}: ${parts.join(', ') || 'nothing to do'} `
+          + `<span class="aa-note">(${r.targets} section${r.targets === 1 ? '' : 's'}, ${r.concurrency}-way parallel)</span></span>`;
       }
       await loadCatalog();
     } catch (e) {

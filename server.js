@@ -33,6 +33,10 @@ import {
   getAllFlashcards,
   getAllFlashcardsWithId,
   saveFlashcards,
+  studyGuideId,
+  getStudyGuide,
+  saveStudyGuide,
+  getStudyGuideIds,
   getFlashcardStatuses,
   setFlashcardStatus,
   getCardChat,
@@ -1805,18 +1809,49 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
 async function reviewScopeInputs(req) {
   const programScope = await requestScope(req);
   const catalog = await getCatalog(req.userEmail, programScope);
-  const scoped = scopeCatalog(catalog, req.body || {});
+  return buildReviewInputs(catalog, req.body || {}, programScope);
+}
+
+// The catalog-derived inputs for one scope. Factored out of reviewScopeInputs
+// so the admin bulk pre-build can reuse it for an ENUMERATED scope (not tied to
+// a request body) with the catalog + program slice fetched once up front.
+async function buildReviewInputs(catalog, body, programScope) {
+  const scoped = scopeCatalog(catalog, body);
   const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean).slice(0, 60);
   if (!topics.length) return null;
   const pool = await getQuestionsForTopics(topics, programScope);
   const questions = shuffle(pool).slice(0, 40).map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
-  const { track, course, lesson, topic } = req.body || {};
+  const { track, course, lesson, topic } = body;
   const scopeLabel = !isAll(topic) ? topic
     : !isAll(lesson) ? lesson
     : !isAll(course) ? course
     : !isAll(track) ? track
     : 'Your selection';
   return { catalog, scoped, topics, questions, scopeLabel };
+}
+
+// A study guide's cache key mirrors the exact scope tuple a learner's progress
+// node carries (track/course/lesson/topic in data-*), with "all"/N-A fields
+// normalised to empty so both sides slug to the same id.
+const cleanScopeField = (v) => (isAll(v) ? '' : String(v || '').trim());
+function guideScope(kind, program, body = {}) {
+  return {
+    program: program || '',
+    kind,
+    track: cleanScopeField(body.track),
+    course: cleanScopeField(body.course),
+    lesson: cleanScopeField(body.lesson),
+    topic: cleanScopeField(body.topic),
+  };
+}
+
+// Send a cached guide as a single-chunk text response (same shape the client
+// already streams into renderMarkdown) — instant, and costs zero tokens.
+function sendCachedText(res, text) {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('X-Study-Guide', 'cache-hit');
+  res.end(text);
 }
 
 /**
@@ -1850,12 +1885,24 @@ function lessonGraphContext(scoped, catalog, links) {
 
 // Auth: the original self-contained AI study guide for a scope — reads the
 // existing questions and teaches the concepts from scratch (the "Review" button).
+// The guide is derived from shared data, so it's cached (once) and replayed
+// instantly on later clicks; only a cache miss (or ?refresh=1) spends tokens.
 app.post('/api/review', requireAuth, async (req, res, next) => {
   try {
-    const inp = await reviewScopeInputs(req);
+    const programScope = await requestScope(req);
+    const scope = guideScope('review', programScope.program, req.body || {});
+    if (req.query.refresh !== '1') {
+      const cached = await getStudyGuide(scope).catch(() => null);
+      if (cached && cached.markdown) return sendCachedText(res, cached.markdown);
+    }
+    const catalog = await getCatalog(req.userEmail, programScope);
+    const inp = await buildReviewInputs(catalog, req.body || {}, programScope);
     if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
+    let acc = '';
     await streamText(res, (onToken) =>
-      generateReview({ scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, aiChoice(req), onToken));
+      generateReview({ scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, aiChoice(req),
+        (t) => { acc += t; onToken(t); }));
+    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel }).catch(() => {});
   } catch (e) {
     if (!res.headersSent) next(e);
   }
@@ -1863,20 +1910,30 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
 
 // Auth: the prerequisite-aware study guide (the "Lesson" button) — same scope,
 // but built ON the section's prerequisites from the graph (teaches the delta)
-// rather than from scratch.
+// rather than from scratch. Cached the same way as Review (the "Builds on /
+// Leads to" chips come from /api/lesson/context, which stays live + free).
 app.post('/api/lesson', requireAuth, async (req, res, next) => {
   try {
-    const inp = await reviewScopeInputs(req);
+    const programScope = await requestScope(req);
+    const scope = guideScope('lesson', programScope.program, req.body || {});
+    if (req.query.refresh !== '1') {
+      const cached = await getStudyGuide(scope).catch(() => null);
+      if (cached && cached.markdown) return sendCachedText(res, cached.markdown);
+    }
+    const catalog = await getCatalog(req.userEmail, programScope);
+    const inp = await buildReviewInputs(catalog, req.body || {}, programScope);
     if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
     let graphCtx = { prereqs: [], dependents: [] };
     try {
       graphCtx = lessonGraphContext(inp.scoped, inp.catalog, await getGraphLinks());
     } catch { /* graph unavailable — falls back to a plain from-scratch lesson */ }
+    let acc = '';
     await streamText(res, (onToken) =>
       generateLesson({
         scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
         prereqs: graphCtx.prereqs, dependents: graphCtx.dependents,
-      }, aiChoice(req), onToken));
+      }, aiChoice(req), (t) => { acc += t; onToken(t); }));
+    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel }).catch(() => {});
   } catch (e) {
     if (!res.headersSent) next(e);
   }
@@ -1896,6 +1953,112 @@ app.post('/api/lesson/context', requireAuth, async (req, res, next) => {
     } catch {
       return res.json({ prereqs: [], dependents: [] });
     }
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: PRE-BUILD (cache) Lesson/Review study guides for a whole scope in
+// parallel, so a learner's buttons open instantly and cost zero tokens. It
+// enumerates the selected scope into per-sub-lesson and/or per-lesson targets
+// (matching exactly where the buttons live), builds each requested kind with
+// several generations in flight at once (never one-after-the-other), skips what
+// is already cached unless `force`, and returns counts. The engine is whatever
+// was picked at the top of the Composing Room (aiChoice — the aiProvider/aiModel
+// cookies). Synchronous: the admin leaves the page open until it reports done.
+const STUDY_GUIDE_CONCURRENCY = Math.max(
+  1, Math.min(12, parseInt(process.env.STUDY_GUIDE_CONCURRENCY, 10) || 5),
+);
+app.post('/api/admin/study-guides/build', requireAdmin, async (req, res, next) => {
+  try {
+    const programScope = await requestScope(req);
+    const program = programScope.program;
+    const catalog = await getCatalog(req.userEmail, programScope);
+    const scoped = scopeCatalog(catalog, req.body || {});
+    if (!scoped.length) return res.status(400).json({ error: 'No topics in that scope' });
+
+    const kinds = [];
+    if (req.body?.doLesson) kinds.push('lesson');
+    if (req.body?.doReview) kinds.push('review');
+    if (!kinds.length) return res.status(400).json({ error: 'Pick Lessons and/or Reviews to build' });
+
+    // Grain: which button locations to pre-warm. Default = both (sub-lessons and
+    // lessons), matching where the learner can click.
+    const grains = req.body?.grains || {};
+    const doTopicGrain = grains.topic !== false;
+    const doLessonGrain = grains.lesson !== false;
+    const force = req.body?.force === true;
+
+    // Enumerate the (deduped) target scopes at the requested grains. Each target
+    // tuple mirrors the data-* a progress node carries so the key matches.
+    const targets = new Map(); // dedupe-key -> scope
+    const add = (s) => {
+      const k = JSON.stringify([s.track || '', s.course || '', s.lesson || '', s.topic || '']);
+      if (!targets.has(k)) targets.set(k, s);
+    };
+    if (doTopicGrain) {
+      for (const r of scoped) if (r.topic) add({ track: r.track, course: r.course, lesson: r.lesson, topic: r.topic });
+    }
+    if (doLessonGrain) {
+      const seen = new Set();
+      for (const r of scoped) {
+        if (!r.lesson) continue;
+        const k = JSON.stringify([r.track || '', r.course || '', r.lesson || '']);
+        if (!seen.has(k)) { seen.add(k); add({ track: r.track, course: r.course, lesson: r.lesson }); }
+      }
+    }
+    if (!targets.size) return res.status(400).json({ error: 'Nothing to build for that grain' });
+
+    // The prereq graph is shared; fetch it once for all Lesson builds.
+    let links = [];
+    if (kinds.includes('lesson')) { try { links = await getGraphLinks(); } catch { links = []; } }
+
+    const ai = aiChoice(req);
+    const cachedIds = force ? new Set() : await getStudyGuideIds(program).catch(() => new Set());
+
+    // Flatten to a work list of {kind, scope, gscope}, dropping already-cached.
+    const jobs = [];
+    let skipped = 0;
+    for (const scope of targets.values()) {
+      for (const kind of kinds) {
+        const gscope = guideScope(kind, program, scope);
+        if (!force && cachedIds.has(studyGuideId(gscope))) { skipped++; continue; }
+        jobs.push({ kind, scope, gscope });
+      }
+    }
+
+    let built = 0, failed = 0;
+    await mapWithConcurrency(jobs, STUDY_GUIDE_CONCURRENCY, async ({ kind, scope, gscope }) => {
+      try {
+        const inp = await buildReviewInputs(catalog, scope, programScope);
+        if (!inp) return;
+        let acc = '';
+        const onToken = (t) => { acc += t; };
+        if (kind === 'review') {
+          await generateReview(
+            { scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, ai, onToken);
+        } else {
+          let g = { prereqs: [], dependents: [] };
+          try { g = lessonGraphContext(inp.scoped, catalog, links); } catch { /* plain lesson */ }
+          await generateLesson({
+            scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
+            prereqs: g.prereqs, dependents: g.dependents,
+          }, ai, onToken);
+        }
+        if (acc.trim()) { await saveStudyGuide(gscope, acc, { scopeLabel: inp.scopeLabel }); built += 1; }
+        else failed += 1;
+      } catch (e) {
+        failed += 1;
+        console.error('study-guide build failed:', kind, scope.topic || scope.lesson, e.message);
+      }
+    });
+
+    res.json({
+      ok: true, program, kinds,
+      targets: targets.size, attempted: jobs.length,
+      built, failed, skipped,
+      concurrency: STUDY_GUIDE_CONCURRENCY,
+    });
   } catch (e) {
     next(e);
   }
