@@ -114,6 +114,7 @@
 
     wireTabs();
     wireCurriculum();
+    wireCurriculumAI();
     wireTranscripts();
     wireIngest();
     wireGoalPlan();
@@ -466,6 +467,147 @@
         await loadCatalog();
       } catch (e) { $('curMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
     };
+  }
+
+  /* --------------------------- Edit with AI (chat) ------------------------- */
+  // A conversational curriculum editor. The admin describes a change; the model
+  // (streaming its reasoning into the shared rail panel) proposes a set of concrete
+  // structural operations, resolved against the live catalog on the server so each
+  // is shown exactly as it would run. Nothing is written until the admin clicks
+  // Apply — mirroring every other AI action in this room (propose → review → apply).
+  let caHistory = [];      // [{role:'user'|'assistant', content}] — prior turns sent for context
+  let caPlan = null;       // { operations:[…], steps:[…] } currently under review
+
+  const CA_OP_LABEL = {
+    merge_lessons: 'Merge lessons', rename_lesson: 'Rename lesson', rename_course: 'Rename course',
+    move_lesson: 'Move lesson', move_topic: 'Move sub-lesson', delete_topic: 'Delete sub-lesson',
+    delete_lesson: 'Delete lesson', add_topic: 'Add sub-lesson',
+    reorder_lessons: 'Reorder lessons', reorder_topics: 'Reorder sub-lessons',
+  };
+
+  function caPushBubble(role, text) {
+    const log = $('caLog');
+    const div = document.createElement('div');
+    div.className = `ca-msg ${role === 'user' ? 'user' : 'ai'}`;
+    div.textContent = text;
+    log.appendChild(div);
+    log.scrollTop = log.scrollHeight;
+    return div;
+  }
+
+  function renderCaOps() {
+    const box = $('caOps');
+    const steps = (caPlan && caPlan.steps) || [];
+    box.innerHTML = steps.map((s, i) => {
+      const title = esc(s.description || CA_OP_LABEL[s.op] || s.op || 'Change');
+      const sub = !s.ok
+        ? `<div class="ca-op-note err">Couldn't resolve: ${esc(s.error || 'unknown error')}</div>`
+        : (s.note ? `<div class="ca-op-note">${esc(s.note)}</div>` : '');
+      return `<div class="ca-op${s.ok ? '' : ' bad'}">`
+        + `<div class="ca-op-body"><div class="ca-op-desc">${title}</div>${sub}</div>`
+        + `<button class="ca-op-x" data-i="${i}" title="Remove this change">&times;</button>`
+        + `</div>`;
+    }).join('');
+    box.querySelectorAll('.ca-op-x').forEach((b) => { b.onclick = () => {
+      const i = Number(b.dataset.i);
+      caPlan.operations.splice(i, 1);
+      caPlan.steps.splice(i, 1);
+      if (!caPlan.operations.length) { show($('caPlan'), false); caPlan = null; return; }
+      renderCaOps();
+    }; });
+    const ok = steps.filter((s) => s.ok).length;
+    const bad = steps.length - ok;
+    $('caPlanCount').textContent = `— ${ok} change${ok === 1 ? '' : 's'}${bad ? `, ${bad} skipped` : ''}`;
+    $('caApply').disabled = ok === 0;
+  }
+
+  function renderCaPlan(result) {
+    const ops = Array.isArray(result.operations) ? result.operations : [];
+    const steps = Array.isArray(result.steps) ? result.steps : [];
+    if (!ops.length) { caPlan = null; show($('caPlan'), false); return; }
+    caPlan = { operations: ops, steps };
+    $('caSummary').textContent = result.summary || '';
+    show($('caSummary'), !!result.summary);
+    renderCaOps();
+    $('caApplyMsg').textContent = '';
+    show($('caPlan'), true);
+  }
+
+  async function caSend(message) {
+    const msg = String(message || '').trim();
+    if (!msg) { $('caMsgOut').innerHTML = '<span class="aa-err">Describe a change first.</span>'; return; }
+    $('caSend').disabled = true;
+    $('caMsgOut').textContent = 'Thinking…';
+    show($('caReset'), true);
+    show($('caChips'), false);
+    const history = caHistory.slice(); // prior turns only; the server appends this message itself
+    caPushBubble('user', msg);
+    $('caMsg').value = '';
+    const panel = thinkPanel('aeThink'); panel.start();
+    try {
+      const data = await streamSSE('/api/admin/curriculum/edit/stream', {
+        program: state.program, message: msg, history, ...engineBody(),
+      }, { onThinking: panel.thinking, onContent: panel.content });
+      panel.done(data.operations && data.operations.length ? 'Plan ready' : 'Answered');
+      const reply = data.reply || (data.operations && data.operations.length ? 'Here are the changes I propose.' : 'Done.');
+      caPushBubble('ai', reply);
+      caHistory.push({ role: 'user', content: msg });
+      caHistory.push({ role: 'assistant', content: reply });
+      renderCaPlan(data);
+      $('caMsgOut').textContent = '';
+    } catch (e) {
+      panel.fail('Stopped');
+      caPushBubble('ai', `⚠ ${e.message}`);
+      $('caMsgOut').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+    }
+    $('caSend').disabled = false;
+  }
+
+  async function caApply() {
+    if (!caPlan || !caPlan.operations.length) return;
+    $('caApply').disabled = true; $('caDiscard').disabled = true;
+    $('caApplyMsg').textContent = 'Applying…';
+    try {
+      const res = await api('/api/admin/curriculum/apply', {
+        method: 'POST', body: { program: state.program, operations: caPlan.operations },
+      });
+      const failed = (res.steps || []).filter((s) => !s.ok);
+      await loadCatalog(); // the tree above now reflects the edits
+      show($('caPlan'), false); caPlan = null;
+      const note = failed.length
+        ? `Applied ${res.applied} change${res.applied === 1 ? '' : 's'}; ${failed.length} couldn't be applied.`
+        : `✓ Applied ${res.applied} change${res.applied === 1 ? '' : 's'}. The tree above is updated.`;
+      caPushBubble('ai', note);
+      $('caApplyMsg').textContent = '';
+    } catch (e) {
+      $('caApplyMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+    }
+    $('caApply').disabled = false; $('caDiscard').disabled = false;
+  }
+
+  function caReset() {
+    caHistory = []; caPlan = null;
+    $('caLog').innerHTML = '';
+    $('caMsg').value = '';
+    $('caMsgOut').textContent = ''; $('caApplyMsg').textContent = '';
+    show($('caPlan'), false);
+    show($('caReset'), false);
+    show($('caChips'), true);
+    show($('aeThink'), false);
+  }
+
+  function wireCurriculumAI() {
+    $('caSend').onclick = () => caSend($('caMsg').value);
+    $('caReset').onclick = caReset;
+    $('caApply').onclick = caApply;
+    $('caDiscard').onclick = () => { show($('caPlan'), false); caPlan = null; };
+    // Ctrl/⌘+Enter sends (the textarea is multi-line, so plain Enter inserts a newline).
+    $('caMsg').addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); caSend($('caMsg').value); }
+    });
+    $('caChips').querySelectorAll('.ca-chip').forEach((c) => { c.onclick = () => {
+      $('caMsg').value = c.textContent.trim(); $('caMsg').focus();
+    }; });
   }
 
   /* ------------------------------- transcripts ----------------------------- */

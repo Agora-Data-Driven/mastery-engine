@@ -122,6 +122,7 @@ import {
   generateTopicOrder,
   classifyTranscript,
   planCurriculum,
+  planCurriculumEdit,
   planRoadmap,
   writeLessonBrief,
   latexifyQuestions,
@@ -3058,6 +3059,328 @@ app.post('/api/admin/topics/reorder', requireAdmin, async (req, res, next) => {
     if (!items.length) return res.status(400).json({ error: 'Nothing to reorder' });
     const n = await setTopicOrders(items);
     res.json({ ok: true, n });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------- conversational curriculum editor (AI) ------------------ */
+/**
+ * Resolve — and optionally execute — a batch of structural curriculum operations
+ * proposed by planCurriculumEdit (merge / rename / move / delete / add / reorder).
+ *
+ * Ops reference nodes by NAME; here we resolve every name against the LIVE catalog
+ * and REJECT anything that doesn't exist, so the model proposes but the code
+ * decides what's real (the discipline planCurriculum/classifyTranscript use). Each
+ * op is translated into the same id-preserving primitives the drag-and-drop editor
+ * uses — moveTopics (keeps the doc id, so per-user stats, banked questions AND
+ * prereq graph edges all survive a re-file/rename), setTopicOrders, deleteTopic,
+ * upsertTopics.
+ *
+ * A single in-memory working copy of the catalog is mutated as we go, so a later op
+ * resolves against the effect of earlier ones in the same batch (e.g. reorder a
+ * lesson a merge just filled). `dryRun` resolves + describes WITHOUT writing — that
+ * is exactly how the review preview is built, so what the admin approves is what
+ * runs. Every op yields a step { op, ok, description, note, error?, warn? }; an
+ * unresolved op fails in isolation without aborting the rest.
+ *
+ * @returns {Promise<{steps:Array<object>, applied:number}>}
+ */
+async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
+  const clean = (v) => String(v == null ? '' : v).trim();
+  const key = (s) => clean(s).toLowerCase();
+  const numCmp = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+  const cmpTopic = (a, b) => {
+    const oa = Number.isFinite(a.order) ? a.order : Infinity;
+    const ob = Number.isFinite(b.order) ? b.order : Infinity;
+    return oa !== ob ? oa - ob : numCmp(a.topic, b.topic);
+  };
+
+  // Working copy: only real topic rows, with the fields we manipulate + the doc id.
+  let cat = (await getCatalog(null, { program }))
+    .filter((r) => r.topic && r.id)
+    .map((r) => ({
+      id: r.id,
+      track: r.track || '', course: r.course || '', lesson: r.lesson || '', topic: r.topic || '',
+      order: Number.isFinite(r.order) ? r.order : null,
+    }));
+
+  const rowsIn = (track, course, lesson, topic) => cat.filter((r) =>
+    (track == null || key(r.track) === key(track))
+    && (course == null || key(r.course) === key(course))
+    && (lesson == null || key(r.lesson) === key(lesson))
+    && (topic == null || key(r.topic) === key(topic)));
+
+  // A course usually lives in exactly one track. Honour a named track when it holds
+  // the course, else infer it when unambiguous — otherwise throw a helpful error.
+  const resolveTrack = (track, course) => {
+    const co = key(course);
+    const tracks = [...new Set(cat.filter((r) => key(r.course) === co).map((r) => r.track))];
+    if (track) {
+      const hit = tracks.find((t) => key(t) === key(track));
+      if (hit) return hit;
+      if (!tracks.length) throw new Error(`No course named “${clean(course)}”`);
+      throw new Error(`Course “${clean(course)}” isn’t in track “${clean(track)}”`);
+    }
+    if (tracks.length === 1) return tracks[0];
+    if (!tracks.length) throw new Error(`No course named “${clean(course)}”`);
+    throw new Error(`Course “${clean(course)}” exists in more than one track — name the track`);
+  };
+
+  // Distinct lesson names of a course in current study order (by MIN topic order, then name).
+  const orderedLessonNames = (rows) => {
+    const names = [...new Set(rows.map((r) => r.lesson))].filter(Boolean);
+    const minOrder = (le) => rows.filter((r) => r.lesson === le)
+      .reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
+    return names.sort((a, b) => { const oa = minOrder(a); const ob = minOrder(b); return oa !== ob ? oa - ob : numCmp(a, b); });
+  };
+  // Renumber a whole course, block by block, in `lessonOrder`, keeping each lesson's
+  // internal topic order. Returns [{id,order}] and updates the working copy.
+  const renumberCourse = (track, course, lessonOrder) => {
+    const items = []; let ord = 0;
+    for (const le of lessonOrder) {
+      for (const r of rowsIn(track, course, le).sort(cmpTopic)) { r.order = ord; items.push({ id: r.id, order: ord }); ord += 1; }
+    }
+    return items;
+  };
+
+  // DB writes are deferred and run (in order) only after every op resolves cleanly
+  // enough to describe; the working copy is mutated immediately regardless.
+  const writes = [];
+  const doMove = (ids, to) => writes.push(() => moveTopics(ids, to));
+  const doDelete = (ids) => writes.push(async () => { for (const id of ids) await deleteTopic(id); });
+  const doReorder = (items) => { if (items.length) writes.push(() => setTopicOrders(items)); };
+  const doAdd = (rows) => writes.push(() => upsertTopics(rows));
+
+  const steps = [];
+  let applied = 0;
+
+  for (const raw of (Array.isArray(ops) ? ops : [])) {
+    const op = clean(raw && raw.op);
+    const note = clean(raw && raw.note);
+    try {
+      let description;
+      switch (op) {
+        case 'rename_course': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course);
+          if (!rows.length) throw new Error(`No course named “${clean(raw.course)}”`);
+          const newName = clean(raw.newName);
+          if (!newName) throw new Error('rename_course needs a newName');
+          const courseName = rows[0].course; const ids = rows.map((r) => r.id);
+          rows.forEach((r) => { r.course = newName; });
+          if (!dryRun) doMove(ids, { course: newName });
+          description = `Rename course “${courseName}” → “${newName}” (${ids.length} sub-lesson${ids.length === 1 ? '' : 's'})`;
+          break;
+        }
+        case 'rename_lesson': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course, raw.lesson);
+          if (!rows.length) throw new Error(`No lesson “${clean(raw.lesson)}” in “${clean(raw.course)}”`);
+          const newName = clean(raw.newName);
+          if (!newName) throw new Error('rename_lesson needs a newName');
+          const lessonName = rows[0].lesson; const ids = rows.map((r) => r.id);
+          rows.forEach((r) => { r.lesson = newName; });
+          if (!dryRun) doMove(ids, { lesson: newName });
+          description = `Rename lesson “${lessonName}” → “${newName}” (${ids.length} sub-lesson${ids.length === 1 ? '' : 's'})`;
+          break;
+        }
+        case 'move_lesson': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course, raw.lesson);
+          if (!rows.length) throw new Error(`No lesson “${clean(raw.lesson)}” in “${clean(raw.course)}”`);
+          const toCourse = clean(raw.toCourse);
+          if (!toCourse) throw new Error('move_lesson needs a toCourse');
+          const toTrack = clean(raw.toTrack) || track;
+          const lessonName = rows[0].lesson; const fromCourse = rows[0].course; const ids = rows.map((r) => r.id);
+          rows.forEach((r) => { r.track = toTrack; r.course = toCourse; });
+          if (!dryRun) doMove(ids, { track: toTrack, course: toCourse });
+          description = `Move lesson “${lessonName}” from “${fromCourse}” → “${toCourse}”${key(toTrack) !== key(track) ? ` (track “${toTrack}”)` : ''} (${ids.length} sub-lesson${ids.length === 1 ? '' : 's'})`;
+          break;
+        }
+        case 'move_topic': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course, raw.lesson, raw.topic);
+          if (!rows.length) throw new Error(`No sub-lesson “${clean(raw.topic)}” in “${clean(raw.lesson)}”`);
+          const toLesson = clean(raw.toLesson);
+          if (!toLesson) throw new Error('move_topic needs a toLesson');
+          const toCourse = clean(raw.toCourse) || rows[0].course; const r = rows[0];
+          const topicName = r.topic; const fromLesson = r.lesson;
+          r.course = toCourse; r.lesson = toLesson;
+          if (!dryRun) doMove([r.id], { course: toCourse, lesson: toLesson });
+          description = `Move sub-lesson “${topicName}” from “${fromLesson}” → “${toLesson}”${key(toCourse) !== key(raw.course) ? ` (course “${toCourse}”)` : ''}`;
+          break;
+        }
+        case 'merge_lessons': {
+          const track = resolveTrack(raw.track, raw.course);
+          const into = clean(raw.into);
+          if (!into) throw new Error('merge_lessons needs an "into" lesson');
+          const fromList = (Array.isArray(raw.from) ? raw.from : []).map(clean).filter(Boolean).filter((l) => key(l) !== key(into));
+          if (!fromList.length) throw new Error('merge_lessons needs at least one "from" lesson different from "into"');
+          const dropSet = new Set((Array.isArray(raw.drop) ? raw.drop : []).map(key).filter(Boolean));
+          const intoRows = rowsIn(track, raw.course, into);
+          const intoName = intoRows[0] ? intoRows[0].lesson : into;
+          const targetNames = new Set(intoRows.map((r) => key(r.topic)));
+          // Resolve EVERY "from" lesson before mutating anything, so a merge that
+          // names one bad lesson fails whole instead of half-applying the good ones.
+          const fromGroups = fromList.map((fromLesson) => {
+            const rows = rowsIn(track, raw.course, fromLesson);
+            if (!rows.length) throw new Error(`No lesson “${fromLesson}” in “${clean(raw.course)}” to merge`);
+            return rows;
+          });
+          let moved = 0; const dropped = [];
+          for (const rows of fromGroups) {
+            for (const r of rows) {
+              const nk = key(r.topic);
+              if (dropSet.has(nk) || targetNames.has(nk)) {
+                dropped.push(r.topic); cat = cat.filter((x) => x.id !== r.id);
+                if (!dryRun) doDelete([r.id]);
+              } else {
+                targetNames.add(nk); r.lesson = intoName; moved += 1;
+                if (!dryRun) doMove([r.id], { lesson: intoName });
+              }
+            }
+          }
+          const fromLabel = fromList.length === 1 ? `“${fromList[0]}”` : `${fromList.length} lessons`;
+          description = `Merge ${fromLabel} into “${intoName}”: moved ${moved} sub-lesson${moved === 1 ? '' : 's'}${dropped.length ? `, dropped ${dropped.length} overlapping (${dropped.join(', ')})` : ''}`;
+          break;
+        }
+        case 'delete_topic': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course, raw.lesson, raw.topic);
+          if (!rows.length) throw new Error(`No sub-lesson “${clean(raw.topic)}” in “${clean(raw.lesson)}”`);
+          const r = rows[0]; cat = cat.filter((x) => x.id !== r.id);
+          if (!dryRun) doDelete([r.id]);
+          description = `Delete sub-lesson “${r.topic}” from “${r.lesson}”`;
+          break;
+        }
+        case 'delete_lesson': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course, raw.lesson);
+          if (!rows.length) throw new Error(`No lesson “${clean(raw.lesson)}” in “${clean(raw.course)}”`);
+          const lessonName = rows[0].lesson; const ids = rows.map((r) => r.id); const idSet = new Set(ids);
+          cat = cat.filter((x) => !idSet.has(x.id));
+          if (!dryRun) doDelete(ids);
+          description = `Delete lesson “${lessonName}” and its ${ids.length} sub-lesson${ids.length === 1 ? '' : 's'}`;
+          break;
+        }
+        case 'add_topic': {
+          const course = clean(raw.course); const lesson = clean(raw.lesson); const topic = clean(raw.topic);
+          if (!course || !lesson || !topic) throw new Error('add_topic needs course, lesson and topic');
+          let track = clean(raw.track);
+          if (!track) {
+            const tracks = [...new Set(cat.filter((r) => key(r.course) === key(course)).map((r) => r.track))];
+            if (tracks.length === 1) [track] = tracks;
+            else throw new Error(`add_topic needs a track for new course “${course}”`);
+          }
+          if (rowsIn(track, course, lesson, topic).length) {
+            steps.push({ op, ok: true, description: `Sub-lesson “${topic}” already exists in “${lesson}” — skipped`, note, warn: 'already exists' });
+            continue;
+          }
+          cat.push({ id: slug(track, course, lesson, topic), track, course, lesson, topic, order: null });
+          if (!dryRun) doAdd([{ program, track, course, lesson, topic }]);
+          description = `Add sub-lesson “${topic}” to “${lesson}” (course “${course}”)`;
+          break;
+        }
+        case 'reorder_lessons': {
+          const track = resolveTrack(raw.track, raw.course);
+          const courseRows = rowsIn(track, raw.course);
+          if (!courseRows.length) throw new Error(`No course named “${clean(raw.course)}”`);
+          const courseName = courseRows[0].course;
+          const current = orderedLessonNames(courseRows);
+          const existing = new Map(current.map((l) => [key(l), l]));
+          const want = (Array.isArray(raw.order) ? raw.order : []).map(clean).filter(Boolean);
+          const seq = []; const used = new Set();
+          for (const w of want) { const a = existing.get(key(w)); if (a && !used.has(key(a))) { seq.push(a); used.add(key(a)); } }
+          for (const l of current) if (!used.has(key(l))) seq.push(l);
+          const items = renumberCourse(track, raw.course, seq);
+          if (!dryRun) doReorder(items);
+          description = `Reorder lessons in “${courseName}”: ${seq.join(' → ')}`;
+          break;
+        }
+        case 'reorder_topics': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course, raw.lesson);
+          if (!rows.length) throw new Error(`No lesson “${clean(raw.lesson)}” in “${clean(raw.course)}”`);
+          const lessonName = rows[0].lesson;
+          const byName = new Map(rows.map((r) => [key(r.topic), r]));
+          const want = (Array.isArray(raw.order) ? raw.order : []).map(clean).filter(Boolean);
+          const seq = []; const used = new Set();
+          for (const w of want) { const r = byName.get(key(w)); if (r && !used.has(r.id)) { seq.push(r); used.add(r.id); } }
+          for (const r of rows.slice().sort(cmpTopic)) if (!used.has(r.id)) seq.push(r);
+          const base = rows.reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
+          const start = Number.isFinite(base) ? base : 0;
+          const items = seq.map((r, i) => { r.order = start + i; return { id: r.id, order: start + i }; });
+          if (!dryRun) doReorder(items);
+          description = `Reorder sub-lessons in “${lessonName}”: ${seq.map((r) => r.topic).join(' → ')}`;
+          break;
+        }
+        default:
+          throw new Error(`Unknown operation “${op || '(blank)'}”`);
+      }
+      steps.push({ op, ok: true, description, note });
+      applied += 1;
+    } catch (e) {
+      steps.push({ op, ok: false, error: e.message, note });
+    }
+  }
+
+  if (!dryRun) { for (const w of writes) await w(); }
+  return { steps, applied };
+}
+
+/**
+ * Admin: draft structural curriculum edits from a plain-English message (SSE). The
+ * model's reasoning streams live, then one 'result' carries the chat reply, a
+ * headline summary, the proposed operations AND those ops resolved against the live
+ * catalog (dry-run) so the admin sees exactly what each would do before applying.
+ */
+app.post('/api/admin/curriculum/edit/stream', requireAdmin, async (req, res) => {
+  let started = false;
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const message = String(req.body?.message || '').trim();
+    if (!message) throw Object.assign(new Error('Tell the editor what to change'), { status: 400 });
+    const history = (Array.isArray(req.body?.history) ? req.body.history : [])
+      .filter((t) => t && (t.role === 'user' || t.role === 'assistant'))
+      .map((t) => ({ role: t.role, content: String(t.content || '').slice(0, 4000) }))
+      .slice(-8);
+    const catalog = await getCatalog(req.userEmail, scope);
+    const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+    sseInit(res); started = true;
+    const plan = await planCurriculumEdit(
+      { message, history, catalog, programName },
+      aiFromBody(req),
+      (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
+    );
+    const { steps } = plan.operations.length
+      ? await runCurriculumEdits(program, plan.operations, { dryRun: true })
+      : { steps: [] };
+    sseSend(res, 'result', { reply: plan.reply, summary: plan.summary, operations: plan.operations, steps });
+    sseSend(res, 'done', {});
+    res.end();
+  } catch (e) {
+    if (started) { try { sseSend(res, 'error', { error: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ } }
+    else res.status(e.status || 500).json({ error: e.message || 'AI request failed' });
+  }
+});
+
+/**
+ * Admin: apply an approved set of structural curriculum edits. Re-resolves against
+ * the LIVE catalog (robust to any drift since the preview) and executes the
+ * id-preserving primitives, then slots any freshly-created lessons into study order
+ * so they don't dump at the bottom of the tree. Returns a per-op report.
+ */
+app.post('/api/admin/curriculum/apply', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const ops = Array.isArray(req.body?.operations) ? req.body.operations : [];
+    if (!ops.length) return res.status(400).json({ error: 'No changes to apply' });
+    const { steps, applied } = await runCurriculumEdits(program, ops, { dryRun: false });
+    await placeNewTopicsInOrder(program).catch(() => { /* ordering is best-effort */ });
+    res.json({ ok: true, applied, steps });
   } catch (e) {
     next(e);
   }
