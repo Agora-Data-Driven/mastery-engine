@@ -281,6 +281,16 @@ function aiChoice(req) {
   return { provider, model, thinking };
 }
 
+// Only Gemini (Vertex) can READ file attachments (multimodal). If the user is on another engine
+// (Kimi/DeepSeek/local), use Gemini just for a turn that has files, so uploads actually work — their
+// engine choice resumes on the next, file-less message. Clears the model so Gemini uses its default
+// (the stored aiModel would be the other provider's id).
+function aiForFiles(ai, attachments) {
+  return (Array.isArray(attachments) && attachments.length && ai.provider !== 'gemini')
+    ? { ...ai, provider: 'gemini', model: undefined }
+    : ai;
+}
+
 /** The question difficulty the learner picked (cookie set by the settings panel).
  *  'auto' (default) ramps from their per-topic history; core|balanced|challenge
  *  override it. */
@@ -1975,7 +1985,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiChoice(req));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -2032,7 +2042,7 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     const actions = !!req.body?.actions;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
