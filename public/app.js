@@ -3643,6 +3643,50 @@ const App = (() => {
     };
   }
 
+  // --- File attachments: let the user upload files for the assistant to read -----------------
+  // Images / PDFs / text are base64'd and sent with the next message; Gemini reads them as inline
+  // multimodal input. Capped so we never blow the request size.
+  const assistantAttachments = [];
+  const ATTACH_MAX = 6, ATTACH_MAX_BYTES = 5 * 1024 * 1024;
+
+  function guessMime(file) {
+    if (file.type) return file.type;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    if (['txt', 'md', 'csv', 'log', 'json'].includes(ext)) return 'text/plain';
+    if (ext === 'pdf') return 'application/pdf';
+    return 'application/octet-stream';
+  }
+  const readFileB64 = (file) => new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => { const s = String(r.result); res(s.slice(s.indexOf(',') + 1)); };
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+
+  async function onAssistantFiles(input) {
+    const files = Array.from(input.files || []);
+    input.value = '';
+    for (const f of files) {
+      if (assistantAttachments.length >= ATTACH_MAX) { alert(`You can attach up to ${ATTACH_MAX} files.`); break; }
+      if (f.size > ATTACH_MAX_BYTES) { alert(`"${f.name}" is larger than 5 MB.`); continue; }
+      try { assistantAttachments.push({ name: f.name, mimeType: guessMime(f), data: await readFileB64(f) }); }
+      catch { /* skip unreadable file */ }
+    }
+    renderAssistantAttachments();
+  }
+
+  function removeAssistantFile(i) { assistantAttachments.splice(i, 1); renderAssistantAttachments(); }
+  function clearAssistantFiles() { assistantAttachments.length = 0; renderAssistantAttachments(); }
+
+  function renderAssistantAttachments() {
+    const box = $('assistantAttachments');
+    if (!box) return;
+    if (!assistantAttachments.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+    box.classList.remove('hidden');
+    box.innerHTML = assistantAttachments.map((a, i) =>
+      `<span class="chat-attach"><span class="chat-attach-name">${esc(a.name)}</span><button type="button" class="chat-attach-x" aria-label="Remove" onclick="App.removeAssistantFile(${i})">×</button></span>`).join('');
+  }
+
   // --- Coach edit-actions (only when the host enabled them) ----------------
   // The assistant emits `agora-action` fenced JSON blocks to PROPOSE profile edits. We lift them out
   // of the prose and render Approve/Cancel cards; on Approve we hand the action to the host (Sentinel)
@@ -3743,6 +3787,7 @@ const App = (() => {
         web: webAccessOn() || undefined,
         coach: coachOn() || undefined,
         actions: coachActionsEnabled() || undefined,
+        attachments: assistantAttachments.length ? assistantAttachments.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data })) : undefined,
       }, (ev, data) => {
         if (ev === 'thinking') {
           gotThinking = true;
@@ -3781,7 +3826,7 @@ const App = (() => {
       els.answer.innerHTML = renderMarkdown(answerText);
       typeset(els.answer);
       assistant.loaded = true;
-      if (done) { await refreshAssistantChats(); refreshCost(); }
+      if (done) { clearAssistantFiles(); await refreshAssistantChats(); refreshCost(); }
     } catch (e) {
       if (e.name === 'AbortError' || paused) return;   // paused → steer box already shown
       els.think.classList.remove('is-live');

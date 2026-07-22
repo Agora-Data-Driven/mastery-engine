@@ -865,11 +865,14 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
     const scope = await requestScope(req);
     const catalog = await getCatalog(req.userEmail, scope);
     const idx = metaIndex(catalog);
+    // Don't drill sections the learner removed from their Mastery Engine.
+    const hidden = (await getShelf(req.userEmail))?.hidden || [];
 
     // Rank each track's topics by priority (weakest/stalest first).
     const byTrack = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
+      if (hiddenMatch(r, hidden)) continue;
       if (!byTrack.has(r.track)) byTrack.set(r.track, []);
       byTrack.get(r.track).push(r);
     }
@@ -926,10 +929,13 @@ const MASTERY_DECK_SIZE = 24;
 app.post('/api/flashcards/mastery', requireAuth, async (req, res, next) => {
   try {
     const catalog = await getCatalog(req.userEmail, await requestScope(req));
+    // Don't drill sections the learner removed from their Mastery Engine.
+    const hidden = (await getShelf(req.userEmail))?.hidden || [];
     // Priority per topic (weakest/stalest first), carrying its track for interleaving.
     const topicMeta = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
+      if (hiddenMatch(r, hidden)) continue;
       if (!topicMeta.has(r.topic)) topicMeta.set(r.topic, { track: r.track || 'Unknown', priority: r.priority });
     }
 
@@ -1968,7 +1974,8 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const holistic = await holisticProfile(req.userEmail);
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, admin: isAdmin(req) }, aiChoice(req));
+    const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -2023,8 +2030,9 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // outage can never break the SSE stream — it just yields no holistic block.
     const holistic = await holisticProfile(req.userEmail);
     const actions = !!req.body?.actions;
+    const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, admin: isAdmin(req) }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiChoice(req),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
