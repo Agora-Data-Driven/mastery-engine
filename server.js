@@ -54,6 +54,7 @@ import {
   getGraphLinks,
   saveGraphLinks,
   setTopicOrders,
+  moveTopics,
   addUsage,
   getUsage,
   slug,
@@ -2916,6 +2917,42 @@ app.delete('/api/admin/topics/:id', requireAdmin, async (req, res, next) => {
 });
 
 /**
+ * Admin: re-file topics under a new track/course/lesson (drag-and-drop in the
+ * curriculum tree). Updates the stored fields in place, KEEPING the doc id — so
+ * per-user stats (keyed by id), banked questions (keyed by name) and prereq graph
+ * edges (keyed by id) all survive the move. Body: { ids:[...], to:{track?,course?,lesson?} }.
+ */
+app.post('/api/admin/topics/move', requireAdmin, async (req, res, next) => {
+  try {
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids.filter(Boolean) : [];
+    const to = req.body?.to || {};
+    if (!ids.length) return res.status(400).json({ error: 'No topics to move' });
+    const moved = await moveTopics(ids, to);
+    res.json({ ok: true, moved });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Admin: persist a new study `order` on a set of topics (drag-and-drop reorder of
+ * sub-lessons within a lesson, or lessons within a course). Body: { items:[{id,order}] }.
+ * The client computes the order numbers; lessons sort by their MIN topic order.
+ */
+app.post('/api/admin/topics/reorder', requireAdmin, async (req, res, next) => {
+  try {
+    const items = (Array.isArray(req.body?.items) ? req.body.items : [])
+      .map((it) => ({ id: String(it?.id || ''), order: Number(it?.order) }))
+      .filter((it) => it.id && Number.isFinite(it.order));
+    if (!items.length) return res.status(400).json({ error: 'Nothing to reorder' });
+    const n = await setTopicOrders(items);
+    res.json({ ok: true, n });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * Admin: bulk outline import. Accepts either rows [{track,course,lesson,topic}]
  * or `text` — one "Track > Course > Lesson > Topic" per line, which is what you
  * get from pasting a curriculum outline. `preview: true` parses and reports
@@ -3366,28 +3403,34 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
     const reference = String(req.body?.reference || '').trim();
     const assumedKnowledge = (Array.isArray(req.body?.assumedKnowledge) ? req.body.assumedKnowledge : [])
       .map((s) => String(s || '').trim()).filter(Boolean);
-    if (!track || !course) return res.status(400).json({ error: 'Track and course are required' });
+    // `course` here is only the module-level default; each lesson may carry its own,
+    // so a blank module course is fine as long as every lesson resolves one below.
+    if (!track) return res.status(400).json({ error: 'Track is required' });
 
-    // The approved lesson tree: {lesson, topics:[...]}, empties dropped.
+    // The approved lesson tree: {track?, course?, lesson, topics:[...]}, empties dropped.
+    // Each lesson may target its own course/lesson (admin re-filed it into an existing
+    // unit); missing track/course fall back to the module-level defaults.
     const lessons = (Array.isArray(req.body?.lessons) ? req.body.lessons : [])
       .map((l) => ({
+        track: String(l?.track || track).trim() || track,
+        course: String(l?.course || course).trim() || course,
         lesson: String(l?.lesson || '').trim(),
         topics: [...new Set((Array.isArray(l?.topics) ? l.topics : []).map((t) => String(t || '').trim()).filter(Boolean))],
       }))
-      .filter((l) => l.lesson && l.topics.length);
+      .filter((l) => l.track && l.course && l.lesson && l.topics.length);
     if (!lessons.length) return res.status(400).json({ error: 'Pick at least one topic to build' });
 
     // 1. Ensure every topic row exists (new ones created, existing untouched).
     const flat = [];
-    for (const l of lessons) for (const topic of l.topics) flat.push({ program, track, course, lesson: l.lesson, topic });
+    for (const l of lessons) for (const topic of l.topics) flat.push({ program, track: l.track, course: l.course, lesson: l.lesson, topic });
     await upsertTopics(flat);
     await placeNewTopicsInOrder(program); // slot new lessons/topics into order, not the bottom
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
     const ai = aiFromBody(req);
     await Promise.all(lessons.map(async (l) => {
-      const brief = await writeLessonBrief({ course, lesson: l.lesson, topics: l.topics, assumedKnowledge, goal, reference }, ai);
-      if (brief) await addTranscript({ program, track, course, lesson: l.lesson, title: l.lesson, text: brief, source: 'goal-plan' });
+      const brief = await writeLessonBrief({ course: l.course, lesson: l.lesson, topics: l.topics, assumedKnowledge, goal, reference }, ai);
+      if (brief) await addTranscript({ program, track: l.track, course: l.course, lesson: l.lesson, title: l.lesson, text: brief, source: 'goal-plan' });
     }));
 
     // 3. One topic-anchored generation job over all topics (the briefs are the reference).
@@ -3416,7 +3459,7 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
       ok: true,
       job: publicJob(job),
       buildCards: req.body?.buildCards !== false,
-      lessons: lessons.map((l) => ({ track, course, lesson: l.lesson, topics: l.topics })),
+      lessons: lessons.map((l) => ({ track: l.track, course: l.course, lesson: l.lesson, topics: l.topics })),
     });
   } catch (e) {
     next(e);

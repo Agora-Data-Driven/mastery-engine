@@ -196,28 +196,66 @@
       `<label style="display:flex;gap:8px;align-items:center;padding:6px 11px;border-bottom:1px solid #F0F1F4;cursor:pointer"><input type="checkbox" data-tid="${esc(t.id)}" style="width:auto"><span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">&middot; ${esc(t.lesson)} &middot; ${t.chars || 0} chars</span></span></label>`).join('');
   }
 
-  // Interactive Track > Course > Lesson > Sub-lesson tree with inline add/remove.
+  /* ---- curriculum ordering (mirror the learner app: order first, then numeric name) ---- */
+  const _num = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+  const _cmpOrderName = (oa, na, ob, nb) => {
+    const A = Number.isFinite(oa) ? oa : Infinity, B = Number.isFinite(ob) ? ob : Infinity;
+    return A !== B ? A - B : _num(na, nb);
+  };
+  const _minOrder = (rows) => rows.reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
+  // Rows of a lesson, in study order.
+  function lessonTopics(track, course, lesson) {
+    return state.catalog
+      .filter((r) => r.track === track && r.course === course && r.lesson === lesson)
+      .sort((a, b) => _cmpOrderName(a.order, a.topic, b.order, b.topic));
+  }
+  // Distinct child names of a parent, ordered by the group's MIN topic order then name.
+  function orderedGroups(rows, keyOf) {
+    const names = [...new Set(rows.map(keyOf))].filter(Boolean);
+    return names.sort((a, b) => {
+      const oa = _minOrder(rows.filter((r) => keyOf(r) === a));
+      const ob = _minOrder(rows.filter((r) => keyOf(r) === b));
+      return oa !== ob ? oa - ob : _num(a, b);
+    });
+  }
+
+  // Interactive Track > Course > Lesson > Sub-lesson tree with inline add/remove AND
+  // drag-and-drop: drag a lesson onto another course to re-file it, a sub-lesson onto
+  // another lesson, or reorder either within its parent. Moves keep the topic doc id
+  // (so learner stats/questions/graph edges survive — see /api/admin/topics/move).
   function renderCurriculumTree() {
     const el = $('curTree');
     if (!state.catalog.length) { el.innerHTML = '<div class="aa-note" style="padding:12px">No topics yet — add one above, or paste an outline.</div>'; return; }
-    const tree = {};
     const lessonRefs = [];
-    for (const r of state.catalog) {
-      ((tree[r.track] ||= {})[r.course] ||= {})[r.lesson] ||= [];
-      tree[r.track][r.course][r.lesson].push(r);
-    }
-    let html = '';
-    for (const [track, courses] of Object.entries(tree)) {
-      html += `<div style="padding:8px 10px 2px;font-weight:800;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#6B7280">${esc(track)}</div>`;
-      for (const [course, lessons] of Object.entries(courses)) {
-        html += `<div style="padding:4px 10px 2px;font-weight:700;font-size:14px">${esc(course)}</div>`;
-        for (const [lesson, topics] of Object.entries(lessons)) {
+    const tracks = [...new Set(state.catalog.map((r) => r.track))].filter(Boolean).sort(_num);
+    let html = '<div class="cur-hint">Drag the <b>⠿</b> handle to move a lesson to another course, a sub-lesson to another lesson, or reorder within a parent. Learner progress is kept.</div>';
+    for (const track of tracks) {
+      const trackRows = state.catalog.filter((r) => r.track === track);
+      html += `<div class="cur-track-h">${esc(track)}</div>`;
+      for (const course of orderedGroups(trackRows, (r) => r.course)) {
+        html += `<div class="cur-course" data-track="${esc(track)}" data-course="${esc(course)}">`;
+        html += `<div class="cur-course-h">${esc(course)}</div>`;
+        const courseRows = trackRows.filter((r) => r.course === course);
+        for (const lesson of orderedGroups(courseRows, (r) => r.lesson)) {
+          const topics = lessonTopics(track, course, lesson);
           const li = lessonRefs.push({ track, course, lesson, ids: topics.map((r) => r.id) }) - 1;
-          html += `<div style="padding:3px 10px 3px 22px;display:flex;justify-content:space-between;align-items:center;gap:8px"><span style="font-weight:600;color:#374151;font-size:13px">${esc(lesson)}</span><span style="display:flex;gap:6px"><button class="btn" data-li="${li}" style="padding:1px 8px;font-size:11px">+ sub-lesson</button><button class="btn" data-dellesson="${li}" title="Delete this whole lesson and its sub-lessons" style="padding:1px 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">&times;</button></span></div>`;
+          html += `<div class="cur-lesson-group" data-track="${esc(track)}" data-course="${esc(course)}" data-lesson="${esc(lesson)}">`;
+          html += `<div class="cur-lesson" draggable="true" data-track="${esc(track)}" data-course="${esc(course)}" data-lesson="${esc(lesson)}">`
+            + `<span class="cur-handle" title="Drag to move or reorder this lesson">⠿</span>`
+            + `<span class="cur-lesson-name">${esc(lesson)}</span>`
+            + `<span class="cur-row-actions"><button class="btn" data-li="${li}" style="padding:1px 8px;font-size:11px">+ sub-lesson</button>`
+            + `<button class="btn" data-dellesson="${li}" title="Delete this whole lesson and its sub-lessons" style="padding:1px 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">&times;</button></span>`
+            + `</div>`;
           for (const r of topics) {
-            html += `<div style="padding:1px 10px 1px 38px;display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:13px"><span>&middot; ${esc(r.topic)}</span><button class="btn" data-del="${esc(r.id)}" title="Remove this sub-lesson" style="padding:0 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">&times;</button></div>`;
+            html += `<div class="cur-topic" draggable="true" data-id="${esc(r.id)}" data-track="${esc(track)}" data-course="${esc(course)}" data-lesson="${esc(lesson)}" data-topic="${esc(r.topic)}">`
+              + `<span class="cur-handle" title="Drag to move or reorder this sub-lesson">⠿</span>`
+              + `<span class="cur-topic-name">${esc(r.topic)}</span>`
+              + `<button class="btn" data-del="${esc(r.id)}" title="Remove this sub-lesson" style="padding:0 7px;font-size:12px;color:#B3261E;border-color:#f0d0cd">&times;</button>`
+              + `</div>`;
           }
+          html += `</div>`; // .cur-lesson-group
         }
+        html += `</div>`; // .cur-course
       }
     }
     el.innerHTML = html;
@@ -233,6 +271,149 @@
       const ref = lessonRefs[Number(b.dataset.dellesson)];
       if (window.confirm(`Delete the whole lesson "${ref.lesson}" and all ${ref.ids.length} sub-lesson(s)? (Banked questions stay, keyed by name.)`)) delLessonRows(ref.ids);
     }; });
+  }
+
+  /* ------------------------- curriculum drag-and-drop ------------------------ */
+  let curDrag = null; // { kind:'lesson'|'topic', track, course, lesson, id?, topic? }
+  const curStatus = (html) => { const m = $('curDnDMsg'); if (m) m.innerHTML = html; };
+  function clearCurMarks() {
+    $('curTree').querySelectorAll('.cur-drop-ok,.cur-insert-top,.cur-insert-bot')
+      .forEach((n) => n.classList.remove('cur-drop-ok', 'cur-insert-top', 'cur-insert-bot'));
+  }
+  // Where would this drop land? Returns null when the target is invalid for the drag.
+  function computeCurDrop(e) {
+    if (!curDrag) return null;
+    const nearest = (nodes) => {
+      let index = nodes.length, markEl = null, after = false;
+      for (let i = 0; i < nodes.length; i++) {
+        const rect = nodes[i].getBoundingClientRect();
+        if (e.clientY < rect.top + rect.height / 2) { index = i; markEl = nodes[i]; break; }
+      }
+      if (index === nodes.length && nodes.length) { markEl = nodes[nodes.length - 1]; after = true; }
+      return { index, markEl, after };
+    };
+    if (curDrag.kind === 'lesson') {
+      const courseEl = e.target.closest('.cur-course');
+      if (!courseEl) return null;
+      const groups = [...courseEl.querySelectorAll(':scope > .cur-lesson-group')];
+      return { kind: 'lesson', courseEl, groups, ...nearest(groups) };
+    }
+    const groupEl = e.target.closest('.cur-lesson-group');
+    if (!groupEl) return null;
+    const topics = [...groupEl.querySelectorAll(':scope > .cur-topic')];
+    return { kind: 'topic', groupEl, topics, ...nearest(topics) };
+  }
+
+  function wireCurriculumDnD() {
+    const tree = $('curTree');
+    if (!tree || tree._dndWired) return;
+    tree._dndWired = true;
+    tree.addEventListener('dragstart', (e) => {
+      const topicEl = e.target.closest('.cur-topic');
+      const lessonEl = e.target.closest('.cur-lesson');
+      if (topicEl) {
+        curDrag = { kind: 'topic', id: topicEl.dataset.id, track: topicEl.dataset.track, course: topicEl.dataset.course, lesson: topicEl.dataset.lesson, topic: topicEl.dataset.topic };
+        topicEl.classList.add('cur-dragging');
+      } else if (lessonEl) {
+        curDrag = { kind: 'lesson', track: lessonEl.dataset.track, course: lessonEl.dataset.course, lesson: lessonEl.dataset.lesson };
+        (lessonEl.closest('.cur-lesson-group') || lessonEl).classList.add('cur-dragging');
+      } else { return; }
+      try { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', curDrag.kind); } catch { /* older browsers */ }
+    });
+    tree.addEventListener('dragover', (e) => {
+      const t = computeCurDrop(e);
+      clearCurMarks();
+      if (!t) return;
+      e.preventDefault();
+      try { e.dataTransfer.dropEffect = 'move'; } catch { /* noop */ }
+      (t.kind === 'lesson' ? t.courseEl : t.groupEl).classList.add('cur-drop-ok');
+      if (t.markEl) t.markEl.classList.add(t.after ? 'cur-insert-bot' : 'cur-insert-top');
+    });
+    tree.addEventListener('drop', async (e) => {
+      const t = computeCurDrop(e);
+      const drag = curDrag; curDrag = null;
+      clearCurMarks();
+      tree.querySelectorAll('.cur-dragging').forEach((n) => n.classList.remove('cur-dragging'));
+      if (!drag || !t) return;
+      e.preventDefault();
+      try { await (drag.kind === 'lesson' ? dropLesson(drag, t) : dropTopic(drag, t)); }
+      catch (err) { curStatus(`<span class="aa-err">${esc(err.message)}</span>`); }
+    });
+    tree.addEventListener('dragend', () => {
+      curDrag = null; clearCurMarks();
+      tree.querySelectorAll('.cur-dragging').forEach((n) => n.classList.remove('cur-dragging'));
+    });
+  }
+
+  // De-dup an array, preserving first occurrence.
+  const _uniq = (a) => a.filter((v, i) => a.indexOf(v) === i);
+
+  // Drop a whole lesson: optionally re-file into a new course, then renumber the target
+  // course into contiguous per-lesson blocks so the lesson lands exactly where dropped.
+  async function dropLesson(drag, t) {
+    const toTrack = t.courseEl.dataset.track, toCourse = t.courseEl.dataset.course;
+    const sameCourse = drag.track === toTrack && drag.course === toCourse;
+    let lessons = t.groups.map((g) => g.dataset.lesson);
+    const from = sameCourse ? lessons.indexOf(drag.lesson) : -1;
+    let index = t.index;
+    if (from !== -1) { lessons.splice(from, 1); if (from < index) index -= 1; }
+    if (sameCourse && from !== -1 && index === from) return; // dropped back in place
+    lessons.splice(Math.min(index, lessons.length), 0, drag.lesson);
+    lessons = _uniq(lessons);
+
+    if (!sameCourse) {
+      const ids = state.catalog
+        .filter((r) => r.track === drag.track && r.course === drag.course && r.lesson === drag.lesson)
+        .map((r) => r.id);
+      const trackNote = toTrack !== drag.track ? ` and track “${toTrack}”` : '';
+      if (!window.confirm(`Move lesson “${drag.lesson}” (${ids.length} sub-lesson${ids.length === 1 ? '' : 's'}) into course “${toCourse}”${trackNote}? Learner progress is kept.`)) return;
+      curStatus('Moving…');
+      await api('/api/admin/topics/move', { method: 'POST', body: { ids, to: { track: toTrack, course: toCourse } } });
+    } else {
+      curStatus('Reordering…');
+    }
+    // Renumber every topic in the target course, block by block, in the new lesson order.
+    const items = []; const seen = new Set(); let ord = 0;
+    for (const le of lessons) {
+      const rows = state.catalog
+        .filter((r) => r.lesson === le
+          && ((r.track === toTrack && r.course === toCourse)
+            || (le === drag.lesson && r.track === drag.track && r.course === drag.course)))
+        .sort((a, b) => _cmpOrderName(a.order, a.topic, b.order, b.topic));
+      for (const r of rows) { if (seen.has(r.id)) continue; seen.add(r.id); items.push({ id: r.id, order: ord++ }); }
+    }
+    if (items.length) await api('/api/admin/topics/reorder', { method: 'POST', body: { items } });
+    curStatus('<span class="aa-ok">Done.</span>');
+    await loadCatalog();
+  }
+
+  // Drop a sub-lesson: optionally re-file into a new lesson, then renumber the target
+  // lesson's topics from its current base order (so its position in the course is kept).
+  async function dropTopic(drag, t) {
+    const toTrack = t.groupEl.dataset.track, toCourse = t.groupEl.dataset.course, toLesson = t.groupEl.dataset.lesson;
+    const sameLesson = drag.track === toTrack && drag.course === toCourse && drag.lesson === toLesson;
+    let ids = t.topics.map((el) => el.dataset.id);
+    const from = sameLesson ? ids.indexOf(drag.id) : -1;
+    let index = t.index;
+    if (from !== -1) { ids.splice(from, 1); if (from < index) index -= 1; }
+    if (sameLesson && from !== -1 && index === from) return; // dropped back in place
+    ids.splice(Math.min(index, ids.length), 0, drag.id);
+    ids = _uniq(ids);
+
+    if (!sameLesson) {
+      if (!window.confirm(`Move sub-lesson “${drag.topic}” into lesson “${toLesson}” (course “${toCourse}”)? Learner progress is kept.`)) return;
+      curStatus('Moving…');
+      await api('/api/admin/topics/move', { method: 'POST', body: { ids: [drag.id], to: { track: toTrack, course: toCourse, lesson: toLesson } } });
+    } else {
+      curStatus('Reordering…');
+    }
+    // Keep the lesson's slot in its course: number from its current min order (else 0).
+    const base = _minOrder(lessonTopics(toTrack, toCourse, toLesson));
+    const start = Number.isFinite(base) ? base : 0;
+    const items = ids.map((id, i) => ({ id, order: start + i }));
+    await api('/api/admin/topics/reorder', { method: 'POST', body: { items } });
+    curStatus('<span class="aa-ok">Done.</span>');
+    await loadCatalog();
   }
   async function delLessonRows(ids) {
     try {
@@ -250,6 +431,7 @@
   }
 
   function wireCurriculum() {
+    wireCurriculumDnD();
     $('nAdd').onclick = async () => {
       const track = $('nTrack').value.trim(), course = $('nCourse').value.trim(), lesson = $('nLesson').value.trim(), topic = $('nTopic').value.trim();
       if (!track || !course || !lesson || !topic) { $('nMsg').innerHTML = '<span class="aa-err">Fill Track, Course, Lesson and Sub-lesson.</span>'; return; }
@@ -473,6 +655,13 @@
     $(id).innerHTML = [...new Set(values)].filter(Boolean).sort()
       .map((v) => `<option value="${esc(v)}"></option>`).join('');
   };
+
+  // Is this course / lesson / sub-lesson already in the live catalog? (Drives the
+  // new/existing badges on the goal plan's per-lesson targeting fields.)
+  const _goalHas = (pred) => (state.catalog || []).some(pred);
+  const _courseIsNew = (c) => !c || !_goalHas((r) => (r.course || '') === c);
+  const _lessonIsNew = (c, le) => !(c && le) || !_goalHas((r) => r.course === c && r.lesson === le);
+  const _topicIsNew = (c, le, to) => !(c && le && to) || !_goalHas((r) => r.course === c && r.lesson === le && r.topic === to);
   function populateIngestLists() {
     const cat = state.catalog || [];
     const track = $('iTrack').value.trim().toLowerCase();
@@ -746,30 +935,79 @@
     fillList('gpCourseList', cat.filter((r) => !track || (r.track || '').toLowerCase() === track).map((r) => r.course));
   }
 
+  // Each lesson card can be re-targeted: pick an existing Course (unit) and Lesson
+  // (autocompleted from the catalog — typing a new name creates it), and edit each
+  // sub-lesson name. Defaults to the AI's new module; badges show new-vs-existing live.
   function renderGoalLessons() {
     const lessons = (state.goal && state.goal.lessons) || [];
-    $('gpLessons').innerHTML = lessons.length
-      ? lessons.map((l, li) => `
+    const cat = state.catalog || [];
+    const track = ($('gpTrack').value || '').trim().toLowerCase();
+    const courseOpts = [...new Set(cat.filter((r) => !track || (r.track || '').toLowerCase() === track).map((r) => r.course))].filter(Boolean).sort(_num);
+    const lessonsIn = (course) => [...new Set(cat.filter((r) => r.course === course).map((r) => r.lesson))].filter(Boolean).sort(_num);
+    const opts = (vals) => vals.map((v) => `<option value="${esc(v)}"></option>`).join('');
+    const courseDL = `<datalist id="gpCardCourseList">${opts(courseOpts)}</datalist>`;
+
+    $('gpLessons').innerHTML = courseDL + (lessons.length
+      ? lessons.map((l, li) => {
+        const c = l.course || '';
+        return `
         <div style="margin:0 0 10px;padding:8px 10px;border:1px solid #E7E8EE;border-radius:8px">
-          <div style="font-weight:700;margin-bottom:2px">${esc(l.lesson)} ${badge(l.isNew)}</div>
+          <div class="aa-cols" style="margin-bottom:6px">
+            <div><div class="aa-field-label" style="font-size:11px">Course (unit) <span data-cnew="${li}">${badge(_courseIsNew(c))}</span></div>
+              <input type="text" data-gc="${li}" list="gpCardCourseList" autocomplete="off" value="${esc(c)}" style="width:100%" /></div>
+            <div><div class="aa-field-label" style="font-size:11px">Lesson <span data-lnew="${li}">${badge(_lessonIsNew(c, l.lesson))}</span></div>
+              <input type="text" data-gl="${li}" list="gpLeList${li}" autocomplete="off" value="${esc(l.lesson)}" style="width:100%" /><datalist id="gpLeList${li}">${opts(lessonsIn(c))}</datalist></div>
+          </div>
           ${l.rationale ? `<div class="aa-note" style="margin-bottom:6px">${esc(l.rationale)}</div>` : ''}
           ${l.topics.map((t, ti) => `<label style="display:flex;gap:8px;align-items:center;padding:3px 0">
-            <input type="checkbox" data-li="${li}" data-ti="${ti}" ${t.on ? 'checked' : ''} />
-            <span>${esc(t.topic)}</span> ${badge(t.isNew)}
+            <input type="checkbox" data-li="${li}" data-ti="${ti}" ${t.on ? 'checked' : ''} style="width:auto" title="Uncheck to skip this sub-lesson" />
+            <input type="text" data-gt="${li}" data-tti="${ti}" value="${esc(t.topic)}" style="flex:1 1 auto;min-width:0" />
+            <span data-tnew="${li}-${ti}" style="flex:0 0 auto">${badge(_topicIsNew(c, l.lesson, t.topic))}</span>
           </label>`).join('')}
-        </div>`).join('')
-      : '<span class="aa-note">No lessons — try drafting again.</span>';
-    $('gpLessons').querySelectorAll('input[data-li]').forEach((cb) => {
+        </div>`;
+      }).join('')
+      : '<span class="aa-note">No lessons — try drafting again.</span>');
+
+    const g = $('gpLessons');
+    g.querySelectorAll('input[data-gc]').forEach((inp) => { inp.oninput = () => {
+      const li = Number(inp.dataset.gc);
+      state.goal.lessons[li].course = inp.value.trim();
+      const dl = $('gpLeList' + li); if (dl) dl.innerHTML = opts(lessonsIn(inp.value.trim()));
+      refreshCardBadges(li);
+    }; });
+    g.querySelectorAll('input[data-gl]').forEach((inp) => { inp.oninput = () => {
+      const li = Number(inp.dataset.gl);
+      state.goal.lessons[li].lesson = inp.value.trim();
+      refreshCardBadges(li);
+    }; });
+    g.querySelectorAll('input[data-gt]').forEach((inp) => { inp.oninput = () => {
+      state.goal.lessons[Number(inp.dataset.gt)].topics[Number(inp.dataset.tti)].topic = inp.value.trim();
+      refreshCardBadges(Number(inp.dataset.gt));
+    }; });
+    g.querySelectorAll('input[type=checkbox][data-li]').forEach((cb) => {
       cb.onchange = () => { state.goal.lessons[Number(cb.dataset.li)].topics[Number(cb.dataset.ti)].on = cb.checked; };
     });
+  }
+
+  // Update just one card's new/existing badges in place (no re-render — keeps focus
+  // while typing). Reads the card's current course/lesson/topic values from state.
+  function refreshCardBadges(li) {
+    const l = state.goal && state.goal.lessons[li]; if (!l) return;
+    const g = $('gpLessons'); const c = l.course || '';
+    const set = (sel, isNew) => { const el = g.querySelector(sel); if (el) el.innerHTML = badge(isNew); };
+    set(`[data-cnew="${li}"]`, _courseIsNew(c));
+    set(`[data-lnew="${li}"]`, _lessonIsNew(c, l.lesson));
+    l.topics.forEach((t, ti) => set(`[data-tnew="${li}-${ti}"]`, _topicIsNew(c, l.lesson, t.topic)));
   }
 
   function renderGoalPlan(data) {
     state.goal = {
       program: data.program, goal: $('gpGoal').value.trim(), reference: data.reference || '',
       assumedKnowledge: data.assumedKnowledge || [],
+      // The module's default course — each lesson can be re-targeted to a different one.
+      course: data.course || '',
       lessons: (data.lessons || []).map((l) => ({
-        lesson: l.lesson, rationale: l.rationale, isNew: l.lessonIsNew,
+        lesson: l.lesson, course: data.course || '', rationale: l.rationale, isNew: l.lessonIsNew,
         topics: (l.topics || []).map((t) => ({ topic: t.topic, isNew: t.isNew, on: true })),
       })),
     };
@@ -792,8 +1030,20 @@
   }
 
   function wireGoalPlan() {
-    $('gpTrack').oninput = () => { populateGoalLists(); refreshGoalBadges(); };
-    $('gpCourse').oninput = refreshGoalBadges;
+    $('gpTrack').oninput = () => { populateGoalLists(); refreshGoalBadges(); if (state.goal) renderGoalLessons(); };
+    // Changing the module's course cascades to every lesson still on the old default,
+    // so "file the whole module into an existing unit" is one edit — then per-lesson
+    // overrides still win. Lessons already retargeted elsewhere are left alone.
+    $('gpCourse').oninput = () => {
+      if (state.goal) {
+        const prev = state.goal.course || '';
+        const val = $('gpCourse').value.trim();
+        state.goal.lessons.forEach((l) => { if ((l.course || '') === prev) l.course = val; });
+        state.goal.course = val;
+        renderGoalLessons();
+      }
+      refreshGoalBadges();
+    };
     $('gpStop').onclick = () => { state.stopGoal = true; $('gpStatus').textContent = 'Stopping after this topic…'; };
 
     $('gpDraft').onclick = async () => {
@@ -818,10 +1068,18 @@
 
     $('gpCommit').onclick = async () => {
       if (!state.goal) return;
+      const defTrack = $('gpTrack').value.trim(), defCourse = $('gpCourse').value.trim();
+      // Each lesson carries its own course/lesson (defaulting to the module's); topics
+      // may have been renamed. Server slots them under those exact nodes.
       const lessons = state.goal.lessons
-        .map((l) => ({ lesson: l.lesson, topics: l.topics.filter((t) => t.on).map((t) => t.topic) }))
-        .filter((l) => l.topics.length);
-      if (!lessons.length) { $('gpCommitMsg').innerHTML = '<span class="aa-err">Pick at least one topic.</span>'; return; }
+        .map((l) => ({
+          track: defTrack,
+          course: (l.course || '').trim() || defCourse,
+          lesson: (l.lesson || '').trim(),
+          topics: l.topics.filter((t) => t.on).map((t) => (t.topic || '').trim()).filter(Boolean),
+        }))
+        .filter((l) => l.track && l.course && l.lesson && l.topics.length);
+      if (!lessons.length) { $('gpCommitMsg').innerHTML = '<span class="aa-err">Pick at least one topic (each lesson needs a course and lesson name).</span>'; return; }
       const buildCards = $('gpCards').checked;
       $('gpCommit').disabled = true; state.stopGoal = false; show($('gpStop'), true);
       $('gpCommitMsg').textContent = 'Writing lessons and generating…';
