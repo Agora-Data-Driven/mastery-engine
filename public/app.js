@@ -5723,6 +5723,7 @@ const App = (() => {
     restartSpeaking, speakerNextCard, readAssessment,
     toggleAssistant, sendAssistant, newAssistantChat, deleteAssistantChat,
     toggleAssistantHistory, openAssistantChatById, toggleAssistantSettings,
+    onAssistantFiles, removeAssistantFile,
     toggleCostDetail, msClear,
   };
 })();
