@@ -131,6 +131,7 @@ import {
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
+import { holisticProfile } from './lib/sentinel.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
@@ -1932,7 +1933,10 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
       ? await Promise.all([learnerCatalog(req.userEmail), learnerTranscripts(req.userEmail)])
       : [[], []];
     const progress = coach ? coachDigest(catalog) : '';
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, admin: isAdmin(req) }, aiChoice(req));
+    // Whole-person context from Sentinel (body-fat/PRs, career goals, reading, obstacles). Null-safe:
+    // an unreachable/unconfigured Sentinel just means no holistic block.
+    const holistic = await holisticProfile(req.userEmail);
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, admin: isAdmin(req) }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -1983,8 +1987,11 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
       ? await Promise.all([learnerCatalog(req.userEmail), learnerTranscripts(req.userEmail)])
       : [[], []];
     const progress = coach ? coachDigest(catalog) : '';
+    // Whole-person context from Sentinel; fetched before streaming starts (null-safe) so a Sentinel
+    // outage can never break the SSE stream — it just yields no holistic block.
+    const holistic = await holisticProfile(req.userEmail);
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, admin: isAdmin(req) }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, admin: isAdmin(req) }, aiChoice(req),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 

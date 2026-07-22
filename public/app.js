@@ -12,11 +12,16 @@ const App = (() => {
   (() => {
     try {
       const q = new URLSearchParams(location.search).get('embed');
-      if (q === '1') sessionStorage.setItem('embed', '1');
-      else if (q === '0') sessionStorage.removeItem('embed');
+      // ?embed=assistant: render ONLY the Study Assistant, full-frame — this is how Sentinel mounts
+      // the one shared assistant as its global floating "Coach" on every page.
+      if (q === '1' || q === 'assistant') sessionStorage.setItem('embed', '1');
+      else if (q === '0') { sessionStorage.removeItem('embed'); sessionStorage.removeItem('embedAssistant'); }
+      if (q === 'assistant') sessionStorage.setItem('embedAssistant', '1');
       if (sessionStorage.getItem('embed') === '1') document.documentElement.classList.add('embed');
+      if (sessionStorage.getItem('embedAssistant') === '1') document.documentElement.classList.add('assistant-only');
     } catch { /* private mode / no storage — embed styling is cosmetic, never block boot */ }
   })();
+  const assistantOnly = () => document.documentElement.classList.contains('assistant-only');
 
   const state = {
     catalog: [],
@@ -228,6 +233,23 @@ const App = (() => {
     // builder; everyone else sees the sign-in screen.
     if (state.authed) enterMastery();
     else showLogin();
+    // Assistant-only embed (Sentinel's global Coach): drop the app chrome and open the panel
+    // full-frame. If the viewer isn't signed in, fall back to the normal login screen.
+    if (assistantOnly()) {
+      if (state.authed) openAssistantFull();
+      else document.documentElement.classList.remove('assistant-only');
+    }
+  }
+
+  // Open the assistant panel and keep it filling the frame (used by ?embed=assistant). The panel is
+  // the same widget used everywhere — streaming, voice, pause-&-steer, history all come for free.
+  function openAssistantFull() {
+    const panel = $('assistantPanel');
+    if (panel) panel.classList.remove('hidden');
+    $('assistantFab')?.classList.add('active');
+    updateAssistantHint();
+    if (!assistant.loaded) loadAssistant();
+    setTimeout(() => $('assistantInput')?.focus(), 40);
   }
 
   /* ----------------------------- AI engine ------------------------------- */
