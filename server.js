@@ -1949,11 +1949,16 @@ function looksLikeCatalogLookup(msg) {
 async function learnerCatalog(email) {
   if (!email) return [];
   const tracks = (await effectiveShelf(email)) || [];
-  if (!tracks.length) return [];
-  const set = new Set(tracks.map((t) => JSON.stringify([t.program, t.track])));
+  const shelf = (await getShelf(email)) || {};
+  const included = shelf.included || [], hidden = shelf.hidden || [];
+  if (!tracks.length && !included.length) return [];
   const full = await getCatalog(email, null);
   return full
-    .filter((t) => set.has(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track])))
+    // The learner's ACTUAL Mastery Engine — shelf tracks + individually-added sections,
+    // minus removed ones (the same specificity rule as /api/catalog). So the assistant grounds
+    // in what's really IN their engine, not every row under their tracks (that's the roadmap /
+    // full-bank view). Answers "what's in my Mastery Engine" from the real curated set.
+    .filter((t) => inEngine(t, tracks, included, hidden))
     // carry mastery stats too, for Coach mode's progress digest (outline ignores them)
     .map((t) => ({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic, totalAttempts: t.totalAttempts || 0, correctCount: t.correctCount || 0 }));
 }
