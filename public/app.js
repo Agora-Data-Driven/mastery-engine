@@ -12,24 +12,25 @@ const App = (() => {
   (() => {
     try {
       const q = new URLSearchParams(location.search).get('embed');
-      // ?embed=assistant: render ONLY the Study Assistant, full-frame — this is how Sentinel mounts
-      // the one shared assistant as its global floating "Coach" on every page.
+      // Academy embed (?embed=1) just trims our page chrome and IS remembered for the session, since
+      // the Academy navigates internally and drops the query. That's safe to persist.
       if (q === '1' || q === 'assistant') sessionStorage.setItem('embed', '1');
-      else if (q === '0') { sessionStorage.removeItem('embed'); sessionStorage.removeItem('embedAssistant'); }
-      if (q === 'assistant') sessionStorage.setItem('embedAssistant', '1');
-      // ?actions=1 (Sentinel's Coach): let the assistant propose profile edits the host will execute.
-      const act = new URLSearchParams(location.search).get('actions');
-      if (act === '1') sessionStorage.setItem('coachActions', '1');
-      else if (act === '0') sessionStorage.removeItem('coachActions');
+      else if (q === '0') sessionStorage.removeItem('embed');
       if (sessionStorage.getItem('embed') === '1') document.documentElement.classList.add('embed');
-      if (sessionStorage.getItem('embedAssistant') === '1') document.documentElement.classList.add('assistant-only');
+      // Assistant-only (?embed=assistant) and edit-actions (?actions=1) are the Coach iframe's mode.
+      // Derive them from THIS document's URL ONLY — NEVER sessionStorage. Same-origin iframes (the
+      // Coach AND the Academy) share one sessionStorage under a single top-level page, so persisting
+      // these would flip the Academy tab into the assistant too (the "stuck in the chat" bug).
+      sessionStorage.removeItem('embedAssistant'); sessionStorage.removeItem('coachActions'); // clear leaked keys
+      if (q === 'assistant') document.documentElement.classList.add('assistant-only');
+      if (new URLSearchParams(location.search).get('actions') === '1') document.documentElement.classList.add('coach-actions');
     } catch { /* private mode / no storage — embed styling is cosmetic, never block boot */ }
   })();
   const assistantOnly = () => document.documentElement.classList.contains('assistant-only');
-  // Coach edit-actions are on only when the host enabled them AND we're inside a host frame that can
-  // execute them (postMessage to the parent). Never active when the engine runs top-level.
+  // Coach edit-actions are on only when the host enabled them (this iframe's ?actions=1) AND we're
+  // inside a host frame that can execute them. URL/class-derived, never shared storage.
   const coachActionsEnabled = () => {
-    try { return sessionStorage.getItem('coachActions') === '1' && window.parent && window.parent !== window; }
+    try { return document.documentElement.classList.contains('coach-actions') && window.parent && window.parent !== window; }
     catch { return false; }
   };
 
