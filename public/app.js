@@ -1209,24 +1209,36 @@ const App = (() => {
 
   // Progress metric: a topic's progress = its accuracy, or 0 if never attempted.
   // A parent's progress = the unweighted average across ALL its topics. We carry
-  // a running progressSum + topicCount so any level is sum/count.
-  function rollupNode(node) {
+  // a running progressSum + topicCount so any level is sum/count. In parallel we
+  // roll up an IN-ENGINE view (inCount/inProgressSum/inAttempted) counting only
+  // leaves whose id is in `personalIds` — so a tree built from the whole bank can
+  // still report engine-only mastery and flag which subtrees are added (see
+  // nodeMembership). `personalIds` null ⇒ every leaf counts as in-engine.
+  function rollupNode(node, personalIds) {
     if (node.leaf) {
       node.topicCount = 1;
       node.attemptedCount = node.attempts > 0 ? 1 : 0;
       node.progressSum = node.attempts > 0 ? (node.correct / node.attempts) * 100 : 0;
+      node.inEngine = !personalIds || (node.id != null && personalIds.has(node.id));
+      node.inCount = node.inEngine ? 1 : 0;
+      node.inAttempted = node.inEngine ? node.attemptedCount : 0;
+      node.inProgressSum = node.inEngine ? node.progressSum : 0;
       return;
     }
     node.topicCount = 0; node.attemptedCount = 0; node.progressSum = 0;
+    node.inCount = 0; node.inAttempted = 0; node.inProgressSum = 0;
     for (const child of node.children.values()) {
-      rollupNode(child);
+      rollupNode(child, personalIds);
       node.topicCount += child.topicCount;
       node.attemptedCount += child.attemptedCount;
       node.progressSum += child.progressSum;
+      node.inCount += child.inCount;
+      node.inAttempted += child.inAttempted;
+      node.inProgressSum += child.inProgressSum;
     }
   }
 
-  function buildProgressTree(catalog) {
+  function buildProgressTree(catalog, personalIds = null) {
     const root = { children: new Map() };
     for (const r of catalog) {
       const track = upsertChild(root, r.track || 'Unknown Track');
@@ -1237,12 +1249,46 @@ const App = (() => {
       const lesson = upsertChild(course, r.lesson || 'Unknown Unit');
       const topic = upsertChild(lesson, r.topic || 'Unknown Topic');
       topic.leaf = true;
+      topic.id = r.id;
       topic.attempts = r.totalAttempts || 0;
       topic.correct = r.correctCount || 0;
       topic.order = Number.isFinite(r.order) ? r.order : undefined;
     }
-    for (const node of root.children.values()) rollupNode(node);
+    for (const node of root.children.values()) rollupNode(node, personalIds);
     return root;
+  }
+
+  // Where a subtree sits relative to the personal Mastery Engine: 'in' (every
+  // topic added), 'out' (none), or 'partial' (some). Drives the ＋/✓ corner toggle.
+  function nodeMembership(node) {
+    if (!node.topicCount) return 'out';
+    if (node.inCount >= node.topicCount) return 'in';
+    if (node.inCount <= 0) return 'out';
+    return 'partial';
+  }
+
+  // The numbers a node shows. metric 'in' = engine-only rollup (the Mastery Engine
+  // view, so a track reads e.g. "81/124 practised"); metric 'all' = every covered
+  // topic (the Roadmap view rolls up the whole path regardless of what's added).
+  function nodeStats(node, metric) {
+    if (metric === 'in') {
+      return { pct: node.inCount ? Math.round(node.inProgressSum / node.inCount) : 0, done: node.inAttempted, total: node.inCount };
+    }
+    return { pct: nodeProgress(node), done: node.attemptedCount, total: node.topicCount };
+  }
+
+  // The ＋/✓ corner control for a node in either tree. 'in' → a ✓ that removes on
+  // click (✕ on hover); 'out'/'partial' → a ＋ that adds the subtree to the engine.
+  function cornerToggleHtml(node, level) {
+    const m = nodeMembership(node);
+    const word = LEVEL_LABELS[level] || 'section';
+    if (m === 'in') {
+      return `<button class="prog-node-toggle in" data-action="engremove" title="In your Mastery Engine — click to remove this ${esc(word)}" aria-label="Remove from Mastery Engine"><span class="ptog-check">✓</span><span class="ptog-x">✕</span></button>`;
+    }
+    const t = m === 'partial'
+      ? `Add the rest of this ${esc(word)} to your Mastery Engine`
+      : `Add this ${esc(word)} to your Mastery Engine`;
+    return `<button class="prog-node-toggle ${m}" data-action="engadd" title="${t}" aria-label="Add to Mastery Engine">＋</button>`;
   }
 
   function nodeProgress(node) {
@@ -1314,8 +1360,10 @@ const App = (() => {
         </div>`;
   }
 
-  function renderProgressNode(node, level, scope) {
-    const pct = nodeProgress(node);
+  function renderProgressNode(node, level, scope, opts = {}) {
+    const metric = opts.metric || 'all';
+    const stats = node.leaf ? { pct: nodeProgress(node) } : nodeStats(node, metric);
+    const pct = stats.pct;
     const color = accColor(pct);
     // Courses (children of a track, level 0) follow the curriculum order; a
     // course's lessons (level 1) follow their recommended sequence; everything
@@ -1333,7 +1381,8 @@ const App = (() => {
     const displayName = level === 2 ? lessonLabel(scope.course, node.name) : node.name;
     const sub = node.leaf
       ? (node.attempts ? `${node.attempts} attempt${node.attempts === 1 ? '' : 's'}` : 'Not started')
-      : `${node.attemptedCount}/${node.topicCount} topics practised`;
+      : `${stats.done}/${stats.total} topics practised`;
+    const membership = nodeMembership(node);
 
     // data-* carry this node's full scope so the action buttons know what to launch.
     // `program` rides along (from the track node) so quizzes resolve to the right
@@ -1346,11 +1395,14 @@ const App = (() => {
     const childKey = LEVEL_KEYS[level + 1];
     const childHtml = hasKids
       ? `<div class="prog-children">${kids
-          .map((k) => renderProgressNode(k, level + 1, { ...scope, [childKey]: k.name }))
+          .map((k) => renderProgressNode(k, level + 1, { ...scope, [childKey]: k.name }, opts))
           .join('')}</div>`
       : '';
 
     const actions = progActionsHtml(level, scope);
+    // ＋/✓ toggle: add this section to (or remove it from) the Mastery Engine, at
+    // whatever grain this node is. Same control in the Roadmap and ME trees.
+    const corner = cornerToggleHtml(node, level);
 
     // Tracks (level 0) read as cards anchored by a donut ring; deeper levels are
     // slim rows with a status dot + linear bar.
@@ -1362,7 +1414,7 @@ const App = (() => {
           <span class="prog-sub">${esc(sub)}</span>
         </div>
         ${actions}
-        <button class="me-track-remove" data-action="removetrack" title="Remove this track from your Mastery Engine" aria-label="Remove track">✕</button>`
+        ${corner}`
       : `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
         <span class="prog-dot" style="color:${color};background:${color}"></span>
         <div class="prog-info">
@@ -1374,9 +1426,9 @@ const App = (() => {
           <span class="prog-pct" style="color:${color}">${pct}%</span>
         </div>
         ${actions}
-        <button class="prog-node-remove" data-action="hidenode" title="Remove this ${esc(LEVEL_LABELS[level] || 'section')} from your Mastery Engine" aria-label="Remove">✕</button>`;
+        ${corner}`;
 
-    return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}" data-label="${esc(node.name)}" ${dataAttrs}>
+    return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}" data-eng="${membership}" data-label="${esc(node.name)}" ${dataAttrs}>
       <div class="prog-row ${isTrack ? 'track-row' : ''}"${isTrack ? '' : ` style="padding-left:${level * 16}px"`}>
         ${rowInner}
       </div>
@@ -1385,16 +1437,21 @@ const App = (() => {
   }
 
   // Overall-mastery hero: a big ring + a linear bar, rolled up across all tracks.
+  // Counts only what's IN the engine (the tree may also list removed sections as
+  // addable ＋ rows) so the numbers match "the content you've chosen to master".
   function overviewHtml(tracks) {
-    let sum = 0, count = 0, attempted = 0;
-    for (const t of tracks) { sum += t.progressSum; count += t.topicCount; attempted += t.attemptedCount; }
+    let sum = 0, count = 0, attempted = 0, nTracks = 0;
+    for (const t of tracks) {
+      if (!t.inCount) continue; // a track with nothing added doesn't count here
+      sum += t.inProgressSum; count += t.inCount; attempted += t.inAttempted; nTracks++;
+    }
     const overall = count ? Math.round(sum / count) : 0;
     const color = accColor(overall);
     return `${ringHtml(overall, color, 76)}
       <div class="po-body">
         <div class="po-label">Overall mastery</div>
         <div class="po-bar"><span style="width:${overall}%;background:${color}"></span></div>
-        <div class="po-sub">${attempted} of ${count} topics practised · ${tracks.length} track${tracks.length === 1 ? '' : 's'}</div>
+        <div class="po-sub">${attempted} of ${count} topics practised · ${nTracks} track${nTracks === 1 ? '' : 's'}</div>
       </div>`;
   }
 
@@ -1432,7 +1489,7 @@ const App = (() => {
     requestAnimationFrame(() => window.scrollTo(0, y));
   }
 
-  function renderProgressTree() {
+  async function renderProgressTree() {
     const tree = $('progressTree');
     const empty = $('progressEmpty');
     const overview = $('progressOverview');
@@ -1443,7 +1500,18 @@ const App = (() => {
       return;
     }
     empty.classList.add('hidden');
-    const root = buildProgressTree(state.catalog);
+    // Render every bank row UNDER the tracks on your shelf, not just what's added —
+    // so removed courses/lessons/sub-lessons appear as greyed ＋ rows you can re-add,
+    // while your added topics carry the ✓ remove. Membership (personalIds) marks each
+    // node; metric 'in' keeps the rings/counts on your engine subset. Falls back to the
+    // in-engine-only catalog if the full bank can't be loaded.
+    await ensureFullCatalog();
+    const personalIds = new Set(state.catalog.map((r) => r.id));
+    const shelfKey = (r) => JSON.stringify([r.program || '', r.track]);
+    const trackKeys = new Set(state.catalog.map(shelfKey));
+    const source = (state.fullCatalog.length ? state.fullCatalog : state.catalog)
+      .filter((r) => trackKeys.has(shelfKey(r)));
+    const root = buildProgressTree(source, personalIds);
     // Tracks in curriculum order (min topic order), falling back to name.
     const tm = orderMaps().tr;
     const tracks = [...root.children.values()].sort((a, b) => {
@@ -1451,7 +1519,7 @@ const App = (() => {
       return oa !== ob ? oa - ob : byName(a, b);
     });
     if (overview) overview.innerHTML = overviewHtml(tracks);
-    tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name, program: t.program })).join('');
+    tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name, program: t.program }, { metric: 'in' })).join('');
     // Returning from a quiz/flashcard round? Re-expand + re-scroll to where they were.
     if (progressSnapshot) { applyProgressState(progressSnapshot); progressSnapshot = null; }
   }
@@ -1593,55 +1661,30 @@ const App = (() => {
           <div class="rm-head-meta">${p.done}/${p.total} topics mastered · ${rm.stages.length} stage${rm.stages.length === 1 ? '' : 's'}</div>
         </div>
       </div>`;
-    $('roadmapStages').innerHTML = rm.stages.map((s, i) => renderRoadmapStage(s, i)).join('');
+    // The set of topic ids currently in the learner's engine, so each roadmap node
+    // shows the right ＋ (add) / ✓ (remove) state.
+    const personalIds = new Set(state.catalog.map((r) => r.id));
+    $('roadmapStages').innerHTML = rm.stages.map((s, i) => renderRoadmapStage(s, i, personalIds)).join('');
     window.scrollTo(0, 0);
   }
 
-  function renderRoadmapStage(stage, i) {
-    const p = rollRows(itemsRows(stage.items));
+  // A stage renders as the SAME expandable Track › Course › Lesson › Sub-lesson tree
+  // the Mastery Engine uses — built over just the topics this stage covers — with the
+  // ＋/✓ engine toggle on every node. metric 'all' rolls the rings up over the whole
+  // path (a roadmap shows progress toward the goal regardless of what you've added).
+  function renderRoadmapStage(stage, i, personalIds) {
+    const rows = itemsRows(stage.items);
+    const p = rollRows(rows);
     const color = accColor(p.pct);
-    const itemsHtml = stage.items.map((it) => {
-      const lvl = it.level || 'topic';
-      const rws = itemRows(it);
-      const available = rws.length > 0;
-      const ip = rollRows(rws);
-      const attempted = rws.some((r) => r.totalAttempts);
-      const c = attempted ? accColor(ip.pct) : 'var(--border-strong, #cbd5e1)';
-      const scopeAttrs = available
-        ? ['program', 'track', 'course', 'lesson', 'topic'].filter((k) => it[k]).map((k) => `data-${k}="${esc(it[k])}"`).join(' ')
-        : '';
-      const name = lvl === 'topic' ? it.topic : (it.lesson || it.course || it.track);
-      const kind = lvl === 'topic' ? '' : `<span class="rm-item-kind">${esc(lvl)}</span>`;
-      const path = (lvl === 'topic' ? [it.course, it.lesson]
-        : lvl === 'lesson' ? [it.track, it.course]
-        : lvl === 'course' ? [it.track] : []).filter(Boolean).join(' › ');
-      const status = !available ? 'Not in your catalog'
-        : lvl === 'topic'
-          ? (attempted ? `${ip.pct}% · ${rws[0].totalAttempts} attempt${rws[0].totalAttempts === 1 ? '' : 's'}` : 'Not started')
-          : `${ip.total} topics · ${ip.done} mastered`;
-      const showPct = lvl !== 'topic' || attempted;
-      const bar = available
-        ? `<div class="prog-bar-wrap"><span class="mini-bar"><span class="mini-fill" style="width:${ip.pct}%;background:${c}"></span></span><span class="prog-pct" style="color:${c}">${showPct ? ip.pct + '%' : '–'}</span></div>`
-        : '';
-      const actions = available
-        ? `<div class="rm-item-actions">
-            <button class="prog-btn" data-rmaction="quiz" title="Quiz on this">Quiz</button>
-            ${(lvl !== 'track' && flashcardsEnabled(it.course)) ? `<button class="prog-btn cards" data-rmaction="cards" title="Study flashcards">Cards</button>` : ''}
-            <button class="prog-btn review" data-rmaction="review" title="AI teaches this">Review</button>
-          </div>`
-        : '';
-      return `<div class="rm-item ${available ? '' : 'locked'}" ${scopeAttrs} data-label="${esc(name || '')}">
-        <span class="prog-dot" style="color:${c};background:${c}"></span>
-        <div class="rm-item-info">
-          <span class="rm-item-name" title="${esc(name || '')}">${esc(name || '')} ${kind}</span>
-          ${path ? `<span class="rm-item-path">${esc(path)}</span>` : ''}
-          ${it.note ? `<span class="rm-item-note">${esc(it.note)}</span>` : ''}
-          <span class="rm-item-status">${esc(status)}</span>
-        </div>
-        ${bar}
-        ${actions}
-      </div>`;
-    }).join('');
+    const root = buildProgressTree(rows, personalIds);
+    const tm = orderMaps().tr;
+    const tracks = [...root.children.values()].sort((a, b) => {
+      const oa = _minOrder(tm, a.name), ob = _minOrder(tm, b.name);
+      return oa !== ob ? oa - ob : byName(a, b);
+    });
+    const body = tracks.length
+      ? tracks.map((t) => renderProgressNode(t, 0, { track: t.name, program: t.program }, { metric: 'all' })).join('')
+      : '<div class="rm-stage-empty section-sub">None of this stage’s content is in the catalog yet.</div>';
     return `<div class="rm-stage">
       <div class="rm-stage-head">
         <span class="rm-stage-num">${String(i + 1).padStart(2, '0')}</span>
@@ -1652,7 +1695,7 @@ const App = (() => {
           <div class="rm-stage-meta">${p.done}/${p.total} topics mastered</div>
         </div>
       </div>
-      <div class="rm-items">${itemsHtml}</div>
+      <div class="rm-stage-tree prog-tree">${body}</div>
     </div>`;
   }
 
@@ -1768,35 +1811,32 @@ const App = (() => {
     } catch (e) { alert('Error: ' + e.message); }
   }
 
-  // Remove one track straight from a track card in the Mastery Engine tree.
-  async function removeTrackScope(scope) {
-    if (!scope || !scope.track) return;
-    if (!confirm(`Remove "${scope.track}" from your Mastery Engine? (The content stays in the bank — re-add it anytime.)`)) return;
-    try {
-      await api('/api/me/tracks', { method: 'POST', body: JSON.stringify({ program: scope.program || '', track: scope.track, action: 'remove' }) });
-      await reloadCatalog();
-      renderProgressTree();
-    } catch (e) { alert('Error: ' + e.message); }
+  // Re-render whichever engine tree is on screen so a ＋/✓ toggle flips at once.
+  // Both the Roadmap detail (if open) and the Mastery Engine tree reflect the change.
+  function refreshEngineViews() {
+    if (_openRoadmapId) openRoadmap(_openRoadmapId);
+    renderProgressTree();
   }
 
-  // Remove one section (course / lesson / sub-lesson) from the Mastery Engine. It's
-  // hidden from every personal view but stays in the bank and in any roadmap that
-  // references it (e.g. StatQuest ML out of Progress, still in the Data Science
-  // roadmap). Restore it from ＋ Customize › Hidden sections.
-  async function hideNodeScope(scope, node) {
+  // Add a section to (or remove it from) the Mastery Engine at whatever grain the
+  // node is — path/course/lesson/sub-lesson. One endpoint (/api/me/section) handles
+  // every grain; the content always stays in the bank and in any roadmap. Removing a
+  // whole track (level 0) confirms first; adds and finer removes are cheap + reversible.
+  async function toggleSectionScope(scope, node, add) {
     if (!scope || !scope.track) return;
     const level = node ? Number(node.dataset.level) || 0 : 0;
     const word = LEVEL_LABELS[level] || 'section';
     const label = (node && node.dataset.label) || scope.topic || scope.lesson || scope.course || scope.track;
-    if (!confirm(`Remove the ${word} "${label}" from your Mastery Engine?\n\nIt stays in the bank and in any roadmap — restore it anytime from ＋ Customize.`)) return;
+    if (!add && level === 0
+      && !confirm(`Remove the ${word} “${label}” from your Mastery Engine?\n\nIt stays in the bank and in any roadmap — re-add it anytime.`)) return;
     try {
-      await api('/api/me/hide', { method: 'POST', body: JSON.stringify({
+      await api('/api/me/section', { method: 'POST', body: JSON.stringify({
         program: scope.program || '', track: scope.track,
         course: scope.course || '', lesson: scope.lesson || '', topic: scope.topic || '',
-        action: 'hide',
+        action: add ? 'add' : 'remove',
       }) });
       await reloadCatalog();
-      renderProgressTree();
+      refreshEngineViews();
     } catch (e) { alert('Error: ' + e.message); }
   }
 
@@ -5343,8 +5383,11 @@ const App = (() => {
     // Keep the cost pill fresh when returning to the tab.
     window.addEventListener('focus', refreshCost);
 
-    // Progress tree: action buttons + expand/collapse (event delegation).
-    $('progressTree').addEventListener('click', (e) => {
+    // Shared node-tree click handling (event delegation): AI Support menu, the
+    // per-section Quiz/Cards/Review/Lesson launchers, the ＋/✓ engine toggle, and
+    // row expand/collapse. Used by BOTH the Mastery Engine tree (#progressTree) and
+    // every Roadmap stage tree (#roadmapStages) — the two trees share the component.
+    function onTreeNodeClick(e) {
       const actionBtn = e.target.closest('[data-action]');
       if (actionBtn) {
         const node = actionBtn.closest('.prog-node');
@@ -5358,15 +5401,17 @@ const App = (() => {
         else if (act === 'review') reviewFromScope(scope, node.dataset.label);
         else if (act === 'lesson') lessonFromScope(scope, node.dataset.label);
         else if (act === 'cards') openFlashcards(scope, node.dataset.label);
-        else if (act === 'removetrack') removeTrackScope(scope);
-        else if (act === 'hidenode') hideNodeScope(scope, node);
+        else if (act === 'engadd') toggleSectionScope(scope, node, true);
+        else if (act === 'engremove') toggleSectionScope(scope, node, false);
         return; // don't also toggle the row
       }
       const row = e.target.closest('.prog-row');
       if (!row) return;
       const node = row.parentElement;
       if (node.classList.contains('has-children')) node.classList.toggle('open');
-    });
+    }
+    $('progressTree').addEventListener('click', onTreeNodeClick);
+    $('roadmapStages')?.addEventListener('click', onTreeNodeClick);
 
     // Grouped dropdown mode-nav (open/close menus).
     wireModeNav();
@@ -5388,20 +5433,12 @@ const App = (() => {
     const atModal = $('addTracksModal');
     if (atModal) atModal.addEventListener('click', (e) => { if (e.target === atModal) closeAddTracks(); });
 
-    // Roadmaps: open a roadmap card, or launch a topic's Quiz/Cards/Review.
-    const rmPanel = $('roadmapPanel');
-    if (rmPanel) rmPanel.addEventListener('click', (e) => {
+    // Roadmaps list: open a roadmap card. (Inside an open roadmap, each stage is a
+    // node tree wired by onTreeNodeClick on #roadmapStages.)
+    const rmList = $('roadmapList');
+    if (rmList) rmList.addEventListener('click', (e) => {
       const card = e.target.closest('.rm-card');
-      if (card) { openRoadmap(card.dataset.rm); return; }
-      const actBtn = e.target.closest('[data-rmaction]');
-      if (!actBtn) return;
-      const item = actBtn.closest('.rm-item');
-      if (!item) return;
-      const scope = nodeScope(item); // reads data-track/course/lesson/topic
-      const act = actBtn.dataset.rmaction;
-      if (act === 'quiz') quizFromScope(scope);
-      else if (act === 'review') reviewFromScope(scope, item.dataset.label);
-      else if (act === 'cards') openFlashcards(scope, item.dataset.label);
+      if (card) openRoadmap(card.dataset.rm);
     });
 
     // Clicking a "Builds on / Leads to" chip opens that referred lesson; clicking the

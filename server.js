@@ -524,6 +524,44 @@ function hiddenMatch(row, hidden) {
   return false;
 }
 
+/**
+ * Deepest prefix in `prefixes` that matches `row`, as a level count
+ * (0 = none, 1 = track, 2 = course, 3 = lesson, 4 = sub-lesson/topic). Prefixes
+ * name levels contiguously from the track down (a {track} is depth 1, a
+ * {track,course} depth 2, …). A whole shelf track is passed here as a bare
+ * {program,track} — i.e. a depth-1 inclusion.
+ */
+function matchDepth(row, prefixes) {
+  if (!prefixes || !prefixes.length) return 0;
+  const rp = row.program || DEFAULT_PROGRAM;
+  let best = 0;
+  for (const p of prefixes) {
+    if (!p || !p.track) continue;
+    if ((p.program || DEFAULT_PROGRAM) !== rp) continue;
+    if (row.track !== p.track) continue;
+    let d = 1;
+    if (p.course) { if (row.course !== p.course) continue; d = 2; }
+    if (p.lesson) { if (row.lesson !== p.lesson) continue; d = 3; }
+    if (p.topic)  { if (row.topic  !== p.topic)  continue; d = 4; }
+    if (d > best) best = d;
+  }
+  return best;
+}
+
+/**
+ * Is a catalog row part of the learner's personal Mastery Engine? Membership is
+ * decided by SPECIFICITY: keep the row when the deepest matching INCLUSION
+ * out-specifies the deepest matching hidden prefix. Inclusions are the effective
+ * shelf `tracks` (depth-1) plus any `included` sub-prefixes (a lesson pulled from
+ * a roadmap without its whole track). So an added lesson survives under a hidden
+ * course, and a removed sub-lesson stays gone under an added lesson. With no
+ * curation this reduces to "row's track is on the shelf and not hidden".
+ */
+function inEngine(row, tracks, included, hidden) {
+  const incDepth = Math.max(matchDepth(row, tracks), matchDepth(row, included));
+  return incDepth > matchDepth(row, hidden);
+}
+
 app.get('/api/catalog', async (req, res, next) => {
   try {
     const email = optionalUser(req);
@@ -537,12 +575,12 @@ app.get('/api/catalog', async (req, res, next) => {
       catalog = await getCatalog(email, null); // whole bank + this user's stats (none for guests)
     } else if (email && !req.query.program) {
       const tracks = (await effectiveShelf(email)) || [];
-      const set = new Set(tracks.map((t) => JSON.stringify([t.program, t.track])));
-      const hidden = (await getShelf(email))?.hidden || [];
+      const shelf = (await getShelf(email)) || {};
+      const included = shelf.included || [], hidden = shelf.hidden || [];
       const full = await getCatalog(email, null); // whole bank + this user's stats
-      catalog = full.filter(
-        (t) => set.has(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track])) && !hiddenMatch(t, hidden),
-      );
+      // Keep rows whose deepest inclusion (a shelf track, or an individually-added
+      // course/lesson/sub-lesson) out-specifies any hidden prefix. See inEngine.
+      catalog = full.filter((t) => inEngine(t, tracks, included, hidden));
     } else {
       catalog = await getCatalog(email, await requestScope(req));
     }
@@ -875,14 +913,16 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
     const scope = await requestScope(req);
     const catalog = await getCatalog(req.userEmail, scope);
     const idx = metaIndex(catalog);
-    // Don't drill sections the learner removed from their Mastery Engine.
-    const hidden = (await getShelf(req.userEmail))?.hidden || [];
+    // Drill only what's in the learner's Mastery Engine (shelf tracks + added
+    // sections, minus removed ones — same rule as /api/catalog).
+    const engTracks = (await effectiveShelf(req.userEmail)) || [];
+    const engShelf = (await getShelf(req.userEmail)) || {};
 
     // Rank each track's topics by priority (weakest/stalest first).
     const byTrack = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
-      if (hiddenMatch(r, hidden)) continue;
+      if (!inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
       if (!byTrack.has(r.track)) byTrack.set(r.track, []);
       byTrack.get(r.track).push(r);
     }
@@ -939,13 +979,15 @@ const MASTERY_DECK_SIZE = 24;
 app.post('/api/flashcards/mastery', requireAuth, async (req, res, next) => {
   try {
     const catalog = await getCatalog(req.userEmail, await requestScope(req));
-    // Don't drill sections the learner removed from their Mastery Engine.
-    const hidden = (await getShelf(req.userEmail))?.hidden || [];
+    // Drill only what's in the learner's Mastery Engine (shelf tracks + added
+    // sections, minus removed ones — same rule as /api/catalog).
+    const engTracks = (await effectiveShelf(req.userEmail)) || [];
+    const engShelf = (await getShelf(req.userEmail)) || {};
     // Priority per topic (weakest/stalest first), carrying its track for interleaving.
     const topicMeta = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
-      if (hiddenMatch(r, hidden)) continue;
+      if (!inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
       if (!topicMeta.has(r.topic)) topicMeta.set(r.topic, { track: r.track || 'Unknown', priority: r.priority });
     }
 
@@ -3953,6 +3995,15 @@ app.get('/api/me/shelf', requireAuth, async (req, res, next) => {
   }
 });
 
+/** Ensure `program` is in the user's enrollment (courses left untouched) so the
+ *  program-scoped quiz/review endpoints resolve a section pulled from it. Used when
+ *  adding an individual course/lesson/sub-lesson whose track isn't a whole shelf track. */
+async function ensureProgramEnrolled(email, program) {
+  const enr = await getEnrollment(email);
+  if (enr.programs.includes(program)) return;
+  await setEnrollment(email, { programs: [...enr.programs, program], courses: enr.courses });
+}
+
 /** Materialise the user's shelf (from enrollment if they've never curated), apply
  *  a set of {program, track} mutations, and ensure each added track's program is in
  *  their enrollment so quizzes resolve. `add`/`remove` are arrays of {program, track}. */
@@ -4047,6 +4098,58 @@ app.post('/api/me/hide', requireAuth, async (req, res, next) => {
     else map.set(keyOf(entry), entry);
     const saved = await setShelf(req.userEmail, { hidden: [...map.values()] });
     res.json({ ok: true, hidden: saved.hidden });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Add or remove ONE section of my Mastery Engine at any grain
+ *  (path/track, course, lesson or sub-lesson). Body:
+ *    {program, track, course?, lesson?, topic?, action:'add'|'remove'}
+ *  The grain is the deepest level named. A whole track routes through the tracks
+ *  list (like /api/me/tracks); finer grains use the additive `included` /
+ *  subtractive `hidden` layers, each clearing the other's exact-key entry so a
+ *  toggle is a clean flip (deepest prefix wins — see inEngine). Adding also enrols
+ *  the program so its quizzes resolve. This is the single endpoint behind the ＋/✕
+ *  toggle on every node in the Roadmap and Mastery Engine trees. */
+app.post('/api/me/section', requireAuth, async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const track = String(b.track || '').trim();
+    if (!track) return res.status(400).json({ error: 'track is required' });
+    const program = String(b.program || DEFAULT_PROGRAM);
+    const email = req.userEmail;
+    const prefix = { program, track };
+    for (const k of ['course', 'lesson', 'topic']) {
+      const v = String(b[k] || '').trim();
+      if (v) prefix[k] = v;
+    }
+    const grain = prefix.topic ? 'topic' : prefix.lesson ? 'lesson' : prefix.course ? 'course' : 'track';
+    const add = b.action !== 'remove';
+    const keyOf = (h) =>
+      JSON.stringify([h.program || DEFAULT_PROGRAM, h.track, h.course || '', h.lesson || '', h.topic || '']);
+
+    if (grain === 'track') {
+      // Whole track goes on/off the tracks list. Either way, clear any finer
+      // included/hidden entries under this track so it resolves cleanly (a re-added
+      // track comes back whole; a removed track takes its added sub-sections with it).
+      const shelf = (await getShelf(email)) || {};
+      const notUnderTrack = (arr) =>
+        (arr || []).filter((h) => !(h.track === track && (h.program || DEFAULT_PROGRAM) === program));
+      await setShelf(email, { hidden: notUnderTrack(shelf.hidden), included: notUnderTrack(shelf.included) });
+      await mutateShelf(email, add ? [{ program, track }] : [], add ? [] : [{ program, track }]);
+    } else {
+      const shelf = (await getShelf(email)) || {};
+      const included = new Map((shelf.included || []).map((h) => [keyOf(h), h]));
+      const hidden = new Map((shelf.hidden || []).map((h) => [keyOf(h), h]));
+      const k = keyOf(prefix);
+      if (add) { included.set(k, prefix); hidden.delete(k); }
+      else { hidden.set(k, prefix); included.delete(k); }
+      await setShelf(email, { included: [...included.values()], hidden: [...hidden.values()] });
+      if (add) await ensureProgramEnrolled(email, program);
+    }
+    const shelf = await getShelf(email);
+    res.json({ ok: true, tracks: shelf.tracks, included: shelf.included, hidden: shelf.hidden });
   } catch (e) {
     next(e);
   }
