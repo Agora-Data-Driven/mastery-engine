@@ -1854,7 +1854,7 @@
       }
       $('progCreate').disabled = true; $('progMsg').textContent = 'Creating…';
       try {
-        await api('/api/admin/programs', { method: 'POST', body: { id, name } });
+        await api('/api/admin/programs', { method: 'POST', body: { id, name, category: ($('progCategory') && $('progCategory').value) || 'career' } });
         $('progMsg').innerHTML = '<span class="aa-ok">Created — switching…</span>';
         location.search = '?program=' + encodeURIComponent(id); // reload into the new program
       } catch (e) { $('progMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; $('progCreate').disabled = false; }

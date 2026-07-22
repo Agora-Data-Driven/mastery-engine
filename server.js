@@ -2798,6 +2798,7 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
     if (!email) return res.status(400).json({ error: 'email required' });
     const [enrollment, allPrograms] = await Promise.all([getEnrollment(email), getPrograms()]);
     const nameOf = (id) => (allPrograms.find((p) => p.id === id) || {}).name || id;
+    const catOf = (id) => (allPrograms.find((p) => p.id === id) || {}).category || 'career';
     // One card per ASSIGNED PROGRAM, each with aggregate topic progress across its courses.
     const programs = [];
     for (const pid of enrollment.programs) {
@@ -2811,7 +2812,7 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
         if (attempts > 0) { practiced += 1; progSum += Math.round((r.correctCount || 0) / attempts * 100); }
       }
       programs.push({
-        id: pid, name: nameOf(pid),
+        id: pid, name: nameOf(pid), category: catOf(pid),
         courseCount: courses.size,
         topicsTotal: total, topicsPracticed: practiced,
         pct: total ? Math.round(progSum / total) : 0,
@@ -2830,7 +2831,7 @@ app.post('/api/admin/programs', requireAdmin, async (req, res, next) => {
   try {
     const id = String(req.body?.id || '').trim();
     if (!id) return res.status(400).json({ error: 'id is required' });
-    await saveProgram({ id, name: req.body?.name, defaultCourses: req.body?.defaultCourses });
+    await saveProgram({ id, name: req.body?.name, defaultCourses: req.body?.defaultCourses, category: req.body?.category });
     res.json({ ok: true, id });
   } catch (e) {
     next(e);
