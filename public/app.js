@@ -17,14 +17,26 @@ const App = (() => {
       if (q === '1' || q === 'assistant') sessionStorage.setItem('embed', '1');
       else if (q === '0') { sessionStorage.removeItem('embed'); sessionStorage.removeItem('embedAssistant'); }
       if (q === 'assistant') sessionStorage.setItem('embedAssistant', '1');
+      // ?actions=1 (Sentinel's Coach): let the assistant propose profile edits the host will execute.
+      const act = new URLSearchParams(location.search).get('actions');
+      if (act === '1') sessionStorage.setItem('coachActions', '1');
+      else if (act === '0') sessionStorage.removeItem('coachActions');
       if (sessionStorage.getItem('embed') === '1') document.documentElement.classList.add('embed');
       if (sessionStorage.getItem('embedAssistant') === '1') document.documentElement.classList.add('assistant-only');
     } catch { /* private mode / no storage — embed styling is cosmetic, never block boot */ }
   })();
   const assistantOnly = () => document.documentElement.classList.contains('assistant-only');
+  // Coach edit-actions are on only when the host enabled them AND we're inside a host frame that can
+  // execute them (postMessage to the parent). Never active when the engine runs top-level.
+  const coachActionsEnabled = () => {
+    try { return sessionStorage.getItem('coachActions') === '1' && window.parent && window.parent !== window; }
+    catch { return false; }
+  };
 
   const state = {
-    catalog: [],
+    catalog: [],       // this user's personal Mastery Engine (shelf tracks minus hidden sections)
+    fullCatalog: [],   // the whole bank + this user's stats — Roadmaps resolve against this so a
+                       // section removed from Progress still rolls up in a roadmap that references it
     authed: false,
     guest: false,
     mode: 'QUIZ',
@@ -116,7 +128,7 @@ const App = (() => {
   }
 
   /* ---------------------- Offline cache + sync queue --------------------- */
-  const LS = { catalog: 'agora.catalog', qbank: 'agora.qbank', qbankTs: 'agora.qbank.ts', queue: 'agora.logqueue' };
+  const LS = { catalog: 'agora.catalog', catalogFull: 'agora.catalog.full', qbank: 'agora.qbank', qbankTs: 'agora.qbank.ts', queue: 'agora.logqueue' };
   const lsGet = (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
   const isNetworkError = (e) => !navigator.onLine || /Failed to fetch|NetworkError|load failed/i.test(e && e.message || '');
@@ -951,19 +963,20 @@ const App = (() => {
     }
   }
 
-  // Admin: AI-sequence the Machine Learning topics into study order (writes each
-  // topic's `order`). Loops the resumable sweep until no lessons remain. Runs
-  // only on lessons not yet sequenced; pass refresh to re-order everything.
-  async function sequenceMlTopics(refresh = false) {
-    if (!confirm('AI-order the Machine Learning sub-lessons into the best sequence to learn them? This runs a batch of AI calls (a minute or two) and reorders the topic lists for all users. Safe to re-run.')) return;
+  // Admin: AI-sequence every lesson's sub-lessons in the current program into study
+  // order (writes each topic's `order`). New topics are auto-sequenced on creation;
+  // this is the manual full re-sweep — refresh mode so it also re-orders lessons
+  // whose older topics had landed alphabetically. Paginated via an offset cursor.
+  async function sequenceTopics() {
+    if (!confirm("AI-order every lesson's sub-lessons into the best study sequence? This runs a batch of AI calls (a minute or two) and reorders the topic lists for all users. Safe to re-run.")) return;
     const btn = $('adminSequenceTopics');
     if (btn) { btn.disabled = true; btn.textContent = 'Sequencing…'; }
-    const q = `?track=${encodeURIComponent('Machine Learning')}&max=40${refresh ? '&refresh=1' : ''}`;
-    let sequenced = 0;
+    let sequenced = 0, offset = 0;
     try {
-      for (let pass = 0; pass < 20; pass++) {
-        const r = await api(`/api/admin/sequence-topics${q}`, { method: 'POST' });
+      for (let pass = 0; pass < 200; pass++) {
+        const r = await api(`/api/admin/sequence-topics?refresh=1&max=25&offset=${offset}`, { method: 'POST' });
         sequenced += r.sequenced || 0;
+        offset = Number.isFinite(r.nextOffset) ? r.nextOffset : offset + 25;
         if (btn) btn.textContent = `Sequencing… (${sequenced})`;
         if (!r.remaining) break;
       }
@@ -971,7 +984,7 @@ const App = (() => {
       window.location.reload();
     } catch (e) {
       alert('Sequence topics failed: ' + e.message);
-      if (btn) { btn.disabled = false; btn.textContent = 'Sequence ML Topics'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Sequence Topics'; }
     }
   }
 
@@ -1253,6 +1266,8 @@ const App = (() => {
 
   // The Track>Course>Unit>Topic keys, indexed by depth level.
   const LEVEL_KEYS = ['track', 'course', 'lesson', 'topic'];
+  // Human words for each depth (for remove/restore prompts). "Path" = the top track.
+  const LEVEL_LABELS = ['path', 'course', 'lesson', 'sub-lesson'];
 
   // Donut ring showing a percentage in a tier colour, centred label. `size` is
   // the SVG box in px; the stroke width scales with it via the --sw CSS var.
@@ -1352,7 +1367,8 @@ const App = (() => {
           <span class="mini-bar"><span class="mini-fill" style="width:${pct}%;background:${color}"></span></span>
           <span class="prog-pct" style="color:${color}">${pct}%</span>
         </div>
-        ${actions}`;
+        ${actions}
+        <button class="prog-node-remove" data-action="hidenode" title="Remove this ${esc(LEVEL_LABELS[level] || 'section')} from your Mastery Engine" aria-label="Remove">✕</button>`;
 
     return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}" data-label="${esc(node.name)}" ${dataAttrs}>
       <div class="prog-row ${isTrack ? 'track-row' : ''}"${isTrack ? '' : ` style="padding-left:${level * 16}px"`}>
@@ -1447,10 +1463,15 @@ const App = (() => {
   // All catalog rows an item covers. A coarse item (level track/course/lesson)
   // expands to every matching topic; a topic item resolves to its one row. Matched
   // within the item's program so a shelf spanning programs stays correct.
+  // Roadmaps resolve against the FULL bank (with this user's stats), never the
+  // shelf-filtered personal catalog — so a section removed from Progress still
+  // rolls up here. Falls back to the personal catalog if the full one isn't loaded.
+  const roadmapCatalog = () => (state.fullCatalog.length ? state.fullCatalog : state.catalog);
+
   function itemRows(item) {
     const lvl = item.level || 'topic';
     const prog = item.program || '';
-    return state.catalog.filter((r) => {
+    return roadmapCatalog().filter((r) => {
       if (prog && (r.program || '') !== prog) return false;
       if (lvl === 'topic') {
         return (item.topicId && r.id === item.topicId)
@@ -1485,6 +1506,19 @@ const App = (() => {
     try { state.catalog = await api('/api/catalog'); lsSet(LS.catalog, state.catalog); } catch { /* keep cached */ }
   }
 
+  // The whole bank + this user's stats, for Roadmap rollups. Loaded lazily the first
+  // time a roadmap renders (it's large) and cached; `force` refetches after content
+  // changes. Independent of the personal shelf/hidden filtering.
+  async function ensureFullCatalog(force = false) {
+    if (state.fullCatalog.length && !force) return;
+    try {
+      state.fullCatalog = await api('/api/catalog?full=1');
+      lsSet(LS.catalogFull, state.fullCatalog);
+    } catch {
+      if (!state.fullCatalog.length) state.fullCatalog = lsGet(LS.catalogFull) || [];
+    }
+  }
+
   async function renderRoadmapList() {
     const listEl = $('roadmapList');
     const emptyEl = $('roadmapEmpty');
@@ -1495,6 +1529,7 @@ const App = (() => {
     if (!listEl) return;
     listEl.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Loading roadmaps…</div>';
     try {
+      await ensureFullCatalog(); // roadmaps roll up against the whole bank, not the shelf
       const res = await api('/api/roadmaps');
       _roadmaps = res.roadmaps || [];
     } catch (e) {
@@ -1640,8 +1675,9 @@ const App = (() => {
     renderRoadmapList(); // re-fetch so mastery reflects any quiz just taken
   }
 
-  /* ---- Mastery Engine curation: add/remove tracks from the open bank -------- */
+  /* ---- Mastery Engine curation: add/remove tracks + restore removed sections -- */
   let _bankTracks = null;
+  let _hidden = [];   // sections (course/lesson/sub-lesson) removed from this engine
   const shelfHasTrack = (program, track) =>
     state.catalog.some((r) => (r.program || '') === (program || '') && r.track === track);
 
@@ -1651,6 +1687,9 @@ const App = (() => {
     modal.classList.remove('hidden');
     const list = $('addTracksList');
     list.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Loading the bank…</div>';
+    // Removed-sections list (independent of the bank fetch).
+    try { _hidden = (await api('/api/me/shelf')).hidden || []; } catch { _hidden = []; }
+    renderHidden();
     try {
       const res = await api('/api/bank/tracks');
       _bankTracks = res.tracks || [];
@@ -1659,6 +1698,39 @@ const App = (() => {
       return;
     }
     renderAddTracks();
+  }
+
+  // The sections you've removed (course/lesson/sub-lesson), each restorable. Hidden
+  // whole tracks are handled by the track list above (re-add them there).
+  function renderHidden() {
+    const sec = $('hiddenSection');
+    const list = $('hiddenList');
+    if (!sec || !list) return;
+    if (!_hidden.length) { sec.classList.add('hidden'); list.innerHTML = ''; return; }
+    sec.classList.remove('hidden');
+    list.innerHTML = _hidden.map((h, i) => {
+      const crumbs = [h.track, h.course, h.lesson, h.topic].filter(Boolean)
+        .map(esc).join(' <span class="me-crumb-sep">›</span> ');
+      const grain = h.topic ? 'sub-lesson' : h.lesson ? 'lesson' : h.course ? 'course' : 'path';
+      return `<div class="me-track-row">
+        <div class="me-track-info">
+          <span class="me-track-name">${crumbs}</span>
+          <span class="me-track-meta">${esc(h.program || '')} · ${grain}</span>
+        </div>
+        <button type="button" class="btn btn-ghost me-hidden-restore" data-idx="${i}">Restore</button>
+      </div>`;
+    }).join('');
+  }
+
+  async function restoreHidden(entry) {
+    if (!entry) return;
+    try {
+      await api('/api/me/hide', { method: 'POST', body: JSON.stringify({ ...entry, action: 'show' }) });
+      _hidden = _hidden.filter((h) => h !== entry);
+      renderHidden();
+      await reloadCatalog();
+      renderProgressTree();
+    } catch (e) { alert('Error: ' + e.message); }
   }
   function closeAddTracks() { const m = $('addTracksModal'); if (m) m.classList.add('hidden'); }
   function filterAddTracks() { renderAddTracks(); }
@@ -1696,6 +1768,27 @@ const App = (() => {
     if (!confirm(`Remove "${scope.track}" from your Mastery Engine? (The content stays in the bank — re-add it anytime.)`)) return;
     try {
       await api('/api/me/tracks', { method: 'POST', body: JSON.stringify({ program: scope.program || '', track: scope.track, action: 'remove' }) });
+      await reloadCatalog();
+      renderProgressTree();
+    } catch (e) { alert('Error: ' + e.message); }
+  }
+
+  // Remove one section (course / lesson / sub-lesson) from the Mastery Engine. It's
+  // hidden from every personal view but stays in the bank and in any roadmap that
+  // references it (e.g. StatQuest ML out of Progress, still in the Data Science
+  // roadmap). Restore it from ＋ Customize › Hidden sections.
+  async function hideNodeScope(scope, node) {
+    if (!scope || !scope.track) return;
+    const level = node ? Number(node.dataset.level) || 0 : 0;
+    const word = LEVEL_LABELS[level] || 'section';
+    const label = (node && node.dataset.label) || scope.topic || scope.lesson || scope.course || scope.track;
+    if (!confirm(`Remove the ${word} "${label}" from your Mastery Engine?\n\nIt stays in the bank and in any roadmap — restore it anytime from ＋ Customize.`)) return;
+    try {
+      await api('/api/me/hide', { method: 'POST', body: JSON.stringify({
+        program: scope.program || '', track: scope.track,
+        course: scope.course || '', lesson: scope.lesson || '', topic: scope.topic || '',
+        action: 'hide',
+      }) });
       await reloadCatalog();
       renderProgressTree();
     } catch (e) { alert('Error: ' + e.message); }
@@ -3550,6 +3643,67 @@ const App = (() => {
     };
   }
 
+  // --- Coach edit-actions (only when the host enabled them) ----------------
+  // The assistant emits `agora-action` fenced JSON blocks to PROPOSE profile edits. We lift them out
+  // of the prose and render Approve/Cancel cards; on Approve we hand the action to the host (Sentinel)
+  // over postMessage — the host executes it in the user's own session and reports back here.
+  const COACH_ACTION_RE = /```agora-action\s*([\s\S]*?)```/g;
+  let coachActionSeq = 0;
+  const pendingCoachActions = new Map();
+
+  function renderCoachActions(answerText, els) {
+    if (!coachActionsEnabled()) return answerText;
+    const found = [];
+    let m;
+    COACH_ACTION_RE.lastIndex = 0;
+    while ((m = COACH_ACTION_RE.exec(answerText)) !== null) {
+      let obj = null;
+      try { obj = JSON.parse(m[1].trim()); } catch { /* ignore malformed proposal */ }
+      if (obj && obj.op) found.push(obj);
+    }
+    if (!found.length) return answerText;
+    const cleaned = answerText.replace(COACH_ACTION_RE, '').trim();
+    const box = document.createElement('div');
+    box.className = 'coach-actions';
+    found.forEach((action) => {
+      const id = 'ca-' + (++coachActionSeq);
+      const card = document.createElement('div');
+      card.className = 'coach-action';
+      card.dataset.id = id;
+      card.innerHTML = `<div class="ca-sum">✎ ${esc(String(action.summary || action.op).slice(0, 240))}</div>
+        <div class="ca-btns"><button type="button" class="ca-approve">Approve</button>
+        <button type="button" class="ca-cancel">Cancel</button></div><div class="ca-status"></div>`;
+      box.appendChild(card);
+      pendingCoachActions.set(id, card);
+      card.querySelector('.ca-approve').onclick = () => {
+        card.querySelector('.ca-btns').remove();
+        card.querySelector('.ca-status').textContent = 'Applying…';
+        try { window.parent.postMessage({ type: 'agora-coach-action', id, action }, '*'); }
+        catch { card.querySelector('.ca-status').textContent = '✗ Could not reach the app'; }
+      };
+      card.querySelector('.ca-cancel').onclick = () => {
+        pendingCoachActions.delete(id);
+        card.querySelector('.ca-btns').remove();
+        card.querySelector('.ca-status').textContent = 'Dismissed';
+        card.classList.add('is-dismissed');
+      };
+    });
+    els.answer.after(box);
+    return cleaned || '_(proposed a change below)_';
+  }
+
+  // The host reports the result of an approved action back to us.
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (!d || d.type !== 'agora-coach-action-result') return;
+    const card = pendingCoachActions.get(d.id);
+    if (!card) return;
+    pendingCoachActions.delete(d.id);
+    const st = card.querySelector('.ca-status');
+    if (d.ok) { st.textContent = '✓ ' + esc(d.message || 'Applied'); card.classList.add('is-done'); }
+    else { st.textContent = '✗ ' + esc(d.message || 'Could not apply'); card.classList.add('is-error'); }
+  });
+
   // Stream one assistant answer, showing the reasoning live and letting the user
   // Pause (abort) + steer (re-run with added guidance) — Atrium's pause-&-steer,
   // which is client abort + re-POST of the SAME message with an accumulated steer.
@@ -3588,6 +3742,7 @@ const App = (() => {
         steer: steer || undefined,
         web: webAccessOn() || undefined,
         coach: coachOn() || undefined,
+        actions: coachActionsEnabled() || undefined,
       }, (ev, data) => {
         if (ev === 'thinking') {
           gotThinking = true;
@@ -3620,6 +3775,10 @@ const App = (() => {
       els.think.classList.remove('is-live');
       if (!gotThinking) els.think.classList.add('hidden');
       els.controls.innerHTML = '';
+      // Coach edit-actions: pull any `agora-action` proposals out of the answer, re-render the prose
+      // without them, and show Approve/Cancel cards the host executes on the user's behalf.
+      answerText = renderCoachActions(answerText, els, log);
+      els.answer.innerHTML = renderMarkdown(answerText);
       typeset(els.answer);
       assistant.loaded = true;
       if (done) { await refreshAssistantChats(); refreshCost(); }
@@ -5149,6 +5308,7 @@ const App = (() => {
         else if (act === 'lesson') lessonFromScope(scope, node.dataset.label);
         else if (act === 'cards') openFlashcards(scope, node.dataset.label);
         else if (act === 'removetrack') removeTrackScope(scope);
+        else if (act === 'hidenode') hideNodeScope(scope, node);
         return; // don't also toggle the row
       }
       const row = e.target.closest('.prog-row');
@@ -5166,6 +5326,13 @@ const App = (() => {
       const b = e.target.closest('.me-track-toggle');
       if (!b) return;
       toggleBankTrack(b.dataset.prog, b.dataset.track, b.dataset.on === '1');
+    });
+    // Restore a removed section from the "Removed sections" list.
+    const hl = $('hiddenList');
+    if (hl) hl.addEventListener('click', (e) => {
+      const b = e.target.closest('.me-hidden-restore');
+      if (!b) return;
+      restoreHidden(_hidden[Number(b.dataset.idx)]);
     });
     const atModal = $('addTracksModal');
     if (atModal) atModal.addEventListener('click', (e) => { if (e.target === atModal) closeAddTracks(); });
@@ -5493,7 +5660,7 @@ const App = (() => {
     dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onWebAccessChange, onCoachChange,
     enterMastery, goHome, setMode,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
-    sequenceMlTopics,
+    sequenceTopics,
     fixQuestionFormat, fixCardFormat,
     toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,

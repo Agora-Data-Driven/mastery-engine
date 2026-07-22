@@ -491,18 +491,48 @@ async function effectiveShelf(email) {
   return [...set.values()];
 }
 
+/**
+ * Does a catalog row fall under any of the learner's hidden prefixes? A prefix
+ * matches when every level it names (track, and optionally course/lesson/topic)
+ * equals the row's — so a {track,course} prefix hides that whole course. Used to
+ * subtract removed sections from the personal Mastery Engine (Progress tree + the
+ * scoped quiz/analyze/visualize views). Roadmaps ignore this — they resolve
+ * against the full bank (see the `?full=1` branch below).
+ */
+function hiddenMatch(row, hidden) {
+  if (!hidden || !hidden.length) return false;
+  const rp = row.program || DEFAULT_PROGRAM;
+  for (const h of hidden) {
+    if (!h.track) continue;
+    if ((h.program || DEFAULT_PROGRAM) !== rp) continue;
+    if (row.track !== h.track) continue;
+    if (h.course && row.course !== h.course) continue;
+    if (h.lesson && row.lesson !== h.lesson) continue;
+    if (h.topic && row.topic !== h.topic) continue;
+    return true;
+  }
+  return false;
+}
+
 app.get('/api/catalog', async (req, res, next) => {
   try {
     const email = optionalUser(req);
     let catalog;
     // Learner app (no ?program) → the user's Mastery-Engine shelf (curated tracks,
-    // may span programs). Admin/curation loads pass ?program → the old program
-    // scope, unchanged. Guests → their default program scope.
-    if (email && !req.query.program) {
+    // may span programs) minus any sections they've hidden. `?full=1` → the whole
+    // bank + this user's stats, unfiltered (Roadmaps use this so a section removed
+    // from Progress still rolls up). Admin/curation loads pass ?program → the old
+    // program scope, unchanged. Guests → their default program scope.
+    if (req.query.full) {
+      catalog = await getCatalog(email, null); // whole bank + this user's stats (none for guests)
+    } else if (email && !req.query.program) {
       const tracks = (await effectiveShelf(email)) || [];
       const set = new Set(tracks.map((t) => JSON.stringify([t.program, t.track])));
+      const hidden = (await getShelf(email))?.hidden || [];
       const full = await getCatalog(email, null); // whole bank + this user's stats
-      catalog = full.filter((t) => set.has(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track])));
+      catalog = full.filter(
+        (t) => set.has(JSON.stringify([t.program || DEFAULT_PROGRAM, t.track])) && !hiddenMatch(t, hidden),
+      );
     } else {
       catalog = await getCatalog(email, await requestScope(req));
     }
@@ -1936,7 +1966,9 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // Whole-person context from Sentinel (body-fat/PRs, career goals, reading, obstacles). Null-safe:
     // an unreachable/unconfigured Sentinel just means no holistic block.
     const holistic = await holisticProfile(req.userEmail);
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, admin: isAdmin(req) }, aiChoice(req));
+    // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
+    const actions = !!req.body?.actions;
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, admin: isAdmin(req) }, aiChoice(req));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
@@ -1990,8 +2022,9 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // Whole-person context from Sentinel; fetched before streaming starts (null-safe) so a Sentinel
     // outage can never break the SSE stream — it just yields no holistic block.
     const holistic = await holisticProfile(req.userEmail);
+    const actions = !!req.body?.actions;
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, admin: isAdmin(req) }, aiChoice(req),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, admin: isAdmin(req) }, aiChoice(req),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
@@ -2414,6 +2447,7 @@ app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
 app.post('/api/admin/sequence-topics', requireAdmin, async (req, res, next) => {
   try {
     const maxLessons = Math.min(parseInt(req.query.max, 10) || 40, 200);
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
     const catalog = await getCatalog(req.userEmail, await requestScope(req));
     const track = (req.query.track || '').trim();
     const course = (req.query.course || '').trim();
@@ -2429,25 +2463,29 @@ app.post('/api/admin/sequence-topics', requireAdmin, async (req, res, next) => {
     }
 
     const refresh = req.query.refresh === '1';
+    // Only 2+-topic lessons can be ordered; a lesson is pending if it has an
+    // unordered topic, or unconditionally on a full refresh.
     const pending = [...groups.values()].filter(
-      (g) => refresh || g.some((r) => !Number.isFinite(r.order)));
-    const todo = pending.slice(0, maxLessons);
+      (g) => g.length >= 2 && (refresh || g.some((r) => !Number.isFinite(r.order))));
+    // Incremental mode shrinks `pending` as lessons gain orders (always take from the
+    // front); refresh keeps a stable set, so page through it with `offset`.
+    const start = refresh ? offset : 0;
+    const todo = pending.slice(start, start + maxLessons);
     const ai = aiChoice(req);
 
     let sequenced = 0;
     await mapWithConcurrency(todo, 2, async (g) => {
-      try {
-        const ordered = await generateTopicOrder(
-          { course: g[0].course, lesson: g[0].lesson, topics: g.map((r) => ({ id: r.id, topic: r.topic })) },
-          ai,
-        );
-        await setTopicOrders(ordered.map((t, i) => ({ id: t.id, order: i })));
-        sequenced += 1;
-      } catch (e) {
-        console.error('sequence-topics: lesson failed:', e.message);
-      }
+      try { await sequenceLessonGroup(g, ai); sequenced += 1; }
+      catch (e) { console.error('sequence-topics: lesson failed:', e.message); }
     });
-    res.json({ ok: true, sequenced, remaining: Math.max(0, pending.length - todo.length) });
+    const nextOffset = start + todo.length;
+    res.json({
+      ok: true,
+      sequenced,
+      total: pending.length,
+      nextOffset,
+      remaining: refresh ? Math.max(0, pending.length - nextOffset) : Math.max(0, pending.length - todo.length),
+    });
   } catch (e) {
     next(e);
   }
@@ -3241,6 +3279,48 @@ async function placeNewTopicsInOrder(program) {
   return updates.length;
 }
 
+/** AI-sequence ONE lesson's sub-lessons (topics) into study order and persist it.
+ *  Orders are 0-based within the lesson, matching the rest of the ordering system
+ *  (courses/lessons sort by their MIN topic order, so 0-based keeps lesson/course
+ *  placement governed by rank/name, not by a lesson's topic count). `group` is the
+ *  lesson's catalog rows; `ai` picks the model. */
+async function sequenceLessonGroup(group, ai = {}) {
+  const ordered = await generateTopicOrder(
+    { course: group[0].course, lesson: group[0].lesson, topics: group.map((r) => ({ id: r.id, topic: r.topic })) },
+    ai,
+  );
+  await setTopicOrders(ordered.map((t, i) => ({ id: t.id, order: i })));
+}
+
+/** Auto-sequence exactly the lessons that just received new topics — so freshly
+ *  generated sub-lessons land in pedagogical order instead of the alphabetical
+ *  placeholder placeNewTopicsInOrder gives them. Best-effort: a failure here never
+ *  breaks content creation. `lessonKeys` = [{track, course, lesson}]. */
+async function autoSequenceLessons(program, lessonKeys, ai = {}) {
+  try {
+    const want = new Set((lessonKeys || []).map((k) => JSON.stringify([k.track, k.course, k.lesson])));
+    if (!want.size) return 0;
+    const catalog = (await getCatalog(null, { program })).filter((r) => r.topic && r.id);
+    const groups = new Map();
+    for (const r of catalog) {
+      const key = JSON.stringify([r.track, r.course, r.lesson]);
+      if (!want.has(key)) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    }
+    const todo = [...groups.values()].filter((g) => g.length >= 2); // 1-topic lessons need no order
+    let n = 0;
+    await mapWithConcurrency(todo, 2, async (g) => {
+      try { await sequenceLessonGroup(g, ai); n += 1; }
+      catch (e) { console.error('auto-sequence: lesson failed:', e.message); }
+    });
+    return n;
+  } catch (e) {
+    console.error('auto-sequence failed:', e.message);
+    return 0;
+  }
+}
+
 /**
  * Admin: act on an approved placement. Creates any new topic rows, attaches the
  * transcript at the lesson level (so every chosen topic can use it), and queues a
@@ -3268,6 +3348,8 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
     await upsertTopics(topics.map((topic) => ({ program, track, course, lesson, topic })));
     // Slot the new topics/lesson into study order instead of the bottom of the tree.
     await placeNewTopicsInOrder(program);
+    // Then AI-order this lesson's sub-lessons so new topics land pedagogically, not alphabetically.
+    await autoSequenceLessons(program, [{ track, course, lesson }], aiChoice(req));
 
     // 2. Attach the transcript at the lesson level, so every chosen topic can draw on it.
     await addTranscript({
@@ -3435,6 +3517,8 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
     const ai = aiFromBody(req);
+    // AI-order each new lesson's sub-lessons so topics land pedagogically, not alphabetically.
+    await autoSequenceLessons(program, lessons.map((l) => ({ track: l.track, course: l.course, lesson: l.lesson })), ai);
     await Promise.all(lessons.map(async (l) => {
       const brief = await writeLessonBrief({ course: l.course, lesson: l.lesson, topics: l.topics, assumedKnowledge, goal, reference }, ai);
       if (brief) await addTranscript({ program, track: l.track, course: l.course, lesson: l.lesson, title: l.lesson, text: brief, source: 'goal-plan' });
@@ -3538,6 +3622,8 @@ app.post('/api/admin/lessons/bulk-commit', requireAdmin, bigJson, async (req, re
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
     const ai = aiFromBody(req);
+    // AI-order each new lesson's sub-lessons so topics land pedagogically, not alphabetically.
+    await autoSequenceLessons(program, lessons.map((l) => ({ track: l.track, course: l.course, lesson: l.lesson })), ai);
     const instructions = String(req.body?.instructions || '').trim();
     await Promise.all(lessons.map(async (l) => {
       const brief = await writeLessonBrief({ course: l.course, lesson: l.lesson, topics: l.topics, reference: instructions }, ai);
@@ -3837,10 +3923,12 @@ app.get('/api/bank/tracks', requireAuth, async (_req, res, next) => {
   }
 });
 
-// My current shelf (resolved: curated, else enrollment-derived).
+// My current shelf (resolved tracks, curated-else-enrollment) + the sections I've
+// hidden (for the "Customize my engine" restore list).
 app.get('/api/me/shelf', requireAuth, async (req, res, next) => {
   try {
-    res.json({ tracks: (await effectiveShelf(req.userEmail)) || [] });
+    const hidden = (await getShelf(req.userEmail))?.hidden || [];
+    res.json({ tracks: (await effectiveShelf(req.userEmail)) || [], hidden });
   } catch (e) {
     next(e);
   }
@@ -3911,6 +3999,35 @@ app.post('/api/me/tracks', requireAuth, async (req, res, next) => {
       action === 'remove' ? [{ program, track }] : [],
     );
     res.json({ ok: true, ...saved });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Hide (remove) or show (restore) one section of my Mastery Engine at any grain.
+ *  Body: {program, track, course?, lesson?, topic?, action:'hide'|'show'}. Hiding a
+ *  coarse level hides everything beneath it; the content stays in the shared bank
+ *  (and in any Roadmap that references it). Track-grain removal keeps using
+ *  /api/me/tracks; this covers course/lesson/topic (and tolerates a bare track). */
+app.post('/api/me/hide', requireAuth, async (req, res, next) => {
+  try {
+    const b = req.body || {};
+    const track = String(b.track || '').trim();
+    if (!track) return res.status(400).json({ error: 'track is required' });
+    const entry = { program: String(b.program || DEFAULT_PROGRAM), track };
+    for (const k of ['course', 'lesson', 'topic']) {
+      const v = String(b[k] || '').trim();
+      if (v) entry[k] = v;
+    }
+    const action = b.action === 'show' ? 'show' : 'hide';
+    const shelf = (await getShelf(req.userEmail)) || { hidden: [] };
+    const keyOf = (h) =>
+      JSON.stringify([h.program || DEFAULT_PROGRAM, h.track, h.course || '', h.lesson || '', h.topic || '']);
+    const map = new Map((shelf.hidden || []).map((h) => [keyOf(h), h]));
+    if (action === 'show') map.delete(keyOf(entry));
+    else map.set(keyOf(entry), entry);
+    const saved = await setShelf(req.userEmail, { hidden: [...map.values()] });
+    res.json({ ok: true, hidden: saved.hidden });
   } catch (e) {
     next(e);
   }
