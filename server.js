@@ -3842,8 +3842,10 @@ function publicRoadmap(rm) {
 // flags are soft labels, not gates. The client joins topics to its own mastery.
 app.get('/api/roadmaps', requireAuth, async (req, res, next) => {
   try {
-    const scope = await requestScope(req);
-    const list = await listRoadmaps({ program: scope.program });
+    // Every roadmap is open to everyone — no program filter. A learner sees all
+    // roadmaps regardless of program; the `assigned`/`enrolled` flags are soft labels
+    // (assigned = "Required"), and topics resolve against the full bank on the client.
+    const list = await listRoadmaps();
     const shelf = (await getShelf(req.userEmail)) || { roadmaps: [], assignedRoadmaps: [] };
     const enrolled = new Set(shelf.roadmaps);
     const assigned = new Set(shelf.assignedRoadmaps);
