@@ -33,6 +33,10 @@ const App = (() => {
     try { return document.documentElement.classList.contains('coach-actions') && window.parent && window.parent !== window; }
     catch { return false; }
   };
+  // Which mode a signed-in user LANDS on. Sentinel's Academy passes ?home=quiz so the tab opens
+  // straight into the course/quiz builder (progress now lives in Sentinel's Development hub), instead
+  // of our own "My Progress" dashboard. Captured once at boot (URL only — never persisted).
+  const START_MODE = (() => { try { return new URLSearchParams(location.search).get('home') || ''; } catch { return ''; } })();
 
   const state = {
     catalog: [],       // this user's personal Mastery Engine (shelf tracks minus hidden sections)
@@ -659,9 +663,10 @@ const App = (() => {
   function configureSetupForMode() {
     const mastery = state.authed && !state.guest;
     $('genModeWrap').classList.toggle('hidden', !mastery);
-    // Mastery users land on "My Progress" (their dashboard); guests (no mode
-    // switcher) fall back to the quiz builder so they have something to do.
-    setMode(mastery ? 'PROGRESS' : 'QUIZ');
+    // Mastery users land on "My Progress" (their dashboard); guests (no mode switcher) fall back to
+    // the quiz builder. Sentinel's Academy passes ?home=quiz so it opens straight into the courses
+    // (progress lives in Sentinel's Development hub now), skipping our own progress dashboard.
+    setMode(mastery ? (START_MODE === 'quiz' ? 'QUIZ' : 'PROGRESS') : 'QUIZ');
   }
 
   function setMode(mode) {
