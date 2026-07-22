@@ -1618,7 +1618,7 @@ const App = (() => {
     listEl.innerHTML = _roadmaps.map((rm) => {
       const p = rollRows(itemsRows(allItems(rm)));
       const color = accColor(p.pct);
-      const badge = rm.assigned ? '<span class="rm-badge assigned">Assigned</span>'
+      const badge = rm.assigned ? '<span class="rm-badge assigned">Required</span>'
         : rm.enrolled ? '<span class="rm-badge added">In your engine</span>' : '';
       return `<button type="button" class="rm-card" data-rm="${esc(rm.id)}">
         ${ringHtml(p.pct, color, 60)}
@@ -1649,7 +1649,7 @@ const App = (() => {
     }
     const p = rollRows(itemsRows(allItems(rm)));
     const color = accColor(p.pct);
-    const badge = rm.assigned ? '<span class="rm-badge assigned">Assigned to you</span>'
+    const badge = rm.assigned ? '<span class="rm-badge assigned">Required</span>'
       : rm.enrolled ? '<span class="rm-badge added">In your engine</span>' : '';
     $('roadmapHead').innerHTML = `
       <div class="rm-head-top">
