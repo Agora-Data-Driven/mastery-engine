@@ -1682,12 +1682,35 @@ const App = (() => {
       const oa = _minOrder(tm, a.name), ob = _minOrder(tm, b.name);
       return oa !== ob ? oa - ob : byName(a, b);
     });
+    const num = String(i + 1).padStart(2, '0');
+
+    // Single-track stage (the common shape — e.g. each Data Science stage IS one
+    // track): don't repeat the track as both a stage header AND a card below it.
+    // Merge them — the stage number + summary become a slim caption, and the ONE
+    // track card (donut, AI Support, ＋/✓, expandable) is the whole body.
+    if (tracks.length === 1) {
+      const t = tracks[0];
+      const showTitle = stage.title && stage.title !== t.name; // keep title only if it adds info
+      const card = renderProgressNode(t, 0, { track: t.name, program: t.program }, { metric: 'all' });
+      return `<div class="rm-stage rm-stage-merged">
+        <div class="rm-stage-caprow">
+          <span class="rm-stage-num">${num}</span>
+          <div class="rm-stage-capinfo">
+            ${showTitle ? `<div class="rm-stage-title">${esc(stage.title)}</div>` : ''}
+            ${stage.summary ? `<div class="rm-stage-sum">${esc(stage.summary)}</div>` : ''}
+          </div>
+        </div>
+        <div class="rm-stage-tree prog-tree">${card}</div>
+      </div>`;
+    }
+
+    // Multi-track stage: full header (its own donut + mastered count) over the tree.
     const body = tracks.length
       ? tracks.map((t) => renderProgressNode(t, 0, { track: t.name, program: t.program }, { metric: 'all' })).join('')
       : '<div class="rm-stage-empty section-sub">None of this stage’s content is in the catalog yet.</div>';
     return `<div class="rm-stage">
       <div class="rm-stage-head">
-        <span class="rm-stage-num">${String(i + 1).padStart(2, '0')}</span>
+        <span class="rm-stage-num">${num}</span>
         ${ringHtml(p.pct, color, 46)}
         <div class="rm-stage-info">
           <div class="rm-stage-title">${esc(stage.title)}</div>
