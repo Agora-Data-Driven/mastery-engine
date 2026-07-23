@@ -141,6 +141,7 @@ import { kimiConfigured, listKimiModels } from './lib/kimi.js';
 import { runMigration } from './lib/migrate.js';
 import {
   checkPassword,
+  checkEmailPassword,
   setSessionCookie,
   clearSessionCookie,
   clearUserCookie,
@@ -429,7 +430,17 @@ app.use('/api', (req, res, next) => {
 });
 
 app.post('/api/auth/login', (req, res) => {
-  if (!checkPassword(req.body?.password)) {
+  const email = String(req.body?.email || '').trim();
+  const password = req.body?.password;
+  // Email + password combo: verify the pair and sign in AS that email (its own identity/progress).
+  if (email) {
+    const verified = checkEmailPassword(email, password);
+    if (!verified) return res.status(401).json({ error: 'Incorrect email or password' });
+    setUserCookie(res, verified);
+    return res.json({ ok: true });
+  }
+  // Legacy shared password → the default account (backwards compatible).
+  if (!checkPassword(password)) {
     return res.status(401).json({ error: 'Incorrect password' });
   }
   setSessionCookie(res);
@@ -2427,12 +2438,20 @@ function kickBackgroundLinking(rows, unlinked, ai) {
 // insights (frontier = ready to start; keystones = weak links blocking the most).
 app.get('/api/graph', requireAuth, async (req, res, next) => {
   try {
-    const [catalog, links, allCards] = await Promise.all([
+    const [catalog, links, allCards, engTracks, engShelf] = await Promise.all([
       getCatalog(req.userEmail, await requestScope(req)),
       getGraphLinks(),
       getAllFlashcardsWithId(),
+      effectiveShelf(req.userEmail),
+      getShelf(req.userEmail),
     ]);
-    const rows = catalog.filter((r) => r.topic);
+    // Visualize only what's actually in the learner's Mastery Engine (shelf tracks
+    // + individually-added sections, minus removed ones — the same rule as
+    // /api/catalog and the quiz/drill views), not the whole curriculum bank.
+    const shelf = engShelf || {};
+    const rows = catalog.filter(
+      (r) => r.topic && inEngine(r, engTracks || [], shelf.included || [], shelf.hidden || []),
+    );
     const now = new Date();
     const nodes = rows.map((r) => toNode(r, now));
 
