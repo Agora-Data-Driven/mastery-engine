@@ -109,10 +109,18 @@ gcloud projects add-iam-policy-binding $PROJECT `
 #    /api/auth/google/callback added to its redirect URIs) to turn the "Sign in with Google" button
 #    on. MASTERY_BASE_URL builds the Google redirect URI; the account/admin env vars have safe
 #    defaults baked in (ianfernandezctm@gmail.com owns the pre-existing progress; info@ is super admin).
+#
+#    Email + password combo sign-in (OPT-IN, dormant until set): MASTERY_LOGIN_ACCOUNTS is a
+#    comma-separated list of `email:password` pairs. When set, the login screen shows an Email field
+#    and each pair signs in AS that email (its own identity/progress) — the same as a Google login for
+#    that address. The password is everything after the first colon (colons OK in passwords, commas are
+#    the pair separator). Kept OUT of source like APP_PASSWORD; pass it via --set-env-vars below (or,
+#    for a stronger secret, create a Secret and add it to --set-secrets instead). Example value:
+#    "ianfernandezctm@gmail.com:agora".
 gcloud run deploy mastery-engine `
   --source . --region $REGION --allow-unauthenticated `
   --set-secrets="SESSION_SECRET=SESSION_SECRET:latest,APP_PASSWORD=APP_PASSWORD:latest,SSO_SECRET=platform-sso-key:latest" `
-  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash,GEMINI_LOCATION=global,MASTERY_BASE_URL=https://mastery-engine-585951669065.us-central1.run.app,MASTERY_DEFAULT_ACCOUNT=ianfernandezctm@gmail.com,MASTERY_SUPER_ADMIN=info@agoradatadriven.com"
+  --set-env-vars="GEMINI_MODEL=gemini-2.5-flash,GEMINI_LOCATION=global,MASTERY_BASE_URL=https://mastery-engine-585951669065.us-central1.run.app,MASTERY_DEFAULT_ACCOUNT=ianfernandezctm@gmail.com,MASTERY_SUPER_ADMIN=info@agoradatadriven.com,MASTERY_LOGIN_ACCOUNTS=ianfernandezctm@gmail.com:agora"
 # ⚠️ MASTERY_BASE_URL must stay the NEW-STYLE run.app URL above: it builds the Google OAuth
 # redirect URI, and that exact URI is what's registered on the shared portal OAuth client.
 # (The legacy c732u7m57a alias entry in the console has a typo and is rejected by Google.)

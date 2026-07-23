@@ -847,8 +847,9 @@ const App = (() => {
 
   function showLogin() {
     showOnly('loginView');
-    const p = $('passwordInput');
-    if (p) setTimeout(() => p.focus(), 50);
+    const emailField = $('emailField');
+    const focusEl = emailField && !emailField.classList.contains('hidden') ? $('emailInput') : $('passwordInput');
+    if (focusEl) setTimeout(() => focusEl.focus(), 50);
   }
 
   /* -------------------------------- Auth --------------------------------- */
@@ -861,6 +862,8 @@ const App = (() => {
       /* ignore — button stays hidden */
     }
     const ctx = state.auth || {};
+    // Email + password combo: reveal the email field when accounts are configured server-side.
+    if (ctx.emailLogin) $('emailField')?.classList.remove('hidden');
     const bar = $('adminBar');
     if (!bar) return;
     if (ctx.admin) {
@@ -1001,7 +1004,10 @@ const App = (() => {
     try {
       await api('/api/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ password: $('passwordInput').value }),
+        body: JSON.stringify({
+          email: ($('emailInput')?.value || '').trim(),
+          password: $('passwordInput').value,
+        }),
       });
       state.authed = true;
       loadStreak();
