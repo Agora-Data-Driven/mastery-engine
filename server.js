@@ -88,6 +88,9 @@ import {
   getShelf,
   setShelf,
   listBankTracks,
+  getAllStudyGuides,
+  getAllTopicDocs,
+  getUserTopicStats,
 } from './lib/firestore.js';
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
@@ -1267,6 +1270,75 @@ app.post('/api/generate/like', requireAuth, rateLimitAI, async (req, res, next) 
 app.get('/api/flashcards/all', async (_req, res, next) => {
   try {
     res.json(await getAllFlashcards());
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ---------------------------- offline mirror ------------------------------ */
+/**
+ * GET /api/export/local?part=<name> — feeds Sync in the offline Mastery Engine.
+ *
+ * The offline app runs this same server code against a local JSON database, so rather than inventing
+ * a transfer format this hands back the documents themselves and lets it write them straight into
+ * its own collections. That is what makes offline a genuine mirror — including the artefacts it
+ * could never produce well on a laptop model: the AI-written lesson and review guides, and the
+ * flashcard decks.
+ *
+ * One `part` per request instead of a single fat payload: the question bank and guide library are
+ * many megabytes together, and a part-at-a-time pull gives the offline app a progress bar and lets a
+ * dropped connection resume at the part that failed rather than restarting the whole sync.
+ *
+ * Everything is scoped to the caller's own enrollment and identity — this exports YOUR mirror, not
+ * the database.
+ */
+app.get('/api/export/local', requireAuth, async (req, res, next) => {
+  try {
+    const part = String(req.query.part || 'meta');
+    const scope = await resolveProgramScope(req.userEmail, {});
+    const send = (payload) => res.json({ part, at: new Date().toISOString(), ...payload });
+
+    switch (part) {
+      case 'meta': {
+        // What's available and how big, so the client can show real progress before committing.
+        const [topics, questions, cards, guides] = await Promise.all([
+          getAllTopicDocs(), getAllQuestions(scope), getAllFlashcardsWithId(), getAllStudyGuides(),
+        ]);
+        return send({
+          user: req.userEmail,
+          parts: ['topics', 'questions', 'flashcards', 'guides', 'quizlog', 'graph', 'programs', 'roadmaps', 'shelf', 'holistic'],
+          counts: {
+            topics: topics.length, questions: questions.length,
+            flashcards: cards.length, guides: guides.length,
+          },
+        });
+      }
+      case 'topics':
+        return send({ topics: await getAllTopicDocs(), topicStats: await getUserTopicStats(req.userEmail) });
+      case 'questions':
+        return send({ questions: await getAllQuestions(scope) });
+      case 'flashcards':
+        return send({ flashcards: await getAllFlashcardsWithId() });
+      case 'guides':
+        return send({ guides: await getAllStudyGuides() });
+      case 'quizlog':
+        return send({ quizLog: await getQuizLogRows(req.userEmail) });
+      case 'graph':
+        return send({ graphLinks: await getGraphLinks() });
+      case 'programs':
+        return send({ programs: await getPrograms(), enrollment: await getEnrollment(req.userEmail) });
+      case 'roadmaps':
+        return send({ roadmaps: await listRoadmaps({}) });
+      case 'shelf':
+        return send({ shelf: await getShelf(req.userEmail) });
+      case 'holistic':
+        // Proxied deliberately: the offline app gets the person's Sentinel digest (gym split and
+        // cardio, PRs, career goals, reading and philosophy, growth notes) WITHOUT the shared
+        // platform secret ever leaving the server. Null when Sentinel is unreachable/unconfigured.
+        return send({ holistic: await holisticProfile(req.userEmail) });
+      default:
+        return res.status(400).json({ error: `Unknown export part "${part}"` });
+    }
   } catch (e) {
     next(e);
   }
