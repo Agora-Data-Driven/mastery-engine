@@ -2201,7 +2201,12 @@ function looksLikeCatalogLookup(msg) {
 }
 
 /** The learner's accessible catalog (their Mastery-Engine shelf), as {track,course,lesson,topic}
- *  rows — the real curriculum the assistant grounds "which card teaches X" answers in. */
+ *  rows — the real curriculum the assistant grounds "which card teaches X" answers in.
+ *  Sections the learner TEMPORARILY REMOVED ride along marked `removed: true` (a hidden
+ *  prefix covers them and no deeper inclusion rescues them), so the assistant knows what
+ *  was parked — it can discuss it and propose restore_section by exact name — instead of
+ *  being blind to it. Consumers that mean "the active engine" must filter `!removed`
+ *  (coachDigest does; the prompt renders removed rows as their own clearly-labelled list). */
 async function learnerCatalog(email) {
   if (!email) return [];
   const tracks = (await effectiveShelf(email)) || [];
@@ -2209,19 +2214,27 @@ async function learnerCatalog(email) {
   const included = shelf.included || [], hidden = shelf.hidden || [];
   if (!tracks.length && !included.length) return [];
   const full = await getCatalog(email, null);
-  return full
-    // The learner's ACTUAL Mastery Engine — shelf tracks + individually-added sections,
-    // minus removed ones (the same specificity rule as /api/catalog). So the assistant grounds
-    // in what's really IN their engine, not every row under their tracks (that's the roadmap /
-    // full-bank view). Answers "what's in my Mastery Engine" from the real curated set.
-    .filter((t) => inEngine(t, tracks, included, hidden))
+  const out = [];
+  for (const t of full) {
+    // Active = the learner's ACTUAL Mastery Engine — shelf tracks + individually-added
+    // sections, minus removed ones (the same specificity rule as /api/catalog).
+    const active = inEngine(t, tracks, included, hidden);
+    if (!active && !hiddenMatch(t, hidden)) continue; // never on their engine — real blind spot
     // carry mastery stats too, for Coach mode's progress digest (outline ignores them)
-    .map((t) => ({ track: t.track, course: t.course, lesson: t.lesson, topic: t.topic, totalAttempts: t.totalAttempts || 0, correctCount: t.correctCount || 0 }));
+    out.push({
+      track: t.track, course: t.course, lesson: t.lesson, topic: t.topic,
+      totalAttempts: t.totalAttempts || 0, correctCount: t.correctCount || 0,
+      ...(active ? {} : { removed: true }),
+    });
+  }
+  return out;
 }
 
 /** A compact progress digest for Coach mode: overall accuracy + the topics the
- *  learner has mastered vs is weak on, so the assistant tailors its recommended path. */
-function coachDigest(rows) {
+ *  learner has mastered vs is weak on, so the assistant tailors its recommended path.
+ *  Parked (removed) rows are excluded — progress speaks to the ACTIVE engine only. */
+function coachDigest(allRows) {
+  const rows = (allRows || []).filter((r) => !r.removed);
   let attempted = 0; let sumAcc = 0; const mastered = []; const weak = [];
   for (const r of rows || []) {
     if (!r.totalAttempts) continue;
