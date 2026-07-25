@@ -95,7 +95,7 @@ import {
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
 import { deriveStats } from './lib/priority.js';
-import { DEFAULT_PROGRAM } from './lib/programs.js';
+import { DEFAULT_PROGRAM, programOf } from './lib/programs.js';
 import {
   toNode,
   buildFlowEdges,
@@ -2512,8 +2512,13 @@ function kickBackgroundLinking(rows, unlinked, ai) {
 // insights (frontier = ready to start; keystones = weak links blocking the most).
 app.get('/api/graph', requireAuth, async (req, res, next) => {
   try {
+    // Whole bank, NOT requestScope: the shelf can span programs (a data-science
+    // learner with AI-engineering tracks), and scoping the catalog to one
+    // program here silently dropped those tracks from the map. inEngine below
+    // is program-aware, so the bank narrows to exactly the learner's engine —
+    // the same pattern as /api/catalog's learner branch.
     const [catalog, links, allCards, engTracks, engShelf] = await Promise.all([
-      getCatalog(req.userEmail, await requestScope(req)),
+      getCatalog(req.userEmail, null),
       getGraphLinks(),
       getAllFlashcardsWithId(),
       effectiveShelf(req.userEmail),
@@ -2555,7 +2560,17 @@ app.get('/api/graph', requireAuth, async (req, res, next) => {
 
     const linkedIds = new Set(links.map((l) => l.id));
     const unlinked = rows.filter((r) => !linkedIds.has(r.id));
-    kickBackgroundLinking(rows, unlinked, aiChoice(req));
+    // Link one PROGRAM at a time: prereqs never cross curricula (the admin
+    // sweep's rule), so a shelf spanning programs must not hand the linker
+    // cross-program candidates. Repeat map opens work through the programs.
+    if (unlinked.length) {
+      const prog = programOf(unlinked[0]);
+      kickBackgroundLinking(
+        rows.filter((r) => programOf(r) === prog),
+        unlinked.filter((r) => programOf(r) === prog),
+        aiChoice(req),
+      );
+    }
 
     res.json({
       nodes,
