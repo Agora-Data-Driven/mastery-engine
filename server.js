@@ -45,6 +45,7 @@ import {
   getCardOverlays,
   getScopeChat,
   saveScopeChat,
+  deleteScopeChat,
   getTopicAttempts,
   listAssistantChats,
   getAssistantChat,
@@ -2145,6 +2146,19 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
     await saveScopeChat(chatUser, id, messages);
 
     res.json({ reply: out.reply, visual: out.visual });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: delete this user's saved chat thread for a lesson/course scope. Same
+// conversationUser scoping as the read/write above — you can only wipe your OWN.
+app.delete('/api/chat', requireAuth, async (req, res, next) => {
+  try {
+    const id = scopeChatId(req.query || {});
+    if (!id) return res.status(400).json({ error: 'A track/course/lesson scope is required' });
+    await deleteScopeChat(conversationUser(req), id);
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }
