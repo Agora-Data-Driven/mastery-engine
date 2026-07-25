@@ -207,13 +207,12 @@ for debugging — `effectiveUser(req)` is the identity you almost always want, *
 ### Calling an admin endpoint with curl
 
 ```powershell
-# Mint an ag_sso cookie locally (needs the same SSO_SECRET as prod)
-$ts = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
-$msg = "info@agoradatadriven.com|$ts"
-$h = New-Object System.Security.Cryptography.HMACSHA256
-$h.Key = [Text.Encoding]::UTF8.GetBytes($env:SSO_SECRET)
-$sig = [Convert]::ToBase64String($h.ComputeHash([Text.Encoding]::UTF8.GetBytes($msg))) -replace '\+','-' -replace '/','_' -replace '='
-curl.exe -s -X POST "$URL/api/admin/sequence-topics" -H "Cookie: ag_sso=$msg|$sig"
+# Mint an ag_sso cookie locally. Format (lib/auth.js verifyAgSso): base64url({sub,exp}).base64url(HMAC)
+# — NOT the old "email|ts|sig" shape. exp is unix SECONDS. Secret = platform-sso-key.
+$env:SSO_SECRET = (gcloud secrets versions access latest --secret platform-sso-key --project agora-data-driven)
+$cookie = node -e "const {createHmac}=require('crypto');const p=Buffer.from(JSON.stringify({sub:'info@agoradatadriven.com',exp:Math.floor(Date.now()/1000)+900})).toString('base64url');console.log(p+'.'+createHmac('sha256',process.env.SSO_SECRET).update(p,'ascii').digest('base64url'))"
+# POSTs through Google's frontend need a body (411 Length Required otherwise):
+curl.exe -s -X POST "$URL/api/admin/sequence-topics" -H "Cookie: ag_sso=$cookie" -H "Content-Type: application/json" -d "{}"
 ```
 
 ---
