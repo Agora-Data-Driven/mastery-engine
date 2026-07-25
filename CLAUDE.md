@@ -177,7 +177,13 @@ through them.** Branching on the legacy owner yourself is how the "no questions 
 "phantom qCount=0 docs" bugs happened.
 
 Also per-user, under `users/{email}/meta/`: `enrollment` (programs + courses), `shelf`
-(which tracks are on their Mastery Engine, plus `hidden[]` / `included[]`), `usage`.
+(which tracks are on their Mastery Engine, plus `hidden[]` / `included[]`), `usage`, and
+`ai` (the AI-provider allowlist the Team tab edits — **absent doc = Kimi only** for
+non-admins; admins are never policed).
+
+Chats (`cardChats` / `scopeChats` / `assistantChats` subcollections) are keyed by
+**`conversationUser(req)`**, not `effectiveUser(req)`: an admin's threads are their OWN,
+never the legacy owner's. Progress/stats stay on `effectiveUser`.
 
 ### The mastery formula ([lib/priority.js](lib/priority.js))
 
@@ -199,10 +205,36 @@ Resolved in [lib/auth.js](lib/auth.js). In precedence order:
 | 3 | **Email + password** | `MASTERY_LOGIN_ACCOUNTS="email:pw,email:pw"`. Mints the same cookie a Google login does. Opt-in. |
 | 4 | **Shared password** | `APP_PASSWORD`. Legacy. Blank email ⇒ this path. Signs in *as the legacy owner*. |
 
-Guards: `requireAuth` and `requireAdmin` ([auth.js:239](lib/auth.js#L239)). Admin = `MASTERY_SUPER_ADMIN`
-(`info@agoradatadriven.com`) plus the admin list. `act-as` lets an admin impersonate a learner
-for debugging — `effectiveUser(req)` is the identity you almost always want, **not**
-`currentEmail(req)`.
+Guards: `requireAuth` and `requireAdmin` ([auth.js](lib/auth.js)). **Admin = the person's SENTINEL
+role** (`super_admin`/`admin` there → admin here; interns/employees are learners) — fed to the sync
+`isAdmin()` via `setSentinelRoleResolver` over the /api gate's cached lookup. `MASTERY_SUPER_ADMIN`
+(`info@agoradatadriven.com`) + `MASTERY_ADMINS` (default: just the super admin) are the
+**break-glass override only** — they keep working when Sentinel is down; a Sentinel outage can
+briefly demote role-admins but never mint one. A portal `ag_sso clients:["*"]` grant no longer
+confers admin by itself, and only identities backed by a real per-person credential (ag_sso /
+Google cookie) can be admin: the shared `APP_PASSWORD` session never is (changed 2026-07-25).
+`act-as` lets an admin impersonate a learner for debugging, and its target must be an active
+Sentinel person (super admin exempt). Identity resolvers, pick deliberately:
+
+| Resolver | Use for | Admin default |
+|---|---|---|
+| `effectiveUser(req)` | progress, stats, quiz log | LISTED admins → `DEFAULT_ACCOUNT`; ag_sso `"*"` holders → own email |
+| `conversationUser(req)` | chats, card overlays/labels | own email (act-as still honoured) |
+| `currentEmail(req)` | the real signer (gate, rate limit) | — |
+
+**Sentinel is the source of truth for accounts** (added 2026-07-25): the `/api` middleware calls
+Sentinel's HMAC `user-lookup` (5-min cache) and 403s any signed-in email that isn't an ACTIVE
+Sentinel user. `/api/auth/*` is exempt; the super admin is break-glass; a FAILED lookup (Sentinel
+down, or no `SSO_SECRET` locally) fails open. The Google callback also refuses non-Sentinel
+accounts (`/?login=noaccount`).
+
+**Per-user AI allowlist** (added 2026-07-25): the same middleware resolves `req.aiPolicy`
+(admins → `null` = unrestricted; others → `users/{email}/meta/ai`, default `['kimi']`; guests →
+Kimi) and stores it on the usage ALS store. The HARD gate is `clampToPolicy()` inside
+`complete()`/`completeStream()` in [lib/gemini.js](lib/gemini.js) — every AI path funnels
+through it. `/api/models` is filtered per caller; the Team tab (Academy Admin station 06)
+edits grants via `GET/POST /api/admin/ai-access`; `GET /api/admin/team` is the per-person
+dashboard (progress/accuracy/attempts/explains/spend).
 
 ### Calling an admin endpoint with curl
 
