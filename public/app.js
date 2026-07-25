@@ -1435,36 +1435,31 @@ const App = (() => {
     </div>`;
   }
 
-  // "AI Support ▸" opens a panel that immediately shows three labelled groups —
-  // Warm up (prerequisites), Practice (this section), Learn (guides). The root
-  // shows just the entry button so rows stay compact; ‹ collapses back. Identical
-  // at every level, so build it once. `data-action` values are dispatched by
-  // onTreeNodeClick (shared with the Learn tab).
+  // Three entry buttons — Warm Up ▸ / Practice ▸ / Learn ▸ — each opening its own
+  // 2-button submenu. No "AI Support" umbrella button. ‹ returns to the three
+  // entries. Identical at every level; shared with the Learn tab.
   function progActionsHtml(level, scope) {
     const hasCards = level >= 1 && flashcardsEnabled(scope.course);
-    const lbl = 'font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted,#6B7280);font-weight:700';
-    const grp = 'display:inline-flex;align-items:center;gap:4px';
     return `<div class="prog-actions" data-menu="root">
           <div class="menu-group root">
-            <button class="prog-btn ai" data-action="ai" title="Warm up, practise, or learn this section">AI Support ▸</button>
+            <button class="prog-btn warm" data-action="warmup" title="Quiz / study this section's prerequisites">Warm Up ▸</button>
+            <button class="prog-btn" data-action="practice" title="Quiz / study this section">Practice ▸</button>
+            <button class="prog-btn lesson" data-action="learn" title="AI lesson / review of this section">Learn ▸</button>
           </div>
-          <div class="menu-group ai" style="flex-wrap:wrap;gap:8px;align-items:center">
+          <div class="menu-group warmup">
             <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
-            <span class="ai-grp" style="${grp}">
-              <span class="ai-grp-label" style="${lbl}">Warm&nbsp;up</span>
-              <button class="prog-btn warm" data-action="prereq-quiz" title="Quiz on this section's prerequisites">Pre-req&nbsp;Quiz</button>
-              ${hasCards ? `<button class="prog-btn warm cards" data-action="prereq-cards" title="Flashcards for this section's prerequisites">Pre-req&nbsp;Cards</button>` : ''}
-            </span>
-            <span class="ai-grp" style="${grp}">
-              <span class="ai-grp-label" style="${lbl}">Practice</span>
-              <button class="prog-btn" data-action="quiz" title="Quiz on this section">Quiz</button>
-              ${hasCards ? `<button class="prog-btn cards" data-action="cards" title="Flashcards for this section">Cards</button>` : ''}
-            </span>
-            <span class="ai-grp" style="${grp}">
-              <span class="ai-grp-label" style="${lbl}">Learn</span>
-              <button class="prog-btn lesson" data-action="lesson" title="A lesson that builds on this section's prerequisites">Lesson</button>
-              <button class="prog-btn review" data-action="review" title="AI teaches this section from scratch">Review</button>
-            </span>
+            <button class="prog-btn warm" data-action="prereq-quiz" title="Quiz on this section's prerequisites">Pre-req Quiz</button>
+            ${hasCards ? `<button class="prog-btn warm cards" data-action="prereq-cards" title="Flashcards for this section's prerequisites">Pre-req Cards</button>` : ''}
+          </div>
+          <div class="menu-group practice">
+            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
+            <button class="prog-btn" data-action="quiz" title="Quiz on this section">Quiz</button>
+            ${hasCards ? `<button class="prog-btn cards" data-action="cards" title="Flashcards for this section">Cards</button>` : ''}
+          </div>
+          <div class="menu-group learn">
+            <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
+            <button class="prog-btn lesson" data-action="lesson" title="A lesson that builds on this section's prerequisites">Lesson</button>
+            <button class="prog-btn review" data-action="review" title="AI teaches this section from scratch">Review</button>
           </div>
         </div>`;
   }
@@ -5622,7 +5617,12 @@ const App = (() => {
         const act = actionBtn.dataset.action;
         const menu = actionBtn.closest('.prog-actions');
         // AI Support opens the action group; ‹ goes back to the compact row.
-        if (act === 'ai') { if (menu) menu.dataset.menu = act; return; }
+        // Warm Up / Practice / Learn open their own 2-button submenu; ‹ returns
+        // to the three entry buttons.
+        if (act === 'warmup' || act === 'practice' || act === 'learn') {
+          if (menu) menu.dataset.menu = act;
+          return;
+        }
         if (act === 'back') { if (menu) menu.dataset.menu = 'root'; return; }
         if (act === 'quiz') quizFromScope(scope);
         else if (act === 'prereq-quiz') prereqQuizFromScope(scope);
