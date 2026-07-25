@@ -1159,13 +1159,15 @@ const App = (() => {
       const dataAttrs = LEVEL_KEYS.filter((k) => s[k] != null).map((k) => `data-${k}="${esc(s[k])}"`).join(' ')
         + (s.program ? ` data-program="${esc(s.program)}"` : '');
       return `<div class="prog-node learn-item" ${dataAttrs} data-label="${esc(s.topic)}">
-        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line,#E7E8EE);border-radius:12px;margin-bottom:10px;flex-wrap:wrap">
-          <div style="flex:1;min-width:140px">
-            <div style="font-weight:700">${esc(s.topic)}</div>
-            <div style="color:var(--muted,#6B7280);font-size:12.5px">${esc(where)} · ${esc(status)}</div>
+        <div style="border:1px solid var(--line,#E7E8EE);border-radius:12px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:12px;padding:12px 14px">
+            <div style="flex:1;min-width:140px">
+              <div style="font-weight:700">${esc(s.topic)}</div>
+              <div style="color:var(--muted,#6B7280);font-size:12.5px">${esc(where)} · ${esc(status)}</div>
+            </div>
+            <span style="white-space:nowrap;font-weight:700;font-size:12.5px;color:${b.color}">${esc(b.text)}</span>
           </div>
-          <span style="white-space:nowrap;font-weight:700;font-size:12.5px;color:${b.color}">${esc(b.text)}</span>
-          ${progActionsHtml(3, scope)}
+          <div class="prog-actions-line" style="padding-left:14px">${progActionsHtml(3, scope)}</div>
         </div>
       </div>`;
     }).join('');
@@ -1517,7 +1519,6 @@ const App = (() => {
           <span class="prog-name" title="${esc(displayName)}">${esc(displayName)}</span>
           <span class="prog-sub">${esc(sub)}</span>
         </div>
-        ${actions}
         ${corner}`
       : `<span class="prog-caret">${hasKids ? '▸' : ''}</span>
         <span class="prog-dot" style="color:${color};background:${color}"></span>
@@ -1529,13 +1530,13 @@ const App = (() => {
           <span class="mini-bar"><span class="mini-fill" style="width:${pct}%;background:${color}"></span></span>
           <span class="prog-pct" style="color:${color}">${pct}%</span>
         </div>
-        ${actions}
         ${corner}`;
 
     return `<div class="prog-node ${hasKids ? 'has-children' : ''}" data-level="${level}" data-eng="${membership}" data-label="${esc(node.name)}" ${dataAttrs}>
       <div class="prog-row ${isTrack ? 'track-row' : ''}"${isTrack ? '' : ` style="padding-left:${level * 16}px"`}>
         ${rowInner}
       </div>
+      <div class="prog-actions-line" style="padding-left:${isTrack ? 18 : level * 16 + 16}px">${actions}</div>
       ${childHtml}
     </div>`;
   }
