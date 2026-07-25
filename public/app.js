@@ -5648,9 +5648,17 @@ const App = (() => {
         return; // don't also toggle the row
       }
       const row = e.target.closest('.prog-row');
-      if (!row) return;
-      const node = row.parentElement;
-      if (node.classList.contains('has-children')) node.classList.toggle('open');
+      if (row) {
+        const node = row.parentElement;
+        // Tapping the row reveals/hides its action line (the touch affordance —
+        // desktop also gets it on hover) and, for branches, toggles expansion.
+        node.classList.toggle('show-actions');
+        if (node.classList.contains('has-children')) node.classList.toggle('open');
+        return;
+      }
+      // Learn-tab cards have no .prog-row — tapping the card body reveals actions.
+      const item = e.target.closest('.learn-item');
+      if (item) item.classList.toggle('show-actions');
     }
     $('progressTree').addEventListener('click', onTreeNodeClick);
     $('roadmapStages')?.addEventListener('click', onTreeNodeClick);
