@@ -826,8 +826,6 @@ const App = (() => {
     $('multiSelect').classList.toggle('hidden', isGen);
     $('cascadeSelect').classList.toggle('hidden', !isGen);
     $('genExtras').classList.toggle('hidden', !isGen);
-    // The warm-up toggle only makes sense for the Live Quiz (a set of topics).
-    const lw = $('liveWarmupWrap'); if (lw) lw.classList.toggle('hidden', isGen);
     if (isGen) {
       $('setupTitle').textContent = 'Generate mastery questions';
       $('setupSub').textContent = 'Pick a scope and let the Wise Teacher write harder questions into your bank.';
@@ -1076,16 +1074,7 @@ const App = (() => {
         const topics = [...ms.selected];
         if (!topics.length) { alert('Pick at least one track, course, or unit to quiz on.'); return; }
         const count = clampCountClient($('count').value);
-        let qs = [];
-        // Optional warm-up: quiz the prerequisites of the ticked topics first, in
-        // the same session (best-effort — never blocks the quiz).
-        if ($('liveWarmup') && $('liveWarmup').checked) {
-          try {
-            const w = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify({ topics, count: 5 }) });
-            if (w.questions && w.questions.length) qs = qs.concat(w.questions);
-          } catch { /* warm-up is best-effort */ }
-        }
-        qs = qs.concat(await getQuizMulti(topics, count));
+        const qs = await getQuizMulti(topics, count);
         startQuiz(qs);
       }
     } catch (e) {
@@ -1156,6 +1145,9 @@ const App = (() => {
     }
   }
 
+  // Each suggested topic is a .prog-node carrying its scope in data-*, with the
+  // SAME "AI Support ▸" panel (Warm up / Practice / Learn) as the Master tree —
+  // wired through the shared onTreeNodeClick handler. No bespoke launchers.
   function renderLearnList(items) {
     const list = $('learnList');
     if (!items.length) { $('learnEmpty').classList.remove('hidden'); list.innerHTML = ''; return; }
@@ -1163,68 +1155,20 @@ const App = (() => {
       const b = readyBadge(s.readiness);
       const where = [s.course, s.lesson].filter(Boolean).join(' › ');
       const status = s.attempts ? `${s.accuracy}% so far` : 'new';
-      return `<div class="learn-item" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line,#E7E8EE);border-radius:12px;margin-bottom:10px">
-        <div style="flex:1;min-width:0">
-          <div style="font-weight:700">${esc(s.topic)}</div>
-          <div style="color:var(--muted,#6B7280);font-size:12.5px">${esc(where)} · ${esc(status)}</div>
+      const scope = { track: s.track, course: s.course, lesson: s.lesson, topic: s.topic, program: s.program };
+      const dataAttrs = LEVEL_KEYS.filter((k) => s[k] != null).map((k) => `data-${k}="${esc(s[k])}"`).join(' ')
+        + (s.program ? ` data-program="${esc(s.program)}"` : '');
+      return `<div class="prog-node learn-item" ${dataAttrs} data-label="${esc(s.topic)}">
+        <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line,#E7E8EE);border-radius:12px;margin-bottom:10px;flex-wrap:wrap">
+          <div style="flex:1;min-width:140px">
+            <div style="font-weight:700">${esc(s.topic)}</div>
+            <div style="color:var(--muted,#6B7280);font-size:12.5px">${esc(where)} · ${esc(status)}</div>
+          </div>
+          <span style="white-space:nowrap;font-weight:700;font-size:12.5px;color:${b.color}">${esc(b.text)}</span>
+          ${progActionsHtml(3, scope)}
         </div>
-        <span style="white-space:nowrap;font-weight:700;font-size:12.5px;color:${b.color}">${esc(b.text)}</span>
-        <span style="display:flex;gap:6px">
-          <button class="btn btn-ghost" style="padding:6px 12px" onclick="App.startLearn('${esc(s.id)}','quiz')">Learn ▸</button>
-          <button class="btn btn-ghost" style="padding:6px 10px" onclick="App.startLearn('${esc(s.id)}','cards')" title="Flashcards">🃏</button>
-        </span>
       </div>`;
     }).join('');
-  }
-
-  // Start learning a shortlist topic: warm up on its prerequisites, then the topic.
-  async function startLearn(id, kind) {
-    const s = learnState.byId[id];
-    if (!s) return;
-    const scope = { track: s.track, course: s.course, lesson: s.lesson, topic: s.topic };
-    const warmup = $('learnWarmup').checked;
-    setLoading(true);
-    try {
-      if (kind === 'cards') { await learnCardsFor(scope, warmup); return; }
-      // Quiz: prerequisite warm-up questions THEN the topic's own, in one session.
-      let qs = [];
-      if (warmup) {
-        const w = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify({ ...scope, count: 5 }) });
-        if (w.questions && w.questions.length) qs = qs.concat(w.questions);
-      }
-      const topicQs = await getQuiz('/api/quiz/select', { ...scope, count: 8 });
-      if (topicQs && topicQs.length) qs = qs.concat(topicQs);
-      if (!qs.length) { alert('No questions exist for this topic yet.'); return; }
-      startQuiz(qs);
-    } catch (e) {
-      alert('Error: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function learnCardsFor(scope, warmup) {
-    if (warmup) {
-      const r = await api('/api/flashcards/warmup', { method: 'POST', body: JSON.stringify(scope) });
-      if (r.cards && r.cards.length) {
-        // A warm-up deck spans several prereq topics — mirror the mastery-deck setup
-        // (no single scope to regenerate) and render it directly.
-        fc.mastery = false; fc.scope = null; fc.label = 'Warm-up'; fc.highway = false;
-        fc.statsOpen = false; fc._statsByTopic = {};
-        $('fcHighway').checked = false;
-        $('fcRegen').classList.add('hidden');
-        showOnly('flashcardView');
-        $('fcTitle').textContent = 'Warm-up flashcards';
-        $('fcSub').textContent = "Prerequisite cards for the topic you're about to learn.";
-        $('fcError').textContent = '';
-        $('fcDeck').classList.add('hidden');
-        $('fcEmpty').classList.add('hidden');
-        renderDeck(r.cards);
-        return;
-      }
-    }
-    // Ready, or prereqs have no decks: open the topic's own deck.
-    await openFlashcards(scope, scope.topic && !isAllVal(scope.topic) ? scope.topic : scope.lesson);
   }
 
   /* ------------------------------- Stats --------------------------------- */
@@ -1491,23 +1435,36 @@ const App = (() => {
     </div>`;
   }
 
-  // One action group behind an "AI Support ▸" entry: Quiz, Cards (where the
-  // course has decks) and Review all live under it. The root shows just the
-  // entry button so rows stay compact; ‹ collapses back. Identical at every
-  // level, so build it once.
+  // "AI Support ▸" opens a panel that immediately shows three labelled groups —
+  // Warm up (prerequisites), Practice (this section), Learn (guides). The root
+  // shows just the entry button so rows stay compact; ‹ collapses back. Identical
+  // at every level, so build it once. `data-action` values are dispatched by
+  // onTreeNodeClick (shared with the Learn tab).
   function progActionsHtml(level, scope) {
+    const hasCards = level >= 1 && flashcardsEnabled(scope.course);
+    const lbl = 'font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted,#6B7280);font-weight:700';
+    const grp = 'display:inline-flex;align-items:center;gap:4px';
     return `<div class="prog-actions" data-menu="root">
           <div class="menu-group root">
-            <button class="prog-btn ai" data-action="ai" title="Quiz, study cards or AI review for this section">AI Support ▸</button>
+            <button class="prog-btn ai" data-action="ai" title="Warm up, practise, or learn this section">AI Support ▸</button>
           </div>
-          <div class="menu-group ai">
+          <div class="menu-group ai" style="flex-wrap:wrap;gap:8px;align-items:center">
             <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
-            <button class="prog-btn" data-action="quiz" title="Live quiz on this section">Quiz</button>
-            ${level >= 1 && flashcardsEnabled(scope.course)
-              ? `<button class="prog-btn cards" data-action="cards" title="Study flashcards for this section">Cards</button>`
-              : ''}
-            <button class="prog-btn review" data-action="review" title="AI teaches this section from scratch">Review</button>
-            <button class="prog-btn lesson" data-action="lesson" title="A lesson that builds on this section's prerequisites">Lesson</button>
+            <span class="ai-grp" style="${grp}">
+              <span class="ai-grp-label" style="${lbl}">Warm&nbsp;up</span>
+              <button class="prog-btn warm" data-action="prereq-quiz" title="Quiz on this section's prerequisites">Pre-req&nbsp;Quiz</button>
+              ${hasCards ? `<button class="prog-btn warm cards" data-action="prereq-cards" title="Flashcards for this section's prerequisites">Pre-req&nbsp;Cards</button>` : ''}
+            </span>
+            <span class="ai-grp" style="${grp}">
+              <span class="ai-grp-label" style="${lbl}">Practice</span>
+              <button class="prog-btn" data-action="quiz" title="Quiz on this section">Quiz</button>
+              ${hasCards ? `<button class="prog-btn cards" data-action="cards" title="Flashcards for this section">Cards</button>` : ''}
+            </span>
+            <span class="ai-grp" style="${grp}">
+              <span class="ai-grp-label" style="${lbl}">Learn</span>
+              <button class="prog-btn lesson" data-action="lesson" title="A lesson that builds on this section's prerequisites">Lesson</button>
+              <button class="prog-btn review" data-action="review" title="AI teaches this section from scratch">Review</button>
+            </span>
           </div>
         </div>`;
   }
@@ -1816,7 +1773,7 @@ const App = (() => {
     // The set of topic ids currently in the learner's engine, so each roadmap node
     // shows the right ＋ (add) / ✓ (remove) state.
     const personalIds = new Set(state.catalog.map((r) => r.id));
-    $('roadmapStages').innerHTML = rm.stages.map((s, i) => renderRoadmapStage(s, i, personalIds)).join('');
+    $('roadmapStages').innerHTML = rm.stages.map((s, i) => renderRoadmapStage(s, i, personalIds, rm)).join('');
     window.scrollTo(0, 0);
   }
 
@@ -1824,7 +1781,7 @@ const App = (() => {
   // the Mastery Engine uses — built over just the topics this stage covers — with the
   // ＋/✓ engine toggle on every node. metric 'all' rolls the rings up over the whole
   // path (a roadmap shows progress toward the goal regardless of what you've added).
-  function renderRoadmapStage(stage, i, personalIds) {
+  function renderRoadmapStage(stage, i, personalIds, rm) {
     const rows = itemsRows(stage.items);
     const p = rollRows(rows);
     const color = accColor(p.pct);
@@ -1835,6 +1792,20 @@ const App = (() => {
       return oa !== ob ? oa - ob : byName(a, b);
     });
     const num = String(i + 1).padStart(2, '0');
+
+    // A single-stage roadmap holding ONE whole track is a "premade Mastery Engine":
+    // the roadmap header already names the track, so a stage frame plus a track card
+    // would repeat that name twice more. Skip both and open straight onto the
+    // track's course rows (the same rows the ME tree shows inside a track).
+    if (rm && (rm.stages || []).length === 1 && tracks.length === 1
+        && (stage.items || []).length && (stage.items || []).every((it) => (it.level || 'topic') === 'track')) {
+      const t = tracks[0];
+      const courses = [...t.children.values()].sort((a, b) => byCourseName(a.name, b.name));
+      const body = courses
+        .map((c) => renderProgressNode(c, 1, { track: t.name, course: c.name, program: t.program }, { metric: 'all' }))
+        .join('');
+      return `<div class="rm-stage-tree prog-tree">${body}</div>`;
+    }
 
     // Single-track stage (the common shape — e.g. each Data Science stage IS one
     // track): don't repeat the track as both a stage header AND a card below it.
@@ -2035,6 +2006,45 @@ const App = (() => {
         return;
       }
       startQuiz(qs);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
+  // Warm-up quiz: questions drawn from this section's PREREQUISITES (not the
+  // section itself). Empty when the learner is already solid on them.
+  async function prereqQuizFromScope(scope) {
+    try {
+      const count = clampCountClient($('count').value);
+      const r = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify({ ...scope, count }) });
+      if (r.questions && r.questions.length) { startQuiz(r.questions); return; }
+      alert(r.readiness && r.readiness.tier === 'unknown'
+        ? "No prerequisite map for this section yet."
+        : "You're already solid on this section's prerequisites — nothing to warm up.");
+    } catch (e) {
+      alert('Error: ' + e.message);
+    }
+  }
+
+  // Warm-up flashcards: cards from this section's PREREQUISITES.
+  async function prereqCardsFromScope(scope) {
+    try {
+      const r = await api('/api/flashcards/warmup', { method: 'POST', body: JSON.stringify(scope) });
+      if (r.cards && r.cards.length) {
+        fc.mastery = false; fc.scope = null; fc.label = 'Warm-up'; fc.highway = false;
+        fc.statsOpen = false; fc._statsByTopic = {};
+        $('fcHighway').checked = false;
+        $('fcRegen').classList.add('hidden');
+        showOnly('flashcardView');
+        $('fcTitle').textContent = 'Warm-up flashcards';
+        $('fcSub').textContent = "Prerequisite cards for this section.";
+        $('fcError').textContent = '';
+        $('fcDeck').classList.add('hidden');
+        $('fcEmpty').classList.add('hidden');
+        renderDeck(r.cards);
+        return;
+      }
+      alert("No prerequisite flashcards to warm up on for this section.");
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -5615,6 +5625,8 @@ const App = (() => {
         if (act === 'ai') { if (menu) menu.dataset.menu = act; return; }
         if (act === 'back') { if (menu) menu.dataset.menu = 'root'; return; }
         if (act === 'quiz') quizFromScope(scope);
+        else if (act === 'prereq-quiz') prereqQuizFromScope(scope);
+        else if (act === 'prereq-cards') prereqCardsFromScope(scope);
         else if (act === 'review') reviewFromScope(scope, node.dataset.label);
         else if (act === 'lesson') lessonFromScope(scope, node.dataset.label);
         else if (act === 'cards') openFlashcards(scope, node.dataset.label);
@@ -5629,6 +5641,7 @@ const App = (() => {
     }
     $('progressTree').addEventListener('click', onTreeNodeClick);
     $('roadmapStages')?.addEventListener('click', onTreeNodeClick);
+    $('learnList')?.addEventListener('click', onTreeNodeClick); // Learn-tab shortlist reuses the same panel
 
     // Grouped dropdown mode-nav (open/close menus).
     wireModeNav();
@@ -5969,7 +5982,7 @@ const App = (() => {
     fixQuestionFormat, fixCardFormat,
     toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
-    setIntent, startLearn,
+    setIntent,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     toggleGenMore, generateSimilar,

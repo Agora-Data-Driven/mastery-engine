@@ -2587,9 +2587,13 @@ app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
     const rows = catalog.filter((r) => r.topic);
     const linkedIds = new Set(links.map((l) => l.id));
     const pending = req.query.refresh === '1' ? rows : rows.filter((r) => !linkedIds.has(r.id));
-    const todo = pending.slice(0, max);
+    // `refresh=1` re-links ALL rows in a stable order — page it with `offset` so a
+    // program with >max topics can be swept fully (max caps at 600/call).
+    const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
+    const todo = pending.slice(offset, offset + max);
     const linked = await linkTopics(rows, todo, aiChoice(req));
-    res.json({ ok: true, linked, remaining: Math.max(0, pending.length - todo.length) });
+    const nextOffset = offset + todo.length;
+    res.json({ ok: true, linked, nextOffset, remaining: Math.max(0, pending.length - nextOffset) });
   } catch (e) {
     next(e);
   }
@@ -2750,6 +2754,7 @@ app.get('/api/learn/next', requireAuth, async (req, res, next) => {
       else { score = r.score; tier = r.tier; sortScore = r.score; }
       return {
         id: n.id, topic: n.topic, track: n.track, course: n.course, lesson: n.lesson,
+        program: rowById.get(n.id)?.program,
         attempts: n.attempts, accuracy: n.accuracy, readiness: { score, tier }, _s: sortScore,
       };
     });
