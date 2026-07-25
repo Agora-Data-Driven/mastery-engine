@@ -67,9 +67,13 @@
     <!-- ============================= Setup ============================= -->
     <section id="setupView" class="hidden">
       <div class="card">
-        <div class="master-eyebrow hidden" id="masterEyebrow" style="display:flex;align-items:baseline;gap:8px;margin:0 0 8px;">
-          <span class="eyebrow" style="margin:0">Master</span>
-          <span style="color:var(--muted,#6B7280);font-size:12.5px">Retain what you've already learned — drill your weakest topics.</span>
+        <!-- Top-level intent: LEARN something new vs MASTER (retain) what you have. -->
+        <div class="intent-toggle hidden" id="intentToggle"
+             style="display:flex;gap:6px;background:var(--surface-2,#f1f2f6);padding:4px;border-radius:13px;margin:0 0 16px;">
+          <button type="button" class="intent-btn" data-intent="LEARN" onclick="App.setIntent('LEARN')"
+                  style="flex:1;padding:9px 12px;border:0;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;background:transparent;color:var(--muted,#6B7280);">Learn</button>
+          <button type="button" class="intent-btn" data-intent="MASTER" onclick="App.setIntent('MASTER')"
+                  style="flex:1;padding:9px 12px;border:0;border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;background:transparent;color:var(--muted,#6B7280);">Master</button>
         </div>
         <div class="launch-row hidden" id="priorityBtnRow">
           <button class="launch-tile" id="priorityBtn" onclick="App.launchPriority()">
@@ -97,12 +101,11 @@
           <!-- Grouped dropdown nav (replaces the flat 5-tab segment). Each trigger
                relabels to its active child so the current view is always visible. -->
           <div class="modenav" id="modeNav">
-            <div class="modenav-group" data-group-label="Learn">
+            <div class="modenav-group" data-group-label="Engine">
               <button type="button" class="modenav-trigger" aria-haspopup="true" aria-expanded="false">
                 <span class="mn-label">Mastery Engine</span><span class="mn-caret" aria-hidden="true">▾</span>
               </button>
               <div class="modenav-menu" role="menu">
-                <button type="button" role="menuitem" data-mode="LEARN" onclick="App.setMode('LEARN')">Learn a Topic</button>
                 <button type="button" role="menuitem" data-mode="PROGRESS" onclick="App.setMode('PROGRESS')">Mastery Engine</button>
                 <button type="button" role="menuitem" data-mode="ROADMAP" onclick="App.setMode('ROADMAP')">Roadmaps</button>
                 <button type="button" role="menuitem" data-mode="VIDEOS" onclick="App.setMode('VIDEOS')">Video Lessons</button>
@@ -137,6 +140,10 @@
               <button type="button" class="ms-clear" id="msClear" onclick="App.msClear()">Clear</button>
             </div>
             <div id="msTree" class="ms-tree"></div>
+            <label id="liveWarmupWrap" style="display:flex;align-items:center;gap:10px;margin:12px 2px 0;cursor:pointer;font-size:13.5px;">
+              <input type="checkbox" id="liveWarmup" />
+              <span><b>Warm up on prerequisites first</b> <span style="color:var(--muted,#6B7280)">— quiz what these topics build on, before the quiz itself. Skippable.</span></span>
+            </label>
           </div>
 
           <!-- Cascading single-scope selects (Generate mode). -->
@@ -180,34 +187,24 @@
 
           <button class="btn btn-primary btn-block btn-lg" id="launchBtn" onclick="App.launchManual()">Launch Engine</button>
           <div class="loader hidden" id="setupLoader"><div class="spinner"></div> Connecting to engine...</div>
+        </div>
 
-          <!-- LEARN mode: optional warm-up on prerequisites + a readiness diagnosis,
-               then start the topic itself (first-exposure quiz / flashcards). -->
-          <div id="learnActions" class="hidden">
-            <label class="learn-warmup" style="display:flex;align-items:center;gap:10px;margin:2px 0 14px;cursor:pointer;font-size:14px;">
-              <input type="checkbox" id="learnWarmup" checked />
-              <span><b>Warm up on prerequisites first</b><br>
-                <span style="color:var(--muted,#6B7280);font-size:12.5px">Quiz the things this topic builds on before you start. Skippable.</span>
-              </span>
-            </label>
-
-            <button class="btn btn-ghost btn-block" id="readinessBtn" onclick="App.checkReadiness()">
-              <span aria-hidden="true">🎯</span> Check my readiness
-            </button>
-            <div id="readinessPanel" class="ai-box hidden" style="margin-top:12px"></div>
-
-            <div class="launch-row" style="margin-top:14px">
-              <button class="launch-tile" id="learnQuizBtn" onclick="App.launchLearnQuiz()">
-                <span class="lt-txt"><b>Learn Quiz</b><em>Warm-up, then the new topic</em></span>
-                <span class="lt-go" aria-hidden="true">→</span>
-              </button>
-              <button class="launch-tile violet" id="learnCardsBtn" onclick="App.launchLearnCards()">
-                <span class="lt-txt"><b>Learn Flashcards</b><em>Prereq cards, then the topic</em></span>
-                <span class="lt-go" aria-hidden="true">→</span>
-              </button>
-            </div>
-            <div class="loader hidden" id="learnLoader"><div class="spinner"></div> Building your warm-up…</div>
-          </div>
+        <!-- --------------------- Learn (new topics) ---------------------- -->
+        <!-- LEARN intent: a ranked shortlist of what to learn next (auto-chosen,
+             readiness-ordered), with warm-up on prerequisites built in. -->
+        <div id="learnPanel" class="hidden">
+          <h2 class="section-title">Learn something new</h2>
+          <p class="section-sub">Suggested next topics from your Mastery Engine, ordered by what you're most ready for. Pick one — we'll warm you up on its prerequisites, then teach it.</p>
+          <label style="display:flex;align-items:center;gap:10px;margin:2px 0 10px;cursor:pointer;font-size:13.5px;">
+            <input type="checkbox" id="learnWarmup" checked />
+            <span><b>Warm up on prerequisites first</b> <span style="color:var(--muted,#6B7280)">— skippable</span></span>
+          </label>
+          <div class="loader hidden" id="learnLoader"><div class="spinner"></div> Finding what to learn next…</div>
+          <div id="learnList" class="learn-list"></div>
+          <p id="learnEmpty" class="section-sub hidden" style="text-align:center;margin:24px 0 0">
+            You've started everything in your Mastery Engine. Add more from <b>Master → Mastery Engine → ＋ Customize</b>.
+          </p>
+          <div id="learnError" class="error-text" style="margin-top:10px"></div>
         </div>
 
         <!-- ------------------------ Progress tree ------------------------ -->

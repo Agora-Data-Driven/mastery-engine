@@ -663,10 +663,39 @@ const App = (() => {
   function configureSetupForMode() {
     const mastery = state.authed && !state.guest;
     $('genModeWrap').classList.toggle('hidden', !mastery);
+    // The top-level Master/Learn toggle is only for signed-in learners.
+    $('intentToggle').classList.toggle('hidden', !mastery);
     // Mastery users land on "My Progress" (their dashboard); guests (no mode switcher) fall back to
     // the quiz builder. Sentinel's Academy passes ?home=quiz so it opens straight into the courses
     // (progress lives in Sentinel's Development hub now), skipping our own progress dashboard.
-    setMode(mastery ? (START_MODE === 'quiz' ? 'QUIZ' : 'PROGRESS') : 'QUIZ');
+    if (!state.mode) state.mode = mastery ? (START_MODE === 'quiz' ? 'QUIZ' : 'PROGRESS') : 'QUIZ';
+    // Default to MASTER (the existing app); Learn is the new acquisition surface.
+    setIntent(mastery ? (state.intent || 'MASTER') : 'MASTER');
+  }
+
+  // Top-level intent: LEARN (auto-suggested new topics + warm-up) vs MASTER (the
+  // existing practice surface: mastery drills, progress tree, roadmaps, live quiz).
+  function setIntent(intent) {
+    state.intent = intent;
+    const learn = intent === 'LEARN';
+    const mastery = state.authed && !state.guest;
+    document.querySelectorAll('#intentToggle [data-intent]').forEach((b) => {
+      const on = b.dataset.intent === intent;
+      b.style.background = on ? 'var(--surface,#fff)' : 'transparent';
+      b.style.color = on ? 'var(--text,#0c1022)' : 'var(--muted,#6B7280)';
+      b.style.boxShadow = on ? '0 1px 2px rgba(16,24,40,.10)' : 'none';
+    });
+    $('learnPanel').classList.toggle('hidden', !learn);
+    $('genModeWrap').classList.toggle('hidden', learn || !mastery);
+    $('priorityBtnRow').classList.toggle('hidden', learn || !mastery);
+    if (learn) {
+      ['quizBuilder', 'progressPanel', 'roadmapPanel', 'videoPanel'].forEach((id) => {
+        const el = $(id); if (el) el.classList.add('hidden');
+      });
+      loadLearnNext();
+    } else {
+      setMode(state.mode || 'PROGRESS'); // restore the right Master panel
+    }
   }
 
   function setMode(mode) {
@@ -685,12 +714,9 @@ const App = (() => {
     if (rp) rp.classList.toggle('hidden', !isRoadmap);
     const vp = $('videoPanel');
     if (vp) vp.classList.toggle('hidden', !isVideos);
-    // Mastery Quiz / Flashcards CTAs are available to mastery users on EVERY tab
-    // (including My Progress) — they sit above the mode segment so they render on all.
-    // They're the "Master" side (retention); the eyebrow frames them as such.
+    // Mastery Quiz / Flashcards CTAs are available to mastery users on EVERY Master
+    // tab (including My Progress) — they sit above the mode segment so they render on all.
     $('priorityBtnRow').classList.toggle('hidden', !mastery);
-    const me = $('masterEyebrow');
-    if (me) me.classList.toggle('hidden', !mastery);
 
     if (isProgress) renderProgressTree();
     else if (isRoadmap) renderRoadmapList();
@@ -796,24 +822,17 @@ const App = (() => {
 
   function updateSetupCopy() {
     const isGen = state.mode === 'GEN';
-    const isLearn = state.mode === 'LEARN';
-    // Live Quiz uses the multi-select tree; Generate + Learn use the single-scope selects.
-    const cascade = isGen || isLearn;
-    $('multiSelect').classList.toggle('hidden', cascade);
-    $('cascadeSelect').classList.toggle('hidden', !cascade);
+    // Live Quiz uses the multi-select tree; Generate keeps the single-scope selects.
+    $('multiSelect').classList.toggle('hidden', isGen);
+    $('cascadeSelect').classList.toggle('hidden', !isGen);
     $('genExtras').classList.toggle('hidden', !isGen);
-    // Learn replaces the normal Launch button with its warm-up / readiness panel.
-    $('learnActions').classList.toggle('hidden', !isLearn);
-    $('launchBtn').classList.toggle('hidden', isLearn);
-    if (!isLearn) { const rp = $('readinessPanel'); if (rp) rp.classList.add('hidden'); }
+    // The warm-up toggle only makes sense for the Live Quiz (a set of topics).
+    const lw = $('liveWarmupWrap'); if (lw) lw.classList.toggle('hidden', isGen);
     if (isGen) {
       $('setupTitle').textContent = 'Generate mastery questions';
       $('setupSub').textContent = 'Pick a scope and let the Wise Teacher write harder questions into your bank.';
       $('launchBtn').textContent = 'Generate Questions';
       loadGenSources();
-    } else if (isLearn) {
-      $('setupTitle').textContent = 'Learn a new topic';
-      $('setupSub').textContent = "Pick something you haven't mastered yet. We'll check its prerequisites and warm you up before you start.";
     } else {
       $('setupTitle').textContent = 'Build your quiz';
       $('setupSub').textContent = 'Search and tick any mix of tracks, courses, and units to quiz on.';
@@ -1057,7 +1076,16 @@ const App = (() => {
         const topics = [...ms.selected];
         if (!topics.length) { alert('Pick at least one track, course, or unit to quiz on.'); return; }
         const count = clampCountClient($('count').value);
-        const qs = await getQuizMulti(topics, count);
+        let qs = [];
+        // Optional warm-up: quiz the prerequisites of the ticked topics first, in
+        // the same session (best-effort — never blocks the quiz).
+        if ($('liveWarmup') && $('liveWarmup').checked) {
+          try {
+            const w = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify({ topics, count: 5 }) });
+            if (w.questions && w.questions.length) qs = qs.concat(w.questions);
+          } catch { /* warm-up is best-effort */ }
+        }
+        qs = qs.concat(await getQuizMulti(topics, count));
         startQuiz(qs);
       }
     } catch (e) {
@@ -1094,82 +1122,79 @@ const App = (() => {
   }
 
   /* ------------------------------- Learn --------------------------------- */
-  // The Learn tab: pick a NEW topic, optionally warm up on its prerequisites, and
-  // get a readiness diagnosis. All the real work (prereq closure, readiness score,
-  // warm-up composition) is server-side pure logic — this is just the UI.
+  // LEARN intent: the server picks a ranked shortlist of NEW topics (readiness-
+  // ordered) via /api/learn/next; starting one warms you up on its prerequisites
+  // (quiz or cards) and then teaches the topic itself. Pure-logic backend.
   const isAllVal = (v) => !v || v === 'Review All' || v === '-- N/A --';
+  const learnState = { byId: {} };
 
-  function tierCopy(tier, score) {
-    const s = score != null ? ` (${score}%)` : '';
-    if (tier === 'ready') return { label: `Ready to start${s}`, note: 'Your prerequisites look solid.' };
-    if (tier === 'warmup') return { label: `Almost ready${s}`, note: 'A quick warm-up on the weak spots will help.' };
-    if (tier === 'drill') return { label: `Not ready yet${s}`, note: 'Drill these prerequisites first — you can still learn anyway.' };
-    return { label: 'Readiness unknown', note: "The prerequisite map for this topic is still building. Try again shortly." };
+  function readyBadge(r) {
+    const tier = r && r.tier;
+    const score = r && r.score;
+    if (tier === 'ready') return { text: score != null ? `${score}% ready` : 'ready to start', color: 'var(--green,#16a34a)' };
+    if (tier === 'warmup') return { text: `${score}% ready`, color: 'var(--warning,#d97706)' };
+    if (tier === 'drill') return { text: `${score}% ready`, color: 'var(--error,#dc2626)' };
+    return { text: 'map building…', color: 'var(--muted,#6B7280)' };
   }
 
-  function renderReadiness(data) {
-    const panel = $('readinessPanel');
-    if (!panel) return;
-    const t = tierCopy(data.tier, data.score);
-    const weak = data.weak || [];
-    const rows = weak.map((w) => {
-      const acc = w.attempts ? `${w.accuracy}%` : 'never tried';
-      const good = w.attempts && w.accuracy >= 70;
-      const crit = w.w >= 3 ? ' · <span style="color:var(--error,#dc2626);font-weight:700">critical</span>' : '';
-      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line,#E7E8EE)">
-        <span>${esc(w.topic)}${crit}<br><span style="color:var(--muted,#6B7280);font-size:12px">${esc(w.why || w.course || '')}</span></span>
-        <span style="white-space:nowrap;color:${good ? 'var(--green,#16a34a)' : 'var(--error,#dc2626)'}">${esc(acc)}</span>
+  async function loadLearnNext() {
+    const list = $('learnList');
+    if (!list) return;
+    $('learnEmpty').classList.add('hidden');
+    $('learnError').textContent = '';
+    $('learnLoader').classList.remove('hidden');
+    list.innerHTML = '';
+    try {
+      const { suggestions } = await api('/api/learn/next');
+      learnState.byId = {};
+      (suggestions || []).forEach((s) => { learnState.byId[s.id] = s; });
+      renderLearnList(suggestions || []);
+    } catch (e) {
+      $('learnError').textContent = "Couldn't load suggestions: " + e.message;
+    } finally {
+      $('learnLoader').classList.add('hidden');
+    }
+  }
+
+  function renderLearnList(items) {
+    const list = $('learnList');
+    if (!items.length) { $('learnEmpty').classList.remove('hidden'); list.innerHTML = ''; return; }
+    list.innerHTML = items.map((s) => {
+      const b = readyBadge(s.readiness);
+      const where = [s.course, s.lesson].filter(Boolean).join(' › ');
+      const status = s.attempts ? `${s.accuracy}% so far` : 'new';
+      return `<div class="learn-item" style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line,#E7E8EE);border-radius:12px;margin-bottom:10px">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:700">${esc(s.topic)}</div>
+          <div style="color:var(--muted,#6B7280);font-size:12.5px">${esc(where)} · ${esc(status)}</div>
+        </div>
+        <span style="white-space:nowrap;font-weight:700;font-size:12.5px;color:${b.color}">${esc(b.text)}</span>
+        <span style="display:flex;gap:6px">
+          <button class="btn btn-ghost" style="padding:6px 12px" onclick="App.startLearn('${esc(s.id)}','quiz')">Learn ▸</button>
+          <button class="btn btn-ghost" style="padding:6px 10px" onclick="App.startLearn('${esc(s.id)}','cards')" title="Flashcards">🃏</button>
+        </span>
       </div>`;
     }).join('');
-    panel.innerHTML =
-      `<div style="font-weight:700;margin-bottom:4px">${esc(t.label)}</div>
-       <div style="color:var(--muted,#6B7280);font-size:13px">${esc(t.note)}</div>`
-      + (weak.length
-        ? `<div style="font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted,#6B7280);margin-top:10px">Warm up on</div>${rows}`
-        : '');
-    panel.classList.remove('hidden');
   }
 
-  // Learn targets one thing at a time; require at least a lesson so the prereq
-  // closure is meaningful.
-  function learnTargetOrWarn() {
-    const body = selection();
-    if (isAllVal(body.topic) && isAllVal(body.lesson)) {
-      alert('Pick a lesson or sub-lesson to learn.');
-      return null;
-    }
-    return body;
-  }
-
-  async function checkReadiness() {
-    if (!state.authed) { showLogin(); return; }
-    const body = learnTargetOrWarn();
-    if (!body) return;
+  // Start learning a shortlist topic: warm up on its prerequisites, then the topic.
+  async function startLearn(id, kind) {
+    const s = learnState.byId[id];
+    if (!s) return;
+    const scope = { track: s.track, course: s.course, lesson: s.lesson, topic: s.topic };
+    const warmup = $('learnWarmup').checked;
     setLoading(true);
     try {
-      renderReadiness(await api('/api/readiness', { method: 'POST', body: JSON.stringify(body) }));
-    } catch (e) {
-      alert('Error: ' + e.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function launchLearnQuiz() {
-    if (!state.authed) { showLogin(); return; }
-    const body = learnTargetOrWarn();
-    if (!body) return;
-    setLoading(true);
-    try {
-      if ($('learnWarmup').checked) {
-        const r = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify(body) });
-        renderReadiness(r.readiness || {});
-        // Warm up on the weak prerequisites first; taking it logs attempts that
-        // genuinely raise readiness. If none (already ready), fall through to the topic.
-        if (r.questions && r.questions.length) { startQuiz(r.questions); return; }
+      if (kind === 'cards') { await learnCardsFor(scope, warmup); return; }
+      // Quiz: prerequisite warm-up questions THEN the topic's own, in one session.
+      let qs = [];
+      if (warmup) {
+        const w = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify({ ...scope, count: 5 }) });
+        if (w.questions && w.questions.length) qs = qs.concat(w.questions);
       }
-      const qs = await getQuiz('/api/quiz/select', body);
-      if (!qs || !qs.length) { alert('No questions exist for this topic yet.'); return; }
+      const topicQs = await getQuiz('/api/quiz/select', { ...scope, count: 8 });
+      if (topicQs && topicQs.length) qs = qs.concat(topicQs);
+      if (!qs.length) { alert('No questions exist for this topic yet.'); return; }
       startQuiz(qs);
     } catch (e) {
       alert('Error: ' + e.message);
@@ -1178,39 +1203,28 @@ const App = (() => {
     }
   }
 
-  async function launchLearnCards() {
-    if (!state.authed) { showLogin(); return; }
-    const body = learnTargetOrWarn();
-    if (!body) return;
-    setLoading(true);
-    try {
-      if ($('learnWarmup').checked) {
-        const r = await api('/api/flashcards/warmup', { method: 'POST', body: JSON.stringify(body) });
-        renderReadiness(r.readiness || {});
-        if (r.cards && r.cards.length) {
-          // A warm-up deck spans several prereq topics — mirror the mastery-deck
-          // setup (no single scope to regenerate) and render it directly.
-          fc.mastery = false; fc.scope = null; fc.label = 'Warm-up'; fc.highway = false;
-          fc.statsOpen = false; fc._statsByTopic = {};
-          $('fcHighway').checked = false;
-          $('fcRegen').classList.add('hidden');
-          showOnly('flashcardView');
-          $('fcTitle').textContent = 'Warm-up flashcards';
-          $('fcSub').textContent = "Prerequisite cards for the topic you're about to learn.";
-          $('fcError').textContent = '';
-          $('fcDeck').classList.add('hidden');
-          $('fcEmpty').classList.add('hidden');
-          renderDeck(r.cards);
-          return;
-        }
+  async function learnCardsFor(scope, warmup) {
+    if (warmup) {
+      const r = await api('/api/flashcards/warmup', { method: 'POST', body: JSON.stringify(scope) });
+      if (r.cards && r.cards.length) {
+        // A warm-up deck spans several prereq topics — mirror the mastery-deck setup
+        // (no single scope to regenerate) and render it directly.
+        fc.mastery = false; fc.scope = null; fc.label = 'Warm-up'; fc.highway = false;
+        fc.statsOpen = false; fc._statsByTopic = {};
+        $('fcHighway').checked = false;
+        $('fcRegen').classList.add('hidden');
+        showOnly('flashcardView');
+        $('fcTitle').textContent = 'Warm-up flashcards';
+        $('fcSub').textContent = "Prerequisite cards for the topic you're about to learn.";
+        $('fcError').textContent = '';
+        $('fcDeck').classList.add('hidden');
+        $('fcEmpty').classList.add('hidden');
+        renderDeck(r.cards);
+        return;
       }
-      // Ready, or the prerequisites have no decks: open the topic's own deck.
-      await openFlashcards(body, body.topic && !isAllVal(body.topic) ? body.topic : body.lesson);
-    } catch (e) {
-      alert('Error: ' + e.message);
-    } finally {
-      setLoading(false);
     }
+    // Ready, or prereqs have no decks: open the topic's own deck.
+    await openFlashcards(scope, scope.topic && !isAllVal(scope.topic) ? scope.topic : scope.lesson);
   }
 
   /* ------------------------------- Stats --------------------------------- */
@@ -2496,7 +2510,8 @@ const App = (() => {
     // a collision-proof placeholder that survives esc() and the bold pass.
     const SENT = String.fromCharCode(1);
     const stash = (c) => { codes.push(c); return SENT + (codes.length - 1) + SENT; };
-    let s = String(raw ?? '')
+    // Literal dollars first, so no later pass can mistake one for a delimiter.
+    let s = stashEscapedDollars(String(raw ?? ''))
       // A whole math span that is ONLY a \texttt{...}  ->  code (drop the $ / \( \)).
       .replace(/\$\s*\\texttt\{([^{}]*)\}\s*\$/g, (_, c) => stash(c))
       .replace(/\\\(\s*\\texttt\{([^{}]*)\}\s*\\\)/g, (_, c) => stash(c));
@@ -2509,6 +2524,45 @@ const App = (() => {
     // the surrounding math keeps its own delimiters.
     s = stashTexttNoSplit(s, stash);
     return { s, codes };
+  }
+  // The generation prompts bank a literal currency dollar as \$ — but KaTeX
+  // auto-render only honours that escape INSIDE a math span. In prose it prints
+  // the backslash and treats the $ as a delimiter, so "costs \$500 ... \$10 ...
+  // $t=...$" opens math at the 500 and swallows the sentence up to the real
+  // formula (whose own $s then mis-pair and print raw). DOLLAR is a second
+  // collision-proof control-char placeholder (STX); restoreCode() turns it into
+  // a $ inside its own <span>, which auto-render — pairing $s per text node —
+  // can never read as a delimiter.
+  const DOLLAR = String.fromCharCode(2);
+  // Find a math span's closing delimiter, honouring backslash escapes (KaTeX's
+  // own findEndOfMath does the same — an inner \$ must not close the span).
+  function findMathClose(str, from, close) {
+    for (let i = from; i < str.length; i++) {
+      if (str[i] === '\\') { i++; continue; }
+      if (str.startsWith(close, i)) return i;
+    }
+    return -1;
+  }
+  // Stash every \$ that sits OUTSIDE a math span. A \$ inside $...$ is left
+  // alone — KaTeX itself typesets that one as a literal dollar.
+  function stashEscapedDollars(str) {
+    const DELIMS = [['$$', '$$'], ['$', '$'], ['\\[', '\\]'], ['\\(', '\\)']];
+    let out = '', i = 0;
+    while (i < str.length) {
+      if (str.startsWith('\\$', i)) { out += DOLLAR; i += 2; continue; }
+      let jump = null;
+      for (const [l, r] of DELIMS) {
+        if (str.startsWith(l, i)) {
+          const close = findMathClose(str, i + l.length, r);
+          if (close !== -1) { jump = close + r.length; break; }
+        }
+      }
+      if (jump !== null) { out += str.slice(i, jump); i = jump; continue; }
+      // Any other \X escape (incl. \\) passes through untouched, as one unit.
+      if (str[i] === '\\') { out += str.slice(i, i + 2); i += 2; continue; }
+      out += str[i]; i++;
+    }
+    return out;
   }
   // Replace \texttt{...} with a code placeholder, never leaving one inside a math
   // span. Math spans ($$..$$, $..$, \[..\], \(..\)) are located first; a \texttt
@@ -2538,7 +2592,7 @@ const App = (() => {
       let hit = null;
       for (const [l, r] of DELIMS) {
         if (str.startsWith(l, i)) {
-          const close = str.indexOf(r, i + l.length);
+          const close = findMathClose(str, i + l.length, r);
           if (close !== -1) { hit = { l, r, close }; break; }
         }
       }
@@ -2554,7 +2608,9 @@ const App = (() => {
   }
   function restoreCode(html, codes) {
     const re = new RegExp(String.fromCharCode(1) + '(\\d+)' + String.fromCharCode(1), 'g');
-    return html.replace(re, (_, i) => '<code>' + esc(codes[+i]) + '</code>');
+    return html
+      .replace(re, (_, i) => '<code>' + esc(codes[+i]) + '</code>')
+      .replace(new RegExp(DOLLAR, 'g'), () => '<span class="texdollar">$</span>');
   }
   // Escape a string for HTML, turning any \texttt{...} code into <code>. Real
   // math delimiters survive for a later typeset() call.
@@ -5913,7 +5969,7 @@ const App = (() => {
     fixQuestionFormat, fixCardFormat,
     toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
-    checkReadiness, launchLearnQuiz, launchLearnCards,
+    setIntent, startLearn,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     toggleGenMore, generateSimilar,
