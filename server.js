@@ -102,6 +102,7 @@ import {
   buildPrereqEdges,
   computeInsights,
   prereqContext,
+  computeReadiness,
 } from './lib/graph.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
 import {
@@ -2588,6 +2589,114 @@ app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
     const todo = pending.slice(0, max);
     const linked = await linkTopics(rows, todo, aiChoice(req));
     res.json({ ok: true, linked, remaining: Math.max(0, pending.length - todo.length) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------- Warm-up / readiness ---------------------------- */
+// The Learn flow: before starting a NEW topic, diagnose how ready the learner is
+// from their prerequisite mastery, and (optionally) warm up on the weak prereqs.
+// Runtime is pure logic over the cached prereq graph + this user's stats (no LLM).
+//
+// Prerequisites deliberately cross courses/tracks, so readiness is computed over
+// the learner's WHOLE program (courses:[]) — narrowing to the launched course
+// would drop cross-course prerequisites and make them read as never-attempted.
+async function readinessForTarget(userEmail, scope, body) {
+  const fullScope = { program: scope.program, courses: [] };
+  const [catalog, links] = await Promise.all([getCatalog(userEmail, fullScope), getGraphLinks()]);
+  const rows = catalog.filter((r) => r.topic);
+  const now = new Date();
+  const nodes = rows.map((r) => toNode(r, now));
+  const prereqEdges = buildPrereqEdges(links, rows);
+  // Target(s) = the rows inside the narrow launched scope, resolved to real doc ids.
+  const targetIds = scopeCatalog(rows, body || {}).map((r) => r.id);
+  const readiness = computeReadiness(targetIds, nodes, prereqEdges);
+  const linkedIds = new Set(links.map((l) => l.id));
+  const linked = targetIds.filter((id) => linkedIds.has(id)).length;
+  // No linked target => the graph hasn't been built for this topic yet; say so
+  // rather than reporting a false "ready" off an empty prereq set.
+  const coverage = { targets: targetIds.length, linked, building: targetIds.length > 0 && linked === 0 };
+  return { readiness, targetIds, coverage, fullScope };
+}
+
+// Auth: readiness diagnosis for the topic(s) about to be learned.
+app.post('/api/readiness', requireAuth, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const { readiness, coverage } = await readinessForTarget(req.userEmail, scope, req.body || {});
+    res.json({ ...readiness, coverage });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: a short warm-up quiz drawn from the NOT-strong prerequisites of the target
+// (the optional "warm up first" toggle). Empty when the learner is already ready —
+// the client then goes straight into the topic. Each question is credited to its
+// OWN prerequisite's container (not the launched target), so warm-up attempts log
+// to the right doc id and genuinely raise readiness on the next diagnosis.
+app.post('/api/quiz/warmup', requireAuth, async (req, res, next) => {
+  try {
+    const count = clampCount(req.body?.count);
+    const scope = await requestScope(req);
+    const { readiness, coverage, fullScope } = await readinessForTarget(req.userEmail, scope, req.body || {});
+    const weak = readiness.weak;
+    if (!weak.length) return res.json({ ready: readiness.ready, questions: [], readiness, coverage });
+
+    const prereqNames = [...new Set(weak.map((w) => w.topic))];
+    const pool = await getQuestionsForTopics(prereqNames, fullScope);
+    const seen = await getSeenQuestionTexts(req.userEmail);
+    const rank = new Map(weak.map((w, i) => [w.topic, i])); // prerequisite-first / weakest-first
+    const byRank = (a, b) => (rank.get(a.topic) ?? 99) - (rank.get(b.topic) ?? 99);
+    const unseen = pool.filter((q) => !seen.has(q.question.trim())).sort(byRank);
+    const seenQs = pool.filter((q) => seen.has(q.question.trim())).sort(byRank);
+    // Credit each question to ITS prerequisite's row (topic name -> the weak row),
+    // NOT the launched target — this is the doc-id-not-slug rule on the warm path.
+    const metaByName = new Map(weak.map((w) => [w.topic, w]));
+    res.json({
+      ready: false,
+      readiness,
+      coverage,
+      questions: packageQuestions([...unseen, ...seenQs], metaByName, count),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: a warm-up flashcard deck from the target's NOT-strong prerequisites.
+// Mirrors the mastery-deck composer (most-specific level per topic), ordered
+// prerequisite-first. Empty when the learner is ready or the prereqs have no decks.
+app.post('/api/flashcards/warmup', requireAuth, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const { readiness, coverage } = await readinessForTarget(req.userEmail, scope, req.body || {});
+    const weak = readiness.weak;
+    if (!weak.length) return res.json({ ready: readiness.ready, cards: [], readiness, coverage });
+
+    const weakTopics = new Set(weak.map((w) => w.topic));
+    const LEVEL_RANK = { topic: 3, lesson: 2, course: 1 };
+    const all = await getAllFlashcardsWithId();
+    const byTopic = new Map();
+    for (const c of all) {
+      const t = c.topic || '';
+      if (!t || !weakTopics.has(t)) continue;
+      const r = LEVEL_RANK[c.level] || 0;
+      const cur = byTopic.get(t);
+      if (!cur || r > cur.rank) byTopic.set(t, { rank: r, cards: [c] });
+      else if (r === cur.rank) cur.cards.push(c);
+    }
+    for (const g of byTopic.values()) g.cards.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    const picked = [];
+    for (const w of weak) { const g = byTopic.get(w.topic); if (g) picked.push(...g.cards); }
+    res.json({
+      ready: false,
+      readiness,
+      coverage,
+      coveredPrereqs: byTopic.size,
+      cards: await packageFlashcards(picked, req.userEmail),
+    });
   } catch (e) {
     next(e);
   }
