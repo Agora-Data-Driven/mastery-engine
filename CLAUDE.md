@@ -183,7 +183,8 @@ non-admins; admins are never policed).
 
 Chats (`cardChats` / `scopeChats` / `assistantChats` subcollections) are keyed by
 **`conversationUser(req)`**, not `effectiveUser(req)`: an admin's threads are their OWN,
-never the legacy owner's. Progress/stats stay on `effectiveUser`.
+never the legacy owner's, and act-as is **not** honoured for chats (changed 2026-07-25) —
+threads are private even from admins. Progress/stats stay on `effectiveUser`.
 
 ### The mastery formula ([lib/priority.js](lib/priority.js))
 
@@ -219,7 +220,7 @@ Sentinel person (super admin exempt). Identity resolvers, pick deliberately:
 | Resolver | Use for | Admin default |
 |---|---|---|
 | `effectiveUser(req)` | progress, stats, quiz log | LISTED admins → `DEFAULT_ACCOUNT`; ag_sso `"*"` holders → own email |
-| `conversationUser(req)` | chats, card overlays/labels | own email (act-as still honoured) |
+| `conversationUser(req)` | chats, card overlays/labels | always the real signer — act-as **not** honoured (private even from admins) |
 | `currentEmail(req)` | the real signer (gate, rate limit) | — |
 
 **Sentinel is the source of truth for accounts** (added 2026-07-25): the `/api` middleware calls
