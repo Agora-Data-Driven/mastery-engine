@@ -687,7 +687,10 @@ const App = (() => {
     if (vp) vp.classList.toggle('hidden', !isVideos);
     // Mastery Quiz / Flashcards CTAs are available to mastery users on EVERY tab
     // (including My Progress) — they sit above the mode segment so they render on all.
+    // They're the "Master" side (retention); the eyebrow frames them as such.
     $('priorityBtnRow').classList.toggle('hidden', !mastery);
+    const me = $('masterEyebrow');
+    if (me) me.classList.toggle('hidden', !mastery);
 
     if (isProgress) renderProgressTree();
     else if (isRoadmap) renderRoadmapList();
@@ -793,15 +796,24 @@ const App = (() => {
 
   function updateSetupCopy() {
     const isGen = state.mode === 'GEN';
-    // Live Quiz uses the multi-select tree; Generate keeps the single-scope selects.
-    $('multiSelect').classList.toggle('hidden', isGen);
-    $('cascadeSelect').classList.toggle('hidden', !isGen);
+    const isLearn = state.mode === 'LEARN';
+    // Live Quiz uses the multi-select tree; Generate + Learn use the single-scope selects.
+    const cascade = isGen || isLearn;
+    $('multiSelect').classList.toggle('hidden', cascade);
+    $('cascadeSelect').classList.toggle('hidden', !cascade);
     $('genExtras').classList.toggle('hidden', !isGen);
+    // Learn replaces the normal Launch button with its warm-up / readiness panel.
+    $('learnActions').classList.toggle('hidden', !isLearn);
+    $('launchBtn').classList.toggle('hidden', isLearn);
+    if (!isLearn) { const rp = $('readinessPanel'); if (rp) rp.classList.add('hidden'); }
     if (isGen) {
       $('setupTitle').textContent = 'Generate mastery questions';
       $('setupSub').textContent = 'Pick a scope and let the Wise Teacher write harder questions into your bank.';
       $('launchBtn').textContent = 'Generate Questions';
       loadGenSources();
+    } else if (isLearn) {
+      $('setupTitle').textContent = 'Learn a new topic';
+      $('setupSub').textContent = "Pick something you haven't mastered yet. We'll check its prerequisites and warm you up before you start.";
     } else {
       $('setupTitle').textContent = 'Build your quiz';
       $('setupSub').textContent = 'Search and tick any mix of tracks, courses, and units to quiz on.';
@@ -1074,6 +1086,126 @@ const App = (() => {
     setLoading(true);
     try {
       await openMasteryDeck();
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  /* ------------------------------- Learn --------------------------------- */
+  // The Learn tab: pick a NEW topic, optionally warm up on its prerequisites, and
+  // get a readiness diagnosis. All the real work (prereq closure, readiness score,
+  // warm-up composition) is server-side pure logic — this is just the UI.
+  const isAllVal = (v) => !v || v === 'Review All' || v === '-- N/A --';
+
+  function tierCopy(tier, score) {
+    const s = score != null ? ` (${score}%)` : '';
+    if (tier === 'ready') return { label: `Ready to start${s}`, note: 'Your prerequisites look solid.' };
+    if (tier === 'warmup') return { label: `Almost ready${s}`, note: 'A quick warm-up on the weak spots will help.' };
+    if (tier === 'drill') return { label: `Not ready yet${s}`, note: 'Drill these prerequisites first — you can still learn anyway.' };
+    return { label: 'Readiness unknown', note: "The prerequisite map for this topic is still building. Try again shortly." };
+  }
+
+  function renderReadiness(data) {
+    const panel = $('readinessPanel');
+    if (!panel) return;
+    const t = tierCopy(data.tier, data.score);
+    const weak = data.weak || [];
+    const rows = weak.map((w) => {
+      const acc = w.attempts ? `${w.accuracy}%` : 'never tried';
+      const good = w.attempts && w.accuracy >= 70;
+      const crit = w.w >= 3 ? ' · <span style="color:var(--error,#dc2626);font-weight:700">critical</span>' : '';
+      return `<div style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line,#E7E8EE)">
+        <span>${esc(w.topic)}${crit}<br><span style="color:var(--muted,#6B7280);font-size:12px">${esc(w.why || w.course || '')}</span></span>
+        <span style="white-space:nowrap;color:${good ? 'var(--green,#16a34a)' : 'var(--error,#dc2626)'}">${esc(acc)}</span>
+      </div>`;
+    }).join('');
+    panel.innerHTML =
+      `<div style="font-weight:700;margin-bottom:4px">${esc(t.label)}</div>
+       <div style="color:var(--muted,#6B7280);font-size:13px">${esc(t.note)}</div>`
+      + (weak.length
+        ? `<div style="font-size:12px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted,#6B7280);margin-top:10px">Warm up on</div>${rows}`
+        : '');
+    panel.classList.remove('hidden');
+  }
+
+  // Learn targets one thing at a time; require at least a lesson so the prereq
+  // closure is meaningful.
+  function learnTargetOrWarn() {
+    const body = selection();
+    if (isAllVal(body.topic) && isAllVal(body.lesson)) {
+      alert('Pick a lesson or sub-lesson to learn.');
+      return null;
+    }
+    return body;
+  }
+
+  async function checkReadiness() {
+    if (!state.authed) { showLogin(); return; }
+    const body = learnTargetOrWarn();
+    if (!body) return;
+    setLoading(true);
+    try {
+      renderReadiness(await api('/api/readiness', { method: 'POST', body: JSON.stringify(body) }));
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function launchLearnQuiz() {
+    if (!state.authed) { showLogin(); return; }
+    const body = learnTargetOrWarn();
+    if (!body) return;
+    setLoading(true);
+    try {
+      if ($('learnWarmup').checked) {
+        const r = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify(body) });
+        renderReadiness(r.readiness || {});
+        // Warm up on the weak prerequisites first; taking it logs attempts that
+        // genuinely raise readiness. If none (already ready), fall through to the topic.
+        if (r.questions && r.questions.length) { startQuiz(r.questions); return; }
+      }
+      const qs = await getQuiz('/api/quiz/select', body);
+      if (!qs || !qs.length) { alert('No questions exist for this topic yet.'); return; }
+      startQuiz(qs);
+    } catch (e) {
+      alert('Error: ' + e.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function launchLearnCards() {
+    if (!state.authed) { showLogin(); return; }
+    const body = learnTargetOrWarn();
+    if (!body) return;
+    setLoading(true);
+    try {
+      if ($('learnWarmup').checked) {
+        const r = await api('/api/flashcards/warmup', { method: 'POST', body: JSON.stringify(body) });
+        renderReadiness(r.readiness || {});
+        if (r.cards && r.cards.length) {
+          // A warm-up deck spans several prereq topics — mirror the mastery-deck
+          // setup (no single scope to regenerate) and render it directly.
+          fc.mastery = false; fc.scope = null; fc.label = 'Warm-up'; fc.highway = false;
+          fc.statsOpen = false; fc._statsByTopic = {};
+          $('fcHighway').checked = false;
+          $('fcRegen').classList.add('hidden');
+          showOnly('flashcardView');
+          $('fcTitle').textContent = 'Warm-up flashcards';
+          $('fcSub').textContent = "Prerequisite cards for the topic you're about to learn.";
+          $('fcError').textContent = '';
+          $('fcDeck').classList.add('hidden');
+          $('fcEmpty').classList.add('hidden');
+          renderDeck(r.cards);
+          return;
+        }
+      }
+      // Ready, or the prerequisites have no decks: open the topic's own deck.
+      await openFlashcards(body, body.topic && !isAllVal(body.topic) ? body.topic : body.lesson);
     } catch (e) {
       alert('Error: ' + e.message);
     } finally {
@@ -5781,6 +5913,7 @@ const App = (() => {
     fixQuestionFormat, fixCardFormat,
     toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
     launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
+    checkReadiness, launchLearnQuiz, launchLearnCards,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
     toggleGenMore, generateSimilar,
