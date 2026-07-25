@@ -2644,31 +2644,31 @@ app.post('/api/readiness', requireAuth, async (req, res, next) => {
   }
 });
 
-// Auth: a short warm-up quiz drawn from the NOT-strong prerequisites of the target
-// (the optional "warm up first" toggle). Empty when the learner is already ready —
-// the client then goes straight into the topic. Each question is credited to its
-// OWN prerequisite's container (not the launched target), so warm-up attempts log
-// to the right doc id and genuinely raise readiness on the next diagnosis.
+// Auth: a short warm-up quiz drawn from the target's PREREQUISITES (all of them,
+// weak-first — so a learner can warm up EVEN when already solid on the prereqs;
+// warm-up is never gated on readiness). Empty only when the topic has no known
+// prerequisites at all. Each question is credited to its OWN prerequisite's
+// container (not the launched target), so warm-up attempts log to the right doc id.
 app.post('/api/quiz/warmup', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
     const scope = await requestScope(req);
     const { readiness, coverage, fullScope } = await readinessForTarget(req.userEmail, scope, req.body || {});
-    const weak = readiness.weak;
-    if (!weak.length) return res.json({ ready: readiness.ready, questions: [], readiness, coverage });
+    const prereqs = readiness.prereqs;
+    if (!prereqs.length) return res.json({ ready: readiness.ready, questions: [], readiness, coverage });
 
-    const prereqNames = [...new Set(weak.map((w) => w.topic))];
+    const prereqNames = [...new Set(prereqs.map((w) => w.topic))];
     const pool = await getQuestionsForTopics(prereqNames, fullScope);
     const seen = await getSeenQuestionTexts(req.userEmail);
-    const rank = new Map(weak.map((w, i) => [w.topic, i])); // prerequisite-first / weakest-first
+    const rank = new Map(prereqs.map((w, i) => [w.topic, i])); // weak-first / prerequisite-first
     const byRank = (a, b) => (rank.get(a.topic) ?? 99) - (rank.get(b.topic) ?? 99);
     const unseen = pool.filter((q) => !seen.has(q.question.trim())).sort(byRank);
     const seenQs = pool.filter((q) => seen.has(q.question.trim())).sort(byRank);
-    // Credit each question to ITS prerequisite's row (topic name -> the weak row),
-    // NOT the launched target — this is the doc-id-not-slug rule on the warm path.
-    const metaByName = new Map(weak.map((w) => [w.topic, w]));
+    // Credit each question to ITS prerequisite's row, NOT the launched target —
+    // the doc-id-not-slug rule on the warm path.
+    const metaByName = new Map(prereqs.map((w) => [w.topic, w]));
     res.json({
-      ready: false,
+      ready: readiness.ready,
       readiness,
       coverage,
       questions: packageQuestions([...unseen, ...seenQs], metaByName, count),
@@ -2678,23 +2678,24 @@ app.post('/api/quiz/warmup', requireAuth, async (req, res, next) => {
   }
 });
 
-// Auth: a warm-up flashcard deck from the target's NOT-strong prerequisites.
-// Mirrors the mastery-deck composer (most-specific level per topic), ordered
-// prerequisite-first. Empty when the learner is ready or the prereqs have no decks.
+// Auth: a warm-up flashcard deck from the target's PREREQUISITES (all of them,
+// weak-first — warm-up is never gated on readiness). Mirrors the mastery-deck
+// composer (most-specific level per topic), ordered prerequisite-first. Empty only
+// when the topic has no prerequisites or none of them have decks.
 app.post('/api/flashcards/warmup', requireAuth, async (req, res, next) => {
   try {
     const scope = await requestScope(req);
     const { readiness, coverage } = await readinessForTarget(req.userEmail, scope, req.body || {});
-    const weak = readiness.weak;
-    if (!weak.length) return res.json({ ready: readiness.ready, cards: [], readiness, coverage });
+    const prereqs = readiness.prereqs;
+    if (!prereqs.length) return res.json({ ready: readiness.ready, cards: [], readiness, coverage });
 
-    const weakTopics = new Set(weak.map((w) => w.topic));
+    const prereqTopics = new Set(prereqs.map((w) => w.topic));
     const LEVEL_RANK = { topic: 3, lesson: 2, course: 1 };
     const all = await getAllFlashcardsWithId();
     const byTopic = new Map();
     for (const c of all) {
       const t = c.topic || '';
-      if (!t || !weakTopics.has(t)) continue;
+      if (!t || !prereqTopics.has(t)) continue;
       const r = LEVEL_RANK[c.level] || 0;
       const cur = byTopic.get(t);
       if (!cur || r > cur.rank) byTopic.set(t, { rank: r, cards: [c] });
@@ -2702,9 +2703,9 @@ app.post('/api/flashcards/warmup', requireAuth, async (req, res, next) => {
     }
     for (const g of byTopic.values()) g.cards.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     const picked = [];
-    for (const w of weak) { const g = byTopic.get(w.topic); if (g) picked.push(...g.cards); }
+    for (const w of prereqs) { const g = byTopic.get(w.topic); if (g) picked.push(...g.cards); }
     res.json({
-      ready: false,
+      ready: readiness.ready,
       readiness,
       coverage,
       coveredPrereqs: byTopic.size,

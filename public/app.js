@@ -502,6 +502,17 @@ const App = (() => {
     'Data Structures and Algorithms',
   ];
   const COURSE_RANK = new Map(COURSE_ORDER.map((name, i) => [name, i]));
+  // Suggested track order for the shelf and roadmap stage trees (foundations
+  // first, then the applied AI-engineering paths). A track not listed keeps its
+  // stored curriculum order, then its name. Edit this list to re-sequence.
+  const TRACK_ORDER = [
+    'Programming Foundations',
+    'Mathematics',
+    'Machine Learning',
+    'Information Retrieval',
+    'Data Engineering',
+  ];
+  const TRACK_RANK = new Map(TRACK_ORDER.map((name, i) => [name, i]));
   // Curriculum sequence, data-driven: the minimum stored `order` within each
   // track/course/lesson. When topics carry a GLOBAL order (as the digital-marketing
   // bank does), a group's min order is its curriculum position, so tracks, courses
@@ -525,6 +536,17 @@ const App = (() => {
   }
   const _minOrder = (m, k) => (m.has(k) ? m.get(k) : Infinity);
 
+  // Order two track names by curriculum order (min topic order), then the
+  // suggested rank (TRACK_ORDER), then natural name.
+  function byTrackName(a, b) {
+    const m = orderMaps().tr;
+    const oa = _minOrder(m, a), ob = _minOrder(m, b);
+    if (oa !== ob) return oa - ob;
+    const ra = TRACK_RANK.has(a) ? TRACK_RANK.get(a) : Infinity;
+    const rb = TRACK_RANK.has(b) ? TRACK_RANK.get(b) : Infinity;
+    if (ra !== rb) return ra - rb;
+    return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+  }
   // Order two course names by curriculum order (min topic order), then rank, then name.
   function byCourseName(a, b) {
     const m = orderMaps().co;
@@ -1617,12 +1639,8 @@ const App = (() => {
     const source = (state.fullCatalog.length ? state.fullCatalog : state.catalog)
       .filter((r) => trackKeys.has(shelfKey(r)));
     const root = buildProgressTree(source, personalIds);
-    // Tracks in curriculum order (min topic order), falling back to name.
-    const tm = orderMaps().tr;
-    const tracks = [...root.children.values()].sort((a, b) => {
-      const oa = _minOrder(tm, a.name), ob = _minOrder(tm, b.name);
-      return oa !== ob ? oa - ob : byName(a, b);
-    });
+    // Tracks in the suggested order: curriculum order, then TRACK_ORDER rank, then name.
+    const tracks = [...root.children.values()].sort((a, b) => byTrackName(a.name, b.name));
     if (overview) overview.innerHTML = overviewHtml(tracks);
     tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name, program: t.program }, { metric: 'in' })).join('');
     // Returning from a quiz/flashcard round? Re-expand + re-scroll to where they were.
@@ -1782,11 +1800,7 @@ const App = (() => {
     const p = rollRows(rows);
     const color = accColor(p.pct);
     const root = buildProgressTree(rows, personalIds);
-    const tm = orderMaps().tr;
-    const tracks = [...root.children.values()].sort((a, b) => {
-      const oa = _minOrder(tm, a.name), ob = _minOrder(tm, b.name);
-      return oa !== ob ? oa - ob : byName(a, b);
-    });
+    const tracks = [...root.children.values()].sort((a, b) => byTrackName(a.name, b.name));
     const num = String(i + 1).padStart(2, '0');
 
     // A single-stage roadmap holding ONE whole track is a "premade Mastery Engine":
@@ -2014,9 +2028,7 @@ const App = (() => {
       const count = clampCountClient($('count').value);
       const r = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify({ ...scope, count }) });
       if (r.questions && r.questions.length) { startQuiz(r.questions); return; }
-      alert(r.readiness && r.readiness.tier === 'unknown'
-        ? "No prerequisite map for this section yet."
-        : "You're already solid on this section's prerequisites — nothing to warm up.");
+      alert("This section has no prerequisites to warm up on yet.");
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -2040,7 +2052,7 @@ const App = (() => {
         renderDeck(r.cards);
         return;
       }
-      alert("No prerequisite flashcards to warm up on for this section.");
+      alert("This section has no prerequisites to warm up on yet.");
     } catch (e) {
       alert('Error: ' + e.message);
     }
