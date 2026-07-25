@@ -103,6 +103,7 @@ import {
   computeInsights,
   prereqContext,
   computeReadiness,
+  WEAK_ACC,
 } from './lib/graph.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
 import {
@@ -2609,8 +2610,16 @@ async function readinessForTarget(userEmail, scope, body) {
   const now = new Date();
   const nodes = rows.map((r) => toNode(r, now));
   const prereqEdges = buildPrereqEdges(links, rows);
-  // Target(s) = the rows inside the narrow launched scope, resolved to real doc ids.
-  const targetIds = scopeCatalog(rows, body || {}).map((r) => r.id);
+  // Target(s) = an explicit topic-name list (Live Quiz's ticked topics) OR the rows
+  // inside the narrow launched scope. Either way resolved to real doc ids.
+  let targetRows;
+  if (Array.isArray(body?.topics) && body.topics.length) {
+    const wanted = new Set(body.topics.map((t) => String(t || '').trim()).filter(Boolean));
+    targetRows = rows.filter((r) => wanted.has(r.topic));
+  } else {
+    targetRows = scopeCatalog(rows, body || {});
+  }
+  const targetIds = targetRows.map((r) => r.id);
   const readiness = computeReadiness(targetIds, nodes, prereqEdges);
   const linkedIds = new Set(links.map((l) => l.id));
   const linked = targetIds.filter((id) => linkedIds.has(id)).length;
@@ -2697,6 +2706,60 @@ app.post('/api/flashcards/warmup', requireAuth, async (req, res, next) => {
       coveredPrereqs: byTopic.size,
       cards: await packageFlashcards(picked, req.userEmail),
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: the "Learn next" shortlist. Ranks the NEW topics in the learner's engine
+// (never attempted OR still weak <60%) by how ready they are to learn now —
+// prerequisites-mastered first — so the Learn tab can suggest what to study next
+// without making the learner drill through selects. Pure logic (no LLM).
+app.get('/api/learn/next', requireAuth, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const fullScope = { program: scope.program, courses: [] };
+    const [catalog, links, engTracks, engShelf] = await Promise.all([
+      getCatalog(req.userEmail, fullScope),
+      getGraphLinks(),
+      effectiveShelf(req.userEmail),
+      getShelf(req.userEmail),
+    ]);
+    const rows = catalog.filter((r) => r.topic);
+    const now = new Date();
+    const nodes = rows.map((r) => toNode(r, now));
+    const rowById = new Map(rows.map((r) => [r.id, r]));
+    const prereqEdges = buildPrereqEdges(links, rows);
+    const linkedIds = new Set(links.map((l) => l.id));
+    const shelf = engShelf || {};
+    const tracks = engTracks || [];
+
+    // Candidate NEW topics, limited to the learner's Mastery Engine (same inEngine
+    // rule as the quiz/drill views): never attempted, or attempted but still weak.
+    const candidates = nodes.filter((n) => {
+      if (!inEngine(rowById.get(n.id), tracks, shelf.included || [], shelf.hidden || [])) return false;
+      return n.attempts === 0 || (n.accuracy != null && n.accuracy < WEAK_ACC);
+    });
+    const scored = candidates.map((n) => {
+      const r = computeReadiness([n.id], nodes, prereqEdges);
+      const linked = linkedIds.has(n.id);
+      // Foundational (linked, no prereqs) is ready to learn now; "unknown because
+      // unlinked" ranks last since we can't vouch for its prerequisites yet.
+      let score, tier, sortScore;
+      if (r.tier === 'unknown') { score = null; tier = linked ? 'ready' : 'unknown'; sortScore = linked ? 90 : -1; }
+      else { score = r.score; tier = r.tier; sortScore = r.score; }
+      return {
+        id: n.id, topic: n.topic, track: n.track, course: n.course, lesson: n.lesson,
+        attempts: n.attempts, accuracy: n.accuracy, readiness: { score, tier }, _s: sortScore,
+      };
+    });
+    // Most-ready first; among equals, never-attempted before weak, weakest first.
+    scored.sort((a, b) =>
+      (b._s - a._s)
+      || (a.attempts - b.attempts)
+      || ((a.accuracy ?? 999) - (b.accuracy ?? 999))
+      || String(a.topic).localeCompare(String(b.topic)));
+    res.json({ suggestions: scored.slice(0, 8).map(({ _s, ...s }) => s) });
   } catch (e) {
     next(e);
   }
