@@ -2028,9 +2028,7 @@ const App = (() => {
       const count = clampCountClient($('count').value);
       const r = await api('/api/quiz/warmup', { method: 'POST', body: JSON.stringify({ ...scope, count }) });
       if (r.questions && r.questions.length) { startQuiz(r.questions); return; }
-      alert(r.readiness && r.readiness.tier === 'unknown'
-        ? "No prerequisite map for this section yet."
-        : "You're already solid on this section's prerequisites — nothing to warm up.");
+      alert("This section has no prerequisites to warm up on yet.");
     } catch (e) {
       alert('Error: ' + e.message);
     }
@@ -2054,7 +2052,7 @@ const App = (() => {
         renderDeck(r.cards);
         return;
       }
-      alert("No prerequisite flashcards to warm up on for this section.");
+      alert("This section has no prerequisites to warm up on yet.");
     } catch (e) {
       alert('Error: ' + e.message);
     }
