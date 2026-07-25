@@ -91,15 +91,20 @@ import {
   getAllStudyGuides,
   getAllTopicDocs,
   getUserTopicStats,
+  getAiAccess,
+  setAiAccess,
+  AI_PROVIDERS,
+  countExplainLogs,
 } from './lib/firestore.js';
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
 import { deriveStats } from './lib/priority.js';
-import { DEFAULT_PROGRAM, programOf } from './lib/programs.js';
+import { DEFAULT_PROGRAM, filterCatalog } from './lib/programs.js';
 import {
   toNode,
   buildFlowEdges,
   buildPrereqEdges,
+  addConnectivity,
   computeInsights,
   prereqContext,
   computeReadiness,
@@ -137,7 +142,7 @@ import {
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
-import { holisticProfile } from './lib/sentinel.js';
+import { holisticProfile, sentinelUserLookup } from './lib/sentinel.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
@@ -156,7 +161,12 @@ import {
   isAuthed,
   isAdmin,
   isAdminEmail,
+  isSuperAdmin,
+  isSentinelAdminRole,
+  setSentinelRoleResolver,
+  currentEmail,
   effectiveUser,
+  conversationUser,
   authContext,
   requireAuth,
   requireAdmin,
@@ -277,6 +287,21 @@ const clampCount = (c) => Math.min(50, Math.max(1, parseInt(c, 10) || 5));
  */
 const BQ_SCOPE = { program: DEFAULT_PROGRAM, courses: [] };
 
+/**
+ * Clamp a client-picked AI choice to the request's per-user allowlist (resolved
+ * by the /api middleware; null = unrestricted admin). This is belt-and-braces —
+ * the hard gate lives in lib/gemini.js complete()/completeStream(), which every
+ * AI path funnels through — but clamping here too keeps the EFFECTIVE choice
+ * honest for anything that logs or echoes it back to the client.
+ */
+function clampAiToPolicy(req, ai) {
+  const pol = req.aiPolicy;
+  if (!pol || !Array.isArray(pol.providers) || !pol.providers.length) return ai;
+  if (pol.providers.includes(ai.provider)) return ai;
+  const fallback = pol.providers.includes('kimi') ? 'kimi' : pol.providers[0];
+  return { ...ai, provider: fallback, model: undefined };
+}
+
 /** The AI engine the client picked (cookies set by the home-page dropdown). */
 function aiChoice(req) {
   const p = req.cookies?.aiProvider;
@@ -285,7 +310,7 @@ function aiChoice(req) {
   // Extended thinking (Gemini): ON unless the user explicitly turned it off, so
   // nothing regresses by default; turning it off trades some depth for speed.
   const thinking = req.cookies?.aiThinking !== 'off';
-  return { provider, model, thinking };
+  return clampAiToPolicy(req, { provider, model, thinking });
 }
 
 // Only Gemini (Vertex) can READ file attachments (multimodal). If the user is on another engine
@@ -371,19 +396,25 @@ function sseSend(res, event, data) {
 }
 
 /** The AI engine an admin composer request picked (provider/model/thinking in the
- *  body, written by the Composing Room's rail control). Thinking defaults ON. */
-const aiFromBody = (req) => ({
+ *  body, written by the Composing Room's rail control). Thinking defaults ON.
+ *  Clamped like aiChoice — every call site is requireAdmin today (policy null),
+ *  so this is pure defence-in-depth for the day one of them is relaxed. */
+const aiFromBody = (req) => clampAiToPolicy(req, {
   provider: req.body?.provider || 'deepseek',
   ...(req.body?.model ? { model: req.body.model } : {}),
   thinking: req.body?.thinking !== false,
 });
 
-/* Lightweight per-IP rate limiter for the public AI endpoints (cost guard). */
-const aiHits = new Map(); // ip -> { count, resetAt }
+/* Lightweight rate limiter for the AI endpoints (cost guard). Keyed on the
+ * signed-in email when there is one — the whole office shares one NAT IP, so
+ * per-IP would let one chatty user 429 everyone else off the Coach — falling
+ * back to IP for the public (guest) endpoints. */
+const aiHits = new Map(); // email-or-ip -> { count, resetAt }
 const AI_WINDOW_MS = 60 * 1000;
-const AI_MAX = 25; // per IP per minute
+const AI_MAX = 25; // per user (or guest IP) per minute
 function rateLimitAI(req, res, next) {
-  const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
+  const ip = currentEmail(req)
+    || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'anon';
   const now = Date.now();
   const rec = aiHits.get(ip);
   if (!rec || now > rec.resetAt) {
@@ -419,12 +450,103 @@ const requestScope = (req) =>
     isAdmin: isAdmin(req),
   });
 
+/*
+ * Sentinel is the source of truth for who may use this app. Any request carrying
+ * a signed-in email must belong to an ACTIVE Sentinel user — adding a person in
+ * Sentinel → People enables them here; deactivating them locks them out within
+ * the cache TTL. Guests (no email) pass — the public endpoints are deliberate —
+ * and the super admin is the break-glass exception so a Sentinel outage can
+ * never lock out the operator. A lookup FAILURE (Sentinel unreachable, or no
+ * SSO_SECRET in local dev) fails OPEN with a short re-check window: the Academy
+ * must degrade, not die, when Sentinel restarts.
+ */
+const SENTINEL_GATE_MSG = 'This account is not active in Sentinel. Ask an admin to add you under People in Sentinel.';
+const sentinelActiveCache = new Map(); // email -> { active, role, at }
+const sentinelLookupInflight = new Map(); // email -> Promise — dedupe a page load's burst of parallel /api calls
+const SENTINEL_CACHE_MS = 5 * 60 * 1000;
+
+/**
+ * Cached { active, role } verdict for an email — one Sentinel lookup per email
+ * per TTL, deduped across parallel requests. A lookup FAILURE (Sentinel down,
+ * no secret locally) yields active:true with NO role and a short re-check
+ * window: an outage can keep people working but can never mint an admin.
+ */
+async function sentinelInfo(email) {
+  const hit = sentinelActiveCache.get(email);
+  if (hit && Date.now() - hit.at < SENTINEL_CACHE_MS) return hit;
+  let pending = sentinelLookupInflight.get(email);
+  if (!pending) {
+    pending = (async () => {
+      const info = await sentinelUserLookup(email);
+      const entry = info
+        ? { active: !!(info.found && info.active), role: String(info.role || ''), at: Date.now() }
+        : { active: true, role: '', at: Date.now() - (SENTINEL_CACHE_MS - 60 * 1000) };
+      sentinelActiveCache.set(email, entry);
+      return entry;
+    })().finally(() => sentinelLookupInflight.delete(email));
+    sentinelLookupInflight.set(email, pending);
+  }
+  return pending;
+}
+
+async function sentinelGate(req) {
+  const email = currentEmail(req);
+  if (!email) return null; // guest or HMAC service call — nothing to vouch for
+  if (isSuperAdmin(req)) return null; // break-glass
+  return (await sentinelInfo(email)).active ? null : SENTINEL_GATE_MSG;
+}
+
+// Sentinel's role decides who is an ME admin (super_admin/admin there = admin
+// here). isAdmin() must stay synchronous, so it reads this gate cache through
+// a resolver — warm for every /api request because the middleware below awaits
+// sentinelInfo() before any route runs. Expired/unknown => undefined => not
+// admin (the env break-glass list in lib/auth.js still applies).
+setSentinelRoleResolver((email) => {
+  const hit = sentinelActiveCache.get(email);
+  return hit && Date.now() - hit.at < SENTINEL_CACHE_MS ? hit.role : undefined;
+});
+
+/*
+ * Per-user AI allowlist: admins are unrestricted (null); everyone else gets
+ * their users/{email}/meta/ai doc, defaulting to Kimi-only when none exists;
+ * guests are pinned to Kimi (the public hint/explain endpoints must never burn
+ * a paid engine). Cached briefly — the Team tab invalidates on save.
+ */
+const aiAccessCache = new Map(); // email -> { policy, at }
+const AI_ACCESS_CACHE_MS = 60 * 1000;
+async function resolveAiPolicy(req) {
+  if (isAdmin(req)) return null;
+  const email = currentEmail(req);
+  if (!email) return { providers: ['kimi'] };
+  const hit = aiAccessCache.get(email);
+  if (hit && Date.now() - hit.at < AI_ACCESS_CACHE_MS) return hit.policy;
+  const acc = await getAiAccess(email);
+  const policy = { providers: acc.providers };
+  aiAccessCache.set(email, { policy, at: Date.now() });
+  return policy;
+}
+
 // AI cost accounting: scope every /api request in an AsyncLocalStorage usage
 // tally that the provider calls write into (lib/usage.js). When the response
 // finishes (works for streaming too) and any tokens were spent, persist the
 // delta to the signed-in user's lifetime tally for the on-screen cost widget.
-app.use('/api', (req, res, next) => {
+// The same middleware enforces the Sentinel gate and resolves the AI policy —
+// one place, every /api request. /api/auth/* is exempt from the gate so the
+// login screen, status probe and logout keep working for a turned-away user.
+app.use('/api', async (req, res, next) => {
+  try {
+    // ALWAYS resolve (and cache) the Sentinel verdict — the role resolver
+    // behind isAdmin() feeds off this cache, and /api/auth/* (status, act-as)
+    // needs it warm too. Only ENFORCE the 403 outside /auth/*, so the login
+    // screen, status probe and logout keep working for a turned-away user.
+    const denied = await sentinelGate(req);
+    if (denied && !req.path.startsWith('/auth/')) return res.status(403).json({ error: denied });
+    req.aiPolicy = await resolveAiPolicy(req);
+  } catch {
+    req.aiPolicy = null; // an internal error here must never take the app down
+  }
   const store = newUsage();
+  store.aiPolicy = req.aiPolicy; // lib/gemini.js reads it via the ALS store
   res.on('finish', () => {
     if (store.calls > 0) {
       const user = optionalUser(req);
@@ -437,6 +559,7 @@ app.use('/api', (req, res, next) => {
 app.post('/api/auth/login', (req, res) => {
   const email = String(req.body?.email || '').trim();
   const password = req.body?.password;
+  clearActAs(res); // a fresh login must never inherit the previous user's impersonation target
   // Email + password combo: verify the pair and sign in AS that email (its own identity/progress).
   if (email) {
     const verified = checkEmailPassword(email, password);
@@ -482,16 +605,36 @@ app.get('/api/auth/google/callback', async (req, res) => {
   res.clearCookie('g_state', { path: '/' });
   const { email } = await googleauth.exchangeCode(req.query.code);
   if (!email) return res.redirect('/?login=error');
+  // Sentinel is the source of truth: a Google account it doesn't vouch for gets
+  // no cookie at all (the /api gate would turn them away anyway, but refusing at
+  // the door gives a clear message instead of a wall of 403s). A lookup FAILURE
+  // (no secret locally, Sentinel down) falls through — the gate re-checks.
+  const who = await sentinelUserLookup(email);
+  if (who && !(who.found && who.active)) return res.redirect('/?login=noaccount');
+  clearActAs(res); // never inherit the previous user's impersonation target
   setUserCookie(res, email);
   res.redirect('/?login=ok');
 });
 
-// Impersonation (admins): act as any user, or stop.
-app.post('/api/auth/act-as', requireAdmin, (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  if (!email || email.indexOf('@') < 0) return res.status(400).json({ error: 'A valid email is required' });
-  setActAs(res, email);
-  res.json({ ok: true, actingAs: email });
+// Impersonation (admins): act as a user, or stop. Targets are held to the
+// Sentinel directory (the super admin may impersonate anyone — legacy accounts
+// like the pre-Sentinel Gmail identities are still debuggable that way), and
+// every act-as is logged with the real actor.
+app.post('/api/auth/act-as', requireAdmin, async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email || email.indexOf('@') < 0) return res.status(400).json({ error: 'A valid email is required' });
+    if (!isSuperAdmin(req)) {
+      const { people, error } = await fetchSentinelPeople();
+      // A directory FETCH failure (Sentinel down / no secret locally) is
+      // unverifiable, not a refusal — fail open like the Sentinel gate does.
+      const ok = !!error || (people || []).some((p) => String(p.email || '').toLowerCase() === email);
+      if (!ok) return res.status(400).json({ error: 'Not an active Sentinel user' });
+    }
+    console.log(`[act-as] ${currentEmail(req)} -> ${email}`);
+    setActAs(res, email);
+    res.json({ ok: true, actingAs: email });
+  } catch (e) { next(e); }
 });
 app.post('/api/auth/stop-acting', requireAdmin, (req, res) => {
   clearActAs(res);
@@ -626,9 +769,10 @@ app.get('/api/catalog', async (req, res, next) => {
 });
 
 /* --------------------------------- models --------------------------------- */
-// Public: which AI engines are available. Gemini (cloud) always; local engines
-// (Ollama, LM Studio) only when this server can reach them (i.e. run locally).
-app.get('/api/models', async (_req, res, next) => {
+// Which AI engines are available TO THIS CALLER. Admins see everything that's
+// configured; everyone else sees only their allowlist (default: Kimi), so the
+// engine picker never offers a model the server-side clamp would refuse anyway.
+app.get('/api/models', async (req, res, next) => {
   try {
     // Cloud (Gemini): offer both the fast and the higher-quality Pro variant.
     const geminiModels = [...new Set([
@@ -636,7 +780,7 @@ app.get('/api/models', async (_req, res, next) => {
       'gemini-2.5-flash',
       'gemini-2.5-pro',
     ])];
-    const providers = [{ id: 'gemini', label: 'Cloud', models: geminiModels }];
+    let providers = [{ id: 'gemini', label: 'Cloud', models: geminiModels }];
     // DeepSeek (hosted): available whenever an API key is configured.
     if (deepseekConfigured()) providers.push({ id: 'deepseek', label: 'DeepSeek', models: listDeepSeekModels() });
     // Kimi (hosted): available whenever an API key is configured.
@@ -645,12 +789,17 @@ app.get('/api/models', async (_req, res, next) => {
     const [ollama, lmstudio] = await Promise.all([listOllamaModels(), listLMStudioModels()]);
     if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
     if (lmstudio.length) providers.push({ id: 'lmstudio', label: 'Local (LM Studio)', models: lmstudio });
+    const pol = req.aiPolicy;
+    if (pol && Array.isArray(pol.providers) && pol.providers.length) {
+      providers = providers.filter((p) => pol.providers.includes(p.id));
+    }
+    const has = (id) => providers.some((p) => p.id === id);
     res.json({
       providers,
-      deepseekAvailable: deepseekConfigured(),
-      kimiAvailable: kimiConfigured(),
-      ollamaAvailable: ollama.length > 0,
-      lmstudioAvailable: lmstudio.length > 0,
+      deepseekAvailable: has('deepseek'),
+      kimiAvailable: has('kimi'),
+      ollamaAvailable: has('ollama'),
+      lmstudioAvailable: has('lmstudio'),
     });
   } catch (e) {
     next(e);
@@ -1056,7 +1205,7 @@ app.post('/api/flashcards/mastery', requireAuth, async (req, res, next) => {
     }
 
     res.json({
-      cards: await packageFlashcards(picked, req.userEmail),
+      cards: await packageFlashcards(picked, conversationUser(req)),
       topics: byTopic.size,
       tracks: byTrack.size,
     });
@@ -1089,7 +1238,10 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
     const scope = await requestScope(req);
-    const catalog = await getCatalog(req.userEmail, scope);
+    // Bank once, then narrow: prereqContext below reads prerequisite stats from
+    // the BANK because prereq links cross programs; everything else stays scoped.
+    const bank = await getCatalog(req.userEmail, null);
+    const catalog = filterCatalog(bank, scope);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
     if (!topics.length) return res.status(400).json({ error: 'No topics in scope' });
@@ -1132,7 +1284,7 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
           attempts: attempts.attempts,
           missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
         };
-        const prereqs = prereqContext(topic, catalog, graphLinks);
+        const prereqs = prereqContext(topic, catalog, graphLinks, { bank });
         const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty, prereqs, instructions, reference });
         for (const g of generated) {
           await addQuestion({ ...g, program: scope.program });
@@ -1367,7 +1519,9 @@ function flashcardScope(src = {}) {
 const flashcardScopeLabel = (s) => [s.course, s.lesson, s.topic].filter(Boolean).join(' › ');
 
 // Merge a user's private status labels + personalized "rewrite in place" overlay
-// onto shared card definitions.
+// onto shared card definitions. Callers pass conversationUser(req): the overlay
+// is written by the card CHAT under that identity, so reads must match — and an
+// admin's personal labels must not live in the legacy owner's account.
 async function packageFlashcards(cards, userEmail) {
   const ids = cards.map((c) => c.id);
   const [statuses, overlays] = await Promise.all([
@@ -1404,7 +1558,7 @@ app.get('/api/flashcards', requireAuth, async (req, res, next) => {
       enabled: true,
       level: scope.level,
       generated: cards.length > 0,
-      cards: await packageFlashcards(cards, req.userEmail),
+      cards: await packageFlashcards(cards, conversationUser(req)),
     });
   } catch (e) {
     next(e);
@@ -1443,7 +1597,7 @@ app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, 
       enabled: true,
       level: scope.level,
       generated: true,
-      cards: await packageFlashcards(saved, req.userEmail),
+      cards: await packageFlashcards(saved, conversationUser(req)),
     });
   } catch (e) {
     next(e);
@@ -1456,7 +1610,9 @@ app.post('/api/flashcards/status', requireAuth, async (req, res, next) => {
     const cardId = String(req.body?.cardId || '').trim();
     const status = req.body?.status ? String(req.body.status).trim() : null;
     if (!cardId) return res.status(400).json({ error: 'cardId is required' });
-    await setFlashcardStatus(req.userEmail, cardId, status);
+    // conversationUser: must match packageFlashcards' read identity, or an
+    // admin's labels would write to one account and render from another.
+    await setFlashcardStatus(conversationUser(req), cardId, status);
     res.json({ ok: true, status });
   } catch (e) {
     next(e);
@@ -1476,7 +1632,10 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
     const programScope = await requestScope(req);
-    const catalog = await getCatalog(req.userEmail, programScope);
+    // Bank once, then narrow — prereqContext below resolves prerequisite stats
+    // from the BANK (prereq links cross programs); the card resolves scoped.
+    const bank = await getCatalog(req.userEmail, null);
+    const catalog = filterCatalog(bank, programScope);
     // Resolve within the card's own deck scope so a topic name shared by two
     // lessons quizzes (and logs) against the section this card belongs to.
     const idx = scopedMetaIndex(catalog, { track: card.track, course: card.course, lesson: card.lesson });
@@ -1500,7 +1659,7 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
       attempts: attempts.attempts,
       missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
     };
-    const prereqs = prereqContext(card.topic, catalog, graphLinks);
+    const prereqs = prereqContext(card.topic, catalog, graphLinks, { bank });
 
     const qs = await generateFlashcardQuestions(
       { topic: card.topic, scopeLabel, concept: card.concept, intuition: card.intuition, formula: card.formula },
@@ -1610,7 +1769,9 @@ app.get('/api/flashcards/chat', requireAuth, async (req, res, next) => {
   try {
     const cardId = String(req.query?.cardId || '').trim();
     if (!cardId) return res.status(400).json({ error: 'cardId is required' });
-    const chat = await getCardChat(req.userEmail, cardId);
+    // conversationUser, not effectiveUser: chats are private to the signed-in
+    // person — an admin must never read (or write into) the legacy owner's threads.
+    const chat = await getCardChat(conversationUser(req), cardId);
     res.json({ messages: chat?.messages || [], personalized: !!chat?.intuition });
   } catch (e) {
     next(e);
@@ -1630,7 +1791,9 @@ app.post('/api/flashcards/chat', requireAuth, rateLimitAI, async (req, res, next
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
     // Start from this user's personalized version of the card if they have one.
-    const existing = await getCardChat(req.userEmail, cardId);
+    // (conversationUser: chat + overlay are private to the signed-in person.)
+    const chatUser = conversationUser(req);
+    const existing = await getCardChat(chatUser, cardId);
     const history = existing?.messages || [];
     const baseIntuition = existing?.intuition || card.intuition;
     const baseFormula = existing?.formula || card.formula;
@@ -1655,7 +1818,7 @@ app.post('/api/flashcards/chat', requireAuth, rateLimitAI, async (req, res, next
     );
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
-    await saveCardChat(req.userEmail, cardId, {
+    await saveCardChat(chatUser, cardId, {
       messages, intuition: out.intuition, formula: out.formula, visual: out.visual,
     });
 
@@ -1676,7 +1839,7 @@ app.post('/api/flashcards/chat/reset', requireAuth, async (req, res, next) => {
     if (!cardId) return res.status(400).json({ error: 'cardId is required' });
     const card = await getFlashcardById(cardId);
     if (!card) return res.status(404).json({ error: 'Card not found' });
-    await resetCardChat(req.userEmail, cardId);
+    await resetCardChat(conversationUser(req), cardId);
     res.json({
       card: { intuition: card.intuition, formula: card.formula, visual: card.visual || null, personalized: false },
     });
@@ -1927,10 +2090,12 @@ const scopeChatId = ({ track, course, lesson }) =>
   slug(track || '', isAll(course) ? '' : course || '', isAll(lesson) ? '' : lesson || '');
 
 // Auth: load this user's saved chat thread for a lesson/course scope.
+// (conversationUser throughout the chat endpoints: threads are private to the
+// signed-in person and never default to the legacy owner's account.)
 app.get('/api/chat', requireAuth, async (req, res, next) => {
   try {
     const id = scopeChatId(req.query || {});
-    const messages = await getScopeChat(req.userEmail, id);
+    const messages = await getScopeChat(conversationUser(req), id);
     res.json({ messages });
   } catch (e) {
     next(e);
@@ -1968,7 +2133,8 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
     }
 
     const id = scopeChatId(req.body || {});
-    const history = await getScopeChat(req.userEmail, id);
+    const chatUser = conversationUser(req);
+    const history = await getScopeChat(chatUser, id);
 
     const out = await generateScopeChat(
       { scopeLabel, topics, cards, questions, history, message },
@@ -1976,7 +2142,7 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
     );
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }].slice(-40);
-    await saveScopeChat(req.userEmail, id, messages);
+    await saveScopeChat(chatUser, id, messages);
 
     res.json({ reply: out.reply, visual: out.visual });
   } catch (e) {
@@ -1988,7 +2154,7 @@ app.post('/api/chat', requireAuth, rateLimitAI, async (req, res, next) => {
 // Auth: list this user's saved conversations (metadata for the history dropdown).
 app.get('/api/assistant/chats', requireAuth, async (req, res, next) => {
   try {
-    res.json({ chats: await listAssistantChats(req.userEmail) });
+    res.json({ chats: await listAssistantChats(conversationUser(req)) });
   } catch (e) {
     next(e);
   }
@@ -1998,13 +2164,14 @@ app.get('/api/assistant/chats', requireAuth, async (req, res, next) => {
 app.get('/api/assistant/chat', requireAuth, async (req, res, next) => {
   try {
     const id = req.query?.id ? String(req.query.id) : '';
+    const chatUser = conversationUser(req);
     if (id) {
-      const chat = await getAssistantChat(req.userEmail, id);
+      const chat = await getAssistantChat(chatUser, id);
       return res.json(chat || { id: '', title: '', messages: [] });
     }
-    const list = await listAssistantChats(req.userEmail);
+    const list = await listAssistantChats(chatUser);
     if (!list.length) return res.json({ id: '', title: '', messages: [] });
-    const chat = await getAssistantChat(req.userEmail, list[0].id);
+    const chat = await getAssistantChat(chatUser, list[0].id);
     return res.json(chat || { id: '', title: '', messages: [] });
   } catch (e) {
     next(e);
@@ -2016,7 +2183,7 @@ app.delete('/api/assistant/chat', requireAuth, async (req, res, next) => {
   try {
     const id = req.query?.id ? String(req.query.id) : '';
     if (!id) return res.status(400).json({ error: 'A conversation id is required' });
-    await deleteAssistantChat(req.userEmail, id);
+    await deleteAssistantChat(conversationUser(req), id);
     res.json({ ok: true });
   } catch (e) {
     next(e);
@@ -2025,9 +2192,12 @@ app.delete('/api/assistant/chat', requireAuth, async (req, res, next) => {
 
 // A content-location question ("which card teaches X", "where is Y", "is there a
 // lesson on Z") — only then do we spend tokens grounding the assistant in the full
-// catalog so it answers from real topics instead of inventing a card name.
+// catalog so it answers from real topics instead of inventing a card name. Also
+// matches remove/restore phrasing ("let's skip this for now", "hide that lesson"):
+// the Coach's remove_section/restore_section proposals must copy names verbatim
+// from this grounding, so those turns need the catalog too.
 function looksLikeCatalogLookup(msg) {
-  return /\b(card|deck|topic|sub-?lesson|lesson|course|track|section|module|curriculum|syllabus|teach|cover|where|study|learn about|is there|which|list|find)\b/i.test(String(msg || ''));
+  return /\b(card|deck|topic|sub-?lesson|lesson|course|track|section|module|curriculum|syllabus|teach|cover|where|study|learn about|is there|which|list|find|remove|hide|restore|skip)\b/i.test(String(msg || ''));
 }
 
 /** The learner's accessible catalog (their Mastery-Engine shelf), as {track,course,lesson,topic}
@@ -2105,7 +2275,11 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // Web access: Google Search grounding (Gemini only — ignored for other providers downstream).
     const search = !!req.body?.web;
 
-    const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
+    // Threads + the holistic profile belong to the PERSON typing (conversationUser);
+    // curriculum/progress grounding stays on the effective account, whose progress
+    // the rest of the app is showing them.
+    const chatUser = conversationUser(req);
+    const existing = conversationId ? await getAssistantChat(chatUser, conversationId) : null;
     const history = existing ? existing.messages : [];
     const coach = !!req.body?.coach;
     const [catalog, transcripts] = (coach || looksLikeCatalogLookup(message))
@@ -2114,14 +2288,14 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const progress = coach ? coachDigest(catalog) : '';
     // Whole-person context from Sentinel (body-fat/PRs, career goals, reading, obstacles). Null-safe:
     // an unreachable/unconfigured Sentinel just means no holistic block.
-    const holistic = await holisticProfile(req.userEmail);
+    const holistic = await holisticProfile(chatUser);
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
-    const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
+    const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
     res.json({ reply: out.reply, visual: out.visual, conversationId: saved.id, title: saved.title });
   } catch (e) {
     next(e);
@@ -2151,7 +2325,9 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
 
   sseInit(res);
   try {
-    const existing = conversationId ? await getAssistantChat(req.userEmail, conversationId) : null;
+    // Threads + holistic profile follow the person typing (see the blocking sibling).
+    const chatUser = conversationUser(req);
+    const existing = conversationId ? await getAssistantChat(chatUser, conversationId) : null;
     const history = existing ? existing.messages : [];
 
     // A steer restart re-sends the SAME message (with an added steer note) against
@@ -2171,7 +2347,7 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     const progress = coach ? coachDigest(catalog) : '';
     // Whole-person context from Sentinel; fetched before streaming starts (null-safe) so a Sentinel
     // outage can never break the SSE stream — it just yields no holistic block.
-    const holistic = await holisticProfile(req.userEmail);
+    const holistic = await holisticProfile(chatUser);
     const actions = !!req.body?.actions;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
@@ -2182,7 +2358,7 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     if (clientGone) return;   // paused/navigated away — leave the prior turn untouched
     const reply = String(out.reply || '').trim();
     const messages = [...baseHistory, { role: 'user', text: message }, { role: 'assistant', text: reply }];
-    const saved = await saveAssistantChat(req.userEmail, existing ? conversationId : '', messages);
+    const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
     sseSend(res, 'done', { conversationId: saved.id, title: saved.title });
     res.end();
   } catch (e) {
@@ -2247,16 +2423,22 @@ function sendCachedText(res, text) {
  * The prerequisite context for a Lesson scope, derived from the same stored graph
  * the Knowledge Map uses: which sections OUTSIDE this scope it builds on
  * (`prereqs`, with the graph's "why") and which OUTSIDE sections it unlocks
- * (`dependents`). Each entry is a full {track,course,lesson,topic} scope so the
- * client can render a clickable chip that opens that lesson, and the names feed
- * the Lesson generator so it teaches the delta instead of from scratch.
+ * (`dependents`). Each entry is a full {program,track,course,lesson,topic} scope
+ * so the client can render a clickable chip that opens that lesson, and the names
+ * feed the Lesson generator so it teaches the delta instead of from scratch.
+ *
+ * `bank` must be the WHOLE catalog, not a program slice: prereq links cross
+ * programs, and buildPrereqEdges drops any edge whose endpoint is missing from
+ * the rows it is given. The chip carries `program` for the same reason — the
+ * referred lesson may live in another program.
  */
-function lessonGraphContext(scoped, catalog, links) {
-  const rows = catalog.filter((r) => r.topic && r.id);
+function lessonGraphContext(scoped, bank, links) {
+  const rows = bank.filter((r) => r.topic && r.id);
   const edges = buildPrereqEdges(links, rows);
   const byId = new Map(rows.map((r) => [r.id, r]));
   const scopeIds = new Set(scoped.map((r) => r.id).filter(Boolean));
   const toScope = (r, why) => ({
+    program: r.program || DEFAULT_PROGRAM,
     track: r.track, course: r.course, lesson: r.lesson, topic: r.topic, ...(why ? { why } : {}),
   });
   const prereqs = new Map();
@@ -2309,12 +2491,15 @@ app.post('/api/lesson', requireAuth, async (req, res, next) => {
       const cached = await getStudyGuide(scope).catch(() => null);
       if (cached && cached.markdown) return sendCachedText(res, cached.markdown);
     }
-    const catalog = await getCatalog(req.userEmail, programScope);
+    // Bank once, then narrow: the graph context needs the WHOLE bank (prereq
+    // links cross programs); the guide itself stays scoped to the launch.
+    const bank = await getCatalog(req.userEmail, null);
+    const catalog = filterCatalog(bank, programScope);
     const inp = await buildReviewInputs(catalog, req.body || {}, programScope);
     if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
     let graphCtx = { prereqs: [], dependents: [] };
     try {
-      graphCtx = lessonGraphContext(inp.scoped, inp.catalog, await getGraphLinks());
+      graphCtx = lessonGraphContext(inp.scoped, bank, await getGraphLinks());
     } catch { /* graph unavailable — falls back to a plain from-scratch lesson */ }
     let acc = '';
     await streamText(res, (onToken) =>
@@ -2334,11 +2519,11 @@ app.post('/api/lesson', requireAuth, async (req, res, next) => {
 app.post('/api/lesson/context', requireAuth, async (req, res, next) => {
   try {
     const programScope = await requestScope(req);
-    const catalog = await getCatalog(req.userEmail, programScope);
-    const scoped = scopeCatalog(catalog, req.body || {});
+    const bank = await getCatalog(req.userEmail, null);
+    const scoped = scopeCatalog(filterCatalog(bank, programScope), req.body || {});
     if (!scoped.length) return res.json({ prereqs: [], dependents: [] });
     try {
-      return res.json(lessonGraphContext(scoped, catalog, await getGraphLinks()));
+      return res.json(lessonGraphContext(scoped, bank, await getGraphLinks()));
     } catch {
       return res.json({ prereqs: [], dependents: [] });
     }
@@ -2362,7 +2547,10 @@ app.post('/api/admin/study-guides/build', requireAdmin, async (req, res, next) =
   try {
     const programScope = await requestScope(req);
     const program = programScope.program;
-    const catalog = await getCatalog(req.userEmail, programScope);
+    // Bank once, then narrow — the Lesson builds' graph context needs the whole
+    // bank (prereq links cross programs); targets stay scoped to the program.
+    const bank = await getCatalog(req.userEmail, null);
+    const catalog = filterCatalog(bank, programScope);
     const scoped = scopeCatalog(catalog, req.body || {});
     if (!scoped.length) return res.status(400).json({ error: 'No topics in that scope' });
 
@@ -2428,7 +2616,7 @@ app.post('/api/admin/study-guides/build', requireAdmin, async (req, res, next) =
             { scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, ai, onToken);
         } else {
           let g = { prereqs: [], dependents: [] };
-          try { g = lessonGraphContext(inp.scoped, catalog, links); } catch { /* plain lesson */ }
+          try { g = lessonGraphContext(inp.scoped, bank, links); } catch { /* plain lesson */ }
           await generateLesson({
             scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
             prereqs: g.prereqs, dependents: g.dependents,
@@ -2458,13 +2646,22 @@ app.post('/api/admin/study-guides/build', requireAdmin, async (req, res, next) =
 // the coach can say WHAT to study next, not just where accuracy is low.
 app.post('/api/analyze', requireAuth, async (req, res, next) => {
   try {
-    const catalog = await getCatalog(req.userEmail, await requestScope(req));
+    const bank = await getCatalog(req.userEmail, null);
+    const catalog = filterCatalog(bank, await requestScope(req));
     const summary = buildProgressSummary(catalog);
     try {
       const links = await getGraphLinks();
-      const rows = catalog.filter((r) => r.topic);
+      // Insights over the WHOLE bank so cross-program prereq edges count (a weak
+      // math topic can block DE topics), then filtered back to the program this
+      // dashboard is showing so the coach never recommends an off-view topic.
+      const rows = bank.filter((r) => r.topic);
       const now = new Date();
-      summary.graph = computeInsights(rows.map((r) => toNode(r, now)), buildPrereqEdges(links, rows), { limit: 8 });
+      const g = computeInsights(rows.map((r) => toNode(r, now)), buildPrereqEdges(links, rows), { limit: 32 });
+      const inProgram = new Set(catalog.filter((r) => r.topic).map((r) => r.id));
+      summary.graph = {
+        frontier: g.frontier.filter((f) => inProgram.has(f.id)).slice(0, 8),
+        keystones: g.keystones.filter((k) => inProgram.has(k.id)).slice(0, 8),
+      };
     } catch { /* graph unavailable — the analysis still works without it */ }
     await streamText(res, (onToken) => generateAnalysis(summary, aiChoice(req), onToken));
   } catch (e) {
@@ -2536,7 +2733,8 @@ app.get('/api/graph', requireAuth, async (req, res, next) => {
 
     // Hang each topic's flashcards off its node (compact), with this user's
     // private labels, so clicking a node shows its cards and their state.
-    const statuses = await getFlashcardStatuses(req.userEmail, allCards.map((c) => c.id));
+    // (conversationUser — the identity the labels are written under.)
+    const statuses = await getFlashcardStatuses(conversationUser(req), allCards.map((c) => c.id));
     const cardsByTopic = new Map();
     for (const c of allCards) {
       if (!c.topic) continue;
@@ -2555,21 +2753,18 @@ app.get('/api/graph', requireAuth, async (req, res, next) => {
     }
 
     const prereqEdges = buildPrereqEdges(links, rows);
+    addConnectivity(nodes, prereqEdges);
     const edges = [...buildFlowEdges(rows), ...prereqEdges];
     const insights = computeInsights(nodes, prereqEdges);
 
     const linkedIds = new Set(links.map((l) => l.id));
     const unlinked = rows.filter((r) => !linkedIds.has(r.id));
-    // Link one PROGRAM at a time: prereqs never cross curricula (the admin
-    // sweep's rule), so a shelf spanning programs must not hand the linker
-    // cross-program candidates. Repeat map opens work through the programs.
+    // Candidates = the WHOLE bank, not the shelf and not one program: prereqs
+    // deliberately cross programs (a DE topic really does rest on data_science
+    // probability), so the linker must see the full menu or those edges can
+    // never exist. Repeat map opens work through the backlog 30 at a time.
     if (unlinked.length) {
-      const prog = programOf(unlinked[0]);
-      kickBackgroundLinking(
-        rows.filter((r) => programOf(r) === prog),
-        unlinked.filter((r) => programOf(r) === prog),
-        aiChoice(req),
-      );
+      kickBackgroundLinking(catalog.filter((r) => r.topic), unlinked, aiChoice(req));
     }
 
     res.json({
@@ -2593,15 +2788,26 @@ app.get('/api/graph', requireAuth, async (req, res, next) => {
 app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
   try {
     const max = Math.min(parseInt(req.query.max, 10) || 120, 600);
-    // Scoped so a build covers one program's topics at a time (?program=…);
-    // prerequisites never cross curricula.
-    const [catalog, links] = await Promise.all([
-      getCatalog(req.userEmail, await requestScope(req)),
+    // TARGETS are scoped (?program=…) so a sweep pages through one program at a
+    // time, but CANDIDATES are always the whole bank: prerequisites deliberately
+    // cross programs (an ai_engineering topic can rest on a data_science math
+    // topic), so the linker must see the full menu.
+    const [bank, scope, links] = await Promise.all([
+      getCatalog(req.userEmail, null),
+      requestScope(req),
       getGraphLinks(),
     ]);
-    const rows = catalog.filter((r) => r.topic);
+    const rows = bank.filter((r) => r.topic);
+    const targets = filterCatalog(rows, scope);
     const linkedIds = new Set(links.map((l) => l.id));
-    const pending = req.query.refresh === '1' ? rows : rows.filter((r) => !linkedIds.has(r.id));
+    // refresh=1 relinks everything EXCEPT hand-authored docs — the curated edges
+    // (ai_engineering track, July 2026) are deliberately better than the LLM's and
+    // must survive an admin refresh sweep. force=1 overrides even that.
+    const curated = new Set(links.filter((l) => l.source === 'hand-authored').map((l) => l.id));
+    const force = req.query.force === '1';
+    const pending = req.query.refresh === '1'
+      ? targets.filter((r) => force || !curated.has(r.id))
+      : targets.filter((r) => !linkedIds.has(r.id));
     // `refresh=1` re-links ALL rows in a stable order — page it with `offset` so a
     // program with >max topics can be swept fully (max caps at 600/call).
     const offset = Math.max(0, parseInt(req.query.offset, 10) || 0);
@@ -2619,24 +2825,28 @@ app.post('/api/admin/build-graph', requireAdmin, async (req, res, next) => {
 // from their prerequisite mastery, and (optionally) warm up on the weak prereqs.
 // Runtime is pure logic over the cached prereq graph + this user's stats (no LLM).
 //
-// Prerequisites deliberately cross courses/tracks, so readiness is computed over
-// the learner's WHOLE program (courses:[]) — narrowing to the launched course
-// would drop cross-course prerequisites and make them read as never-attempted.
+// Prerequisites deliberately cross courses/tracks — and PROGRAMS (the linker
+// picks from the whole bank) — so readiness is computed over the WHOLE bank:
+// buildPrereqEdges keeps only edges with both ends in the catalog slice, so any
+// narrower slice would drop edges and mis-read prereqs as never-attempted.
 async function readinessForTarget(userEmail, scope, body) {
-  const fullScope = { program: scope.program, courses: [] };
+  const fullScope = null; // whole bank; doubles as the warm-up question-pool scope
   const [catalog, links] = await Promise.all([getCatalog(userEmail, fullScope), getGraphLinks()]);
   const rows = catalog.filter((r) => r.topic);
   const now = new Date();
   const nodes = rows.map((r) => toNode(r, now));
   const prereqEdges = buildPrereqEdges(links, rows);
   // Target(s) = an explicit topic-name list (Live Quiz's ticked topics) OR the rows
-  // inside the narrow launched scope. Either way resolved to real doc ids.
+  // inside the narrow launched scope. Either way resolved to real doc ids, WITHIN
+  // the launched program — topic names are only unique per program; the prereq
+  // closure over the edges above can still reach any program.
+  const inProgram = filterCatalog(rows, { program: scope.program, courses: [] });
   let targetRows;
   if (Array.isArray(body?.topics) && body.topics.length) {
     const wanted = new Set(body.topics.map((t) => String(t || '').trim()).filter(Boolean));
-    targetRows = rows.filter((r) => wanted.has(r.topic));
+    targetRows = inProgram.filter((r) => wanted.has(r.topic));
   } else {
-    targetRows = scopeCatalog(rows, body || {});
+    targetRows = scopeCatalog(inProgram, body || {});
   }
   const targetIds = targetRows.map((r) => r.id);
   const readiness = computeReadiness(targetIds, nodes, prereqEdges);
@@ -2724,7 +2934,7 @@ app.post('/api/flashcards/warmup', requireAuth, async (req, res, next) => {
       readiness,
       coverage,
       coveredPrereqs: byTopic.size,
-      cards: await packageFlashcards(picked, req.userEmail),
+      cards: await packageFlashcards(picked, conversationUser(req)),
     });
   } catch (e) {
     next(e);
@@ -2737,10 +2947,11 @@ app.post('/api/flashcards/warmup', requireAuth, async (req, res, next) => {
 // without making the learner drill through selects. Pure logic (no LLM).
 app.get('/api/learn/next', requireAuth, async (req, res, next) => {
   try {
-    const scope = await requestScope(req);
-    const fullScope = { program: scope.program, courses: [] };
+    // Whole bank, same reason as /api/graph: the shelf spans programs and the
+    // prereq graph crosses them — a program-scoped catalog would hide both
+    // other-program candidates and their cross-program prerequisite edges.
     const [catalog, links, engTracks, engShelf] = await Promise.all([
-      getCatalog(req.userEmail, fullScope),
+      getCatalog(req.userEmail, null),
       getGraphLinks(),
       effectiveShelf(req.userEmail),
       getShelf(req.userEmail),
@@ -3162,7 +3373,8 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
     }
     // `admin` lets the Sentinel Academy tab default admins straight to the admin view. The
     // academy-admin page itself still re-gates the browser, so this is only a UI default.
-    res.json({ programs, admin: isAdminEmail(email) });
+    // Role-aware: Sentinel super_admin/admin count, alongside the env break-glass list.
+    res.json({ programs, admin: isAdminEmail(email) || isSentinelAdminRole((await sentinelInfo(email)).role) });
   } catch (e) {
     next(e);
   }
@@ -3276,6 +3488,111 @@ app.get('/api/admin/assignments', requireAdmin, async (_req, res, next) => {
     assignments.sort((a, b) => (b.courses.length ? 1 : 0) - (a.courses.length ? 1 : 0)
       || String(a.name).localeCompare(String(b.name)));
     res.json({ assignments, error });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------------ Team dashboard ----------------------------- */
+/**
+ * Admin: the Academy home base — one row per Sentinel person with their learning
+ * numbers (progress %, accuracy, attempts, Speaker-Mode explains), lifetime AI
+ * spend, and the AI-provider allowlist the Team tab edits. Reads the bank ONCE
+ * (getCatalog re-scans the topics collection per call otherwise) and fans the
+ * per-person doc reads out with a small concurrency cap; the whole load is
+ * ~4 small reads + 1 count aggregation per person on top of that single scan.
+ * Progress mirrors /api/internal/enrollment-progress: a topic contributes its
+ * accuracy (unattempted = 0), scoped to the person's enrolled programs.
+ */
+app.get('/api/admin/team', requireAdmin, async (_req, res, next) => {
+  try {
+    const [{ people, error }, programs] = await Promise.all([fetchSentinelPeople(), getPrograms()]);
+    const nameOf = (id) => (programs.find((p) => p.id === id) || {}).name || id;
+    // Read the bank AS the legacy owner: same rows for everyone, and that
+    // account's stats arrive inline (they live on the shared topic docs, not in
+    // a subcollection — getUserTopicStats is deliberately empty for it).
+    const bank = await getCatalog(DEFAULT_ACCOUNT, null);
+    const topicsByProgram = new Map(); // program id -> Set(topic doc ids)
+    for (const r of bank) {
+      const prog = r.program || DEFAULT_PROGRAM;
+      if (!topicsByProgram.has(prog)) topicsByProgram.set(prog, new Set());
+      topicsByProgram.get(prog).add(r.id);
+    }
+
+    const team = await mapWithConcurrency(people || [], 8, async (p) => {
+      const email = String(p.email || '').trim().toLowerCase();
+      const [enr, usage, ai, explains, statRows] = await Promise.all([
+        getEnrollment(email),
+        getUsage(email),
+        getAiAccess(email),
+        countExplainLogs(email).catch(() => 0),
+        getUserTopicStats(email),
+      ]);
+      // The person's topic universe = every topic in their enrolled programs.
+      const inScope = new Set();
+      for (const prog of enr.programs || []) {
+        for (const id of topicsByProgram.get(prog) || []) inScope.add(id);
+      }
+      // Their stats rows, scoped to that universe. The legacy owner's live
+      // inline on the bank rows; everyone else's come from their subcollection.
+      const rows = email === DEFAULT_ACCOUNT
+        ? bank.filter((r) => inScope.has(r.id) && r.totalAttempts)
+        : statRows.filter((s) => inScope.has(s.id) && s.totalAttempts);
+      let attempts = 0, correct = 0, pctSum = 0;
+      for (const s of rows) {
+        attempts += s.totalAttempts || 0;
+        correct += s.correctCount || 0;
+        pctSum += (s.totalAttempts ? (s.correctCount || 0) / s.totalAttempts : 0);
+      }
+      return {
+        email,
+        name: p.name || email,
+        role: p.role || '',
+        programs: (enr.programs || []).map((id) => ({ id, name: nameOf(id) })),
+        topicsTotal: inScope.size,
+        topicsPracticed: rows.length,
+        progressPct: inScope.size ? Math.round((pctSum / inScope.size) * 100) : 0,
+        accuracy: attempts ? Math.round((correct / attempts) * 100) : null,
+        attempts,
+        explains,
+        usage: {
+          costUsd: usage.costUsd || 0,
+          calls: usage.calls || 0,
+          inputTokens: usage.inputTokens || 0,
+          outputTokens: usage.outputTokens || 0,
+        },
+        aiProviders: ai.providers,
+        aiConfigured: ai.configured,
+      };
+    });
+    team.sort((a, b) => b.attempts - a.attempts || String(a.name).localeCompare(String(b.name)));
+    res.json({ team, providers: AI_PROVIDERS, error });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: read one person's AI-provider allowlist (absent doc → the Kimi-only default).
+app.get('/api/admin/ai-access', requireAdmin, async (req, res, next) => {
+  try {
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email is required' });
+    res.json({ email, ...(await getAiAccess(email)), providers_all: AI_PROVIDERS });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: replace one person's AI-provider allowlist. Unknown ids are dropped;
+// an empty selection falls back to the Kimi-only default. Admins themselves are
+// never policed (their policy resolves to null), so this can't lock an admin out.
+app.post('/api/admin/ai-access', requireAdmin, async (req, res, next) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email || email.indexOf('@') < 0) return res.status(400).json({ error: 'A valid email is required' });
+    const saved = await setAiAccess(email, req.body?.providers);
+    aiAccessCache.delete(email); // the 60s policy cache must not outlive an explicit change
+    res.json({ email, ...saved });
   } catch (e) {
     next(e);
   }
@@ -4743,15 +5060,45 @@ app.post('/api/me/section', requireAuth, async (req, res, next) => {
     const keyOf = (h) =>
       JSON.stringify([h.program || DEFAULT_PROGRAM, h.track, h.course || '', h.lesson || '', h.topic || '']);
 
+    // Opt-in verification (the Coach's AI-proposed edits pass verify:1): the prefix must name a
+    // REAL section, matched against the whole bank (so restoring a hidden section still resolves).
+    // Matches case-insensitively, then rewrites the prefix to the row's exact casing — hidden[]
+    // matching downstream (hiddenMatch/matchDepth) is exact, so a case-drifted entry would
+    // otherwise "apply" while hiding nothing. Hand-built UI calls skip this: their names come
+    // from rendered catalog nodes and are exact by construction.
+    if (b.verify) {
+      const eq = (a2, b2) => String(a2 || '').toLowerCase() === String(b2 || '').toLowerCase();
+      // The Coach's proposals never carry a program (the shelf can span programs), so
+      // only pin the program when the caller sent one explicitly; otherwise adopt the row's.
+      const explicitProgram = String(b.program || '').trim();
+      const bank = await getCatalog(email, null);
+      const row = bank.find((r) =>
+        (!explicitProgram || (r.program || DEFAULT_PROGRAM) === explicitProgram) && eq(r.track, prefix.track)
+        && (!prefix.course || eq(r.course, prefix.course))
+        && (!prefix.lesson || eq(r.lesson, prefix.lesson))
+        && (!prefix.topic || eq(r.topic, prefix.topic)));
+      if (!row) {
+        const path = ['track', 'course', 'lesson', 'topic'].map((k) => prefix[k]).filter(Boolean).join(' > ');
+        return res.status(404).json({ error: `No section matches “${path}” — the name must match the curriculum exactly` });
+      }
+      prefix.program = row.program || DEFAULT_PROGRAM;
+      prefix.track = row.track;
+      if (prefix.course) prefix.course = row.course;
+      if (prefix.lesson) prefix.lesson = row.lesson;
+      if (prefix.topic) prefix.topic = row.topic;
+    }
+
     if (grain === 'track') {
       // Whole track goes on/off the tracks list. Either way, clear any finer
       // included/hidden entries under this track so it resolves cleanly (a re-added
       // track comes back whole; a removed track takes its added sub-sections with it).
+      // Read names off `prefix`, not the raw body locals — verify may have canonicalized them.
       const shelf = (await getShelf(email)) || {};
       const notUnderTrack = (arr) =>
-        (arr || []).filter((h) => !(h.track === track && (h.program || DEFAULT_PROGRAM) === program));
+        (arr || []).filter((h) => !(h.track === prefix.track && (h.program || DEFAULT_PROGRAM) === prefix.program));
       await setShelf(email, { hidden: notUnderTrack(shelf.hidden), included: notUnderTrack(shelf.included) });
-      await mutateShelf(email, add ? [{ program, track }] : [], add ? [] : [{ program, track }]);
+      const entry = { program: prefix.program, track: prefix.track };
+      await mutateShelf(email, add ? [entry] : [], add ? [] : [entry]);
     } else {
       const shelf = (await getShelf(email)) || {};
       const included = new Map((shelf.included || []).map((h) => [keyOf(h), h]));
@@ -4760,7 +5107,7 @@ app.post('/api/me/section', requireAuth, async (req, res, next) => {
       if (add) { included.set(k, prefix); hidden.delete(k); }
       else { hidden.set(k, prefix); included.delete(k); }
       await setShelf(email, { included: [...included.values()], hidden: [...hidden.values()] });
-      if (add) await ensureProgramEnrolled(email, program);
+      if (add) await ensureProgramEnrolled(email, prefix.program);
     }
     const shelf = await getShelf(email);
     res.json({ ok: true, tracks: shelf.tracks, included: shelf.included, hidden: shelf.hidden });
@@ -4806,6 +5153,12 @@ app.post('/api/admin/roadmaps/:id/assign', requireAdmin, bigJson, async (req, re
       .map((e) => String(e || '').trim().toLowerCase()).filter(Boolean);
     if (!emails.length) return res.status(400).json({ error: 'Pick at least one person' });
     const unassign = req.body?.action === 'unassign';
+    // Mirror the learner's own add path: refuse to assign a roadmap that would
+    // put NOTHING in anyone's engine (its items resolve to zero tracks) — the
+    // "Required" badge must never point at an empty roadmap.
+    if (!unassign && !collectRoadmapTracks(rm).length) {
+      return res.status(400).json({ error: 'This roadmap has no tracks to add — fix its items first' });
+    }
     for (const email of emails) {
       if (unassign) await unenrollRoadmap(email, rm, { removeTracks: false });
       else await enrollRoadmap(email, rm, { assigned: true });

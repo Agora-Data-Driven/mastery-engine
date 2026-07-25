@@ -44,7 +44,10 @@ const App = (() => {
                        // section removed from Progress still rolls up in a roadmap that references it
     authed: false,
     guest: false,
-    mode: 'QUIZ',
+    // null = undecided: configureSetupForMode() picks the landing mode (Mastery
+    // Engine for signed-in learners, Live Quiz for guests / ?home=quiz). A preset
+    // here used to make that branch dead code — everyone landed on Live Quiz.
+    mode: null,
     questions: [],
     idx: 0,
     score: 0,
@@ -898,6 +901,15 @@ const App = (() => {
 
   function showLogin() {
     showOnly('loginView');
+    // The Google callback reports refusals via ?login= — surface them, or the
+    // user just bounces back here with no explanation and loops on the button.
+    const why = new URLSearchParams(location.search).get('login');
+    const err = $('authError');
+    if (err && why === 'noaccount') {
+      err.textContent = 'That Google account isn’t an active person in Sentinel. Ask an admin to add you under People in Sentinel, then sign in again.';
+    } else if (err && why === 'error') {
+      err.textContent = 'Google sign-in didn’t complete — try again.';
+    }
     const emailField = $('emailField');
     const focusEl = emailField && !emailField.classList.contains('hidden') ? $('emailInput') : $('passwordInput');
     if (focusEl) setTimeout(() => focusEl.focus(), 50);
@@ -2078,9 +2090,11 @@ const App = (() => {
   }
 
   // A clickable chip for a prerequisite / dependent lesson. Carries the referred
-  // section's full scope in data-* so clicking it opens that lesson.
+  // section's full scope in data-* so clicking it opens that lesson — including
+  // `program`, because prereq links cross programs and the referred lesson may
+  // live in another one.
   function lessonLinkChip(item, kind) {
-    const data = LEVEL_KEYS
+    const data = ['program', ...LEVEL_KEYS]
       .filter((k) => item[k] != null)
       .map((k) => `data-${k}="${esc(item[k])}"`)
       .join(' ');
@@ -3969,12 +3983,39 @@ const App = (() => {
   }
 
   // --- Coach edit-actions (only when the host enabled them) ----------------
-  // The assistant emits `agora-action` fenced JSON blocks to PROPOSE profile edits. We lift them out
-  // of the prose and render Approve/Cancel cards; on Approve we hand the action to the host (Sentinel)
-  // over postMessage — the host executes it in the user's own session and reports back here.
+  // The assistant emits `agora-action` fenced JSON blocks to PROPOSE changes. We lift them out
+  // of the prose and render Approve/Cancel cards. On Approve, PROFILE edits go to the host
+  // (Sentinel) over postMessage — it executes them in the user's own session and reports back —
+  // while ENGINE ops (remove/restore a section of MY Mastery Engine) are ours: we apply them
+  // same-origin via /api/me/section, no host round-trip.
   const COACH_ACTION_RE = /```agora-action\s*([\s\S]*?)```/g;
+  const ENGINE_ACTION_OPS = new Set(['remove_section', 'restore_section']);
   let coachActionSeq = 0;
   const pendingCoachActions = new Map();
+
+  // Apply an approved engine op in THIS session. verify:1 makes the server reject a
+  // section name the AI got wrong (and canonicalize casing) instead of silently
+  // writing a hidden[] entry that matches nothing.
+  async function applyEngineAction(card, action) {
+    const st = card.querySelector('.ca-status');
+    const a = action.args || {};
+    try {
+      await api('/api/me/section', { method: 'POST', body: JSON.stringify({
+        program: a.program || '', track: a.track || '',
+        course: a.course || '', lesson: a.lesson || '', topic: a.topic || '',
+        action: action.op === 'restore_section' ? 'add' : 'remove',
+        verify: 1,
+      }) });
+      st.textContent = '✓ ' + (action.summary || 'Applied');
+      card.classList.add('is-done');
+      // Reflect the change if an engine tree is on screen (the assistant-only Coach
+      // frame has none — the Academy tab picks it up on its next load).
+      try { await reloadCatalog(); refreshEngineViews(); } catch { /* views not booted in this mode */ }
+    } catch (e) {
+      st.textContent = '✗ ' + (e.message || 'Could not apply');
+      card.classList.add('is-error');
+    }
+  }
 
   function renderCoachActions(answerText, els) {
     if (!coachActionsEnabled()) return answerText;
@@ -4003,6 +4044,11 @@ const App = (() => {
       card.querySelector('.ca-approve').onclick = () => {
         card.querySelector('.ca-btns').remove();
         card.querySelector('.ca-status').textContent = 'Applying…';
+        if (ENGINE_ACTION_OPS.has(action.op)) {       // ours — apply in this session
+          pendingCoachActions.delete(id);
+          applyEngineAction(card, action);
+          return;
+        }
         try { window.parent.postMessage({ type: 'agora-coach-action', id, action }, '*'); }
         catch { card.querySelector('.ca-status').textContent = '✗ Could not reach the app'; }
       };
@@ -5081,9 +5127,18 @@ const App = (() => {
   }
 
   // Topic node: fill = mastery (light gray = never attempted), ring = track.
+  // Well-connected topics (high connectivity score) get a violet halo — the
+  // colour of the prereq edges — so hubs read at a glance.
   function drawTopicNode(ctx, n, lw) {
     const taken = n.attempts > 0;
     const track = graph.trackColor.get(n.track) || '#9aa39e';
+    if ((n.connectivity || 0) >= 30) {
+      ctx.beginPath();
+      ctx.arc(n.x, n.y, n.r + lw(2.5), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(124,111,240,${0.10 + (n.connectivity / 100) * 0.45})`;
+      ctx.lineWidth = lw(0.8 + (n.connectivity / 100) * 2.2);
+      ctx.stroke();
+    }
     ctx.beginPath();
     ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
     ctx.fillStyle = taken ? accHex(n.accuracy) : '#f3f5f1';
@@ -5250,7 +5305,8 @@ const App = (() => {
         if (hit) {
           const stats = hit.agg
             ? `${hit.attemptedTopics}/${hit.nTopics} topics practised${hit.accuracy != null ? ` · ${hit.accuracy}%` : ''}`
-            : hit.attempts ? `${hit.accuracy}% · ${hit.attempts} attempt${hit.attempts === 1 ? '' : 's'}` : 'Not started';
+            : (hit.attempts ? `${hit.accuracy}% · ${hit.attempts} attempt${hit.attempts === 1 ? '' : 's'}` : 'Not started')
+              + ` · connected ${hit.connectivity ?? 0}`;
           tip.innerHTML = `<b>${esc(hit.label)}</b><span>${esc(stats)} · ${esc(hit.agg && graph.level === 'course' ? hit.track : hit.course)}</span>`;
           tip.classList.remove('hidden');
         } else {
@@ -5495,6 +5551,7 @@ const App = (() => {
         ${n.attempts ? `<span class="gp-stat">${n.attempts} attempt${n.attempts === 1 ? '' : 's'}</span>` : ''}
         <span class="gp-stat">${n.questionCount || 0} question${n.questionCount === 1 ? '' : 's'} banked</span>
         <span class="gp-stat">priority ${Math.round(n.priority)}</span>
+        <span class="gp-stat" title="How woven into the prerequisite fabric this topic is (0-100): what it builds on plus what it unlocks, weighted by importance.">connected ${n.connectivity ?? 0}</span>
       </div>
       <div class="gp-actions">
         <button class="btn btn-primary" data-graph-act="quiz">Quiz this topic</button>
@@ -5700,7 +5757,9 @@ const App = (() => {
       const chip = e.target.closest('.rl-chip');
       if (!chip) return;
       const scope = {};
-      for (const k of LEVEL_KEYS) if (chip.dataset[k]) scope[k] = chip.dataset[k];
+      // `program` rides along so a cross-program prereq chip opens the lesson in
+      // ITS program (requestScope honours body.program for enrolled learners).
+      for (const k of ['program', ...LEVEL_KEYS]) if (chip.dataset[k]) scope[k] = chip.dataset[k];
       lessonFromScope(scope, chip.dataset.label);
     });
 

@@ -92,6 +92,8 @@
     bulk: null, stopBulk: false, // the "bulk-build lessons" parsed preview + its run
     assignments: [], // the People tab's who's-assigned-to-what table
     roadmap: null, // the roadmap plan being reviewed/edited in the Chart tab
+    team: [], // the Team tab's per-person rows
+    teamProviders: [], // every provider id the server knows (for the access editor)
   };
 
   /* ------------------------------- bootstrap ------------------------------- */
@@ -124,6 +126,7 @@
     loadEngines();
     wirePeople();
     wireRoadmaps();
+    wireTeam();
     wireAddProgram();
     refreshAll();
   }
@@ -137,6 +140,7 @@
         if (t.dataset.panel === 'generate') loadJobs();
         if (t.dataset.panel === 'people') loadAssignments();
         if (t.dataset.panel === 'roadmaps') loadRoadmaps();
+        if (t.dataset.panel === 'team') loadTeam();
       };
     });
   }
@@ -1305,7 +1309,10 @@
     if (!list) return;
     list.textContent = 'Loading…';
     try {
-      const { roadmaps } = await api('/api/admin/roadmaps?' + q());
+      // No ?program= — list EVERY roadmap. The old program-scoped list made a
+      // roadmap from another program look deleted (the page's default program is
+      // the effective account's first enrollment, rarely the one you charted in).
+      const { roadmaps } = await api('/api/admin/roadmaps');
       renderRoadmapAdminList(roadmaps);
       const rr = $('railRoadmaps'); if (rr) rr.textContent = roadmaps.length ? String(roadmaps.length) : '';
     } catch (e) { list.textContent = 'Error: ' + e.message; }
@@ -1319,7 +1326,7 @@
     list.innerHTML = _roadmapsCache.map((r) => `
       <div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid #E7E8EE">
         <div style="flex:1;min-width:0">
-          <b>${esc(r.title)}</b> <span class="aa-note">· ${r.stages.length} stage${r.stages.length === 1 ? '' : 's'} · ${r.topicCount} topics · ${r.audience === 'everyone' ? 'everyone' : 'this program'}</span>
+          <b>${esc(r.title)}</b> <span class="aa-chip" style="margin-left:4px">${esc(r.program || '')}</span> <span class="aa-note">· ${r.stages.length} stage${r.stages.length === 1 ? '' : 's'} · ${r.topicCount} topics · ${r.audience === 'everyone' ? 'everyone' : 'this program'}</span>
           <div class="aa-note" style="margin-top:2px">${esc(r.summary || r.goal || '')}</div>
         </div>
         <button class="btn" data-assign="${esc(r.id)}" style="padding:3px 10px;font-size:12px">Assign</button>
@@ -1334,7 +1341,9 @@
   async function openAssignPanel(roadmapId) {
     const rm = _roadmapsCache.find((x) => x.id === roadmapId);
     if (!rm) return;
-    if (!_assignPeople) {
+    if (!_assignPeople || !_assignPeople.length) {
+      // Cache only a NON-EMPTY directory — a transient Sentinel failure used to
+      // cache [] forever, leaving the picker empty for the rest of the session.
       try { const { people } = await api('/api/admin/people'); _assignPeople = people || []; }
       catch { _assignPeople = []; }
     }
@@ -1456,7 +1465,10 @@
     try {
       await api('/api/admin/roadmaps', { method: 'POST', body: {
         id: rm.id || undefined, title, goal: $('rmGoal').value.trim(),
-        summary: $('rmSummary').value.trim(), program: state.program,
+        summary: $('rmSummary').value.trim(),
+        // The roadmap's OWN program (set at draft/edit time) — posting the page's
+        // current program silently re-stamped an edited roadmap into it.
+        program: rm.program || state.program,
         audience: $('rmAudience').value, stages: rm.stages, source: rm.id ? 'admin-edit' : 'goal',
       } });
       $('rmSaveMsg').innerHTML = '<span class="aa-ok">Saved — learners see it in the app\'s Roadmaps tab.</span>';
@@ -1485,6 +1497,106 @@
     if (!confirm('Delete this roadmap? The topics it points to are not affected.')) return;
     try { await api('/api/admin/roadmaps/' + encodeURIComponent(id), { method: 'DELETE' }); await loadRoadmaps(); }
     catch (e) { alert('Error: ' + e.message); }
+  }
+
+  /* ---------------------------------- team ---------------------------------- */
+  // The Academy home base: one row per Sentinel person — progress, accuracy,
+  // attempts, Speaker-Mode explains, lifetime AI spend, and the per-person AI
+  // engine allowlist (default Kimi-only; enforced server-side, this is the view).
+
+  const AI_LABELS = {
+    kimi: 'Kimi', gemini: 'Gemini', deepseek: 'DeepSeek',
+    anthropic: 'Claude', ollama: 'Ollama (local)', lmstudio: 'LM Studio (local)',
+  };
+  const fmtUsd = (n) => '$' + (n >= 1 ? n.toFixed(2) : (n || 0).toFixed(4));
+  const fmtTok = (n) => n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n || 0);
+
+  function wireTeam() {
+    const refresh = $('tmRefresh'), search = $('tmSearch'), list = $('tmList');
+    if (!list) return;
+    if (refresh) refresh.onclick = () => loadTeam();
+    if (search) search.oninput = () => renderTeam();
+    // One delegated handler: ✎ opens a row's engine editor, Save posts it, Cancel re-renders.
+    list.addEventListener('click', async (e) => {
+      const edit = e.target.closest('[data-tm-edit]');
+      if (edit) { renderTeam(edit.dataset.tmEdit); return; }
+      const cancel = e.target.closest('[data-tm-cancel]');
+      if (cancel) { renderTeam(); return; }
+      const save = e.target.closest('[data-tm-save]');
+      if (save) {
+        const email = save.dataset.tmSave;
+        const providers = [...list.querySelectorAll(`input[data-tm-prov="${CSS.escape(email)}"]:checked`)].map((c) => c.value);
+        save.disabled = true;
+        try {
+          const r = await api('/api/admin/ai-access', { method: 'POST', body: { email, providers } });
+          const row = state.team.find((t) => t.email === email);
+          if (row) { row.aiProviders = r.providers; row.aiConfigured = true; }
+          $('tmMsg').innerHTML = `<span class="aa-ok">Saved ${esc(email)} — takes effect within a minute.</span>`;
+          renderTeam();
+        } catch (err) {
+          $('tmMsg').innerHTML = `<span class="aa-err">${esc(err.message)}</span>`;
+          save.disabled = false;
+        }
+      }
+    });
+  }
+
+  async function loadTeam() {
+    const list = $('tmList');
+    if (!list) return;
+    list.textContent = 'Loading team…';
+    $('tmMsg').textContent = '';
+    try {
+      const { team, providers, error } = await api('/api/admin/team');
+      state.team = team || [];
+      state.teamProviders = providers || Object.keys(AI_LABELS);
+      if (error) $('tmMsg').innerHTML = `<span class="aa-err">Directory: ${esc(error)}</span>`;
+      const rt = $('railTeam'); if (rt) rt.textContent = state.team.length ? String(state.team.length) : '';
+      renderTeam();
+    } catch (e) { list.innerHTML = `<span class="aa-err">Error: ${esc(e.message)}</span>`; }
+  }
+
+  function renderTeam(editingEmail) {
+    const list = $('tmList');
+    if (!list) return;
+    const qy = ($('tmSearch')?.value || '').trim().toLowerCase();
+    const rows = state.team.filter((t) => !qy
+      || t.email.includes(qy) || (t.name || '').toLowerCase().includes(qy) || (t.role || '').toLowerCase().includes(qy));
+    if (!rows.length) { list.innerHTML = '<div class="aa-note">Nobody matches.</div>'; return; }
+    const engineCell = (t) => {
+      if (t.email === editingEmail) {
+        const boxes = state.teamProviders.map((p) => `
+          <label style="text-transform:none;font-weight:600;color:var(--text);letter-spacing:0;display:flex;gap:7px;align-items:center;font-size:12px;padding:2px 0">
+            <input type="checkbox" value="${esc(p)}" data-tm-prov="${esc(t.email)}" style="width:auto" ${t.aiProviders.includes(p) ? 'checked' : ''}>
+            ${esc(AI_LABELS[p] || p)}
+          </label>`).join('');
+        return `<div>${boxes}
+          <div style="display:flex;gap:6px;margin-top:6px">
+            <button class="btn btn-primary" data-tm-save="${esc(t.email)}" style="padding:2px 10px;font-size:12px">Save</button>
+            <button class="btn" data-tm-cancel="1" style="padding:2px 10px;font-size:12px">Cancel</button>
+          </div>
+          <div class="aa-note" style="margin-top:4px">Empty = back to Kimi-only. Admins are never restricted.</div></div>`;
+      }
+      const chips = t.aiProviders.map((p) => `<span class="aa-chip">${esc(AI_LABELS[p] || p)}</span>`).join(' ');
+      const def = t.aiConfigured ? '' : ' <span class="aa-note">(default)</span>';
+      return `${chips}${def} <button class="btn" data-tm-edit="${esc(t.email)}" style="padding:1px 8px;font-size:12px" title="Edit engine access">✎</button>`;
+    };
+    list.innerHTML = `<div style="overflow-x:auto"><table class="aa-table">
+      <thead><tr><th>Person</th><th>Progress</th><th>Accuracy</th><th>Attempts</th><th>Explained</th><th>AI spend</th><th>Engines</th></tr></thead>
+      <tbody>${rows.map((t) => `
+        <tr>
+          <td style="min-width:170px"><b>${esc(t.name)}</b><div class="aa-note">${esc(t.email)} · ${esc(t.role || '')}</div>
+            <div class="aa-note">${t.programs.map((p) => esc(p.name)).join(', ') || '—'}</div></td>
+          <td style="min-width:130px">
+            <div class="aa-bar" style="max-width:120px"><i style="width:${t.progressPct}%"></i></div>
+            <div class="aa-note">${t.progressPct}% · ${t.topicsPracticed}/${t.topicsTotal} topics</div></td>
+          <td>${t.accuracy == null ? '—' : t.accuracy + '%'}</td>
+          <td>${t.attempts}</td>
+          <td>${t.explains}</td>
+          <td style="min-width:110px">${fmtUsd(t.usage.costUsd)}<div class="aa-note">${t.usage.calls} calls · ${fmtTok(t.usage.inputTokens + t.usage.outputTokens)} tok</div></td>
+          <td style="min-width:150px">${engineCell(t)}</td>
+        </tr>`).join('')}</tbody>
+    </table></div>`;
   }
 
   // Phase 2 of the goal flow: jump here from the goal pane with the goal pre-filled
