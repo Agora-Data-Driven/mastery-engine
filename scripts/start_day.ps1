@@ -75,7 +75,7 @@ Write-Host "  npm start                   # local server (node server.js)" -Fore
 Write-Host "  .\scripts\start-ollama.ps1  # run with a local Ollama model instead of cloud Gemini" -ForegroundColor Gray
 Write-Host "  .\scripts\push-branch.ps1   # push WIP to your dev branch" -ForegroundColor Gray
 Write-Host "  .\scripts\merge-branches.ps1  # integrate -> land on main -> deploy to Cloud Run ($REGION)" -ForegroundColor Gray
-Write-Host "  .\scripts\glm-bypass-mode.ps1 # launch Claude Code on Z.ai GLM" -ForegroundColor Gray
+Write-Host "  .\scripts\kimi-bypass-mode.ps1 # launch Claude Code on Kimi K3" -ForegroundColor Gray
 Write-Host "=================================================" -ForegroundColor Cyan
 Write-Host ""
 Ok "Preflight complete."
