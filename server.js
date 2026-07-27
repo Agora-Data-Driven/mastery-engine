@@ -3530,21 +3530,40 @@ function verifyInternalSig(req, purpose) {
   return expected === sig;
 }
 
-// Internal (HMAC-gated): a user's enrolled courses with progress, for Sentinel's
-// native Academy dashboard. No user session — Sentinel calls this server-to-server
-// with the logged-in worker's email. Returns courses in curriculum order.
+// Internal (HMAC-gated): a user's enrolled programs with progress, for Sentinel's
+// Growth hub (the Overview rings) and Professional tab. No user session — Sentinel calls
+// this server-to-server with the logged-in worker's email.
+//
+// The numbers MIRROR what that person's own engine session shows, or the Overview ring and
+// the in-app "Overall mastery" disagree (they did: 16% vs 50%). Two rules make the mirror:
+//  1. ACCOUNT — a break-glass-listed admin's session maps to DEFAULT_ACCOUNT (effectiveUser's
+//     listed-admin rule), so their stats live THERE, not under their sign-in email. Apply the
+//     same mapping here. (Sentinel-role admins keep their own account in both places.)
+//  2. SCOPE — the engine's rollup runs over the personal SHELF (curated tracks minus hidden
+//     sections), not whole programs. When a curated shelf exists, aggregate the same rows,
+//     grouped by program; an uncurated shelf falls back to whole-program scope, which is what
+//     the engine derives anyway. `progressSum` is included raw so Sentinel can combine career
+//     programs topic-weighted — exactly the engine's overview formula.
 app.get('/api/internal/enrollment-progress', async (req, res, next) => {
   try {
     if (!verifyInternalSig(req, 'enrollment-progress')) return res.status(401).json({ error: 'bad signature' });
     const email = String(req.query?.email || '').trim().toLowerCase();
     if (!email) return res.status(400).json({ error: 'email required' });
-    const [enrollment, allPrograms] = await Promise.all([getEnrollment(email), getPrograms()]);
+    const acct = isAdminEmail(email) ? DEFAULT_ACCOUNT : email;
+    const [enrollment, allPrograms, shelf, bank] = await Promise.all([
+      getEnrollment(acct), getPrograms(), getShelf(acct), getCatalog(acct, null),
+    ]);
     const nameOf = (id) => (allPrograms.find((p) => p.id === id) || {}).name || id;
     const catOf = (id) => (allPrograms.find((p) => p.id === id) || {}).category || 'career';
-    // One card per ASSIGNED PROGRAM, each with aggregate topic progress across its courses.
+    const tracks = shelf && shelf.tracks && shelf.tracks.length ? shelf.tracks : null;
+    // One card per ASSIGNED PROGRAM, aggregated over the same rows the engine shows.
     const programs = [];
     for (const pid of enrollment.programs) {
-      const rows = await getCatalog(email, { program: pid, courses: enrollment.courses });
+      let rows = filterCatalog(bank, { program: pid, courses: enrollment.courses });
+      if (tracks) {
+        const inRows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
+        if (inRows.length) rows = inRows; // shelf has this program → mirror the engine's tree
+      }
       let total = 0, practiced = 0, progSum = 0;
       const courses = new Set();
       for (const r of rows) {
@@ -3557,6 +3576,7 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
         id: pid, name: nameOf(pid), category: catOf(pid),
         courseCount: courses.size,
         topicsTotal: total, topicsPracticed: practiced,
+        progressSum: progSum,
         pct: total ? Math.round(progSum / total) : 0,
       });
     }
