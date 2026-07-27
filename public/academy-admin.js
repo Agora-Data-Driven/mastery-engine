@@ -1942,11 +1942,32 @@
       if (!jobs.length) { $('gJobs').textContent = 'No runs yet.'; return; }
       $('gJobs').innerHTML = jobs.map((j) => {
         const p = j.progress || {};
+        // The stepper is browser-driven (lib/genjobs.js): a queued/stalled run only
+        // advances while some tab calls /step. Offer Resume whenever there's work left.
+        const resumable = (j.status === 'queued' || j.status === 'running') && j.remaining > 0;
         return `<div style="padding:6px 0;border-bottom:1px solid #E7E8EE">
           <b>${esc(j.batchTag)}</b> — ${esc(j.status)} · ${p.questionsWritten || 0} questions · $${(p.costUsd || 0).toFixed(4)}
+          ${resumable ? `<button class="btn" data-resume="${esc(j.id)}" style="padding:3px 9px;font-size:12px;margin-left:8px">Resume</button>` : ''}
           <button class="btn" data-batch="${esc(j.batchTag)}" style="padding:3px 9px;font-size:12px;margin-left:8px">Delete batch</button>
         </div>`;
       }).join('');
+      $('gJobs').querySelectorAll('button[data-resume]').forEach((b) => {
+        b.onclick = async () => {
+          // Re-attach THIS tab as the driver where the last one left off — the queue in
+          // the job doc is the resume point, so no topic is redone or skipped.
+          $('gJobs').querySelectorAll('button[data-resume]').forEach((x) => { x.disabled = true; });
+          state.stop = false;
+          show($('gStop'), true);
+          try {
+            await runSteps(b.dataset.resume);
+          } catch (e) {
+            $('gStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+          }
+          show($('gStop'), false);
+          await loadJobs();
+          await loadCatalog();
+        };
+      });
       $('gJobs').querySelectorAll('button[data-batch]').forEach((b) => {
         b.onclick = async () => {
           if (!confirm(`Delete every question from ${b.dataset.batch}? This also corrects the topic counts.`)) return;
