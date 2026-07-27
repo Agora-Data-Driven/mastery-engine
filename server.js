@@ -454,6 +454,21 @@ const requestScope = (req) =>
     isAdmin: isAdmin(req),
   });
 
+/**
+ * True when this request carries an HONOURED ?program= pin — a Sentinel pinned tab
+ * (Philosophical/Spiritual), where the whole session is ONE program. Shelf-based
+ * topic pools (priority quiz, mastery deck, learn-next, the map) must then scope to
+ * the program instead of intersecting with the cross-program shelf: the shelf may
+ * not contain the pinned program at all, and the intersection empties the pool
+ * (the "Mastery Quiz found no questions in a pinned tab" bug). `scope` is the
+ * already-resolved requestScope; an un-honoured request (learner not enrolled)
+ * resolves elsewhere and correctly reads as unpinned here.
+ */
+const pinnedProgram = (req, scope) => {
+  const want = String(req.query?.program || '').trim();
+  return !!want && !!scope && scope.program === want;
+};
+
 /*
  * Sentinel is the source of truth for who may use this app. Any request carrying
  * a signed-in email must belong to an ACTIVE Sentinel user — adding a person in
@@ -1084,15 +1099,18 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
     const catalog = await getCatalog(req.userEmail, scope);
     const idx = metaIndex(catalog);
     // Drill only what's in the learner's Mastery Engine (shelf tracks + added
-    // sections, minus removed ones — same rule as /api/catalog).
-    const engTracks = (await effectiveShelf(req.userEmail)) || [];
-    const engShelf = (await getShelf(req.userEmail)) || {};
+    // sections, minus removed ones — same rule as /api/catalog). UNLESS pinned:
+    // the catalog is already the pinned program, and intersecting with the
+    // cross-program shelf would empty the pool.
+    const pin = pinnedProgram(req, scope);
+    const engTracks = pin ? [] : (await effectiveShelf(req.userEmail)) || [];
+    const engShelf = pin ? {} : (await getShelf(req.userEmail)) || {};
 
     // Rank each track's topics by priority (weakest/stalest first).
     const byTrack = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
-      if (!inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
+      if (!pin && !inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
       if (!byTrack.has(r.track)) byTrack.set(r.track, []);
       byTrack.get(r.track).push(r);
     }
@@ -1148,16 +1166,19 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
 const MASTERY_DECK_SIZE = 24;
 app.post('/api/flashcards/mastery', requireAuth, async (req, res, next) => {
   try {
-    const catalog = await getCatalog(req.userEmail, await requestScope(req));
+    const scope = await requestScope(req);
+    const catalog = await getCatalog(req.userEmail, scope);
     // Drill only what's in the learner's Mastery Engine (shelf tracks + added
-    // sections, minus removed ones — same rule as /api/catalog).
-    const engTracks = (await effectiveShelf(req.userEmail)) || [];
-    const engShelf = (await getShelf(req.userEmail)) || {};
+    // sections, minus removed ones — same rule as /api/catalog). UNLESS pinned:
+    // same rationale as /api/quiz/priority above.
+    const pin = pinnedProgram(req, scope);
+    const engTracks = pin ? [] : (await effectiveShelf(req.userEmail)) || [];
+    const engShelf = pin ? {} : (await getShelf(req.userEmail)) || {};
     // Priority per topic (weakest/stalest first), carrying its track for interleaving.
     const topicMeta = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
-      if (!inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
+      if (!pin && !inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
       if (!topicMeta.has(r.topic)) topicMeta.set(r.topic, { track: r.track || 'Unknown', priority: r.priority });
     }
 
@@ -2916,10 +2937,9 @@ app.get('/api/graph', requireAuth, async (req, res, next) => {
     // EXCEPT under a program PIN (?program=, Sentinel's Philosophical/Spiritual tabs):
     // there the whole session is one program and the tree is program-scoped, so the map
     // must mirror THAT — the shelf would leak every other program's tracks into the tab.
-    const requested = String(req.query?.program || '').trim();
-    const scope = requested ? await requestScope(req) : null;
+    const scope = await requestScope(req);
     let rows;
-    if (scope && scope.program === requested) {
+    if (pinnedProgram(req, scope)) {
       rows = filterCatalog(catalog, scope).filter((r) => r.topic);
     } else {
       const shelf = engShelf || {};
@@ -3166,8 +3186,16 @@ app.get('/api/learn/next', requireAuth, async (req, res, next) => {
 
     // Candidate NEW topics, limited to the learner's Mastery Engine (same inEngine
     // rule as the quiz/drill views): never attempted, or attempted but still weak.
+    // Under a program PIN the candidates come from the pinned program instead —
+    // the whole-bank nodes/edges above still power readiness, so cross-program
+    // prerequisites keep counting; only the SUGGESTIONS narrow to the tab.
+    const scope = await requestScope(req);
+    const pin = pinnedProgram(req, scope);
+    const inTab = (r) => (pin
+      ? filterCatalog([r], scope).length > 0
+      : inEngine(r, tracks, shelf.included || [], shelf.hidden || []));
     const candidates = nodes.filter((n) => {
-      if (!inEngine(rowById.get(n.id), tracks, shelf.included || [], shelf.hidden || [])) return false;
+      if (!inTab(rowById.get(n.id))) return false;
       return n.attempts === 0 || (n.accuracy != null && n.accuracy < WEAK_ACC);
     });
     const scored = candidates.map((n) => {
