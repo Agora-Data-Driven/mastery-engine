@@ -37,6 +37,13 @@ const App = (() => {
   // straight into the course/quiz builder (progress now lives in Sentinel's Development hub), instead
   // of our own "My Progress" dashboard. Captured once at boot (URL only — never persisted).
   const START_MODE = (() => { try { return new URLSearchParams(location.search).get('home') || ''; } catch { return ''; } })();
+  // Program PIN (?program=<id>): Sentinel's Philosophical/Spiritual tabs embed this app pinned to
+  // one program — the whole session (catalog, quizzes, decks, roadmaps) scopes to it. Threaded
+  // onto every API call in api() below; the server honours it for admins and for learners enrolled
+  // in that program (a pin can only narrow, never widen — see resolveScope). URL-derived only,
+  // NEVER persisted: same-origin iframes (a pinned tab + the Coach) share one sessionStorage, so
+  // persisting would leak the pin across frames (the "stuck in the chat" class of bug).
+  const PIN_PROGRAM = (() => { try { return new URLSearchParams(location.search).get('program') || ''; } catch { return ''; } })();
 
   const state = {
     catalog: [],       // this user's personal Mastery Engine (shelf tracks minus hidden sections)
@@ -55,8 +62,14 @@ const App = (() => {
   };
 
   /* ------------------------------- API ----------------------------------- */
+  // With a program PIN, stamp ?program= onto every API call (query beats body in requestScope,
+  // and endpoints that don't scope by program simply ignore it) — one hook pins the whole app.
+  function pinned(path) {
+    if (!PIN_PROGRAM || !path.startsWith('/api/') || /[?&]program=/.test(path)) return path;
+    return path + (path.includes('?') ? '&' : '?') + 'program=' + encodeURIComponent(PIN_PROGRAM);
+  }
   async function api(path, opts = {}) {
-    const res = await fetch(path, {
+    const res = await fetch(pinned(path), {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
       ...opts,
@@ -70,7 +83,7 @@ const App = (() => {
 
   /** POST that streams a text/plain response; calls onText(accumulated) per chunk. */
   async function apiStream(path, body, onText) {
-    const res = await fetch(path, {
+    const res = await fetch(pinned(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
@@ -110,7 +123,7 @@ const App = (() => {
    *  frame. `signal` lets the caller abort (pause). Errors before the stream opens
    *  surface as thrown Errors; in-stream failures arrive as an 'error' event. */
   async function apiStreamSSE(path, body, onEvent, signal) {
-    const res = await fetch(path, {
+    const res = await fetch(pinned(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
@@ -2779,7 +2792,7 @@ const App = (() => {
       progressSnapshot = captureProgressState();
     }
     fc.mastery = false;
-    fc.scope = { track: scope.track, course: scope.course, lesson: scope.lesson || '', topic: scope.topic || '' };
+    fc.scope = { track: scope.track, course: scope.course, lesson: scope.lesson || '', topic: scope.topic || '', program: scope.program || '' };
     fc.level = scope.topic ? 'topic' : scope.lesson ? 'lesson' : 'course';
     fc.label = label || scope.course || 'Flashcards';
     fc.highway = false;
@@ -2834,6 +2847,9 @@ const App = (() => {
     p.set('course', fc.scope.course || '');
     if (fc.scope.lesson) p.set('lesson', fc.scope.lesson);
     if (fc.scope.topic) p.set('topic', fc.scope.topic);
+    // Program rides along (the shelf mixes programs) so the server can tell a
+    // reading program's lessons — those get the book-shaped deck automatically.
+    if (fc.scope.program) p.set('program', fc.scope.program);
     return p.toString();
   }
 
@@ -2848,8 +2864,18 @@ const App = (() => {
         $('fcError').textContent = 'Flashcards are not enabled for this course yet.';
         return;
       }
+      // Book scope (a reading program's lesson, or an existing book deck): the
+      // empty state builds the fixed title→points deck, not the generic one.
+      fc.book = !!r.book;
       if (r.generated && r.cards.length) renderDeck(r.cards);
-      else $('fcEmpty').classList.remove('hidden');
+      else {
+        $('fcEmpty').classList.remove('hidden');
+        $('fcEmptyTitle').textContent = fc.book ? 'No book deck yet' : 'No deck yet for this section';
+        $('fcEmptySub').textContent = fc.book
+          ? 'The first card will be the book title — its back lists the key points. Then one card per point, with what you’d say when you explain it, grounded in the summary you filed.'
+          : 'The Wise Teacher will write a comprehensive set of Intuition + Formula cards, with visual explainers, covering everything you need to answer any quiz here.';
+        $('fcGenerateBtn').textContent = fc.book ? '📖 Build the book deck' : 'Generate flashcards';
+      }
     } catch (e) {
       $('fcError').textContent = 'Could not load flashcards: ' + e.message;
     } finally {
@@ -2861,7 +2887,9 @@ const App = (() => {
     $('fcError').textContent = '';
     $('fcEmpty').classList.add('hidden');
     $('fcGenerateBtn').disabled = true;
-    fcSetLoading(true, 'Writing your deck — this can take up to a minute…');
+    fcSetLoading(true, fc.book
+      ? 'Building your book deck — the title card, then one card per key point…'
+      : 'Writing your deck — this can take up to a minute…');
     try {
       const r = await api('/api/flashcards/generate', {
         method: 'POST', body: JSON.stringify(fc.scope),
@@ -2924,7 +2952,11 @@ const App = (() => {
     }
     stage.classList.toggle('flipped', fc.flipped);
 
-    const badges = card.highway ? '<span class="fc-badge highway">Highway</span>' : '';
+    // Book cards get a 📖 badge instead of Highway (a book deck is all-highway,
+    // so the label would be noise on every card).
+    const badges = card.kind === 'title' ? '<span class="fc-badge book">📖 Book</span>'
+      : card.kind === 'point' ? '<span class="fc-badge book">📖 Key point</span>'
+      : card.highway ? '<span class="fc-badge highway">Highway</span>' : '';
 
     // Front: the concept prompt.
     $('fcFront').innerHTML = `
@@ -2934,22 +2966,34 @@ const App = (() => {
       <div class="fc-flip-hint">Click to reveal</div>`;
     typeset($('fcFront'));
 
-    // Back: Intuition (+ optional visual) then Formula.
+    // Back: Intuition (+ optional visual) then Formula. Book cards relabel the
+    // sections — a book title's back is its point list; a point's back is what
+    // you'd SAY to explain it, plus a one-line memory hook.
+    const labels = card.kind === 'title' ? { top: 'The key points', bottom: 'Challenge' }
+      : card.kind === 'point' ? { top: 'The idea', bottom: 'Memory hook' }
+      : { top: 'Intuition', bottom: 'Formula' };
     const visualHtml = card.visual ? `<div class="fc-visual">${renderVisual(card.visual)}</div>` : '';
     $('fcBack').innerHTML = `
       <div class="fc-back-inner">
         <div class="fc-section">
-          <div class="fc-label intuition">Intuition</div>
+          <div class="fc-label intuition">${labels.top}</div>
           <div class="fc-body">${renderMarkdown(card.intuition)}</div>
         </div>
         ${visualHtml}
         <div class="fc-section">
-          <div class="fc-label formula">Formula</div>
+          <div class="fc-label formula">${labels.bottom}</div>
           <div class="fc-body fc-formula">${codeSpans(card.formula || '—')}</div>
         </div>
       </div>
       <div class="fc-flip-hint">Click to flip back</div>`;
     typeset($('fcBack'));
+
+    // The title card spans the whole book: "quiz me" and per-topic stats key on
+    // ONE topic, so they don't apply — Speaker recall (all points) is its action.
+    $('fcQuizBtn').classList.toggle('hidden', card.kind === 'title');
+    document.querySelector('.fc-quiz-count')?.classList.toggle('hidden', card.kind === 'title');
+    $('fcCardStats').classList.toggle('hidden', card.kind === 'title');
+    $('fcSpeakBtn').textContent = card.kind === 'title' ? '🎙️ Recall the points aloud' : '🎙️ Explain it aloud';
 
     updateCounter();
     $('fcQuizErr').textContent = '';
@@ -3098,6 +3142,10 @@ const App = (() => {
     const card = fc.view[fc.idx];
     if (!card) return;
     resetSpeakerUI();
+    // A book-title card is graded on point COVERAGE, not a single concept.
+    $('fcsPrompt').textContent = card.kind === 'title'
+      ? 'From the title alone: name each key point and say a line about it. Tap the mic — I’ll wait for a pause, then check which points you covered.'
+      : 'Teach this concept back to me. Tap the mic and explain it out loud — I’ll wait for a pause, then score you out of 3.';
     $('fcSpeaker').classList.remove('hidden');
     // No speech recognition here (Safari/Firefox/etc.) → go straight to typing.
     if (!sp.supported) {
@@ -3325,7 +3373,9 @@ const App = (() => {
       });
       renderSpeakerResult(r, transcript, card);
       // Progress changed for this topic — drop the cached stats so the card's
-      // accuracy re-fetches, and refresh the panel behind us.
+      // accuracy re-fetches, and refresh the panel behind us. A title-card
+      // recall logged on EVERY point's topic, so drop the whole cache.
+      if (r.coverage) fc._statsByTopic = {};
       if (card.topic) { delete fc._statsByTopic[card.topic]; renderCardStats(card); }
     } catch (e) {
       $('fcsGrading').classList.add('hidden');
@@ -3349,9 +3399,15 @@ const App = (() => {
     $('fcsScoreNum').textContent = score;
     $('fcsVerdict').innerHTML = codeSpans(r.verdict || '');
 
-    // Progress note reflects the lighter mapping (pass at 2/3+).
+    // Progress note reflects the lighter mapping (pass at 2/3+) — or, for a
+    // book-title recall, the per-point coverage (one attempt logged per point).
     const note = $('fcsProgressNote');
-    if (r.progress && r.progress.logged) {
+    if (r.coverage && r.progress && r.progress.logged) {
+      note.textContent = r.pass
+        ? `✅ All ${r.progress.total} points covered — mastery updated on every point.`
+        : `${r.progress.covered}/${r.progress.total} points covered — each logged to its own mastery, so missed points will come back around.`;
+      note.className = 'fcs-progress-note ' + (r.pass ? 'ok' : 'miss');
+    } else if (r.progress && r.progress.logged) {
       note.textContent = r.pass
         ? `✅ Counted as a pass on “${r.progress.topic}” — mastery updated.`
         : `Logged on “${r.progress.topic}” — aim for 2/3 to pass. Keep at it.`;
@@ -3360,6 +3416,12 @@ const App = (() => {
       note.textContent = 'This card isn’t linked to a topic yet, so it won’t change your mastery.';
       note.className = 'fcs-progress-note neutral';
     }
+
+    // Coverage grading relabels the feedback lists to match what they hold.
+    const sLabel = $('fcsStrengthsWrap').querySelector('.fcs-fb-label');
+    const gLabel = $('fcsGapsWrap').querySelector('.fcs-fb-label');
+    if (sLabel) sLabel.textContent = r.coverage ? '✅ Points you covered' : '✅ What you nailed';
+    if (gLabel) gLabel.textContent = r.coverage ? '⚠️ Points you missed' : '⚠️ What to tighten up';
 
     $('fcsSaid').textContent = transcript;
 

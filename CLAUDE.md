@@ -20,7 +20,7 @@ a study assistant.
 | **Stack** | Node 20, Express 4, **vanilla JS frontend** (no framework, no build step), Firestore, Vertex AI |
 | **Runs on** | Cloud Run service `mastery-engine`, project `agora-data-driven`, region `us-central1` |
 | **Live URL** | `https://mastery-engine-585951669065.us-central1.run.app` |
-| **Embedded in** | Sentinel's **Academy** tab + global **Coach** FAB, via `<iframe>` (`?embed=1`) |
+| **Embedded in** | Sentinel's **Professional** tab + **Philosophical**/**Spiritual** tabs + global **Coach** FAB, via `<iframe>` (`?embed=1`; `?program=<id>` PINS the whole session to one program — URL-derived at boot, threaded onto every API call, never persisted) |
 | **Sibling repo** | [`../mastery-engine-local`](../mastery-engine-local) runs this same app offline. **See §7 — it mirrors this repo; never hand-port.** |
 
 **There is no build step and no test runner.** `node server.js` serves `public/` statically.

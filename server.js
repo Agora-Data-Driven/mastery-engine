@@ -62,6 +62,7 @@ import {
   resolveProgramScope,
   backfillPrograms,
   getPrograms,
+  getProgram,
   saveProgram,
   getEnrollment,
   setEnrollment,
@@ -140,6 +141,8 @@ import {
   reformatFlashcards,
   editFlashcard,
   gradeExplanation,
+  generateBookPointCards,
+  gradeBookRecall,
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
@@ -1539,10 +1542,75 @@ async function packageFlashcards(cards, userEmail) {
       visual: o ? (o.visual || null) : (c.visual || null),
       highway: !!c.highway,
       topic: c.topic || '',
+      kind: c.kind || '',
       status: statuses[c.id] || null,
       personalized: !!o,
     };
   });
+}
+
+/* ------------------------------- Book decks -------------------------------- */
+/**
+ * Build the fixed-shape BOOK deck for one lesson (lesson = the book, its topics
+ * = the book's key points, exactly what auto-file ingest produces for a pasted
+ * book summary). Card 1 front = the book title, back = the ordered point list
+ * (deterministic — the recall target); then one card per point, front = the
+ * point, back = the AI-written explanation grounded in the lesson's attached
+ * transcript(s). Replaces any existing deck for the lesson scope.
+ *
+ * `points` (plan-order names) is optional — when absent they come from the
+ * catalog in study order, so the learner's "Book deck" button and the ingest
+ * commit produce the same deck.
+ */
+/** Book mode is AUTOMATIC for reading programs: a program whose Subject is
+ *  "Personal growth / philosophy (Reading)" (category 'growth') treats ingested
+ *  material as a book — lesson = the title, topics = its key points — so decks
+ *  and ingests take the book shape without anyone ticking a box. An explicit
+ *  book:true/false in a request still overrides. */
+async function isReadingProgram(program) {
+  try { return ((await getProgram(program))?.category || 'career') === 'growth'; }
+  catch { return false; }
+}
+
+async function buildBookDeck({ program, scope, points = null, instructions = '', ai = {} }) {
+  const { track, course, lesson } = scope;
+  let names = Array.isArray(points) ? points.map((t) => String(t || '').trim()).filter(Boolean) : [];
+  if (!names.length) {
+    // scopeCatalog filters only by the most specific field; compound-match here so
+    // a lesson name shared across courses can't leak foreign points into the book.
+    const rows = (await getCatalog(null, { program }))
+      .filter((r) => r.topic && r.track === track && r.course === course && r.lesson === lesson)
+      .sort((a, b) => (Number.isFinite(a.order) ? a.order : Infinity) - (Number.isFinite(b.order) ? b.order : Infinity)
+        || String(a.topic).localeCompare(String(b.topic)));
+    names = rows.map((r) => r.topic);
+  }
+  if (!names.length) throw Object.assign(new Error('This lesson has no sub-lessons (key points) yet'), { status: 400 });
+
+  // The book source: whatever transcripts ingest attached to this lesson.
+  const transcripts = await getTranscripts({ program, course, lesson });
+  const source = transcripts.map((t) => t.text || '').filter(Boolean).join('\n\n---\n\n');
+
+  const backs = await generateBookPointCards({ book: lesson, points: names, transcript: source, instructions }, ai);
+  const cards = [
+    {
+      kind: 'title',
+      topic: '', // spans every point — recall grading logs per point instead
+      concept: lesson,
+      intuition: `The ${names.length} key points:\n\n${names.map((p, i) => `${i + 1}. **${p}**`).join('\n')}`,
+      formula: `${names.length} points — can you name and explain them all?`,
+      highway: true,
+    },
+    ...names.map((p, i) => ({
+      kind: 'point',
+      topic: p,
+      concept: p,
+      intuition: backs[i]?.intuition || '',
+      formula: backs[i]?.formula || '',
+      highway: true,
+    })),
+  ];
+  await saveFlashcards({ ...scope, level: 'lesson' }, cards);
+  return cards.length;
 }
 
 // Auth: fetch the (cached) deck for a Course/Lesson scope, with this user's labels.
@@ -1555,10 +1623,16 @@ app.get('/api/flashcards', requireAuth, async (req, res, next) => {
     if (!enabled) return res.json({ enabled: false, level: scope.level, cards: [], generated: false });
 
     const cards = await getFlashcards(scope);
+    // `book` tells the client this scope takes the book-deck shape — either the
+    // deck already is one, or it's an empty lesson in a reading program (so the
+    // empty state can say "build the book deck" instead of the generic copy).
+    const book = cards.some((c) => c.kind)
+      || (!cards.length && scope.level === 'lesson' && await isReadingProgram((await requestScope(req)).program));
     res.json({
       enabled: true,
       level: scope.level,
       generated: cards.length > 0,
+      book,
       cards: await packageFlashcards(cards, conversationUser(req)),
     });
   } catch (e) {
@@ -1576,6 +1650,32 @@ app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, 
       return res.status(403).json({ error: 'Flashcards are not enabled for this course yet' });
     }
     const programScope = await requestScope(req);
+
+    // Book deck: `book:true` asks for the fixed title→points shape; with `book`
+    // absent, an existing book deck stays a book on regenerate (kind marks it),
+    // and a reading program (category 'growth') books its lessons automatically.
+    let book = req.body?.book === true;
+    if (req.body?.book === undefined && scope.level === 'lesson') {
+      const existing = await getFlashcards(scope);
+      book = existing.some((c) => c.kind) || await isReadingProgram(programScope.program);
+    }
+    if (book) {
+      if (scope.level !== 'lesson') return res.status(400).json({ error: 'Book decks are built per lesson (the lesson is the book)' });
+      await buildBookDeck({
+        program: programScope.program,
+        scope,
+        instructions: req.body?.instructions || '',
+        ai: aiChoice(req),
+      });
+      const saved = await getFlashcards(scope);
+      return res.json({
+        enabled: true,
+        level: scope.level,
+        generated: true,
+        cards: await packageFlashcards(saved, conversationUser(req)),
+      });
+    }
+
     const catalog = await getCatalog(req.userEmail, programScope);
     const scoped = scopeCatalog(catalog, scope);
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
@@ -1601,6 +1701,7 @@ app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, 
       cards: await packageFlashcards(saved, conversationUser(req)),
     });
   } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);
   }
 });
@@ -1712,12 +1813,73 @@ app.post('/api/flashcards/explain', requireAuth, rateLimitAI, async (req, res, n
   try {
     const cardId = String(req.body?.cardId || '').trim();
     // Bound the transcript before it reaches the prompt (cost + injection surface).
-    const transcript = String(req.body?.transcript || '').slice(0, 4000).trim();
+    // A book-title recall runs through EVERY point of a book, so it gets a longer
+    // leash than a single-concept explanation (which keeps its original 4k bound).
+    const transcriptFull = String(req.body?.transcript || '').slice(0, 8000).trim();
+    const transcript = transcriptFull.slice(0, 4000);
     if (!cardId) return res.status(400).json({ error: 'cardId is required' });
     if (!transcript) return res.status(400).json({ error: 'An explanation is required' });
 
     const card = await getFlashcardById(cardId);
     if (!card) return res.status(404).json({ error: 'Card not found' });
+
+    // Book TITLE card: the learner recalls ALL the book's key points from the
+    // title alone. Grade per-point COVERAGE (not one blended answer) and log an
+    // attempt on EACH point's own topic — covered = pass, missed = fail — so a
+    // book's mastery lives on the same per-topic stats as everything else and
+    // missed points bubble up through priority for the next session.
+    if (card.kind === 'title') {
+      const deck = await getFlashcards({ track: card.track, course: card.course, lesson: card.lesson, level: 'lesson' });
+      const points = deck.filter((c) => c.kind === 'point' && c.topic)
+        .map((c) => ({ point: c.topic, intuition: c.intuition || '' }));
+      if (!points.length) return res.status(400).json({ error: 'This book deck has no point cards yet — regenerate the deck' });
+
+      const grade = await gradeBookRecall(
+        { book: card.lesson || card.concept, points, transcript: transcriptFull },
+        aiChoice(req),
+      );
+      const covered = grade.coverage.filter((c) => c.covered).length;
+
+      // One attempt per point, keyed to the point's own catalog row (scoped to
+      // this lesson so a point name shared with another course can't miscredit).
+      const catalog = await getCatalog(req.userEmail, await requestScope(req));
+      const idx = scopedMetaIndex(catalog, { track: card.track, course: card.course, lesson: card.lesson });
+      const rows = grade.coverage
+        .filter((c) => idx.has(c.point))
+        .map((c) => {
+          const meta = idx.get(c.point);
+          return {
+            track: meta.track || '', course: meta.course || '', lesson: meta.lesson || '',
+            topic: c.point,
+            question: '📖 Recalled the points of: ' + String(card.concept || '').slice(0, 140),
+            isCorrect: c.covered,
+            reviewFlag: 0,
+          };
+        });
+      if (rows.length) {
+        await logResults(req.userEmail, rows);
+        if (req.userEmail === DEFAULT_ACCOUNT) {
+          streamAttempts(rows).catch(() => {});
+          getTopicsRows(DEFAULT_ACCOUNT).then(replaceTopics).catch(() => {});
+        }
+      }
+
+      // Same response shape the Speaker panel already renders — covered points as
+      // strengths, missed ones as gaps, the ordered list as the model answer —
+      // plus the raw per-point coverage for the progress note.
+      return res.json({
+        score: Math.round(3 * covered / points.length),
+        verdict: grade.verdict,
+        strengths: grade.coverage.filter((c) => c.covered).map((c) => `**${c.point}**${c.note ? ` — ${c.note}` : ''}`),
+        gaps: grade.coverage.filter((c) => !c.covered).map((c) => `**${c.point}**${c.note ? ` — ${c.note}` : ''}`),
+        modelAnswer: `The ${points.length} key points:\n\n${points.map((p, i) => `${i + 1}. **${p.point}**`).join('\n')}`,
+        encouragement: grade.encouragement,
+        pass: covered === points.length,
+        pointsMax: 3,
+        coverage: grade.coverage,
+        progress: { logged: rows.length > 0, topic: '', points: rows.length, covered, total: points.length },
+      });
+    }
 
     // Resolve the card's full hierarchy (same lookup the quiz endpoint uses) so
     // the attempt logs against the right Track > Course > Lesson > Topic.
@@ -4378,10 +4540,30 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
       watcherRef: req.body?.watcherRef || null,
     });
 
+    // 2b. Reading programs (Subject = personal growth / philosophy) treat this
+    // material as a BOOK — lesson = the title, topics = its key points — and get
+    // the fixed-shape flashcard deck built automatically, in the plan's point
+    // order (the book's own order, not the AI study-sequence above). An explicit
+    // bookDeck:true/false overrides the automatic choice. Best-effort: the filing
+    // already succeeded, and the learner can build the deck later from the
+    // flashcard view.
+    const wantBookDeck = req.body?.bookDeck === undefined
+      ? topics.length > 0 && await isReadingProgram(program)
+      : req.body.bookDeck === true && topics.length > 0;
+    let bookDeck = false;
+    if (wantBookDeck) {
+      try {
+        await buildBookDeck({ program, scope: { track, course, lesson }, points: topics, ai: aiFromBody(req) });
+        bookDeck = true;
+      } catch (e) {
+        console.error('book deck build failed:', e.message);
+      }
+    }
+
     // 3. Generation is OPT-IN. By default this just files the transcript + curriculum
     // rows and stops — attaching material and building questions are separate acts.
     if (req.body?.generate !== true) {
-      return res.json({ ok: true, generated: false, topics: topics.length });
+      return res.json({ ok: true, generated: false, topics: topics.length, bookDeck });
     }
     const job = await createGenJob({
       program,
@@ -4393,7 +4575,7 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
       instructions: req.body?.instructions || '',
       topics: topics.map((topic) => ({ topic, track, course, lesson })),
     });
-    res.json({ ok: true, generated: true, job: publicJob(job) });
+    res.json({ ok: true, generated: true, job: publicJob(job), bookDeck });
   } catch (e) {
     next(e);
   }

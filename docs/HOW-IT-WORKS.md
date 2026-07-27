@@ -78,6 +78,11 @@ rather than being invisible. Priority is **recomputed and stored on every logged
 10. **Drill deeper** — diagnoses your confusion on a missed question and generates a targeted one.
 11. **Generate questions / "more like this"** — AI writes new bank questions for a scope.
 12. **Progress analysis & Knowledge Map** — AI coaching + a graph of your whole curriculum.
+13. **Book decks** (reading programs) — a lesson that IS a book gets a fixed-shape deck: card 1 is
+    the **book title** (its back lists the key points), then one card per **key point** (its back is
+    what you'd say when explaining it). Explaining the title card aloud is graded on **per-point
+    coverage** — each point covered/missed logs one attempt on that point's own topic, so a missed
+    point raises its priority and comes back around.
 
 ## 6. Difficulty selector
 
@@ -124,6 +129,17 @@ dependency-free SVG plotter with no `eval` — the model describes the plot, it 
 Per-user labels (Mastered / Still learning / Important) are private. **Speaker mode** grades a
 spoken explanation out of 3 and folds a pass into topic mastery.
 
+**Book decks** are the reading-program variant (program Subject = "Personal growth / philosophy").
+There a lesson IS a book — the auto-file ingest puts the book title as the lesson and its key
+points as the sub-lessons — and its deck takes a fixed shape: card 1 = the **title** (back: the
+ordered point list, the recall target), then one card per **point** (back: "The idea" — the spoken
+explanation, grounded in the filed summary — plus a one-line "Memory hook"). Mastering a book means
+(1) recalling all its points from the title alone and (2) explaining each point well. Speaker mode
+does both: on the title card it grades **coverage** (which points you named/paraphrased) and logs
+one attempt per point topic; on a point card it's the normal 0–3 explanation grade. Reading
+programs build these decks automatically — on ingest commit, and whenever "Generate" runs on a
+lesson there; MCQs stay available as light retrieval practice.
+
 ## 9. Knowledge Map
 
 Every topic is a node; two edge kinds (`lib/graph.js`):
@@ -147,7 +163,9 @@ curriculum for a team. Stations:
   paste a transcript (or pick an Atrium "Watcher" video) → AI proposes where it belongs (reusing
   existing names or proposing new ones; new-vs-existing is decided **server-side against the live
   catalog**, never trusted from the model) → you review/edit → attach, optionally generating
-  questions. Also **Build with AI**: describe a **goal** in plain English (optionally pick source
+  questions. In a **reading program** (category `growth`) the pasted material is treated as a
+  **book** — lesson = the title, topics = its key points — and the book-shaped flashcard deck is
+  built automatically on attach, in the plan's point order. Also **Build with AI**: describe a **goal** in plain English (optionally pick source
   transcripts) and the app drafts a whole **module** — a course of lessons and sub-lessons built on
   top of what the learner already knows — then writes questions and flashcards for it; or paste an
   **outline** to build many lessons at once. This is how new curriculum gets created from a goal

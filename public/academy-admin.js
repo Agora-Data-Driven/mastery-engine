@@ -110,6 +110,9 @@
     // rebuilt cleanly for the new program.
     const urlProg = new URLSearchParams(location.search).get('program');
     state.program = (urlProg && programs.some((p) => p.id === urlProg)) ? urlProg : current;
+    // The active program's doc (name/category) — category 'growth' marks a READING
+    // program, whose ingests are treated as books (deck auto-built on attach).
+    state.programMeta = programs.find((p) => p.id === state.program) || {};
     $('program').innerHTML = programs.map((p) => `<option value="${esc(p.id)}">${esc(p.name || p.id)}</option>`).join('');
     $('program').value = state.program;
     $('program').onchange = () => { location.search = '?program=' + encodeURIComponent($('program').value); };
@@ -934,7 +937,11 @@
     $('iCourseNew').innerHTML = badge(pl.courseIsNew);
     $('iLessonNew').innerHTML = badge(pl.lessonIsNew);
     populateIngestLists();
-    $('iSummary').innerHTML = `<b>AI placement</b> · ${esc(data.summary || '')} <span class="aa-note">· ${data.chars} chars · source: ${esc(data.source)}</span>`;
+    // Reading programs treat this as a BOOK: lesson = the title, topics = its key
+    // points, and the book-shaped deck (title card → point cards) builds on commit.
+    const bookNote = (state.programMeta && state.programMeta.category) === 'growth'
+      ? ' <span class="aa-ok">· 📖 reading program — the book deck builds automatically on attach</span>' : '';
+    $('iSummary').innerHTML = `<b>AI placement</b> · ${esc(data.summary || '')} <span class="aa-note">· ${data.chars} chars · source: ${esc(data.source)}</span>${bookNote}`;
     setIngestTopicsLabel(false);
     show($('iPullTopics'), false);
     resetGenerateToggle();
@@ -1032,7 +1039,7 @@
       // live textarea so any edits made after opening the review box are honoured.
       const text = state.ingest.source === 'watcher' ? state.ingest.text : ($('iText').value.trim() || state.ingest.text);
       try {
-        const { job, generated } = await api('/api/admin/ingest/commit', {
+        const { job, generated, bookDeck } = await api('/api/admin/ingest/commit', {
           method: 'POST',
           body: {
             program: state.ingest.program || state.program,
@@ -1044,13 +1051,16 @@
             ...engineBody(),
           },
         });
+        // Reading programs (Subject = personal growth / philosophy) auto-build the
+        // book-shaped flashcard deck on commit — say so when it happened.
+        const deckNote = bookDeck ? ' 📖 Book deck built (title card → point cards).' : '';
         if (generated && job) {
           $('iCommitMsg').innerHTML = '<span class="aa-ok">Attached. Generating questions…</span>';
           await runSteps(job.id, { bar: 'iBar', status: 'iStatus' }, 'stopIngest');
-          $('iCommitMsg').innerHTML = '<span class="aa-ok">Done — transcript filed and questions added.</span>';
+          $('iCommitMsg').innerHTML = `<span class="aa-ok">Done — transcript filed and questions added.${deckNote}</span>`;
         } else {
           $('iCommitMsg').innerHTML = topics.length
-            ? '<span class="aa-ok">Attached — transcript and curriculum saved (no questions generated).</span>'
+            ? `<span class="aa-ok">Attached — transcript and curriculum saved (no questions generated).${deckNote}</span>`
             : '<span class="aa-ok">Attached — transcript filed to that lesson.</span>';
         }
         show($('iPlanBox'), false);
