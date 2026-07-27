@@ -3399,7 +3399,8 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
       });
     }
     // `admin` lets the Sentinel Academy tab default admins straight to the admin view. The
-    // academy-admin page itself still re-gates the browser, so this is only a UI default.
+    // academy-admin page re-gates at the SERVER with full cookie context (non-admins are
+    // 302'd to the homepage — see the /academy-admin.html gate), so this is only a UI default.
     // Role-aware: Sentinel super_admin/admin count, alongside the env break-glass list.
     res.json({ programs, admin: isAdminEmail(email) || isSentinelAdminRole((await sentinelInfo(email)).role) });
   } catch (e) {
@@ -5275,6 +5276,28 @@ app.post('/api/admin/bq-sync-topics', requireAdmin, async (_req, res, next) => {
 });
 
 /* ------------------------------ static + 404 ------------------------------ */
+
+/*
+ * The Academy Admin (Composing Room) page is admin-only AT THE SERVER, not just in the
+ * browser. express.static below would otherwise hand the full admin shell (and its
+ * frontend script) to anyone who asks, leaving only the client-side "Admins only" card
+ * between a guest and the admin UI. Every /api/admin route is already requireAdmin-gated,
+ * so no data leaks — this closes the UI/recon layer: non-admins never receive the page and
+ * are 302'd to the homepage instead (?embed=1 is preserved so the Sentinel iframe lands on
+ * the embedded app, not a bare page). isAdmin() reads the Sentinel role through the /api
+ * gate cache, which a bare page navigation has NOT warmed, so await sentinelInfo() first —
+ * a role-admin opening the page in a fresh browser must not bounce off a cold cache.
+ * no-store keeps the admin shell out of shared caches and out of history after sign-out.
+ */
+app.get(['/academy-admin.html', '/academy-admin.js'], async (req, res) => {
+  res.set('Cache-Control', 'private, no-store');
+  const email = currentEmail(req);
+  if (email) await sentinelInfo(email).catch(() => {}); // lookup failure ⇒ no role ⇒ not admin
+  if (!isAdmin(req)) return res.redirect(302, req.query.embed ? '/?embed=1' : '/');
+  const file = req.path.endsWith('.js') ? 'academy-admin.js' : 'academy-admin.html';
+  res.sendFile(path.join(__dirname, 'public', file));
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('*', (_req, res) => {
