@@ -3560,10 +3560,10 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
     const programs = [];
     for (const pid of enrollment.programs) {
       let rows = filterCatalog(bank, { program: pid, courses: enrollment.courses });
-      if (tracks) {
-        const inRows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
-        if (inRows.length) rows = inRows; // shelf has this program → mirror the engine's tree
-      }
+      // With a curated shelf, mirror it EXACTLY — including programs the shelf omits (0 topics).
+      // Falling back to whole-program rows there would dilute the career rollup with content the
+      // learner's engine tree doesn't even show (that was the 50%-vs-39% drift).
+      if (tracks) rows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
       let total = 0, practiced = 0, progSum = 0;
       const courses = new Set();
       for (const r of rows) {
