@@ -223,6 +223,12 @@ Sentinel person (super admin exempt). Identity resolvers, pick deliberately:
 | `conversationUser(req)` | chats, card overlays/labels | always the real signer — act-as **not** honoured (private even from admins) |
 | `currentEmail(req)` | the real signer (gate, rate limit) | — |
 
+**The Academy Admin page is gated at the server** (added 2026-07-27): `/academy-admin.html` and
+`/academy-admin.js` are claimed by an explicit route ahead of `express.static` — non-admins
+(and the signed-out) get a 302 to `/` (`?embed=1` preserved) and never receive the admin shell;
+the in-page "Admins only" card is just chrome. The route awaits `sentinelInfo()` first because a
+bare page navigation hasn't warmed the role cache behind the sync `isAdmin()`.
+
 **Sentinel is the source of truth for accounts** (added 2026-07-25): the `/api` middleware calls
 Sentinel's HMAC `user-lookup` (5-min cache) and 403s any signed-in email that isn't an ACTIVE
 Sentinel user. `/api/auth/*` is exempt; the super admin is break-glass; a FAILED lookup (Sentinel
