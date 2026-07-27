@@ -2913,10 +2913,20 @@ app.get('/api/graph', requireAuth, async (req, res, next) => {
     // Visualize only what's actually in the learner's Mastery Engine (shelf tracks
     // + individually-added sections, minus removed ones — the same rule as
     // /api/catalog and the quiz/drill views), not the whole curriculum bank.
-    const shelf = engShelf || {};
-    const rows = catalog.filter(
-      (r) => r.topic && inEngine(r, engTracks || [], shelf.included || [], shelf.hidden || []),
-    );
+    // EXCEPT under a program PIN (?program=, Sentinel's Philosophical/Spiritual tabs):
+    // there the whole session is one program and the tree is program-scoped, so the map
+    // must mirror THAT — the shelf would leak every other program's tracks into the tab.
+    const requested = String(req.query?.program || '').trim();
+    const scope = requested ? await requestScope(req) : null;
+    let rows;
+    if (scope && scope.program === requested) {
+      rows = filterCatalog(catalog, scope).filter((r) => r.topic);
+    } else {
+      const shelf = engShelf || {};
+      rows = catalog.filter(
+        (r) => r.topic && inEngine(r, engTracks || [], shelf.included || [], shelf.hidden || []),
+      );
+    }
     const now = new Date();
     const nodes = rows.map((r) => toNode(r, now));
 
