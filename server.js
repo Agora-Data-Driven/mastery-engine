@@ -3594,14 +3594,16 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
     const nameOf = (id) => (allPrograms.find((p) => p.id === id) || {}).name || id;
     const catOf = (id) => (allPrograms.find((p) => p.id === id) || {}).category || 'career';
     const tracks = shelf && shelf.tracks && shelf.tracks.length ? shelf.tracks : null;
-    // One card per ASSIGNED PROGRAM, aggregated over the same rows the engine shows.
+    // One card per ASSIGNED PROGRAM, aggregated over the same rows ITS TAB shows.
+    // Career programs mirror the personal engine (the Professional tab is the unpinned,
+    // SHELF-scoped app — including programs the shelf omits reporting 0 topics; whole-program
+    // fallback there was the 50%-vs-39% drift). Growth programs mirror their PINNED tab
+    // (Philosophical/Spiritual), which is WHOLE-PROGRAM scoped — shelf-filtering those
+    // zeroed the ring while the tab itself showed real progress.
     const programs = [];
     for (const pid of enrollment.programs) {
       let rows = filterCatalog(bank, { program: pid, courses: enrollment.courses });
-      // With a curated shelf, mirror it EXACTLY — including programs the shelf omits (0 topics).
-      // Falling back to whole-program rows there would dilute the career rollup with content the
-      // learner's engine tree doesn't even show (that was the 50%-vs-39% drift).
-      if (tracks) rows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
+      if (tracks && catOf(pid) !== 'growth') rows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
       let total = 0, practiced = 0, progSum = 0;
       const courses = new Set();
       for (const r of rows) {
