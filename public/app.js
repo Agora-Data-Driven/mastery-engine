@@ -1356,7 +1356,8 @@ const App = (() => {
   async function priorityFromStats() {
     try {
       // Broad priority quiz across everything - server ranks by weakness.
-      const qs = await getQuiz('/api/quiz/priority', { count: 10 });
+      const count = clampCountClient($('count').value);
+      const qs = await getQuiz('/api/quiz/priority', { count });
       startQuiz(qs);
     } catch (e) {
       alert('Error: ' + e.message);
