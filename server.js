@@ -3864,7 +3864,9 @@ app.post('/api/admin/backfill-programs', requireAdmin, async (_req, res, next) =
 app.post('/api/admin/topics', requireAdmin, async (req, res, next) => {
   try {
     const scope = await requestScope(req);
-    const id = await upsertTopic({ ...req.body, program: req.body?.program || scope.program });
+    const program = req.body?.program || scope.program;
+    const id = await upsertTopic({ ...req.body, program });
+    await placeNewTopicsInOrder(program).catch(() => { /* ordering is best-effort */ });
     res.json({ ok: true, id });
   } catch (e) {
     next(e);
@@ -4267,6 +4269,13 @@ app.post('/api/admin/topics/bulk', requireAdmin, async (req, res, next) => {
     if (!rows.length) return res.status(400).json({ error: 'Nothing to import', problems });
 
     const report = await upsertTopics(rows);
+    await placeNewTopicsInOrder(program).catch(() => { /* ordering is best-effort */ });
+    // AI-order each touched lesson's sub-lessons so a pasted outline lands pedagogically,
+    // not alphabetically (mirrors the ingest/commit and goal-plan bulk-creation paths).
+    const lessonKeys = [...new Map(
+      rows.map((r) => [JSON.stringify([r.track, r.course, r.lesson]), { track: r.track, course: r.course, lesson: r.lesson }]),
+    ).values()];
+    await autoSequenceLessons(program, lessonKeys, aiChoice(req)).catch(() => { /* ordering is best-effort */ });
     res.json({ ok: true, ...report, problems });
   } catch (e) {
     next(e);

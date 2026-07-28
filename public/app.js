@@ -592,6 +592,13 @@ const App = (() => {
       'Xgboost',
       'Support Vector Machines',
     ],
+    'Tree-Based Models': [
+      'Decision Trees',
+      'Random Forests',
+      'Gradient Boosting',
+      'AdaBoost',
+      'XGBoost',
+    ],
   };
   // Rank of a lesson within its course's recommended order (Infinity if unranked).
   function lessonRank(course, lesson) {
@@ -600,14 +607,20 @@ const App = (() => {
     const i = order.indexOf(lesson);
     return i === -1 ? Infinity : i;
   }
-  // Order two lesson names within a course: curriculum order (min topic order)
-  // first, then the recommended rank, then natural name.
+  // Order two lesson names within a course: the recommended rank (an explicit,
+  // human-curated LESSON_ORDER entry) wins first, THEN curriculum order (min topic
+  // order), then natural name. Curated beats inferred because a lesson's topics are
+  // numbered independently per lesson in several programs (0-based each), so a
+  // lesson's min topic order is not a reliable cross-lesson signal — it can look
+  // "distinct" by accident (leftover numbering from creation/import time) without
+  // reflecting real pedagogical position. Courses with no LESSON_ORDER entry are
+  // unaffected: lessonRank ties at Infinity for both sides and falls through.
   function byLessonName(course, a, b) {
+    const ra = lessonRank(course, a), rb = lessonRank(course, b);
+    if (ra !== rb) return ra - rb;
     const m = orderMaps().le;
     const oa = _minOrder(m, `${course} ${a}`), ob = _minOrder(m, `${course} ${b}`);
     if (oa !== ob) return oa - ob;
-    const ra = lessonRank(course, a), rb = lessonRank(course, b);
-    if (ra !== rb) return ra - rb;
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   }
   // Distinct lesson names of a course, in recommended order.
