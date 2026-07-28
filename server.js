@@ -1110,6 +1110,7 @@ app.post('/api/quiz/priority', requireAuth, async (req, res, next) => {
     const byTrack = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
+      if (!r.totalAttempts) continue; // Mastery Quiz drills what you've studied, never a cold topic.
       if (!pin && !inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
       if (!byTrack.has(r.track)) byTrack.set(r.track, []);
       byTrack.get(r.track).push(r);
@@ -1178,6 +1179,7 @@ app.post('/api/flashcards/mastery', requireAuth, async (req, res, next) => {
     const topicMeta = new Map();
     for (const r of catalog) {
       if (!r.topic || r.priority == null) continue;
+      if (!r.totalAttempts) continue; // Mastery Flashcards reviews what you've studied, never a cold topic.
       if (!pin && !inEngine(r, engTracks, engShelf.included || [], engShelf.hidden || [])) continue;
       if (!topicMeta.has(r.topic)) topicMeta.set(r.topic, { track: r.track || 'Unknown', priority: r.priority });
     }
