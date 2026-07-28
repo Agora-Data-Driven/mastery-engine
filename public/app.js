@@ -33,6 +33,17 @@ const App = (() => {
     try { return document.documentElement.classList.contains('coach-actions') && window.parent && window.parent !== window; }
     catch { return false; }
   };
+  // Whether we're embedded in someone else's frame at all (Sentinel's Coach/Academy/pinned tabs)
+  // vs running top-level as mastery-engine's own first-party Study Assistant.
+  const inHostFrame = () => { try { return !!(window.parent && window.parent !== window); } catch { return true; } };
+  // Engine-only actions (propose to park/restore a Mastery Engine section) always run same-origin
+  // against the signed-in learner's OWN engine - there's no cross-origin execution involved, so
+  // unlike PROFILE edits (which need an actual host to carry them out - gated by hostFrame below)
+  // there's nothing here to gate on frame/embed context. Always on: whether this is Sentinel's
+  // Coach FAB, its Professional/Academy tab (an iframe too, just without ?actions=1), or a
+  // standalone tab - narrowing this to "only when NOT in any host frame" was the bug: ordinary
+  // day-to-day usage IS inside Sentinel's Professional tab, which never sets ?actions=1.
+  const engineActionsEnabled = () => true;
   // Which mode a signed-in user LANDS on. Sentinel's Academy passes ?home=quiz so the tab opens
   // straight into the course/quiz builder (progress now lives in Sentinel's Development hub), instead
   // of our own "My Progress" dashboard. Captured once at boot (URL only — never persisted).
@@ -592,6 +603,13 @@ const App = (() => {
       'Xgboost',
       'Support Vector Machines',
     ],
+    'Tree-Based Models': [
+      'Decision Trees',
+      'Random Forests',
+      'Gradient Boosting',
+      'AdaBoost',
+      'XGBoost',
+    ],
   };
   // Rank of a lesson within its course's recommended order (Infinity if unranked).
   function lessonRank(course, lesson) {
@@ -600,14 +618,20 @@ const App = (() => {
     const i = order.indexOf(lesson);
     return i === -1 ? Infinity : i;
   }
-  // Order two lesson names within a course: curriculum order (min topic order)
-  // first, then the recommended rank, then natural name.
+  // Order two lesson names within a course: the recommended rank (an explicit,
+  // human-curated LESSON_ORDER entry) wins first, THEN curriculum order (min topic
+  // order), then natural name. Curated beats inferred because a lesson's topics are
+  // numbered independently per lesson in several programs (0-based each), so a
+  // lesson's min topic order is not a reliable cross-lesson signal — it can look
+  // "distinct" by accident (leftover numbering from creation/import time) without
+  // reflecting real pedagogical position. Courses with no LESSON_ORDER entry are
+  // unaffected: lessonRank ties at Infinity for both sides and falls through.
   function byLessonName(course, a, b) {
+    const ra = lessonRank(course, a), rb = lessonRank(course, b);
+    if (ra !== rb) return ra - rb;
     const m = orderMaps().le;
     const oa = _minOrder(m, `${course} ${a}`), ob = _minOrder(m, `${course} ${b}`);
     if (oa !== ob) return oa - ob;
-    const ra = lessonRank(course, a), rb = lessonRank(course, b);
-    if (ra !== rb) return ra - rb;
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   }
   // Distinct lesson names of a course, in recommended order.
@@ -4051,36 +4075,55 @@ const App = (() => {
   // while ENGINE ops (remove/restore a section of MY Mastery Engine) are ours: we apply them
   // same-origin via /api/me/section, no host round-trip.
   const COACH_ACTION_RE = /```agora-action\s*([\s\S]*?)```/g;
-  const ENGINE_ACTION_OPS = new Set(['remove_section', 'restore_section']);
+  const ENGINE_ACTION_OPS = new Set(['remove_section', 'restore_section', 'remove_sections', 'restore_sections']);
   let coachActionSeq = 0;
   const pendingCoachActions = new Map();
 
   // Apply an approved engine op in THIS session. verify:1 makes the server reject a
   // section name the AI got wrong (and canonicalize casing) instead of silently
   // writing a hidden[] entry that matches nothing.
+  async function applyOneSection(a, isRestore) {
+    await api('/api/me/section', { method: 'POST', body: JSON.stringify({
+      program: a.program || '', track: a.track || '',
+      course: a.course || '', lesson: a.lesson || '', topic: a.topic || '',
+      action: isRestore ? 'add' : 'remove',
+      verify: 1,
+    }) });
+  }
+
+  // Apply an approved engine op in THIS session. verify:1 makes the server reject a
+  // section name the AI got wrong (and canonicalize casing) instead of silently
+  // writing a hidden[] entry that matches nothing. \`remove_sections\`/\`restore_sections\`
+  // batch many sections behind ONE approve card — applied here as a loop of the same
+  // single-section call, so a bad name in the batch only fails that one item.
   async function applyEngineAction(card, action) {
     const st = card.querySelector('.ca-status');
-    const a = action.args || {};
-    try {
-      await api('/api/me/section', { method: 'POST', body: JSON.stringify({
-        program: a.program || '', track: a.track || '',
-        course: a.course || '', lesson: a.lesson || '', topic: a.topic || '',
-        action: action.op === 'restore_section' ? 'add' : 'remove',
-        verify: 1,
-      }) });
-      st.textContent = '✓ ' + (action.summary || 'Applied');
-      card.classList.add('is-done');
-      // Reflect the change if an engine tree is on screen (the assistant-only Coach
-      // frame has none — the Academy tab picks it up on its next load).
-      try { await reloadCatalog(); refreshEngineViews(); } catch { /* views not booted in this mode */ }
-    } catch (e) {
-      st.textContent = '✗ ' + (e.message || 'Could not apply');
-      card.classList.add('is-error');
+    const isBatch = action.op === 'remove_sections' || action.op === 'restore_sections';
+    const isRestore = action.op === 'restore_section' || action.op === 'restore_sections';
+    const items = isBatch ? (Array.isArray(action.args?.items) ? action.args.items : []) : [action.args || {}];
+    let ok = 0;
+    const failed = [];
+    for (const a of items) {
+      try { await applyOneSection(a, isRestore); ok++; }
+      catch { failed.push(a.topic || a.lesson || a.course || a.track || '?'); }
     }
+    if (!items.length) {
+      st.textContent = '✗ Nothing to apply';
+      card.classList.add('is-error');
+    } else if (!failed.length) {
+      st.textContent = '✓ ' + (action.summary || 'Applied') + (isBatch ? ` (${ok}/${items.length})` : '');
+      card.classList.add('is-done');
+    } else {
+      st.textContent = `⚠ ${ok}/${items.length} applied — couldn't match: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`;
+      card.classList.add(ok ? 'is-done' : 'is-error');
+    }
+    // Reflect the change if an engine tree is on screen (the assistant-only Coach
+    // frame has none — the Academy tab picks it up on its next load).
+    try { await reloadCatalog(); refreshEngineViews(); } catch { /* views not booted in this mode */ }
   }
 
   function renderCoachActions(answerText, els) {
-    if (!coachActionsEnabled()) return answerText;
+    if (!engineActionsEnabled()) return answerText;
     const found = [];
     let m;
     COACH_ACTION_RE.lastIndex = 0;
@@ -4175,7 +4218,8 @@ const App = (() => {
         steer: steer || undefined,
         web: webAccessOn() || undefined,
         coach: coachOn() || undefined,
-        actions: coachActionsEnabled() || undefined,
+        actions: engineActionsEnabled() || undefined,
+        hostFrame: inHostFrame() || undefined,
         attachments: assistantAttachments.length ? assistantAttachments.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data })) : undefined,
       }, (ev, data) => {
         if (ev === 'thinking') {

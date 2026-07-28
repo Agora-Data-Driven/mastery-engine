@@ -2501,8 +2501,12 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const holistic = await holisticProfile(chatUser);
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
+    // True only when this app is embedded in someone else's frame (Sentinel's Coach) — that's
+    // the sole context where PROFILE-edit proposals have a host to execute them. Engine ops
+    // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
+    const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -2559,9 +2563,10 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // outage can never break the SSE stream — it just yields no holistic block.
     const holistic = await holisticProfile(chatUser);
     const actions = !!req.body?.actions;
+    const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
@@ -3864,7 +3869,9 @@ app.post('/api/admin/backfill-programs', requireAdmin, async (_req, res, next) =
 app.post('/api/admin/topics', requireAdmin, async (req, res, next) => {
   try {
     const scope = await requestScope(req);
-    const id = await upsertTopic({ ...req.body, program: req.body?.program || scope.program });
+    const program = req.body?.program || scope.program;
+    const id = await upsertTopic({ ...req.body, program });
+    await placeNewTopicsInOrder(program).catch(() => { /* ordering is best-effort */ });
     res.json({ ok: true, id });
   } catch (e) {
     next(e);
@@ -4267,6 +4274,13 @@ app.post('/api/admin/topics/bulk', requireAdmin, async (req, res, next) => {
     if (!rows.length) return res.status(400).json({ error: 'Nothing to import', problems });
 
     const report = await upsertTopics(rows);
+    await placeNewTopicsInOrder(program).catch(() => { /* ordering is best-effort */ });
+    // AI-order each touched lesson's sub-lessons so a pasted outline lands pedagogically,
+    // not alphabetically (mirrors the ingest/commit and goal-plan bulk-creation paths).
+    const lessonKeys = [...new Map(
+      rows.map((r) => [JSON.stringify([r.track, r.course, r.lesson]), { track: r.track, course: r.course, lesson: r.lesson }]),
+    ).values()];
+    await autoSequenceLessons(program, lessonKeys, aiChoice(req)).catch(() => { /* ordering is best-effort */ });
     res.json({ ok: true, ...report, problems });
   } catch (e) {
     next(e);
@@ -5370,9 +5384,23 @@ app.post('/api/me/section', requireAuth, async (req, res, next) => {
       const entry = { program: prefix.program, track: prefix.track };
       await mutateShelf(email, add ? [entry] : [], add ? [] : [entry]);
     } else {
+      // Toggling a course/lesson also clears any hidden/included entries STRICTLY BENEATH
+      // it (e.g. individually-parked sub-lessons under a lesson being re-added) - otherwise
+      // a deeper hidden entry still outranks this shallower inclusion (see inEngine's
+      // specificity rule) and the ＋ silently leaves those sub-lessons parked. Mirrors the
+      // 'track' branch above; a no-op at topic grain since nothing is deeper than a topic.
+      const depthOf = (p) => (p.topic ? 4 : p.lesson ? 3 : p.course ? 2 : p.track ? 1 : 0);
+      const prefixDepth = depthOf(prefix);
+      const isBeneathPrefix = (h) => {
+        if ((h.program || DEFAULT_PROGRAM) !== prefix.program || h.track !== prefix.track) return false;
+        if (prefix.course && h.course !== prefix.course) return false;
+        if (prefix.lesson && h.lesson !== prefix.lesson) return false;
+        if (prefix.topic && h.topic !== prefix.topic) return false;
+        return depthOf(h) > prefixDepth;
+      };
       const shelf = (await getShelf(email)) || {};
-      const included = new Map((shelf.included || []).map((h) => [keyOf(h), h]));
-      const hidden = new Map((shelf.hidden || []).map((h) => [keyOf(h), h]));
+      const included = new Map((shelf.included || []).filter((h) => !isBeneathPrefix(h)).map((h) => [keyOf(h), h]));
+      const hidden = new Map((shelf.hidden || []).filter((h) => !isBeneathPrefix(h)).map((h) => [keyOf(h), h]));
       const k = keyOf(prefix);
       if (add) { included.set(k, prefix); hidden.delete(k); }
       else { hidden.set(k, prefix); included.delete(k); }
