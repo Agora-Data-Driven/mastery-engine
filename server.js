@@ -2501,8 +2501,12 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const holistic = await holisticProfile(chatUser);
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
+    // True only when this app is embedded in someone else's frame (Sentinel's Coach) — that's
+    // the sole context where PROFILE-edit proposals have a host to execute them. Engine ops
+    // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
+    const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -2559,9 +2563,10 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // outage can never break the SSE stream — it just yields no holistic block.
     const holistic = await holisticProfile(chatUser);
     const actions = !!req.body?.actions;
+    const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 

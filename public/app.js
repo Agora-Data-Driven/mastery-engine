@@ -33,6 +33,15 @@ const App = (() => {
     try { return document.documentElement.classList.contains('coach-actions') && window.parent && window.parent !== window; }
     catch { return false; }
   };
+  // Whether we're embedded in someone else's frame at all (Sentinel's Coach/Academy/pinned tabs)
+  // vs running top-level as mastery-engine's own first-party Study Assistant.
+  const inHostFrame = () => { try { return !!(window.parent && window.parent !== window); } catch { return true; } };
+  // Engine-only actions (propose to park/restore a Mastery Engine section) need no host consent —
+  // it's the learner editing their OWN engine via our OWN assistant, so they're on by default when
+  // running top-level. Inside someone else's frame, keep the existing behavior: only when that host
+  // opted in via ?actions=1. PROFILE edits still require an actual host and stay gated server-side
+  // by the hostFrame flag sent alongside (see streamAssistantAnswer).
+  const engineActionsEnabled = () => coachActionsEnabled() || !inHostFrame();
   // Which mode a signed-in user LANDS on. Sentinel's Academy passes ?home=quiz so the tab opens
   // straight into the course/quiz builder (progress now lives in Sentinel's Development hub), instead
   // of our own "My Progress" dashboard. Captured once at boot (URL only — never persisted).
@@ -4093,7 +4102,7 @@ const App = (() => {
   }
 
   function renderCoachActions(answerText, els) {
-    if (!coachActionsEnabled()) return answerText;
+    if (!engineActionsEnabled()) return answerText;
     const found = [];
     let m;
     COACH_ACTION_RE.lastIndex = 0;
@@ -4188,7 +4197,8 @@ const App = (() => {
         steer: steer || undefined,
         web: webAccessOn() || undefined,
         coach: coachOn() || undefined,
-        actions: coachActionsEnabled() || undefined,
+        actions: engineActionsEnabled() || undefined,
+        hostFrame: inHostFrame() || undefined,
         attachments: assistantAttachments.length ? assistantAttachments.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data })) : undefined,
       }, (ev, data) => {
         if (ev === 'thinking') {
