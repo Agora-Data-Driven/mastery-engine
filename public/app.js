@@ -4073,32 +4073,51 @@ const App = (() => {
   // while ENGINE ops (remove/restore a section of MY Mastery Engine) are ours: we apply them
   // same-origin via /api/me/section, no host round-trip.
   const COACH_ACTION_RE = /```agora-action\s*([\s\S]*?)```/g;
-  const ENGINE_ACTION_OPS = new Set(['remove_section', 'restore_section']);
+  const ENGINE_ACTION_OPS = new Set(['remove_section', 'restore_section', 'remove_sections', 'restore_sections']);
   let coachActionSeq = 0;
   const pendingCoachActions = new Map();
 
   // Apply an approved engine op in THIS session. verify:1 makes the server reject a
   // section name the AI got wrong (and canonicalize casing) instead of silently
   // writing a hidden[] entry that matches nothing.
+  async function applyOneSection(a, isRestore) {
+    await api('/api/me/section', { method: 'POST', body: JSON.stringify({
+      program: a.program || '', track: a.track || '',
+      course: a.course || '', lesson: a.lesson || '', topic: a.topic || '',
+      action: isRestore ? 'add' : 'remove',
+      verify: 1,
+    }) });
+  }
+
+  // Apply an approved engine op in THIS session. verify:1 makes the server reject a
+  // section name the AI got wrong (and canonicalize casing) instead of silently
+  // writing a hidden[] entry that matches nothing. \`remove_sections\`/\`restore_sections\`
+  // batch many sections behind ONE approve card — applied here as a loop of the same
+  // single-section call, so a bad name in the batch only fails that one item.
   async function applyEngineAction(card, action) {
     const st = card.querySelector('.ca-status');
-    const a = action.args || {};
-    try {
-      await api('/api/me/section', { method: 'POST', body: JSON.stringify({
-        program: a.program || '', track: a.track || '',
-        course: a.course || '', lesson: a.lesson || '', topic: a.topic || '',
-        action: action.op === 'restore_section' ? 'add' : 'remove',
-        verify: 1,
-      }) });
-      st.textContent = '✓ ' + (action.summary || 'Applied');
-      card.classList.add('is-done');
-      // Reflect the change if an engine tree is on screen (the assistant-only Coach
-      // frame has none — the Academy tab picks it up on its next load).
-      try { await reloadCatalog(); refreshEngineViews(); } catch { /* views not booted in this mode */ }
-    } catch (e) {
-      st.textContent = '✗ ' + (e.message || 'Could not apply');
-      card.classList.add('is-error');
+    const isBatch = action.op === 'remove_sections' || action.op === 'restore_sections';
+    const isRestore = action.op === 'restore_section' || action.op === 'restore_sections';
+    const items = isBatch ? (Array.isArray(action.args?.items) ? action.args.items : []) : [action.args || {}];
+    let ok = 0;
+    const failed = [];
+    for (const a of items) {
+      try { await applyOneSection(a, isRestore); ok++; }
+      catch { failed.push(a.topic || a.lesson || a.course || a.track || '?'); }
     }
+    if (!items.length) {
+      st.textContent = '✗ Nothing to apply';
+      card.classList.add('is-error');
+    } else if (!failed.length) {
+      st.textContent = '✓ ' + (action.summary || 'Applied') + (isBatch ? ` (${ok}/${items.length})` : '');
+      card.classList.add('is-done');
+    } else {
+      st.textContent = `⚠ ${ok}/${items.length} applied — couldn't match: ${failed.slice(0, 3).join(', ')}${failed.length > 3 ? '…' : ''}`;
+      card.classList.add(ok ? 'is-done' : 'is-error');
+    }
+    // Reflect the change if an engine tree is on screen (the assistant-only Coach
+    // frame has none — the Academy tab picks it up on its next load).
+    try { await reloadCatalog(); refreshEngineViews(); } catch { /* views not booted in this mode */ }
   }
 
   function renderCoachActions(answerText, els) {
