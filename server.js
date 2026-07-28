@@ -5384,9 +5384,23 @@ app.post('/api/me/section', requireAuth, async (req, res, next) => {
       const entry = { program: prefix.program, track: prefix.track };
       await mutateShelf(email, add ? [entry] : [], add ? [] : [entry]);
     } else {
+      // Toggling a course/lesson also clears any hidden/included entries STRICTLY BENEATH
+      // it (e.g. individually-parked sub-lessons under a lesson being re-added) - otherwise
+      // a deeper hidden entry still outranks this shallower inclusion (see inEngine's
+      // specificity rule) and the ＋ silently leaves those sub-lessons parked. Mirrors the
+      // 'track' branch above; a no-op at topic grain since nothing is deeper than a topic.
+      const depthOf = (p) => (p.topic ? 4 : p.lesson ? 3 : p.course ? 2 : p.track ? 1 : 0);
+      const prefixDepth = depthOf(prefix);
+      const isBeneathPrefix = (h) => {
+        if ((h.program || DEFAULT_PROGRAM) !== prefix.program || h.track !== prefix.track) return false;
+        if (prefix.course && h.course !== prefix.course) return false;
+        if (prefix.lesson && h.lesson !== prefix.lesson) return false;
+        if (prefix.topic && h.topic !== prefix.topic) return false;
+        return depthOf(h) > prefixDepth;
+      };
       const shelf = (await getShelf(email)) || {};
-      const included = new Map((shelf.included || []).map((h) => [keyOf(h), h]));
-      const hidden = new Map((shelf.hidden || []).map((h) => [keyOf(h), h]));
+      const included = new Map((shelf.included || []).filter((h) => !isBeneathPrefix(h)).map((h) => [keyOf(h), h]));
+      const hidden = new Map((shelf.hidden || []).filter((h) => !isBeneathPrefix(h)).map((h) => [keyOf(h), h]));
       const k = keyOf(prefix);
       if (add) { included.set(k, prefix); hidden.delete(k); }
       else { hidden.set(k, prefix); included.delete(k); }
