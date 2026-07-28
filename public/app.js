@@ -36,12 +36,14 @@ const App = (() => {
   // Whether we're embedded in someone else's frame at all (Sentinel's Coach/Academy/pinned tabs)
   // vs running top-level as mastery-engine's own first-party Study Assistant.
   const inHostFrame = () => { try { return !!(window.parent && window.parent !== window); } catch { return true; } };
-  // Engine-only actions (propose to park/restore a Mastery Engine section) need no host consent —
-  // it's the learner editing their OWN engine via our OWN assistant, so they're on by default when
-  // running top-level. Inside someone else's frame, keep the existing behavior: only when that host
-  // opted in via ?actions=1. PROFILE edits still require an actual host and stay gated server-side
-  // by the hostFrame flag sent alongside (see streamAssistantAnswer).
-  const engineActionsEnabled = () => coachActionsEnabled() || !inHostFrame();
+  // Engine-only actions (propose to park/restore a Mastery Engine section) always run same-origin
+  // against the signed-in learner's OWN engine - there's no cross-origin execution involved, so
+  // unlike PROFILE edits (which need an actual host to carry them out - gated by hostFrame below)
+  // there's nothing here to gate on frame/embed context. Always on: whether this is Sentinel's
+  // Coach FAB, its Professional/Academy tab (an iframe too, just without ?actions=1), or a
+  // standalone tab - narrowing this to "only when NOT in any host frame" was the bug: ordinary
+  // day-to-day usage IS inside Sentinel's Professional tab, which never sets ?actions=1.
+  const engineActionsEnabled = () => true;
   // Which mode a signed-in user LANDS on. Sentinel's Academy passes ?home=quiz so the tab opens
   // straight into the course/quiz builder (progress now lives in Sentinel's Development hub), instead
   // of our own "My Progress" dashboard. Captured once at boot (URL only — never persisted).
