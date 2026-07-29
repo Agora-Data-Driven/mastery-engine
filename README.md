@@ -70,10 +70,13 @@ Prereqs: `gcloud` authenticated as **info@agoradatadriven.com**, with a project
 selected. No local Node/Docker needed — Cloud Build compiles in the cloud.
 
 ```powershell
-# 0. Variables
+# 0. Variables + verify this window's gcloud pin. NEVER `gcloud config set` here —
+#    each VS Code window is env-pinned to a named gcloud config (see the root AGENTS.md);
+#    setting project/account breaks the other window. Pass --project explicitly instead.
 $PROJECT = "agora-data-driven"
 $REGION  = "us-central1"
-gcloud config set project $PROJECT
+gcloud config list --format="value(core.account,core.project)"
+# → must show: info@agoradatadriven.com   agora-data-driven   (stop if it shows anything else)
 
 # 1. Enable the APIs (Gemini goes through Vertex AI = aiplatform.googleapis.com,
 #    billed to this project; the old AI Studio generativelanguage API is gone)
@@ -172,19 +175,24 @@ governs flashcards, explanations, and question generation alike.
   default) and **2.5 Pro** (best quality — worth it for flashcard decks). The
   `model` in the choice selects the variant.
 - **Cloud — DeepSeek:** appears when `DEEPSEEK_API_KEY` is set (see deploy
-  runbook). Offers **Chat (V3)** and **Reasoner (R1)** via DeepSeek's
-  OpenAI-compatible API (`lib/deepseek.js`).
+  runbook). Offers **V4 Flash** (`deepseek-v4-flash`, the default) and **V4 Pro**
+  (`deepseek-v4-pro`) via DeepSeek's OpenAI-compatible API (`lib/deepseek.js`).
+  V4's thinking toggle defaults **ON server-side** — the adapter sends
+  `thinking:{type:'disabled'}` only on an explicit `thinking === false`, so the
+  "fast" path must opt out.
 - **Cloud — Kimi:** appears when `KIMI_API_KEY` is set (see deploy runbook).
-  Offers **K2.6** (fast, the default) and **K3** (flagship quality) via
-  Moonshot AI's OpenAI-compatible API (`lib/kimi.js`).
+  Offers **k3** (the default), **kimi-for-coding** and
+  **kimi-for-coding-highspeed** via the Kimi *Code* subscription's
+  OpenAI-compatible API (`lib/kimi.js`). Kimi Code keys (`sk-kimi-…`) work
+  **only** against `https://api.kimi.com/coding/v1`, never `api.moonshot.ai`.
 - **Local (Ollama):** only appears when the server can reach a running Ollama
   (`127.0.0.1:11434`).
 - **Local (LM Studio):** only appears when the server can reach LM Studio's
   OpenAI-compatible server (`127.0.0.1:1234`) with at least one model loaded.
 
 Because the local engines listen on the user's own machine, they only work when
-you **run the app locally**, not from the Cloud Run URL. Gemini and DeepSeek are
-hosted, so they work from the deployed app.
+you **run the app locally**, not from the Cloud Run URL. Gemini, DeepSeek and
+Kimi are hosted, so they work from the deployed app.
 
 ### Run it locally with Ollama
 
