@@ -1,7 +1,7 @@
 # Mastery Engine — Architecture & API reference
 
 Deep reference. For the operating rules (how to make a change safely) read
-[../CLAUDE.md](../CLAUDE.md) first — it is shorter and contains the gotchas.
+[../AGENTS.md](../AGENTS.md) first — it is shorter and contains the gotchas.
 
 ---
 
@@ -12,10 +12,10 @@ Browser (public/app.js, vanilla IIFE)
    │  fetch('/api/…')  — cookies carry identity + AI engine choice
    ▼
 server.js
-   │  CSP/frame-ancestors middleware        (:181)
-   │  /api guard — auth gate                (:424)
-   │  requireAuth | requireAdmin            (lib/auth.js:239)
-   │  rateLimitAI — 25/IP/min               (:383)
+   │  CSP/frame-ancestors middleware        (:198)
+   │  /api guard — auth gate                (:555)
+   │  requireAuth | requireAdmin            (lib/auth.js:302)
+   │  rateLimitAI — 25/IP/min               (:419)
    ▼
 lib/firestore.js  ──►  Firestore (agora-data-driven)
 lib/gemini.js     ──►  complete() / completeStream()
@@ -26,7 +26,7 @@ lib/gemini.js     ──►  complete() / completeStream()
 
 **Cookies drive behaviour.** The client sets `aiProvider`, `aiModel`, `aiThinking`,
 `difficulty`; the server reads them per request via `aiChoice(req)`
-([server.js:279](../server.js#L279)) and `difficultyChoice(req)` ([:302](../server.js#L302)).
+([server.js:310](../server.js#L310)) and `difficultyChoice(req)` ([:333](../server.js#L333)).
 This is why the engine picker works across every AI feature without threading state.
 
 ---
@@ -173,7 +173,7 @@ Guides are cached in `studyGuides`; `?refresh=1` forces regeneration.
 | POST | `/api/me/roadmaps/:id/add` `/remove` | 👤 | Enrol/leave a roadmap |
 
 **Shelf model:** three layers resolved by specificity — `tracks` (base), `included[]`
-(additive), `hidden[]` (subtractive). `inEngine()` ([server.js:575](../server.js#L575))
+(additive), `hidden[]` (subtractive). `inEngine()` ([server.js:739](../server.js#L739))
 resolves them; most-specific match wins.
 
 ### Enrollment & people (admin)
@@ -215,7 +215,7 @@ resolves them; most-specific match wins.
   "correctCount": 14, "totalAttempts": 20, "lastAttempted": Timestamp
 }
 ```
-> Doc id is created from the fields but **does not track them** after a move. See CLAUDE.md §3.
+> Doc id is created from the fields but **does not track them** after a move. See AGENTS.md §3.
 
 ### `questions/{auto}`
 ```jsonc
@@ -258,24 +258,24 @@ Sentinel embeds this app and reads from it:
 | Direction | Mechanism |
 |---|---|
 | Sentinel → ME (UI) | `<iframe src="…?embed=1">` — Academy tab. `?embed=assistant&actions=1` — Coach FAB. |
-| Sentinel → ME (data) | `GET /api/internal/enrollment-progress`, **HMAC-signed** (`verifyInternalSig`, [server.js:2929](../server.js#L2929)) |
+| Sentinel → ME (data) | `GET /api/internal/enrollment-progress`, **HMAC-signed** (`verifyInternalSig`, [server.js:3619](../server.js#L3619)) |
 | ME → Sentinel | `lib/sentinel.js` fetches the people roster for the admin enrollment UI |
 | Shared identity | `ag_sso` cookie signed with `SSO_SECRET` (Secret Manager: `platform-sso-key`) |
 
 **Embed mode matters in the frontend.** `?embed=1` is remembered in `sessionStorage`;
 `?embed=assistant` and `?actions=1` are deliberately **URL-only, never persisted**, because
 same-origin iframes share one `sessionStorage` and persisting them flipped the Academy tab into
-the assistant (the "stuck in the chat" bug). See [public/app.js:12–35](../public/app.js#L12).
+the assistant (the "stuck in the chat" bug). See [public/app.js:8–35](../public/app.js#L8).
 
 ---
 
 ## Frontend structure (`public/app.js`)
 
-One IIFE, ~5,800 lines, no framework, no build.
+One IIFE, ~6,200 lines, no framework, no build.
 
 - `$(id)` / `show(id)` / `hide(id)` — the entire "router". Views are `<section>`s in
   `index.html` toggled by the `hidden` class.
-- Boot block (lines 12–40) resolves embed/assistant/actions modes and `START_MODE`
+- Boot block (lines 8–35) resolves embed/assistant/actions modes and `START_MODE`
   (`?home=quiz` makes Sentinel's Academy open straight into the quiz builder).
 - State lives in module-scoped `let`s; `state.fullCatalog` holds the unfiltered bank for
   roadmap building while the shelf-filtered view drives the engine.

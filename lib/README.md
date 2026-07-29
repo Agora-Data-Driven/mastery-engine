@@ -1,0 +1,83 @@
+# lib/ — the server's library layer
+
+Every Firestore read/write, every AI prompt and provider call, auth resolution, and the pure
+mastery/scoping logic live here — **one file per concern**. `server.js` routes are thin: they
+guard, call into `lib/`, and format. Nothing in `lib/` touches Express.
+
+Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API reference:
+[../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
+
+## File map
+
+| File | What it is | Greppable anchors |
+|---|---|---|
+| [firestore.js](firestore.js) | **All database IO** (1.9k lines). Every read/write goes through here. | `COL` `:33` · `LEGACY_OWNER` `:48` · `statsCol()`/`logCol()` `:56`/`:65` · `slug()` `:72` · `moveTopics()` `:227` · `flashcardScopeId()` `:1232` · `studyGuideId()` `:1329` · `tupleKey()` `:1789` (**NUL lines 1788+1790**) · `buildTopicIdIndex()` `:1814` · `logResults()` `:1838` |
+| [gemini.js](gemini.js) | **All AI prompts + provider dispatch** (3.3k lines). Misleading name — fronts every provider. | HOW-IT-WORKS injection `:29` · `META_QUESTION_RE` `:35` · `clampToPolicy()` `:119` (the HARD per-user AI-allowlist gate) · `complete()` `:132` · `completeStream()` `:148` · `parseLooseJson()` `:242` · `restoreLatexEscapes()` `:314` |
+| [auth.js](auth.js) | 4 sign-in paths, identity resolvers, guards. | `verifyAgSso()` `:139` · `currentEmail()` `:182` · `effectiveUser()` `:260` · `conversationUser()` `:280` · `requireAuth` `:302` · `requireAdmin` `:309` |
+| [priority.js](priority.js) | The mastery formula. Pure, IO-free. | 71 lines, one exported function |
+| [programs.js](programs.js) | Program/course scoping rules. Pure, IO-free. | `DEFAULT_PROGRAM`, `programOf`, `normalizeEnrollment` |
+| [graph.js](graph.js) | Knowledge-map prereq edges + warm-up/readiness logic. | `buildPrereqEdges` · `prereqClosure` · `topoSortScope` |
+| [deepseek.js](deepseek.js) | DeepSeek adapter. | default `deepseek-v4-flash` `:17`; `thinkingField()` sends `{type:'disabled'}` only on explicit `thinking === false` — server default is thinking ON |
+| [kimi.js](kimi.js) | Kimi adapter — Kimi *Code* subscription key. | `api.kimi.com/coding/v1` ONLY; models `k3` (default) / `kimi-for-coding` / `-highspeed` (`listKimiModels()` `:29`) |
+| [lmstudio.js](lmstudio.js) | LM Studio adapter (local). | `json_object` → 400 (use `json_schema`/`text`); qwen3 `<think>` suppression — both workarounds load-bearing |
+| [anthropic.js](anthropic.js) / [ollama.js](ollama.js) | Remaining adapters, same shape: `callX()` + `streamX()` (+ `listXModels()`). | — |
+| [genjobs.js](genjobs.js) | Background question-gen job runner — stepped, resumable, **browser-driven** (a dead tab = "queued forever"). | — |
+| [usage.js](usage.js) | Token/cost tally per user; its ALS store also carries `req.aiPolicy`. | `recordUsage` |
+| [googleauth.js](googleauth.js) | Google OAuth flow. | — |
+| [sentinel.js](sentinel.js) | Sentinel people-roster fetch (admin enrollment UI) + role lookups. | — |
+| [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) [watcher.js](watcher.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer, Watcher transcripts). | — |
+| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` | The **four** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
+
+## Data contract — Firestore doc → lib accessor → app.js consumer
+
+| Data | Firestore | lib accessor | `public/app.js` consumer |
+|---|---|---|---|
+| Topics / catalog | `topics/{docId}` — id ≠ `slug(fields)` after any move | `getCatalog()` firestore.js:163 · `getTopicsRows()` :252 | catalog fetch + cache app.js:1753 (`state.catalog`; full bank :1762) |
+| Stats / progress | legacy owner: inline on `topics/{id}`; everyone else: `users/{email}/topicStats/{topicId}` (+ `quizLog`) | `statsCol()`/`logCol()` :56/:65 · write path `logResults()` :1838 via `buildTopicIdIndex()` :1814 | results POST `/api/quiz/log` app.js:2769 · dashboard `loadStats()` :1255 |
+| Questions | `questions/{auto}` — keyed by topic NAME, so program filtering is essential | `getQuestionsForTopics()` :289 · `getAllQuestions()` :301 · `addQuestion()` :370 | offline bank cache app.js:173 · `startQuiz()` :2210 |
+| Flashcards | `flashcards/{flashcardScopeId(...)}` + per-user labels `users/{email}/flashcardStatus/{cardId}` | `flashcardScopeId()` :1232 · `getFlashcards()` :1240 · `saveFlashcards()` :1279 | `openFlashcards()` app.js:2813 |
+| Programs / enrollment | `programs/{id}` · `users/{email}/meta/enrollment` · `meta/shelf` | `getPrograms()` :92 · `getEnrollment()` :128 · `resolveProgramScope()` :147 · `getShelf()` :1056 | program pin resolve app.js:842 · shelf fetch :1946 |
+
+## Cookbook
+
+1. **Add an AI feature** — prompt lives HERE, in `gemini.js`: export a function that builds the
+   prompt and returns `complete(prompt, { json, schema, ...ai })` (or `completeStream` +
+   `onToken`). The route passes `aiChoice(req)` through as `...ai`. Never call a provider SDK
+   from `server.js`. Verify + deploy: step 6.
+2. **Add a provider model** — extend the adapter's `listXModels()`; `/api/models`
+   (server.js:794) picks it up; `clampToPolicy()` (gemini.js:119) still gates who may use it.
+3. **Add a Firestore accessor** — in `firestore.js`, next to its collection's siblings. Per-user
+   data goes through `statsCol()`/`logCol()`; never branch on `LEGACY_OWNER` yourself, never
+   key anything by `slug(fields)` (use `buildTopicIdIndex()`).
+4. **Change the curriculum** — `runCurriculumEdits()` (server.js:4001) → `moveTopics()`
+   (firestore.js:227). Preserves doc ids, and therefore questions + learner stats. Never raw
+   Firestore writes for moves/renames.
+5. **Edit a NUL line** (firestore.js:1788/:1790, `tupleKey`) — Node script only:
+   `fs.readFileSync` → `s.replace('… …', '…')` → `fs.writeFileSync`. `Edit` cannot match
+   these lines; never open-and-rewrite the file.
+6. **Verify → deploy → re-port** — `node --check` every edited file; run the four tests
+   (`node lib\_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js`);
+   then `gcloud run deploy mastery-engine --source . --region us-central1 --project
+   agora-data-driven`; confirm the serving revision changed
+   (`gcloud run services describe mastery-engine --region us-central1
+   --format="value(status.latestReadyRevisionName,status.traffic[0].revisionName)"`);
+   then re-port `../mastery-engine-local` (`npm run port` there — **never hand-port**).
+
+## Gotchas + do-not-touch
+
+- 🔴 **NUL (0x00) bytes** on firestore.js lines **1788 + 1790** (`tupleKey` joins with NUL;
+  the comment above contains one too). `Read` shows them as spaces; `Edit` can't match; grep
+  calls the file binary. Node-script edits only.
+- 🔴 `clampToPolicy()` is the hard AI-allowlist gate — every AI path must stay funneled through
+  `complete()`/`completeStream()`.
+- 🔴 [../docs/HOW-IT-WORKS.md](../docs/HOW-IT-WORKS.md) is read from disk and injected into the
+  assistant prompt at `gemini.js:29` (meta questions only, per `META_QUESTION_RE` `:35`) —
+  editing that doc changes what the assistant says about itself.
+- 🔴 Adapter workarounds are load-bearing: DeepSeek thinking-off opt-out, Kimi coding-host-only,
+  LM Studio `json_schema` + `<think>` suppression. Don't "simplify" them away.
+- `priority.js` / `programs.js` are deliberately pure — keep IO out of them.
+
+## Status (volatile)
+
+Live: `https://mastery-engine-585951669065.us-central1.run.app` · serving revision
+`mastery-engine-00193-scv` · verified 2026-07-29.
