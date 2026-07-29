@@ -275,10 +275,15 @@ go. The ship even prints a line telling you how many parked branches it skipped,
 is never forgotten silently. The morning start-day report lists all parked work with its age and
 nags when something has been parked for over a week.
 
-GETTING PARKED WORK BACK. Two moves. To keep working on it: ask your AI to switch to your wip
-branch in that project, and continue where you left off. To finally ship it: get on the wip
-branch and run go - the normal shipping flow picks the work up, refreshes it with the latest
-team code, and releases it like anything else. To see everything parked anywhere, run
+GETTING PARKED WORK BACK. One command: run the same park script with -Restore and the name you
+used, for example agora-park.ps1 -Restore my-feature (or tell your AI "restore my parked work
+named my-feature" - the /park workflow understands restore). Restore checks that your folder has
+no unrelated loose changes first (park or finish those before restoring - it never mixes two
+pieces of work), then puts your shelved files back and, crucially, refreshes them with the
+latest team code - so you continue on top of what the team has now, not on the old snapshot you
+parked from. If your parked work clashes with something the team changed since, restore stops
+and asks - your shelf on GitHub stays untouched, so nothing can be lost. When the work is
+finished, run go and it ships like anything else. To see everything parked anywhere, run
 agora-park.ps1 -List.
 `;
 
