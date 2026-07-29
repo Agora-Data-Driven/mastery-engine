@@ -826,7 +826,7 @@ const App = (() => {
     document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeAll(); });
   }
 
-  // Video Lessons: a curated, ordered watch-list per program (static
+  // Resources tab (mode key stays VIDEOS): a curated, ordered list per program (static
   // /video-lessons.json). Watching a course's videos should let a learner answer
   // its quiz questions; concept-based courses (no video) are flagged. Videos open
   // on YouTube in a new tab (they can't be embedded here).
@@ -856,7 +856,7 @@ const App = (() => {
 
     $('videoIntro').textContent = (p && p.intro) || '';
     if (!p || !Array.isArray(p.tracks) || !p.tracks.length) {
-      list.innerHTML = switcher + '<p class="section-sub">No video lessons are curated for this program yet.</p>';
+      list.innerHTML = switcher + '<p class="section-sub">No resources are curated for this program yet.</p>';
       wire();
       return;
     }
@@ -873,7 +873,7 @@ const App = (() => {
               + '</li>').join('')
             + '</ol>';
         } else {
-          html += `<div style="color:var(--muted,#6B7280);font-size:13px">${esc(c.note || 'No video for this course yet.')}</div>`;
+          html += `<div style="color:var(--muted,#6B7280);font-size:13px">${esc(c.note || 'No resources for this course yet.')}</div>`;
         }
         html += '</div>';
       }

@@ -15,7 +15,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Frontend stru
 | [app.js](app.js) | The entire learner frontend (6.2k lines), one IIFE. | `const App = (() => {` `:2` · `show()`/`hide()` `:4`/`:5` (the whole "router") · embed-mode boot block `:8–35` (`?embed=assistant`/`?actions=1` URL-only, never persisted) · **NUL line `:559`** |
 | [academy-admin.html](academy-admin.html) / [academy-admin.js](academy-admin.js) | The admin "Composing Room" (2.2k lines JS). **Server-gated**: an explicit route at server.js:5616 302s non-admins ahead of express.static. | station panels; typed-SSE consumers for the planners |
 | [styles.css](styles.css) | All styling (1.9k lines). Dark theme, CSS custom properties. | — |
-| [video-lessons.json](video-lessons.json) | Curated video list served by `/api/video-lessons`. | — |
+| [video-lessons.json](video-lessons.json) | Curated resource list served by `/api/video-lessons`, shown in the **Resources** tab (UI label renamed from "Video Lessons" 2026-07-29; mode key `VIDEOS`, ids, and the API path stay canonical). Entries can be any link, not just videos — `agora_dev` links the onboarding presentation. | — |
 | [agora-logo.png](agora-logo.png) / [logo.svg](logo.svg) | Branding assets. | — |
 
 Data contract (Firestore doc → lib accessor → app.js consumer): the single table lives in

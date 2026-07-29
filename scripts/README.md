@@ -19,7 +19,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Workspace-wid
 | [merge-branches.ps1](merge-branches.ps1) | Integrate the per-developer branches, land them on `main`, and **DEPLOY** the Mastery Engine to Cloud Run — this repo's "ship ONE repo" command. Skips `wip/*` (parked) branches. |
 | [kimi-bypass-mode.ps1](kimi-bypass-mode.ps1) / [.cmd](kimi-bypass-mode.cmd) | Launch Claude Code on Moonshot Kimi (shared org key). **Mirrored from `agora-devtools` — never edit here.** |
 | [glm-bypass-mode.ps1](glm-bypass-mode.ps1) / [.cmd](glm-bypass-mode.cmd) | Launch Claude Code on Z.ai GLM (shared org key). **Mirrored from `agora-devtools` — never edit here.** |
-| [seed-agora-dev-onboarding.mjs](seed-agora-dev-onboarding.mjs) | Seeds/refreshes the **Agora Developer Onboarding** program (`agora_dev`), its 16 lesson source transcripts, Kimi question genjobs, and the 5-stage roadmap. The inline transcripts are the questions' SOURCE OF TRUTH — see cookbook 6. |
+| [seed-agora-dev-onboarding.mjs](seed-agora-dev-onboarding.mjs) | Seeds/refreshes the **Agora Developer Onboarding** program (`agora_dev`): 5 courses / 15 lessons / 45 topics, one plain-language source transcript per lesson (written for non-technical vibe coders), Kimi question genjobs, and the 5-stage roadmap. `--wipe` deletes all existing agora_dev questions/transcripts/topics first (Firestore ADC). The inline transcripts are the questions' SOURCE OF TRUTH — see cookbook 6. |
 
 ## Cookbook
 
@@ -43,10 +43,15 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Workspace-wid
    (new command, changed gate, renamed repo), update the matching lesson transcript INSIDE
    `seed-agora-dev-onboarding.mjs`, then run it:
    `$env:SSO_SECRET = (gcloud secrets versions access latest --secret platform-sso-key --project agora-data-driven); node scripts\seed-agora-dev-onboarding.mjs`.
-   It is idempotent (program/topics upsert; transcripts skip existing titles — delete the
-   outdated transcript in Academy Admin first, or bump its title, so the new text lands),
-   and question generation runs on **Kimi** (flat-rate, $0 marginal). Keeping this course
-   true to the real workflow is part of "docs are part of done".
+   Without flags it is idempotent (program/topics upsert; transcripts skip existing titles —
+   delete the outdated transcript in Academy Admin first, or bump its title, so the new text
+   lands). For a curriculum RESHAPE (lessons/topics renamed or removed) run with `--wipe`,
+   which deletes every existing agora_dev question/transcript/topic via Firestore ADC before
+   reseeding — otherwise orphaned topics linger. Question generation runs on **Kimi**
+   (flat-rate, $0 marginal). The course's audience is non-technical vibe coders — keep
+   transcripts in plain language, and keep the Resources tab presentation (linked from
+   `public/video-lessons.json`, program `agora_dev`) in step with any transcript change.
+   Keeping this course true to the real workflow is part of "docs are part of done".
 
 ## Gotchas + do-not-touch
 
