@@ -80,6 +80,7 @@ const CURRICULUM = {
       'What go really does',
       'The pre-flight check',
       'Preview when unsure',
+      'Ship only what you changed',
     ],
     'Parking unfinished work': [
       'When to park',
@@ -250,13 +251,30 @@ THE PRE-FLIGHT CHECK. Because go sweeps everything, always look before you ship.
 "show me what is changed in every repo before we go". It will list every modified file across
 all seven projects. Read the list and ask yourself one question: is every single item something
 I want live in production right now? If yes, go. If something unfinished is in the list, PARK it
-first (next lesson), then go.
+first (next lesson), or ship the narrow way with now (below), then go.
 
 PREVIEW WHEN UNSURE. Not sure what go would do? Run it with the word Preview: /go -Preview in
 Claude Code, or agora-go.ps1 -Preview. Preview safely saves your work and then only SHOWS the
 release plan - nothing goes live. When the plan looks right, run the real go. After any go, read
 the summary it prints: anything listed under "Needs you" or "Held back" did NOT ship and is
 waiting for a fix.
+
+SHIP ONLY WHAT YOU CHANGED. There is a second, smaller shipping command for when go is too big a
+hammer: now. In Claude Code type /now, or run
+C:\Users\<you>\Desktop\Repositories\Agora\agora-devtools\agora-now.ps1. The difference is that
+now never guesses. You give it the exact list of files to ship, and it ships those and nothing
+else - every other project, every other loose file, and every teammate's unfinished work stay
+exactly where they are. In practice you simply tell your AI "ship only what we changed in this
+conversation" and it builds that list for you, because only the AI that made the edits knows
+which files are its own. Use now whenever a second AI session is working at the same time as
+you: go would scoop up that other session's half-written files and put them live, and now will
+not. Both commands have a Preview, and the two are NOT the same: go's Preview saves your work
+first and then shows the release plan, while now's Preview writes absolutely nothing at all -
+not even a save. That makes now's Preview the safest way to look before you leap. One rule to
+remember: if now tells you it is
+holding the release back because there are loose files it did not write, that is the safety net
+doing its job. Never add those files to your list just to force it through - wait for the other
+session to finish, or park that work first.
 `;
 
 T['Parking unfinished work'] = String.raw`
