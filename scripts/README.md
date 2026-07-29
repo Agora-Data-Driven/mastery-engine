@@ -19,6 +19,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Workspace-wid
 | [merge-branches.ps1](merge-branches.ps1) | Integrate the per-developer branches, land them on `main`, and **DEPLOY** the Mastery Engine to Cloud Run — this repo's "ship ONE repo" command. Skips `wip/*` (parked) branches. |
 | [kimi-bypass-mode.ps1](kimi-bypass-mode.ps1) / [.cmd](kimi-bypass-mode.cmd) | Launch Claude Code on Moonshot Kimi (shared org key). **Mirrored from `agora-devtools` — never edit here.** |
 | [glm-bypass-mode.ps1](glm-bypass-mode.ps1) / [.cmd](glm-bypass-mode.cmd) | Launch Claude Code on Z.ai GLM (shared org key). **Mirrored from `agora-devtools` — never edit here.** |
+| [seed-agora-dev-onboarding.mjs](seed-agora-dev-onboarding.mjs) | Seeds/refreshes the **Agora Developer Onboarding** program (`agora_dev`), its 16 lesson source transcripts, Kimi question genjobs, and the 5-stage roadmap. The inline transcripts are the questions' SOURCE OF TRUTH — see cookbook 6. |
 
 ## Cookbook
 
@@ -38,6 +39,14 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Workspace-wid
    and the four `lib\_*_test.js` tests; then confirm the serving revision changed
    ([../AGENTS.md](../AGENTS.md) §6) and re-port `../../mastery-engine-local`
    (`npm run port` there — never hand-port).
+6. **Refresh the Developer Onboarding course** — when the workflow/docs change materially
+   (new command, changed gate, renamed repo), update the matching lesson transcript INSIDE
+   `seed-agora-dev-onboarding.mjs`, then run it:
+   `$env:SSO_SECRET = (gcloud secrets versions access latest --secret platform-sso-key --project agora-data-driven); node scripts\seed-agora-dev-onboarding.mjs`.
+   It is idempotent (program/topics upsert; transcripts skip existing titles — delete the
+   outdated transcript in Academy Admin first, or bump its title, so the new text lands),
+   and question generation runs on **Kimi** (flat-rate, $0 marginal). Keeping this course
+   true to the real workflow is part of "docs are part of done".
 
 ## Gotchas + do-not-touch
 
