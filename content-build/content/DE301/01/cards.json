@@ -1,0 +1,81 @@
+{
+  "cards": [
+    {
+      "concept": "Raw event vs feature: the fact and the interpretation",
+      "intuition": "An event is a receipt: an immutable record that something happened to some entity at some time, never edited after the fact. A feature is a summary you compute from many receipts, like a bank statement's monthly total. Because the receipts never change, you can recompute any summary, for any past date, as often as you like. That recomputability is the foundation everything else in data-for-ML stands on.",
+      "formula": "Event = immutable fact (entity, action, timestamp). Feature = derived value for (entity, as-of time).",
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "highway": true
+    },
+    {
+      "concept": "The five stages every feature pipeline decomposes into",
+      "intuition": "Think of an assembly line: land the raw parts, reject the broken ones, clean each part on its own, combine parts into assemblies, then ship to the shelf. Keeping the stages separate means each has a simple contract you can test and re-run: validation catches bad producers early, transformation stays stateless and parallel, and all the risky stateful logic is confined to aggregation.",
+      "formula": "ingest → validate (quarantine bad events) → transform (stateless) → aggregate (windowed, by entity) → materialize",
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "highway": true
+    },
+    {
+      "concept": "Why every feature value needs an as-of timestamp",
+      "intuition": "A 7-day click rate is a moving target: it has one value on Monday and another on Tuesday. A feature identified only by name and entity is ambiguous, like asking for 'the temperature in Manila' without saying when. Consumers must be able to ask for the value as of a specific time, so pipelines emit one row per entity per as-of date and keep the history.",
+      "formula": "feature row = (entity_key, feature_name, value, as_of); e.g. user_ctr_7d(u42, 2026-07-08) = 3/14 ≈ 0.214",
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "highway": false
+    },
+    {
+      "concept": "Idempotent re-runs: overwrite your partition, never append",
+      "intuition": "Schedulers retry, jobs crash halfway, humans re-run after bugfixes. If each run appends output, the first retry doubles the counts and the corruption flows downstream. If each run owns a deterministic partition and overwrites it, running twice produces exactly the same state as running once, which is what idempotent means. It is cheap to design in and brutal to retrofit.",
+      "formula": "Rule: run(k) overwrites partition(k); re-run ⇒ byte-identical output, never duplicates.",
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "highway": true
+    },
+    {
+      "concept": "Event time vs processing time, and the lateness horizon",
+      "intuition": "Event time is when the thing happened; processing time is when your pipeline finally saw it. Phones batch uploads and queues back up, so events arrive late. Windowing on processing time makes outputs depend on when you happened to run the job, so re-runs disagree. The stable recipe: window on event time, wait out a declared lateness horizon, then freeze the window forever.",
+      "formula": "Window on event time; close window at (window_end + lateness_horizon); closed partitions are immutable.",
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "highway": false
+    },
+    {
+      "concept": "Batch vs streaming: buy only the freshness the model needs",
+      "intuition": "Batch recomputes windows on a schedule: simple, cheap, reproducible, but only as fresh as the schedule. Streaming updates per event: fresh in seconds, but state, out-of-order events, and exactly-once accounting make it much harder to trust. A weekly-retrained, nightly-scored model gains nothing from streaming. Default to batch; promote a feature to streaming only when its staleness measurably costs accuracy, like a 10-minute fraud counter.",
+      "formula": "Choose the slowest freshness that meets the need; precompute history-based features, compute request-payload features inline.",
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "highway": false
+    },
+    {
+      "concept": "Why one database cannot serve both training and serving",
+      "intuition": "Training reads like a harvester: one column across a billion rows, sequential and bulk. Serving reads like a vending machine: everything about one entity, right now, in milliseconds. Columnar layouts make the harvest fast; key-value layouts make the vend fast. A layout is a physical commitment, so one engine cannot be optimal at both, which is the entire reason feature stores have two sides.",
+      "formula": "—",
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "highway": false
+    },
+    {
+      "concept": "Offline store vs online store",
+      "intuition": "The offline store is the archive: columnar, partitioned by date, holding the full timestamped history of every feature, read in bulk by training and backfills where seconds of latency are fine. The online store is the counter top: a key-value cache of only the latest values per entity, answering point reads in single-digit milliseconds. Same values, two projections, each shaped for its reader.",
+      "formula": "Offline: full history, columnar, bulk scan. Online: latest values only, key-value, ms point reads.",
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "highway": true
+    },
+    {
+      "concept": "Two projections of ONE computation",
+      "intuition": "The dangerous shortcut is letting the training team compute features one way and the serving team another. The feature store's core discipline is that a single pipeline computes each feature once, then materializes it twice: history to the offline store, latest values to the online store. The registry (one definition per feature: name, entity, source, transformation, TTL, owner) is what makes this enforceable and discoverable across teams.",
+      "formula": "One definition in the registry → one computation → two destinations (offline history + online latest).",
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "highway": true
+    },
+    {
+      "concept": "TTL expiry turns pipeline outages into silent model inputs",
+      "intuition": "Online values refreshed nightly carry a TTL near the refresh interval. Miss a run and values expire, so serving reads return nothing and the code's fallback default becomes the feature the model actually sees. A default of 0 for 30-day spend makes a loyal customer look brand new. Choose defaults deliberately and alert on the online store's null-read rate.",
+      "formula": "Expired key ⇒ model input = serving default; monitor null-read rate as a first-class alert.",
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "highway": false
+    },
+    {
+      "concept": "When a feature store is the wrong tool",
+      "intuition": "No online read path, no online store needed: if all scoring happens in a nightly batch, compute features and scores in the same job and write results to a table. Features derived purely from the request payload need no store at all. And at small scale, one Firestore doc per user refreshed by a scheduled job already is a minimal online store. Adopt the full machinery when models share features, inference happens per request, or divergence has already burned you.",
+      "formula": "—",
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "highway": false
+    }
+  ]
+}

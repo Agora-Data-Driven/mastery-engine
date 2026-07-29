@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "The five workload axes that pick a storage service",
+      "intuition": "Think of every GCP storage product as a point in a five-dimensional space, and a workload as coordinates in that space. Structure (rows, documents, wide tables, blobs), access pattern (OLTP point operations vs OLAP scans), scale, latency budget, and consistency/distribution. You do not memorize products; you decompose the workload and read off the nearest product. Fighting the design center never fails loudly, it just degrades and overcharges forever.",
+      "formula": "Structure + access pattern + scale + latency + consistency/distribution → nearest design center",
+      "topic": "The Workload-Driven Storage Decision Matrix",
+      "highway": true
+    },
+    {
+      "concept": "OLTP vs OLAP: the access-pattern fork",
+      "intuition": "OLTP is a cashier: thousands of tiny, keyed, transactional reads and writes, each touching a few rows. OLAP is an auditor: a handful of giant scans aggregating billions of rows. Engines are physically built for one or the other (row-oriented vs column-oriented), so running the auditor on the cashier's till saturates the primary and starves customers. Straddling workloads get split into two stores joined by a pipeline.",
+      "formula": "OLTP = many small keyed transactions; OLAP = few large scans/aggregations; straddle → split into two services + pipeline",
+      "topic": "The Workload-Driven Storage Decision Matrix",
+      "highway": true
+    },
+    {
+      "concept": "Cloud SQL vs AlloyDB vs Spanner in one line each",
+      "intuition": "Cloud SQL is your familiar MySQL/Postgres/SQL Server with managed failover: one primary, vertical write scaling, regional. AlloyDB is Postgres rebuilt with disaggregated storage plus an in-memory columnar engine, so it is the choice when Postgres needs more speed or must serve analytics on live data. Spanner is the different species: automatically sharded, Paxos-replicated, globally consistent, horizontal write scaling with a price floor to match.",
+      "formula": "Regional lift-and-shift → Cloud SQL; hot Postgres / HTAP → AlloyDB; global + relational + strong consistency → Spanner",
+      "topic": "Relational Options: Cloud SQL vs AlloyDB vs Spanner",
+      "highway": true
+    },
+    {
+      "concept": "TrueTime and external consistency",
+      "intuition": "Distributed clocks disagree, so ordering transactions across continents is normally guesswork. TrueTime uses GPS and atomic clocks to return not a time but a bounded interval of uncertainty. Spanner waits out that tiny interval before committing, so timestamps become trustworthy: if transaction B starts after A commits anywhere on Earth, B is guaranteed to see A. That guarantee is called external consistency, the strictest ordering a database can promise.",
+      "formula": "TrueTime returns [earliest, latest]; commit waits out uncertainty → external consistency (strict serializability)",
+      "topic": "Relational Options: Cloud SQL vs AlloyDB vs Spanner",
+      "highway": false
+    },
+    {
+      "concept": "The sequential-key hotspot trap",
+      "intuition": "Spanner and Bigtable both sort data by primary/row key and split the keyspace across servers. A monotonically increasing key (timestamp, auto-increment) means every new write lands on the same last split, so one server melts while the rest idle. It is a traffic jam caused by everyone taking the same exit. Fix by leading the key with something well distributed: an entity ID, a hash, or a UUID.",
+      "formula": "Monotonic key → all inserts hit last split → hotspot; lead with entity ID / hash / UUID",
+      "topic": "Relational Options: Cloud SQL vs AlloyDB vs Spanner",
+      "highway": true
+    },
+    {
+      "concept": "Firestore vs Bigtable vs Memorystore: three different superpowers",
+      "intuition": "Firestore is the app-state database: documents, strong consistency, real-time sync to clients, serverless, billed per document operation. Bigtable is the telemetry engine: one sorted key, no secondary indexes, single-digit millisecond reads at petabyte scale, the classic online feature store. Memorystore is RAM: microsecond reads, rich Redis structures, and no durability promise, so it caches and never owns the truth.",
+      "formula": "App documents + sync → Firestore; keyed telemetry/features at scale → Bigtable; ephemeral hot state → Memorystore",
+      "topic": "NoSQL Options: Firestore vs Bigtable vs Memorystore",
+      "highway": true
+    },
+    {
+      "concept": "In Bigtable, the row key IS the query",
+      "intuition": "With no joins and no secondary indexes, the only fast operations are point reads and contiguous range scans over the sorted keyspace. So you design the key from the queries backwards: `device#1234#timestamp` puts one device's history side by side for cheap range scans. A timestamp-first key clusters all current writes on one tablet, the hotspot trap again. Schema design in Bigtable is nothing but key design.",
+      "formula": "Key = query: prefix by lookup entity, suffix by range dimension (e.g. entity#time)",
+      "topic": "NoSQL Options: Firestore vs Bigtable vs Memorystore",
+      "highway": false
+    },
+    {
+      "concept": "Why Firestore punishes analytical scans",
+      "intuition": "Firestore bills per document read, write, and delete, and every query must be answerable by an index. That pricing is delightful for an app reading dozens of documents per user, and brutal for a job that scans millions: a 10-million-document aggregation bills 10 million reads. Scan-heavy work belongs in BigQuery or Bigtable; Firestore holds the documents your application touches one at a time.",
+      "formula": "Firestore cost ∝ documents touched; index-served queries only → wrong home for scans/aggregations",
+      "topic": "NoSQL Options: Firestore vs Bigtable vs Memorystore",
+      "highway": false
+    },
+    {
+      "concept": "GCS classes: a temperature ladder, not a durability ladder",
+      "intuition": "All four classes keep eleven nines of durability and millisecond first-byte access. What changes is the economics: colder classes charge less to store but add retrieval fees and minimum durations (Nearline 30 days, Coldline 90, Archive 365). The axis is access frequency, roughly monthly, quarterly, yearly. Delete early and you still pay the minimum, so cold classes are a commitment, not just a discount.",
+      "formula": "Standard (hot) → Nearline (30d min, ~monthly) → Coldline (90d, ~quarterly) → Archive (365d, ~yearly); durability constant",
+      "topic": "GCS Storage Classes and Lifecycle Management",
+      "highway": true
+    },
+    {
+      "concept": "Lifecycle rules and Autoclass",
+      "intuition": "Lifecycle management is a thermostat you program: per-bucket JSON rules matching conditions (age, newer-version count, current class) to actions (SetStorageClass, Delete). The classic policy walks objects down the ladder as they age and deletes the tail. Autoclass is the self-learning thermostat: the bucket watches each object's actual reads and moves it itself, trading a small management fee for zero retrieval fees and no misclassification risk. The costly mistake is classifying hot data cold, since frequent Archive reads are ruinous.",
+      "formula": "Rule = condition(age, versions, class) → action(SetStorageClass | Delete); unpredictable access → Autoclass",
+      "topic": "GCS Storage Classes and Lifecycle Management",
+      "highway": false
+    },
+    {
+      "concept": "DMS vs Datastream: retirement vs replication",
+      "intuition": "Both copy a database while it keeps running, but their endings differ. DMS is a house move: initial dump plus continuous catch-up until you cut over and retire the old home. Datastream is a live mirror: it tails the transaction log (binlog, WAL) forever, feeding every insert, update, and delete into BigQuery or GCS so analytics stays minutes-fresh without touching the primary. Log-based CDC also catches deletes, which SELECT polling structurally misses.",
+      "formula": "Migrate-then-retire source → DMS; continuous log-based CDC into analytics → Datastream",
+      "topic": "Migration Services: Datastream, DMS, BigQuery Data Transfer, Transfer Appliance",
+      "highway": true
+    },
+    {
+      "concept": "Picking the mover: DTS, Transfer Appliance, Storage Transfer Service",
+      "intuition": "BigQuery Data Transfer Service is the no-code scheduler for loads whose destination is BigQuery: SaaS apps like Google Ads, plus S3, Redshift, Teradata, GCS files. Storage Transfer Service copies objects into GCS over the network from other clouds or buckets. Transfer Appliance is the truck: when the dataset is huge and the pipe is thin, shipping a loaded device beats months of saturated bandwidth. Volume, bandwidth, freshness, destination: those four facts select the tool.",
+      "formula": "Transfer time ≈ bytes × 8 / bandwidth (1 PB @ 1 Gbps ≈ 93 days) → if months, ship the appliance",
+      "topic": "Migration Services: Datastream, DMS, BigQuery Data Transfer, Transfer Appliance",
+      "highway": false
+    }
+  ]
+}

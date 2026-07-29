@@ -1,0 +1,220 @@
+{
+  "questions": [
+    {
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "question": "What does idempotency require from a pipeline job?",
+      "options": [
+        "Repeated runs over the same input leave the target as if the job ran once",
+        "Repeated runs over new inputs append one additional copy of every prior row",
+        "A failed run never retries after its final acknowledgment is lost",
+        "A successful run produces a different timestamp and sample on every replay"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "question": "Which write pattern is idempotent for a job that owns an entire daily partition?",
+      "options": [
+        "Blindly append the daily rows after every retry and outage recovery",
+        "Overwrite the deterministic daily partition with the complete recomputed slice",
+        "Assign a fresh random partition to each attempt and retain every attempt",
+        "Increment every target amount when the same source event appears again"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "question": "A task times out after its write succeeds but before the acknowledgment arrives. The retry doubles revenue rows. Which defect is primary?",
+      "options": [
+        "The orchestrator used a stable business key when it retried the task",
+        "The transform derived event time from the immutable source record",
+        "The sink used a blind append rather than a convergent keyed or overwrite write",
+        "The source partition used UTC rather than a changing local timezone"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "question": "Why can an overwrite job still fail to produce reproducible output?",
+      "options": [
+        "Overwrite operations always duplicate rows before replacing a target partition",
+        "Overwrite operations cannot be scoped to one deterministic date partition",
+        "Overwrite operations require every source event to have a nullable business key",
+        "The transform may use current time, unseeded randomness, or mutable references"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "question": "A job owns only half of a shared date partition. Why is truncating the whole partition not a safe idempotent design?",
+      "options": [
+        "The repeatable write destroys data owned by the neighboring job outside its scope",
+        "The repeatable write preserves both owners and merely increases scan performance",
+        "The partition key changes from event time to a stable source business key",
+        "The target automatically merges the neighboring rows after every truncate operation"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "question": "A pipeline calls a nondeterministic LLM during transformation. Which design best preserves replayability?",
+      "options": [
+        "Append every new model response so retries retain all generated alternatives",
+        "Cache outputs by stable input hash or version and reuse them during replays",
+        "Stamp each response with current time and overwrite yesterday's deterministic slice",
+        "Trust short-window duplicate suppression as a permanent correctness guarantee"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "question": "What makes a partition assignment deterministic?",
+      "options": [
+        "It depends on the worker with the most free memory at processing time",
+        "It depends on the auto-incrementing batch number assigned to each retry",
+        "It is a pure function of stable data carried by the element itself",
+        "It is selected from whichever partition currently contains the fewest rows"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "question": "Why does ingestion-date partitioning make historical event replay unsafe?",
+      "options": [
+        "A replay always deletes the source event before reading its event timestamp",
+        "A replay assigns every late event to the original event-date partition",
+        "A replay converts stable event identifiers into balanced hash buckets",
+        "A replay on a later day lands old events in a different target partition"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "question": "A July 20 event arrives on July 25 in an event-time-partitioned pipeline. Where should it be written?",
+      "options": [
+        "Into the July 20 partition, which a lookback replay safely rewrites",
+        "Into the July 25 partition, because arrival context overrides event data",
+        "Into a random low-volume partition, which prevents deterministic data skew",
+        "Into both partitions, because duplication is required for late-arriving records"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "question": "Why is a stable fingerprint modulo 64 preferable to an in-memory process hash for bucketing users?",
+      "options": [
+        "It assigns each user to a new worker-specific bucket on every process start",
+        "It reproduces the same bucket for the same user across runs and machines",
+        "It guarantees every bucket is exactly equal even when one user dominates traffic",
+        "It allows overflow rows to move to whichever bucket currently has spare capacity"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "question": "Two jobs derive dates from the same timestamp using UTC and Asia/Manila. What failure can occur?",
+      "options": [
+        "Both jobs always assign boundary events to identical calendar partitions",
+        "Both jobs become nondeterministic only when their bucket counts are powers of two",
+        "Boundary events can map to different days despite carrying the same timestamp",
+        "Boundary events lose their timestamps because timezones remove immutable event facts"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "question": "A hash bucket is ten times larger because one customer produces most events. Which response preserves determinism?",
+      "options": [
+        "Move overflow events to random buckets according to current worker load",
+        "Partition historical rows by the customer's mutable current country instead",
+        "Assign a new sequential batch number to each event from that customer",
+        "Choose a better stable key or increase bucket count through a controlled redesign"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Incremental vs Full Refresh",
+      "question": "What is the defining difference between full and incremental refresh?",
+      "options": [
+        "Full rebuilds from all input; incremental processes only new or changed slices",
+        "Full processes only new rows; incremental recreates the complete target each run",
+        "Full requires a watermark; incremental cannot store any processing position",
+        "Full is always non-idempotent; incremental is automatically exactly-once"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Incremental vs Full Refresh",
+      "question": "What role does a high-water mark play in an incremental pipeline?",
+      "options": [
+        "It records the maximum storage price allowed for a full table rebuild",
+        "It records the latest processed change position used to select the next delta",
+        "It hashes each user into a deterministic bucket based on worker identity",
+        "It deletes source rows after they have been copied into a current-time partition"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Incremental vs Full Refresh",
+      "question": "A row with updated_at 10:00 becomes visible after a run has advanced its watermark beyond 10:00. What is the standard protection?",
+      "options": [
+        "Advance the watermark further so the delayed transaction is permanently excluded",
+        "Switch the target to blind append and accept one duplicate for every delayed row",
+        "Reprocess an overlapping lookback window using idempotent writes",
+        "Partition by the current run time so the delayed row enters today's output"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Incremental vs Full Refresh",
+      "question": "Why can a watermark based only on updated_at fail to propagate hard deletes?",
+      "options": [
+        "A deleted row always receives a future updated_at value before it disappears",
+        "A deleted row is automatically converted into a soft-delete event by SQL engines",
+        "A deleted row remains in every source delta with a lower updated_at value",
+        "A deleted row no longer appears for the filter to select, leaving a target ghost"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Incremental vs Full Refresh",
+      "question": "Which workload most strongly favors a full refresh?",
+      "options": [
+        "A small table where rebuilding is cheap and self-healing simplicity matters",
+        "A multi-petabyte fact table with a trustworthy five-gigabyte daily change stream",
+        "A source with reliable CDC where full scans exceed the annual cost budget",
+        "A large target whose only requirement is minimizing bytes scanned each morning"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Incremental vs Full Refresh",
+      "question": "Why is a hybrid refresh policy often the professional default for large important tables?",
+      "options": [
+        "Daily full rebuilds accumulate drift while rare incremental runs remove all ghosts",
+        "Cheap daily increments handle normal changes while periodic reconciliation bounds drift",
+        "Incremental writes remove the need for keys while reconciliation removes source history",
+        "Periodic reconciliation makes deterministic partitioning and idempotent writes unnecessary"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    }
+  ]
+}

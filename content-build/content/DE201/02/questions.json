@@ -1,0 +1,220 @@
+{
+  "questions": [
+    {
+      "topic": "Dictionary and Run-Length Encoding",
+      "question": "What distinguishes a Parquet encoding from a compression codec?",
+      "options": [
+        "An encoding exploits typed value structure before a codec compresses the resulting bytes",
+        "An encoding compresses whole files after a codec rearranges individual typed values",
+        "An encoding encrypts column values before a codec stores their schema information",
+        "An encoding chooses row groups after a codec computes their minimum and maximum"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Dictionary and Run-Length Encoding",
+      "question": "How many bits per dictionary index are needed for a column with 200 distinct values?",
+      "options": [
+        "Seven bits because 200 is below 2 raised to the eighth power",
+        "Eight bits because the ceiling of log base 2 of 200 is eight",
+        "Sixteen bits because dictionary indexes always use two-byte integers",
+        "Two hundred bits because each distinct value needs its own position"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Dictionary and Run-Length Encoding",
+      "question": "A million-row status column has four values and is sorted into four long runs. Which combination best exploits its structure?",
+      "options": [
+        "Plain encoding followed by an uncompressed page representation",
+        "Delta encoding followed by a high-level Gzip compression pass",
+        "Dictionary indexes followed by hybrid run-length and bit-packed encoding",
+        "Raw strings followed by a per-row variable-byte integer representation"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Dictionary and Run-Length Encoding",
+      "question": "A formerly small Parquet column chunk becomes much larger after values change from country codes to UUIDs. What is the most likely mechanism?",
+      "options": [
+        "Run-length encoding converted every UUID into a repeated country code",
+        "Delta encoding replaced UUID values with smaller consecutive time differences",
+        "Predicate pushdown duplicated UUID values into every row group footer",
+        "The high-cardinality dictionary overflowed its cap and fell back to plain encoding"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Dictionary and Run-Length Encoding",
+      "question": "Why can sorting a low-cardinality column improve both pruning and compression?",
+      "options": [
+        "It narrows row-group value ranges and creates long repeated-index runs for RLE",
+        "It removes the need for dictionaries and forces every page to use raw strings",
+        "It widens row-group value ranges and distributes repeated values across more pages",
+        "It converts every column into one globally compressed row-oriented byte stream"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Dictionary and Run-Length Encoding",
+      "question": "Which encoding is the best fit for a sorted, steadily increasing timestamp column with mostly small increments?",
+      "options": [
+        "Dictionary encoding of every timestamp as a separate high-cardinality string",
+        "Delta binary packing of successive timestamp differences into small integers",
+        "Run-length encoding of absolute timestamps that almost never repeat consecutively",
+        "Plain encoding with one fixed-width copy of each timestamp in every dictionary"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "question": "Why does decompression speed often matter more than compression speed for analytical data?",
+      "options": [
+        "Analytical files are compressed separately for each query but read only once",
+        "Analytical codecs skip compression and perform only repeated dictionary construction",
+        "A file is commonly compressed once but decompressed across many subsequent reads",
+        "A file is commonly decompressed once but recompressed for every selected column"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "question": "Which codec profile is presented as a strong modern default at low levels?",
+      "options": [
+        "Gzip because it combines the fastest compression with the fastest decompression",
+        "Uncompressed because encoded analytical values never contain residual redundancy",
+        "LZ4 because it always achieves the highest archival ratio at every compression level",
+        "Zstd because it offers a good tunable ratio with fast low-level operation"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "question": "A network-bound scan moves encoded pages over a 200 MB/s path, while Zstd decompression exceeds 800 MB/s. Why can Zstd beat a lighter codec?",
+      "options": [
+        "The CPU work overlaps transfer while the improved ratio reduces the bottleneck bytes",
+        "The CPU work disables page encoding while the network receives the original raw bytes",
+        "The improved ratio increases transferred bytes while eliminating all decompression work",
+        "The slower network forces the query engine to perform random access inside each page"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "question": "The same dataset moves from object storage to local NVMe and queries become CPU-bound on decompression. What adjustment is most defensible?",
+      "options": [
+        "Raise Zstd to its highest level because storage bandwidth is now irrelevant",
+        "Use a lighter codec or lower Zstd level to reduce read-path CPU cost",
+        "Add dictionary pages to every UUID so the decompressor performs more work",
+        "Switch every column to Gzip because its decompression is faster than LZ4"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "question": "Zstd level 19 barely improves the ratio of a sorted dictionary-encoded status column over Snappy. What does this most strongly imply?",
+      "options": [
+        "The page lacks any encoding and therefore needs a second dictionary",
+        "The network has already decompressed the values before reading the file",
+        "The encoding already removed most redundancy, leaving little for the heavy codec",
+        "The row group statistics have expanded the values back to their raw string size"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "question": "Which policy best matches codec choice to data temperature?",
+      "options": [
+        "Use maximum-ratio codecs for every hot table and no compression for archives",
+        "Use one codec globally because Parquet cannot vary compression between columns",
+        "Use slow legacy compression for hot tables and recompress them for every query",
+        "Use fast low-level compression for hot data and stronger Zstd for cold partitions"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Parquet Encodings vs Postings Compression",
+      "question": "What common principle connects Parquet delta encoding and postings gap encoding?",
+      "options": [
+        "Transform sorted values into small differences, then spend fewer bits on the residuals",
+        "Transform sorted values into full strings, then store every value at fixed width",
+        "Transform unsorted values into random identifiers, then avoid bit packing entirely",
+        "Transform repeated values into row groups, then decode one random value per query"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Parquet Encodings vs Postings Compression",
+      "question": "Document IDs 1000, 1003, 1007, and 1012 become which gap sequence?",
+      "options": [
+        "1000, 1003, 1007, 1012",
+        "1000, 3, 4, 5",
+        "0, 3, 7, 12",
+        "1000, 2003, 3010, 4022"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Parquet Encodings vs Postings Compression",
+      "question": "Why does a frequent term often require fewer compressed bits per posting than a rare term?",
+      "options": [
+        "Frequent terms store unsorted document IDs that repeat as long literal strings",
+        "Frequent terms omit their document IDs and rely only on collection-level idf",
+        "Frequent terms have dense sorted postings whose consecutive document-ID gaps are small",
+        "Frequent terms use one Parquet row group while rare terms use an inverted index"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Parquet Encodings vs Postings Compression",
+      "question": "What access-pattern difference explains why postings formats emphasize fast jumping while Parquet decompresses pages into batches?",
+      "options": [
+        "Postings are written only once, whereas Parquet files are never read after creation",
+        "Postings contain typed table leaves, whereas Parquet contains only document identifiers",
+        "Postings codecs run offline, whereas Parquet compression sits on every search request",
+        "Search scoring traverses and skips within lists, while analytics processes page-sized vectors"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Parquet Encodings vs Postings Compression",
+      "question": "A timestamp-sorted Parquet table becomes both smaller and easier to prune. Which explanation best unifies the two effects?",
+      "options": [
+        "Sortedness creates small deltas and tight row-group ranges from the same physical order",
+        "Sortedness replaces min-max statistics with hashes and expands every timestamp difference",
+        "Sortedness makes each timestamp unique and therefore ideal for small dictionary indexes",
+        "Sortedness forces page-level random access and disables sequential vectorized decoding"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Parquet Encodings vs Postings Compression",
+      "question": "Why do both hot search indexes and hot analytical lakes favor fast decoding over maximum compression ratio?",
+      "options": [
+        "Encoding occurs on every read while decoding happens only during initial ingestion",
+        "Decoding lies on the repeated read path, so saved bytes must justify added latency and CPU",
+        "Maximum-ratio codecs cannot operate on byte streams produced by type-aware encodings",
+        "Fast codecs always provide both the smallest files and the lowest CPU usage without tradeoffs"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    }
+  ]
+}

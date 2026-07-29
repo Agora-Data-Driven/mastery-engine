@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "GROUP BY changes grain",
+      "intuition": "Rows sharing the grouping values collapse into one output row. The grouping columns are the new definition of what one row represents.",
+      "formula": "one output row per distinct grouping-key combination",
+      "topic": "GROUP BY Mechanics and Aggregate Functions",
+      "highway": true
+    },
+    {
+      "concept": "COUNT and NULL",
+      "intuition": "COUNT star counts physical rows; COUNT expression counts measured values. Value aggregates ignore missing inputs rather than treating them as zero.",
+      "formula": "COUNT(*) includes rows; COUNT(x) excludes NULL x; AVG(x)=SUM(x)/COUNT(x)",
+      "topic": "GROUP BY Mechanics and Aggregate Functions",
+      "highway": true
+    },
+    {
+      "concept": "Aggregation cannot repair fan-out",
+      "intuition": "If a join multiplies facts first, the aggregate faithfully totals the copies. Reduce each many-side to target grain before combining them.",
+      "formula": "pre-aggregate each source to target key, then join",
+      "topic": "GROUP BY Mechanics and Aggregate Functions",
+      "highway": false
+    },
+    {
+      "concept": "WHERE versus HAVING",
+      "intuition": "WHERE chooses the source population before groups exist. HAVING tests statistics computed from completed groups.",
+      "formula": "FROM/JOIN → WHERE → GROUP BY/aggregate → HAVING → SELECT",
+      "topic": "HAVING vs WHERE: Filtering Before and After Aggregation",
+      "highway": true
+    },
+    {
+      "concept": "Predicate placement test",
+      "intuition": "Ask whether the condition describes an individual input row or a group result. Push row predicates early unless doing so changes the intended population.",
+      "formula": "row condition: WHERE; aggregate condition: HAVING",
+      "topic": "HAVING vs WHERE: Filtering Before and After Aggregation",
+      "highway": false
+    },
+    {
+      "concept": "COUNT DISTINCT semantics",
+      "intuition": "Build a set inside each group and count its non-missing members. Repeated values contribute once and NULL contributes zero.",
+      "formula": "COUNT(DISTINCT x) = cardinality of unique non-NULL x",
+      "topic": "COUNT DISTINCT and the Cost of Deduplication",
+      "highway": true
+    },
+    {
+      "concept": "Why exact distinct is expensive",
+      "intuition": "A normal count keeps one integer; a distinct count must remember or sort keys and often shuffle equal keys together across workers.",
+      "formula": "hash distinct state O(unique keys); sort distinct O(n log n)",
+      "topic": "COUNT DISTINCT and the Cost of Deduplication",
+      "highway": true
+    },
+    {
+      "concept": "Distinct counts are non-additive",
+      "intuition": "A person appearing on three days contributes once to each daily set but should contribute once to the month. Recompute at the requested grain.",
+      "formula": "sum(daily unique users) is not monthly unique users",
+      "topic": "COUNT DISTINCT and the Cost of Deduplication",
+      "highway": false
+    },
+    {
+      "concept": "Approximate distinct judgment",
+      "intuition": "Compact sketches trade a known small error for fixed memory. Use them for trends, not billing, constraints, or exact audit denominators.",
+      "formula": "approximate sketch only when bounded error is acceptable",
+      "topic": "COUNT DISTINCT and the Cost of Deduplication",
+      "highway": false
+    },
+    {
+      "concept": "Non-aggregated column test",
+      "intuition": "One output group may contain many source values, so every selected expression needs one justified answer through grouping, aggregation, or a proven dependency.",
+      "formula": "selected expression → exactly one value per output group",
+      "topic": "GROUP BY Pitfalls: Non-Aggregated Columns",
+      "highway": true
+    },
+    {
+      "concept": "MAX score does not carry its row",
+      "intuition": "Independent aggregates do not keep columns paired. An arbitrary document ID beside MAX(score) can describe a row that never existed.",
+      "formula": "MAX(score) does not imply document_id from argmax row",
+      "topic": "GROUP BY Pitfalls: Non-Aggregated Columns",
+      "highway": true
+    },
+    {
+      "concept": "Do not fix legality by changing grain",
+      "intuition": "Adding a stray column to GROUP BY may silence an error while creating more output rows. Repair according to the business question.",
+      "formula": "extra grouping column = new, finer grain",
+      "topic": "GROUP BY Pitfalls: Non-Aggregated Columns",
+      "highway": false
+    }
+  ]
+}

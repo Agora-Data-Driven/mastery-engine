@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "Storage-compute separation: two planes joined by a network",
+      "intuition": "BigQuery is not a database server but a warehouse (Colossus storage) and a temp agency (the Dremel slot pool) connected by Google's internal network. Storage costs almost nothing to hold and compute is rented per query, so petabytes can sit idle for free and multiple workloads can read the same tables with independent compute. The planes never contend, which is why loading data costs no compute and analysts cannot block pipelines at the storage layer.",
+      "formula": "Storage (Colossus) ⊥ Compute (Dremel slots); rented per query, released at completion",
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "highway": true
+    },
+    {
+      "concept": "Why columnar storage makes SELECT * the cardinal sin",
+      "intuition": "Capacitor stores each column's values contiguously, like a spreadsheet cut into vertical strips. A query touching 2 of 32 columns reads only those two strips, and similar values sitting together compress far better. SELECT * forces every strip off disk and, on-demand, bills for all of them. Column selection is not style, it is the pricing control.",
+      "formula": "Bytes read ∝ referenced columns only; SELECT * → all columns billed",
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "highway": true
+    },
+    {
+      "concept": "Stages, shuffle, and the skew failure mode",
+      "intuition": "A query runs as a tree of stages: many workers scan and partially aggregate, a distributed in-memory shuffle redistributes intermediate results by key, and later stages merge. It is map-reduce with slots reassigned dynamically. The classic failure: one skewed key (a single user with half the events) piles into one worker's shuffle partition, and no amount of extra slots helps because the bottleneck is one partition, not total capacity.",
+      "formula": "Scan/aggregate stage → shuffle by key → merge stage; skewed key → one hot worker",
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "highway": false
+    },
+    {
+      "concept": "Partitioning: pruning whole segments before any byte is read",
+      "intuition": "Partitioning slices a table into physical segments by date (hour/day/month/year), integer range, or ingestion time. A planning-time filter on that column lets BigQuery discard entire partitions unread, so 7 days out of 2 years scans about 1 percent of the table. Because pruning happens at plan time, the filter must compare against constants or parameters; a value that only exists at run time (from a join or subquery) usually cannot prune.",
+      "formula": "Filter on partition column at plan time → scan only matching partitions; ~10,000 partition cap",
+      "topic": "Partitioning and Clustering in BigQuery",
+      "highway": true
+    },
+    {
+      "concept": "Clustering: the phone-book sort inside partitions",
+      "intuition": "Clustering sorts rows by up to four columns into blocks with min/max metadata, and the engine skips blocks that cannot match the filter. Like a phone book sorted by last name then first name, filters benefit in cluster-key order: the first column prunes strongly, the second only within the first. It handles what partitioning cannot: high-cardinality columns like customer_id. BigQuery re-clusters in the background for free, and dry-run estimates become upper bounds because block pruning is decided at run time.",
+      "formula": "Sort by up to 4 columns → block min/max pruning; order matters; auto re-cluster is free",
+      "topic": "Partitioning and Clustering in BigQuery",
+      "highway": true
+    },
+    {
+      "concept": "The standard table design: partition by date, cluster by filters",
+      "intuition": "The stacked pattern covers most warehouse tables: date partitioning gives guaranteed, estimable pruning plus per-partition lifecycle (expiration auto-deletes old segments, like GCS lifecycle rules inside the warehouse) and the require_partition_filter guardrail; clustering then handles the high-cardinality WHERE columns like tenant or customer. Skip both on small tables where metadata overhead outweighs the skipping.",
+      "formula": "PARTITION BY DATE(ts) CLUSTER BY tenant_id, event_type; small tables (<~1 GB) → neither",
+      "topic": "Partitioning and Clustering in BigQuery",
+      "highway": false
+    },
+    {
+      "concept": "Editions ladder: Standard, Enterprise, Enterprise Plus",
+      "intuition": "Same engine, widening feature set. Standard is basic ad-hoc analytics with no commitments. Enterprise is the production tier with the advanced features most teams need. Enterprise Plus adds the compliance ceiling: multi-region disaster recovery and the highest assurance controls. On the exam, match the tier to the strictest stated requirement, not to prestige.",
+      "formula": "Standard = basic; Enterprise = production features; Enterprise Plus = compliance + cross-region DR",
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "highway": false
+    },
+    {
+      "concept": "Reservations as workload isolation",
+      "intuition": "A reservation is a named pool of slots assigned to projects, folders, or the org, and its real job is fencing workloads off from each other: ETL, BI, and ad-hoc each get their own pool, so data scientists exhausting theirs only queue themselves. Idle slots are lent to sibling reservations and snatched back instantly when the owner needs them, so isolation does not waste capacity.",
+      "formula": "Admin project → reservation(s) → assignment(project|folder|org); idle slots shared, reclaimed instantly",
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "highway": true
+    },
+    {
+      "concept": "Baseline vs autoscale: paying for certainty vs paying for use",
+      "intuition": "Baseline slots are always allocated and always billed, so they give latency consistency, pre-warmed capacity with no scale-up lag. Autoscaled slots appear between baseline and max as queues build and bill per second only while provisioned. Baseline 0 with a max is a legitimate serverless posture: free at idle, burst on demand. Experts set baseline near the P50 of sustained load and let autoscaling take the peaks.",
+      "formula": "Cost = baseline (always) + autoscaled slots (per second, while provisioned); baseline ≈ P50 sustained",
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "highway": false
+    },
+    {
+      "concept": "The on-demand cost formula and its traps",
+      "intuition": "On-demand bills bytes processed: referenced columns × partitions/blocks actually read, at roughly $6.25 per TiB with the first TiB monthly free and a 10 MB per-table minimum. The dry run predicts it before you spend. Traps: LIMIT does not cut the scan (limiting happens after reading), clustered estimates are upper bounds, and SELECT * bills every column. Pruning discipline is literally the discount lever.",
+      "formula": "Cost ≈ (bytes of referenced columns in scanned partitions) × $6.25/TiB; dry run predicts; LIMIT ≠ cheaper",
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "highway": true
+    },
+    {
+      "concept": "Choosing on-demand vs capacity: the break-even",
+      "intuition": "On-demand charges per byte, so it wins for spiky, modest, unpredictable usage where you pay only when querying. Capacity charges per slot-hour regardless of bytes, so it wins for sustained heavy volume and gives flat, budgetable spend where a wasteful query costs time instead of money. Compare monthly on-demand spend to the slot-hours a reservation would cost and cross over when sustained scanning makes per-byte billing the expensive side.",
+      "formula": "Spiky/low volume → on-demand; sustained/heavy or budget-capped → capacity (slot-hours)",
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "highway": true
+    },
+    {
+      "concept": "Guardrails and the quiet storage bill",
+      "intuition": "Each pricing model has its own disaster and its own brake: on-demand fears the runaway scan, capped by maximum_bytes_billed (the query fails instead of over-billing), require_partition_filter, and quotas; capacity fears queueing, absorbed by autoscale headroom and isolation. Storage quietly halves itself: any table or partition unwritten for 90 days moves to long-term pricing automatically, and reads do not reset the clock. INFORMATION_SCHEMA.JOBS attributes every byte and slot-millisecond to the query that spent it.",
+      "formula": "maximum_bytes_billed = hard cost cap; 90 days without writes → long-term storage (~half price)",
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "highway": false
+    }
+  ]
+}

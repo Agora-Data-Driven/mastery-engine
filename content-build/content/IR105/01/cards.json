@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "The Probability Ranking Principle: what should an optimal ranker compute?",
+      "intuition": "Rank documents by how likely each one is to be relevant, best estimate first. Like triaging patients by probability of needing care: any other order wastes your top slots on worse bets. If the probabilities are right, no other ordering gives more expected relevant results at any cutoff.",
+      "formula": "\\text{rank by } P(R=1 \\mid d, q) \\text{ descending}",
+      "topic": "Ranking by Probability of Relevance",
+      "highway": true
+    },
+    {
+      "concept": "Why is sorting by probability of relevance provably optimal?",
+      "intuition": "Expected relevant results in the top k is just the sum of the k probabilities you put there (linearity of expectation). Picking the k largest maximizes that sum, and one descending sort achieves it for every k at once. So expected precision and recall are maximized at all cutoffs simultaneously.",
+      "formula": "E[\\text{rel in top }k] = \\sum_{i=1}^{k} P(R{=}1 \\mid d_i, q)",
+      "topic": "Ranking by Probability of Relevance",
+      "highway": false
+    },
+    {
+      "concept": "Ranking vs thresholding: when do scores need to be calibrated?",
+      "intuition": "Ranking only cares about order, so any strictly increasing transform of the scores (log, dropping constants) changes nothing. But deciding whether to retrieve at all, like choosing which chunks earn RAG context budget, compares scores to a cost threshold, and that only works if scores behave like real probabilities.",
+      "formula": "\\text{retrieve iff } P(R{=}1 \\mid d,q) > \\frac{C_{fp}}{C_{fp} + C_{fn}}",
+      "topic": "Ranking by Probability of Relevance",
+      "highway": false
+    },
+    {
+      "concept": "The blind spot of the Probability Ranking Principle",
+      "intuition": "It scores each document in isolation, as if the rest of the result list did not exist. Ten near-duplicates of one good answer all get high probability, so they all rank at the top even though copies two through ten add nothing. Diversification methods like MMR break the principle on purpose to fix this.",
+      "formula": "\\text{PRP assumes independent per-document utility}",
+      "topic": "Ranking by Probability of Relevance",
+      "highway": false
+    },
+    {
+      "concept": "The two simplifications named in the Binary Independence Model",
+      "intuition": "Binary: a document is just a checklist of which terms are present; how often they occur is thrown away. Independence: given the relevance class, terms occur independently, the same leap of faith naive Bayes makes. Both are false in detail, but they make the probability of a document computable as a product.",
+      "formula": "P(\\vec{x} \\mid R) = \\prod_t P(x_t \\mid R)",
+      "topic": "The Binary Independence Model",
+      "highway": false
+    },
+    {
+      "concept": "The odds-plus-Bayes move that starts the BIM derivation",
+      "intuition": "Odds are a monotone repackaging of probability, so ranking by odds is the same ranking. Applying Bayes to the odds makes the evidence term P(x given q) cancel and splits the score into prior odds (same for every document, drop it) times a likelihood ratio (the part that actually compares documents).",
+      "formula": "O(R \\mid \\vec{x}, q) = O(R \\mid q) \\cdot \\frac{P(\\vec{x} \\mid R{=}1, q)}{P(\\vec{x} \\mid R{=}0, q)}",
+      "topic": "The Binary Independence Model",
+      "highway": true
+    },
+    {
+      "concept": "Why the BIM score only involves query terms present in the document",
+      "intuition": "Two cleanup steps: assume non-query terms are equally likely in relevant and non-relevant documents (their factors become 1), then multiply and divide by the absent-term factors so everything document-independent collects into one droppable constant. What survives is a sum of weights over matched query terms, exactly the computation an inverted index makes cheap.",
+      "formula": "RSV(d) = \\sum_{t \\in q \\cap d} \\log \\frac{p_t (1-u_t)}{u_t (1-p_t)}",
+      "topic": "The Binary Independence Model",
+      "highway": true
+    },
+    {
+      "concept": "What BIM gets permanently right, and what it gets wrong",
+      "intuition": "Right: the additive skeleton, score equals a sum of per-term weights over matched query terms, which every sparse scorer since has kept. Wrong: one mention counts the same as thirty (no term frequency), and a 50-word note is treated like a 5,000-word manual (no length). Those two flaws are exactly what BM25 repairs.",
+      "formula": "—",
+      "topic": "The Binary Independence Model",
+      "highway": false
+    },
+    {
+      "concept": "The RSJ weight: what do p and u measure, and what does the log mean?",
+      "intuition": "p is the chance a relevant document contains the term; u is the chance a non-relevant one does. The weight is the term's log odds among relevant documents minus its log odds among non-relevant ones: how much more the term belongs in the relevant world. Positive means evidence for relevance, negative means evidence against.",
+      "formula": "c_t = \\log \\frac{p_t(1-u_t)}{u_t(1-p_t)}",
+      "topic": "The RSJ Term Weight and Its idf Connection",
+      "highway": true
+    },
+    {
+      "concept": "Estimating the RSJ weight from judged documents (and the 0.5 trick)",
+      "intuition": "Fill a 2 by 2 table: term present or absent, relevant or not. Raw counts blow up when a cell is zero (a term in every relevant document would get infinite weight), so add 0.5 to every cell, a continuity correction. With judgments the weight sharpens well beyond plain idf; with very few judgments the 0.5s dominate and the estimate is mostly prior.",
+      "formula": "c_t = \\log \\frac{(r_t+0.5)/(R-r_t+0.5)}{(n_t-r_t+0.5)/(N-n_t-R+r_t+0.5)}",
+      "topic": "The RSJ Term Weight and Its idf Connection",
+      "highway": false
+    },
+    {
+      "concept": "The idf connection: what the RSJ weight becomes when you know nothing",
+      "intuition": "Set judgments to zero: the relevant-side odds cancel to 1 and what survives is the log of (documents without the term) over (documents with it), an inverse document frequency. The 1972 idf heuristic turns out to be the zero-knowledge limit of a principled relevance weight, and this exact smoothed form is the idf inside BM25.",
+      "formula": "c_t = \\log \\frac{N - n_t + 0.5}{n_t + 0.5} \\approx \\log \\frac{N}{n_t}",
+      "topic": "The RSJ Term Weight and Its idf Connection",
+      "highway": true
+    },
+    {
+      "concept": "Why can an RSJ/idf weight go negative, and when?",
+      "intuition": "Whenever a term appears in more than half the collection, the surviving log ratio is below 1, so its log is negative: under the model, containing a near-ubiquitous word is weak evidence against relevance. Coherent theory, awkward practice, since a document gets punished for matching a common query word, so real systems floor or reformulate the weight.",
+      "formula": "n_t > N/2 \\;\\Rightarrow\\; c_t < 0",
+      "topic": "The RSJ Term Weight and Its idf Connection",
+      "highway": false
+    }
+  ]
+}

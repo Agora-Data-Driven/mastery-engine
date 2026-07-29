@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "The relational contract: what a table promises",
+      "intuition": "A table is a strict form, not a shoebox. Every row fills in the same typed columns, and the database rejects a write that breaks the form (schema-on-write). Rows live as an unordered set, like marbles in a bag: you never point at 'the third marble', you name one by its key. That strictness is why queries over tables stay predictable while free-form document stores rot.",
+      "formula": "Table = unordered set of rows over one fixed, typed schema; rows are identified by keys, never by position.",
+      "topic": "Tables, Rows, and Keys: The Relational Contract",
+      "highway": true
+    },
+    {
+      "concept": "Primary keys vs foreign keys",
+      "intuition": "A primary key is a row's passport number: unique and never blank, so one value names exactly one row. A foreign key is a written-down passport number in another table: the engine checks the passport actually exists before accepting it, and blocks deleting the passport while references remain. That check is referential integrity, and it means dangling references are impossible by construction rather than by developer discipline.",
+      "formula": "PK: unique + NOT NULL within its table. FK: every value must exist as a PK value in the referenced table.",
+      "topic": "Tables, Rows, and Keys: The Relational Contract",
+      "highway": true
+    },
+    {
+      "concept": "Natural key or surrogate key?",
+      "intuition": "A natural key is a real-world identifier like an email; a surrogate is a meaningless generated id. Natural keys feel honest but change (people change emails), and changing a primary key ripples into every foreign key that copied it. So production systems give identity to a stable surrogate and keep the natural candidate honest with a separate UNIQUE constraint: identity stays frozen, reality stays checked.",
+      "formula": "Rule: surrogate key for identity, UNIQUE constraint on the natural candidate key.",
+      "topic": "Tables, Rows, and Keys: The Relational Contract",
+      "highway": false
+    },
+    {
+      "concept": "The logical evaluation order of a query",
+      "intuition": "SQL is written in one order but means another. Picture an assembly line: grab the source rows, filter them one by one, only then compute the output columns, then sort, then cut off. Written order is for humans; the pipeline order is what fixes the query's meaning, and replaying a confusing query through the pipeline resolves almost every surprise.",
+      "formula": "FROM -> WHERE -> SELECT -> ORDER BY -> LIMIT/OFFSET (written order is different; meaning follows this order).",
+      "topic": "SELECT-FROM-WHERE and Logical Evaluation Order",
+      "highway": true
+    },
+    {
+      "concept": "Why WHERE cannot see your alias (but ORDER BY can)",
+      "intuition": "Aliases are born during projection, which happens after filtering. Asking WHERE about an alias is asking a factory inspector about a label that gets glued on two stations later. ORDER BY runs after projection, so by then the label exists. Fix: repeat the expression inside WHERE.",
+      "formula": "Aliases: invalid in WHERE (runs before SELECT), valid in ORDER BY (runs after SELECT).",
+      "topic": "SELECT-FROM-WHERE and Logical Evaluation Order",
+      "highway": false
+    },
+    {
+      "concept": "Declarative queries: the optimizer's freedom",
+      "intuition": "You order the dish; the kitchen picks the technique. The engine may physically filter through an index before 'reading the table', in apparent violation of the pipeline, as long as the result is exactly what the logical order dictates. So the logical order is your correctness tool, never a description of execution, and a weird-looking execution trace is not evidence of a wrong answer.",
+      "formula": "Physical plan may reorder anything; results must match logical-order semantics.",
+      "topic": "SELECT-FROM-WHERE and Logical Evaluation Order",
+      "highway": false
+    },
+    {
+      "concept": "No ORDER BY, no order",
+      "intuition": "Tables are bags, not lists. An engine that happens to return insertion order is like a shuffled deck that happens to look sorted: nothing promised it, and a storage reorganization, upgrade, or plan change will break it. Any code or test that depends on unordered results is a latent bug with a random fuse.",
+      "formula": "Result order is defined only when the query has ORDER BY.",
+      "topic": "Sorting and Limiting Result Sets",
+      "highway": false
+    },
+    {
+      "concept": "Pagination needs a total order (the tiebreaker rule)",
+      "intuition": "Each page is a separate query, so tied rows may shuffle between executions: a row can show on page one and again on page two, or vanish entirely. Appending a unique tiebreaker (usually the primary key) makes the order total, so every execution lays the rows out identically. Same idea as breaking ties in your reranker with a stable document id.",
+      "formula": "ORDER BY sort_key, primary_key: append a unique key so the ordering is total and pages are stable.",
+      "topic": "Sorting and Limiting Result Sets",
+      "highway": true
+    },
+    {
+      "concept": "OFFSET pays for what it skips; keyset pagination does not",
+      "intuition": "OFFSET 100000 makes the engine build and throw away 100,000 ordered rows before handing you ten, so deep pages get linearly slower. Keyset pagination instead remembers where the last page ended and filters with WHERE on those sort-key values: a direct seek, like resuming a book from a bookmark instead of re-reading from page one. It is also stable when new rows arrive mid-browse.",
+      "formula": "Deep pages: WHERE (sort_key, pk) < (last_seen values) ORDER BY ... LIMIT k, instead of OFFSET.",
+      "topic": "Sorting and Limiting Result Sets",
+      "highway": false
+    },
+    {
+      "concept": "Three-valued logic: TRUE, FALSE, UNKNOWN",
+      "intuition": "NULL means 'no value here', so any comparison touching it answers 'cannot say', which SQL calls UNKNOWN. The connectives follow by asking whether the unknown could change the verdict: one FALSE dooms an AND no matter what, one TRUE saves an OR no matter what; otherwise the answer stays UNKNOWN. WHERE is a strict bouncer: only TRUE gets in, so UNKNOWN rows are silently dropped.",
+      "formula": "x = NULL gives UNKNOWN; FALSE AND U = FALSE; TRUE OR U = TRUE; NOT U = U; WHERE keeps only TRUE.",
+      "topic": "NULL Semantics and Three-Valued Logic",
+      "highway": true
+    },
+    {
+      "concept": "NULL falls through both = and <> (and poisons NOT IN)",
+      "intuition": "Filtering country = 'PH' and country <> 'PH' does not cover the table: NULL rows fail both, because both comparisons are UNKNOWN. Worse, one NULL inside a NOT IN list annihilates the whole query, since the expansion contains a '<> NULL' conjunct that keeps every row at UNKNOWN. Test missingness explicitly with IS NULL / IS NOT NULL, which always answer TRUE or FALSE.",
+      "formula": "Use IS NULL / IS NOT NULL for missingness; never allow NULL inside a NOT IN list.",
+      "topic": "NULL Semantics and Three-Valued Logic",
+      "highway": false
+    },
+    {
+      "concept": "Taming NULL: COALESCE, IS DISTINCT FROM, and NOT NULL",
+      "intuition": "COALESCE maps unknown to a chosen fallback at output time, IS DISTINCT FROM gives a null-safe comparison that treats NULL as a comparable value, and NOT NULL in the schema removes the problem at the source. The design rule: make columns NOT NULL wherever a value is guaranteed, and never fake 'unknown' with 0 or an empty string, because a sentinel collides with real values while NULL at least declares itself.",
+      "formula": "COALESCE(x, fallback) = first non-NULL argument; NULL IS NOT DISTINCT FROM NULL = TRUE.",
+      "topic": "NULL Semantics and Three-Valued Logic",
+      "highway": false
+    }
+  ]
+}

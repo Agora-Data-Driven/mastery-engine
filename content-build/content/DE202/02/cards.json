@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "Pipeline idempotency",
+      "intuition": "Retries are inevitable, so make them harmless. The target after five executions over identical input should look exactly like the target after one.",
+      "formula": "f(f(x)) = f(x)",
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "highway": true
+    },
+    {
+      "concept": "The main idempotent write patterns",
+      "intuition": "Converge on one keyed state rather than accumulating attempts: overwrite an owned deterministic slice, merge by business key, stage and swap, or deduplicate by stable ID.",
+      "formula": "write effect must depend on data, not execution count",
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "highway": true
+    },
+    {
+      "concept": "Why idempotent writes alone are insufficient",
+      "intuition": "An overwrite still changes if transformation uses current time, unseeded randomness, mutable lookups, or fresh model output. The recipe and its ingredients must both be repeatable.",
+      "formula": "reproducible state = deterministic transform + idempotent sink",
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "highway": false
+    },
+    {
+      "concept": "Scope ownership in overwrite jobs",
+      "intuition": "A worker may truncate only the complete slice it owns. Erasing a shared partition is repeatable but repeatedly destroys its neighbor's data.",
+      "formula": "overwrite scope must equal job ownership scope",
+      "topic": "Idempotent Writes: Same Input, Same Result",
+      "highway": false
+    },
+    {
+      "concept": "Deterministic partitioning",
+      "intuition": "The record itself carries the routing answer. Stable event date or a stable key hash sends it to the same destination regardless of retry time, machine, or arrival order.",
+      "formula": "partition = pure function(stable element data)",
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "highway": true
+    },
+    {
+      "concept": "Why ingestion-time partitions break replay",
+      "intuition": "Replaying Monday on Wednesday routes Monday's facts into Wednesday, leaving one partition wrong and polluting another. Event time keeps historical work aimed at history.",
+      "formula": "event partition = DATE(event_time, agreed timezone)",
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "highway": true
+    },
+    {
+      "concept": "Deterministic does not mean balanced",
+      "intuition": "A stable hash reproduces placement but a whale key can still create a hot bucket. Repair skew through a better stable key or controlled rebucketing, not opportunistic placement.",
+      "formula": "stable assignment and uniform load are separate properties",
+      "topic": "Deterministic Partitioning for Replayable Jobs",
+      "highway": false
+    },
+    {
+      "concept": "Full refresh versus incremental refresh",
+      "intuition": "Full refresh rebuilds everything and heals old mistakes. Incremental refresh touches only changes and saves enormous work, but inherits bookkeeping and drift risks.",
+      "formula": "full = all history; incremental = new or changed slice",
+      "topic": "Incremental vs Full Refresh",
+      "highway": true
+    },
+    {
+      "concept": "Incremental high-water mark",
+      "intuition": "A watermark is the bookmark recording the latest processed change position. The next run reads beyond it and applies the delta with an idempotent write.",
+      "formula": "next delta: change_position > last_watermark",
+      "topic": "Incremental vs Full Refresh",
+      "highway": false
+    },
+    {
+      "concept": "Why use an incremental lookback window?",
+      "intuition": "Late visibility and clock skew can strand rows just behind the bookmark. Re-reading an overlapping tail catches them, and idempotency makes duplicate processing harmless.",
+      "formula": "read from watermark - lookback, then write idempotently",
+      "topic": "Incremental vs Full Refresh",
+      "highway": true
+    },
+    {
+      "concept": "How do incremental pipelines observe deletes?",
+      "intuition": "A vanished row emits no updated_at delta, so its target copy becomes a ghost. Represent deletion as data through a soft-delete marker or consume a change log.",
+      "formula": "delete propagation requires tombstone, soft delete, or CDC",
+      "topic": "Incremental vs Full Refresh",
+      "highway": false
+    },
+    {
+      "concept": "The hybrid refresh policy",
+      "intuition": "Run cheap increments for daily operations, then periodically rebuild or reconcile against the source. The audit prevents small misses and ghosts from becoming permanent history.",
+      "formula": "daily incremental + periodic full reconciliation",
+      "topic": "Incremental vs Full Refresh",
+      "highway": true
+    }
+  ]
+}

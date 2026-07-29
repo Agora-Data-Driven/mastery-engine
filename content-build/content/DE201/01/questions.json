@@ -1,0 +1,220 @@
+{
+  "questions": [
+    {
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "question": "In a columnar storage layout, which bytes are stored contiguously on disk?",
+      "options": [
+        "All fields of a single record, laid out in schema order",
+        "All values of a single column, across a large batch of rows",
+        "All rows that share the same primary key prefix, grouped together",
+        "All distinct values of every column, sorted in ascending order"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "question": "Which access pattern is the classic case where a row-oriented layout beats a columnar one?",
+      "options": [
+        "Scanning two numeric columns across a billion rows to compute an average",
+        "Filtering a large table on a date range and aggregating one measure",
+        "Compressing a table whose columns contain many repeated values",
+        "Fetching and updating one complete record by its key at high frequency"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "question": "A 20 GB table has 50 columns of roughly equal width. A query filters and aggregates using only 2 of them. Roughly how much raw data must each layout read?",
+      "options": [
+        "About 0.8 GB with a columnar layout versus about 20 GB with a row layout",
+        "About 10 GB with a columnar layout versus about 20 GB with a row layout",
+        "About 0.8 GB with a columnar layout versus about 2 GB with a row layout",
+        "About 2 GB with either layout, since the filter bounds what gets read"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "question": "You are designing storage for a service that reads and rewrites one user profile at a time at high QPS. Which choice fits the workload?",
+      "options": [
+        "Columnar, because repeated profile fields will compress extremely well",
+        "Columnar, because vectorized execution accelerates every kind of read",
+        "Row-oriented, because each profile is one contiguous read and write",
+        "Row-oriented, because column statistics make key lookups nearly free"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "question": "An analyst runs `SELECT *` on a 200-column columnar table to fetch the single row for one order ID, and it is far slower than the same lookup in a row store. Why?",
+      "options": [
+        "Because the filter on the order ID cannot be evaluated until every row group is fully decompressed",
+        "Because columnar files store keys separately from values, forcing two passes over the table",
+        "Because the record must be reassembled from 200 separate column locations instead of one contiguous read",
+        "Because `SELECT *` disables the query planner and forces an unindexed full-table sort"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "question": "A pipeline writes a few hundred events to a columnar file every few seconds, and analysts complain scans are slow. Which property of columnar formats is being violated?",
+      "options": [
+        "Columnar formats require rows to arrive pre-sorted by their primary key",
+        "Columnar formats are batch-oriented and need many rows laid out together for their I/O and compression benefits",
+        "Columnar formats only support append operations from a single writer at a time",
+        "Columnar formats require every column to have the same fixed byte width"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Parquet Row Groups and Column Chunks",
+      "question": "In a Parquet file, what is a row group?",
+      "options": [
+        "A set of rows that share identical values in the partition column",
+        "A compressed page of values belonging to exactly one column",
+        "An index structure mapping each row's key to its byte offset",
+        "A horizontal slice of the table containing one column chunk per column"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Parquet Row Groups and Column Chunks",
+      "question": "Where does a Parquet reader find the schema and the byte offsets of every column chunk?",
+      "options": [
+        "In the footer metadata at the end of the file, which it reads first",
+        "In a header block at the start of the file, before any row groups",
+        "In a separate sidecar index file written alongside the data file",
+        "In the first page of each column chunk, decoded during the scan"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Parquet Row Groups and Column Chunks",
+      "question": "A query needs 2 of 40 columns from a Parquet file with 80 row groups stored on object storage. What does an efficient reader actually fetch?",
+      "options": [
+        "The whole file once, since object storage only supports full-object reads",
+        "The footer, then byte-range reads covering the 160 needed column chunks",
+        "The first row group in full, then only the matching pages of the rest",
+        "The footer, then the first page of all 3,200 column chunks to check types"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Parquet Row Groups and Column Chunks",
+      "question": "A writer was configured to produce 5,000-row row groups on a billion-row table. Which symptom should you expect?",
+      "options": [
+        "Readers cannot parallelize because the file has too few split points",
+        "The writer runs out of memory buffering each row group before flushing",
+        "Footer metadata and per-chunk overhead balloon while compression weakens",
+        "Column statistics become unusable because groups are too small to record min and max"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Parquet Row Groups and Column Chunks",
+      "question": "A 2 GB Parquet file was written as a single row group. On a busy cluster, one task processes it while other workers sit idle. Why?",
+      "options": [
+        "The row group is the unit of splitting, so one row group cannot be divided across tasks",
+        "The footer can only be held by one reader at a time, serializing all access to the file",
+        "Files above 1 GB disable parallel reads to protect object storage rate limits",
+        "The column chunks are compressed, and compressed data can only be read sequentially"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Parquet Row Groups and Column Chunks",
+      "question": "After raising the row group target from 128 MB to 1 GB, an ingestion job starts running out of memory. What explains this?",
+      "options": [
+        "Larger row groups force the writer to keep multiple copies of the footer in memory",
+        "Larger row groups require the reader's schema to be revalidated on every flush",
+        "Larger row groups multiply the number of pages that must be tracked per column",
+        "The writer buffers an entire row group in memory before it can flush to storage"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Column Statistics and Predicate Pushdown",
+      "question": "Which statistics does a Parquet writer record for each column chunk to enable data skipping?",
+      "options": [
+        "A histogram of value frequencies and the top ten most common values",
+        "The mean, variance, and standard deviation of the chunk's values",
+        "A sorted list of every distinct value that appears in the chunk",
+        "The minimum value, maximum value, and count of nulls in the chunk"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Column Statistics and Predicate Pushdown",
+      "question": "What does predicate pushdown with min/max statistics let a scan do?",
+      "options": [
+        "Rewrite the query plan so filters run after aggregation completes",
+        "Skip entire row groups whose statistics prove no row can match the filter",
+        "Return approximate results by sampling one page per column chunk",
+        "Evaluate filters inside the storage service before bytes reach the network"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Column Statistics and Predicate Pushdown",
+      "question": "A filter `WHERE user_id = 'u-93f2'` on a randomly shuffled UUID column skips zero row groups even though statistics are present and correct. Why?",
+      "options": [
+        "Because equality predicates can never be evaluated against min/max statistics",
+        "Because UUID columns are stored as binary, and binary chunks carry no statistics",
+        "Because every row group's min and max span nearly the whole value range, so no group can be proven empty of matches",
+        "Because pushdown only applies to numeric columns and silently ignores strings"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Column Statistics and Predicate Pushdown",
+      "question": "After sorting a table by `event_ts` before writing, a timestamp-range dashboard query gets roughly 20x cheaper with no query changes. What changed?",
+      "options": [
+        "Each row group now covers a narrow, nearly disjoint time range, so most groups fail the min/max overlap test and are skipped",
+        "Sorting shrank the file so much that the entire table now fits in the scan cache",
+        "Sorted data lets the engine binary-search inside pages instead of scanning them",
+        "The sort rewrote the footer so that statistics are now stored per page instead of per chunk"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Column Statistics and Predicate Pushdown",
+      "question": "A row group passes the min/max check for `WHERE amount = 500` but turns out to contain no row with amount 500. What happens?",
+      "options": [
+        "The engine returns a wrong result unless a checksum catches the mismatch",
+        "The group is read and the filter drops every row; stats prove absence, never presence, so this is wasted I/O but a correct answer",
+        "The engine marks the file's statistics as corrupt and disables pruning for the table",
+        "The scan falls back to a full-table read because the statistics contradicted the data"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Column Statistics and Predicate Pushdown",
+      "question": "Which predicate is least likely to benefit from min/max row-group pruning?",
+      "options": [
+        "An equality match on a column the table was sorted by at write time",
+        "A range condition on a timestamp column with clustered values",
+        "An `IS NULL` check on a column whose chunks record null counts",
+        "A not-equals condition on a column whose values span a wide range"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    }
+  ]
+}

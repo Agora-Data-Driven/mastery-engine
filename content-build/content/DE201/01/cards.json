@@ -1,0 +1,74 @@
+{
+  "cards": [
+    {
+      "concept": "Row vs columnar: what sits next to what on disk?",
+      "intuition": "Think of a spreadsheet saved two ways: row layout writes it line by line (one whole record at a time), columnar writes it column by column (every value of one field together). Storage hands you contiguous byte ranges, so whatever is adjacent is what you get cheaply. The layout choice decides which reads are one gulp and which are a thousand sips.",
+      "formula": "Row layout: fields of one record adjacent. Columnar layout: one column's values adjacent across many rows.",
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "highway": true
+    },
+    {
+      "concept": "Which workload wins where: point access vs analytical scan",
+      "intuition": "Fetching or updating one whole record by key is record-shaped work: row layout returns it in one contiguous read. Aggregating a couple of columns over a billion rows is column-shaped work: columnar reads only those columns. Match the layout to the shape of the access, not to the data. Serving apps (like a Firestore document store) are row-shaped; warehouses are column-shaped.",
+      "formula": "Point read/write of whole records → row. Scan few columns over many rows → columnar.",
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "highway": true
+    },
+    {
+      "concept": "The columnar I/O fraction: how much does a scan actually read?",
+      "intuition": "In a row layout every query drags the full table width through I/O. In columnar you pay only for the columns you touch, so a 2-of-50-column query reads about 4 percent of the table before compression even helps. This one ratio is why the same query costs dollars on one layout and cents on the other.",
+      "formula": "\\text{bytes read} \\approx \\frac{\\text{columns touched}}{\\text{total columns}} \\times \\text{table size}",
+      "topic": "Row vs Columnar Layout: Which Workload Wins",
+      "highway": false
+    },
+    {
+      "concept": "Anatomy of a Parquet file",
+      "intuition": "A Parquet file is a filing cabinet: drawers (row groups) each hold one folder per column (column chunks), and folders hold pages. A table of contents (the footer) at the end lists where everything lives. Two levels exist on purpose: drawers make the file splittable across workers, folders make reads columnar.",
+      "formula": "File → row groups (~128 MB to 1 GB) → column chunks (one per column) → pages (~1 MB); footer at end holds schema, offsets, statistics.",
+      "topic": "Parquet Row Groups and Column Chunks",
+      "highway": true
+    },
+    {
+      "concept": "The Parquet read path: why the footer comes first",
+      "intuition": "A reader never scans the file to find things; it jumps to the end, reads the footer, and learns the exact byte range of every column chunk. Then it fetches only the chunks the query needs, as range reads. On object storage this turns a full-file download into a few surgical GETs.",
+      "formula": "Read footer (tail of file) → select row groups → byte-range read only the needed column chunks.",
+      "topic": "Parquet Row Groups and Column Chunks",
+      "highway": false
+    },
+    {
+      "concept": "The row group size dial",
+      "intuition": "Row groups bound two things at once: how many workers can share a file (one task per row group) and how much memory a writer needs (it buffers one full row group before flushing). Tiny groups drown you in metadata and ruin compression context; giant groups kill parallelism and blow up memory. The sweet spot is big but not monolithic.",
+      "formula": "Too small → metadata bloat, request overhead, weak compression. Too large → fewer splits, higher writer/reader memory. Target ~128 MB to 1 GB.",
+      "topic": "Parquet Row Groups and Column Chunks",
+      "highway": false
+    },
+    {
+      "concept": "Column statistics: the footer's cheat sheet",
+      "intuition": "For every column chunk the writer jots down min, max, and null count. These few bytes summarize millions of values well enough to answer one question without reading data: could a matching row possibly be in here? Newer Parquet adds per-page min/max and optional Bloom filters for equality on high-cardinality columns.",
+      "formula": "Per column chunk: min, max, null_count (plus optional page-level index and Bloom filter).",
+      "topic": "Column Statistics and Predicate Pushdown",
+      "highway": false
+    },
+    {
+      "concept": "Predicate pushdown: skip what you can prove irrelevant",
+      "intuition": "Instead of reading everything and filtering later, the engine pushes the WHERE clause down to the scan and tests it against each chunk's min/max first. If the stats prove no row can match, the whole row group is skipped without reading a byte. The cheapest read is the one you never make.",
+      "formula": "Skip a row group when stats prove emptiness, e.g. for col > v: skip if max(chunk) ≤ v.",
+      "topic": "Column Statistics and Predicate Pushdown",
+      "highway": true
+    },
+    {
+      "concept": "Why sorting the data turns statistics on",
+      "intuition": "Min/max pruning only works when row groups cover narrow, disjoint value ranges. Sort by your dominant filter column and each group owns a slim slice, so most groups fail the overlap test and vanish from the scan. Shuffle the same data and every group spans the whole range: identical stats, zero skipping. Layout, not machinery, creates the benefit.",
+      "formula": "Pruning power = disjointness of row-group [min, max] ranges; cluster or sort by the columns queries filter on.",
+      "topic": "Column Statistics and Predicate Pushdown",
+      "highway": true
+    },
+    {
+      "concept": "Stats prove absence, never presence",
+      "intuition": "Pruning is a conservative bouncer: it only turns a row group away when the stats guarantee nothing inside matches. A group whose range overlaps the filter still gets read, and the filter is re-applied row by row; sometimes everything drops out and the read was wasted. False positives cost I/O; false negatives would cost correctness, so the format never allows them.",
+      "formula": "Correct stats → false positives possible (wasted reads), false negatives impossible (answers stay correct).",
+      "topic": "Column Statistics and Predicate Pushdown",
+      "highway": false
+    }
+  ]
+}

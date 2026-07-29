@@ -1,0 +1,220 @@
+{
+  "questions": [
+    {
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "question": "In a web crawler, what does the crawl frontier contain?",
+      "options": [
+        "Pages that have been fetched and are waiting for parsing and link extraction",
+        "Hosts that are temporarily excluded from fetching because of politeness rules",
+        "URLs that have been discovered but not yet fetched, ordered for future fetching",
+        "Links between already-crawled pages, stored for later link-graph analysis"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "question": "Why do large crawlers use per-host back queues (Mercator style) instead of a single global priority queue?",
+      "options": [
+        "So per-host rate limits can be enforced while workers stay busy on other hosts",
+        "So the crawler can guarantee a strict breadth-first traversal of the web graph",
+        "So duplicate URLs can be removed without running a separate URL-seen test",
+        "So the highest-priority pages are always fetched before any lower-priority page"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "question": "Your crawler uses a single FIFO queue. Shortly after starting from a few seed sites, most worker threads sit idle while a few hosts receive request bursts. What explains this?",
+      "options": [
+        "The URL-seen test is silently discarding most newly extracted links before queueing",
+        "Extracted links mostly stay on the same host, so politeness delays serialize the queue",
+        "The frontier has exhausted all discovered URLs and is waiting for new seed injection",
+        "DNS resolution is caching failures, so most hosts appear unreachable to the workers"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "question": "You must crawl a 500,000-page site under a politeness delay of 5 seconds between requests to that host. Roughly how long does the full crawl take, no matter how many workers you add?",
+      "options": [
+        "About 8 hours",
+        "About 3 days",
+        "About 9 days",
+        "About 29 days"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "question": "You rank frontier URLs by a value score and always pop the maximum. Weeks in, entire mid-tier sites discovered early have never been visited. What design change addresses this best?",
+      "options": [
+        "Reset all priority scores to zero weekly so every URL gets an equal chance eventually",
+        "Select among priority queues with probability weighted by priority instead of max-first",
+        "Raise the per-host politeness delay so high-priority hosts consume budget more slowly",
+        "Move the URL-seen test after the fetch stage so rediscovered URLs re-enter the frontier"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "question": "You are building a scoped research corpus of about 20 million pages from a few thousand approved hosts. Which frontier design is the most defensible starting point?",
+      "options": [
+        "Per-host FIFO queues under a simple host-level scheduler, without multi-tier machinery",
+        "A full Mercator design with hundreds of front queues, since correctness requires it",
+        "A single global max-priority heap, since host fairness is irrelevant at this scale",
+        "A random-order frontier, since prioritization only matters beyond one billion pages"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "question": "A crawler wants to check crawl permissions for `https://example.com/docs/page`. Where must it look?",
+      "options": [
+        "`https://example.com/docs/robots.txt`, the closest directory above the page",
+        "The `<meta name=\"robots\">` tag on the page itself, fetched before crawling",
+        "`https://example.com/sitemap.xml`, which lists the crawlable URL inventory",
+        "`https://example.com/robots.txt`, the single file at the root of that origin"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "question": "A robots.txt contains `Disallow: /search` and `Allow: /search/about` for your user agent. How should your crawler treat `https://site.com/search/about`?",
+      "options": [
+        "Disallowed, because any matching Disallow rule always overrides an Allow rule",
+        "Disallowed, because rules apply in file order and the Disallow line appears first",
+        "Allowed, because the most specific rule, judged by longest path match, wins",
+        "Allowed, because Allow rules always override Disallow rules regardless of paths"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "question": "Your fetch of a host's robots.txt returns HTTP 503 repeatedly. What is the conservative, standards-aligned behavior?",
+      "options": [
+        "Treat the whole host as disallowed for now and retry the robots.txt fetch later",
+        "Treat the whole host as allowed, since only a parseable file can restrict crawling",
+        "Fall back to crawling only the homepage until the file becomes available again",
+        "Switch to a different user-agent string, since 503 usually signals an agent block"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "question": "Mid-crawl, a host's median response time rises from 200 ms to 2 s and it begins returning 429 responses with `Retry-After: 120`. What should a well-behaved crawler do?",
+      "options": [
+        "Keep the current rate but rotate alternate IPs so no single address exceeds limits",
+        "Pause that host for at least 120 seconds and resume with a longer inter-request delay",
+        "Drop the host from the frontier permanently, since 429 indicates a hard crawling ban",
+        "Retry immediately at lower priority, since 429 responses are advisory, not binding"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "question": "A source critical to your corpus sets `Crawl-delay: 60`, making its 2 million pages take years to fetch. What is the most defensible next step?",
+      "options": [
+        "Honor the delay for HTML pages but fetch the bulk of the site with a headless browser",
+        "Ignore the directive, since Crawl-delay is nonstandard and absent from RFC 9309",
+        "Seek a sanctioned bulk channel, such as an API or data dump, or contact the operator",
+        "Spread requests across many worker IP addresses so each one honors the delay alone"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "question": "Your crawler politely rate-limits per hostname, yet a small hosting provider complains you are overloading their server. What did the design miss?",
+      "options": [
+        "The robots.txt cache expired, so each fetch re-downloaded the file and doubled load",
+        "The crawler ignored `Crawl-delay`, which shared hosting providers rely on exclusively",
+        "HTTP keep-alive was disabled, so connection setup costs multiplied the server load",
+        "Many distinct hostnames resolve to one server, so limits must also apply per IP"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Crawler Traps and URL Canonicalization",
+      "question": "Which situation is a crawler trap?",
+      "options": [
+        "A calendar widget whose next-month link generates an unbounded series of unique URLs",
+        "A robots.txt file that disallows every path on the host for all user agents",
+        "A page whose links all point to hosts outside the configured crawl scope",
+        "A server that returns 429 responses whenever the crawler exceeds its rate limit"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Crawler Traps and URL Canonicalization",
+      "question": "Which URL normalization can be applied to any URL without risking a change in what the server returns?",
+      "options": [
+        "Stripping every query parameter, since parameters only carry tracking information",
+        "Lowercasing the entire URL, including the path, so all aliases hash identically",
+        "Lowercasing the scheme and host and removing a default port like `:443` on HTTPS",
+        "Removing a trailing slash from the path, since directories and files are equivalent"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Crawler Traps and URL Canonicalization",
+      "question": "Your seen-URL test is passing, yet the crawl fetches the same article dozens of times under URLs differing only in `utm_source` values. What is the right fix?",
+      "options": [
+        "Increase the per-host page budget so duplicates no longer crowd out fresh URLs",
+        "Strip known tracking parameters during canonicalization before the seen test runs",
+        "Fingerprint each fetched page's content and drop the request when the hash repeats",
+        "Lower the URL length cap so long campaign-tagged URLs are kept out of the frontier"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Crawler Traps and URL Canonicalization",
+      "question": "On an e-commerce host, crawled URLs grow into the millions while newly seen distinct content flattens out. Which frontier-side defense targets this pattern?",
+      "options": [
+        "Refetching robots.txt more often, since the site likely added new Disallow rules",
+        "Switching from priority order to FIFO order so deep facet pages drain more quickly",
+        "Raising worker concurrency on that host so the URL backlog clears more quickly",
+        "Capping query-parameter counts and per-host budgets when content-per-URL collapses"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Crawler Traps and URL Canonicalization",
+      "question": "After adding aggressive query-parameter stripping, coverage of a forum's long discussion threads silently drops. What most likely happened?",
+      "options": [
+        "Pagination parameters that select real content were stripped, collapsing later pages into page 1",
+        "The tracking-parameter list was too small, so campaign URLs still flooded the frontier",
+        "The canonicalizer uppercased percent-escapes, which made valid URLs fail to resolve",
+        "The seen-URL test began hashing raw URLs, so alias variants were fetched repeatedly"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Crawler Traps and URL Canonicalization",
+      "question": "A site labels every article's `rel=\"canonical\"` link as its own homepage. How should an acquisition pipeline treat the canonical hint in general?",
+      "options": [
+        "As a directive that must override the crawler's own URL normalization decisions",
+        "As a site-supplied hint to weigh against content-equality checks, never obeyed blindly",
+        "As a spam signal that should immediately exclude the entire host from the corpus",
+        "As a redirect equivalent, replacing the fetched URL with the canonical target URL"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    }
+  ]
+}

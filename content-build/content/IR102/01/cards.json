@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "The crawl frontier",
+      "intuition": "The crawler's to-do list and scheduler in one: every URL that has been discovered but not yet fetched. Think of an ever-growing inbox where each processed item (a fetched page) adds 50 to 100 new items (its outlinks). Because the inbox grows faster than you empty it, WHAT you pop next is the whole game.",
+      "formula": "loop: pop URL, fetch, parse, extract links, canonicalize, URL-seen test, push survivors",
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "highway": true
+    },
+    {
+      "concept": "Mercator's two-tier frontier: front vs back queues",
+      "intuition": "Separate two different questions. Front queues answer 'what is WORTH fetching?' (priority). Back queues answer 'what MAY be fetched right now?' (politeness): one queue per host, plus a min-heap of each host's next allowed fetch time. Like an airport: the ticket class decides who boards eventually, but the runway schedule decides which plane leaves this minute.",
+      "formula": "front queues = priority routing; back queues = one per host + heap keyed on next-allowed-fetch time",
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "highway": true
+    },
+    {
+      "concept": "Why a FIFO frontier stalls: link locality",
+      "intuition": "Most links on a page point back into the same site, so a plain queue clusters consecutive URLs onto a few hosts. Politeness then forces long waits between fetches to the same host, so workers idle while the queue head is blocked. Host-aware queueing spreads work across many hosts so everyone stays busy politely.",
+      "formula": "—",
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "highway": false
+    },
+    {
+      "concept": "Per-host throughput ceiling",
+      "intuition": "Politeness caps how fast one site can ever be crawled, and no amount of parallelism raises it. At one request per 5 seconds, a host yields at most 17,280 pages per day, so a 500k-page site takes about a month. This is why ordering WITHIN a host matters: you will not get everything soon, so get the valuable pages first.",
+      "formula": "max fetches per host per day = 86400 / delay_seconds",
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "highway": false
+    },
+    {
+      "concept": "Starvation under strict max-priority popping",
+      "intuition": "If you always take the single highest-scored URL, anything mid-ranked can wait forever as new high scorers keep arriving, like a hospital triage that never treats sprained ankles. The fix is weighted sampling: draw from priority tiers with probability proportional to priority, so lower tiers drain slowly but surely.",
+      "formula": "sample queues with probability weighted by priority, never strict max-first",
+      "topic": "The Crawl Frontier: Prioritization and Queue Management",
+      "highway": false
+    },
+    {
+      "concept": "robots.txt and the longest-match rule (RFC 9309)",
+      "intuition": "One file per origin at /robots.txt declares what a crawler may touch. For each URL, the rule whose path matches the most characters wins, so a specific Allow can carve a hole inside a broad Disallow. Ties go to Allow. It is the site operator's published contract; honoring it is table stakes.",
+      "formula": "longest path match wins; tie goes to Allow; groups selected by most specific User-agent",
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "highway": true
+    },
+    {
+      "concept": "robots.txt fetch-status asymmetry: 4xx vs 5xx",
+      "intuition": "No file found (404 or any 4xx) means 'no rules, crawl freely'. But a server error (5xx) means 'I cannot tell you my rules right now', so the safe reading is 'everything disallowed, temporarily'. A struggling server is exactly the one you should not pile onto. Cache the file, about 24 hours, instead of refetching per URL.",
+      "formula": "4xx means allow all; 5xx means treat as full disallow until a later retry succeeds",
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "highway": false
+    },
+    {
+      "concept": "Adaptive rate limiting: let the server set your pace",
+      "intuition": "Wait several times longer than the server took to answer: a snappy 200 ms server gets a request every couple of seconds, a struggling 3 s server automatically gets space. One open connection per host, honor Retry-After on 429/503, and remember many hostnames can share one physical server, so also cluster limits per IP.",
+      "formula": "delay is roughly k times last response time (k about 3 to 10, floor 1 s); one connection per host",
+      "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
+      "highway": true
+    },
+    {
+      "concept": "Crawler traps: infinite URL generators",
+      "intuition": "Some URL spaces never end: calendars with eternal next-month links, session IDs minting fresh URLs per visit, faceted shop filters multiplying into millions of combinations, soft-404s that answer 200 for anything. The tell is a host where fetched URLs keep climbing while newly seen distinct content flattens. Budgets and caps make a trap cost at most one host's allocation.",
+      "formula": "defenses: per-host budget, URL length/depth/param caps, watch unique-content-per-URL ratio",
+      "topic": "Crawler Traps and URL Canonicalization",
+      "highway": false
+    },
+    {
+      "concept": "Safe vs risky URL canonicalization",
+      "intuition": "Some rewrites can never change what the server returns: lowercase scheme and host, drop default ports, resolve /a/../ segments, normalize percent-encoding, drop #fragments. Others are guesses: stripping utm_ parameters, sorting params, trimming trailing slashes. Guesses usually help but can collapse real content, so keep them per-site and evidence-based.",
+      "formula": "always safe: scheme/host lowercase, default port, dot-segments, percent-encoding, fragment; never lowercase the path",
+      "topic": "Crawler Traps and URL Canonicalization",
+      "highway": true
+    },
+    {
+      "concept": "The two failure modes of canonicalization",
+      "intuition": "Too little normalization and the seen test fails OPEN: the frontier fills with aliases and you pay to refetch what you have. Too much and it fails CLOSED: distinct pages (like ?page=2 of a thread) are declared 'seen' and never fetched, a silent coverage hole. For a research corpus the silent hole is the scarier defect: wasted fetches cost money, missing content costs truth.",
+      "formula": "—",
+      "topic": "Crawler Traps and URL Canonicalization",
+      "highway": false
+    },
+    {
+      "concept": "rel=canonical: a hint, not a command",
+      "intuition": "Pages can declare their 'true' URL via a link tag or header, which helps collapse aliases, but sites get it wrong or abuse it (every article claiming the homepage). Treat it like a witness statement: useful evidence, checked against your own content-equality tests before you act on it.",
+      "formula": "weigh rel=canonical against observed content equality; never obey blindly",
+      "topic": "Crawler Traps and URL Canonicalization",
+      "highway": false
+    }
+  ]
+}

@@ -1,0 +1,148 @@
+{
+  "questions": [
+    {
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "question": "What distinguishes a raw event from a feature in an ML data pipeline?",
+      "options": [
+        "An event is numeric and model-ready, while a feature is raw text that still needs encoding before use",
+        "An event describes a user, while a feature describes an item, and pipelines exist to join the two records",
+        "An event is an immutable record of a fact, while a feature is a derived value describing an entity as of a point in time",
+        "An event lives on disk in a warehouse, while a feature is always computed in memory at the moment of the request"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "question": "In a feature pipeline, why does validation run before transformation and aggregation rather than after?",
+      "options": [
+        "It quarantines malformed or out-of-range events before they can silently corrupt every downstream aggregate",
+        "It compresses events into a compact columnar format so the transformation stage can scan far less data",
+        "It rewrites event timestamps into processing time so windowed aggregation can run without a clock source",
+        "It removes duplicate entity keys so that aggregation windows never count the same entity more than once"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "question": "A nightly job that computes daily click counts crashed midway and was re-run; downstream counts for that day are now doubled. Which pipeline defect explains this?",
+      "options": [
+        "The job uses event time instead of processing time, so late clicks were assigned to the wrong day's window",
+        "The job appends its output on every run instead of overwriting the day's partition, so re-runs are not idempotent",
+        "The job reads from the online store instead of the raw event log, so it aggregated already-aggregated values",
+        "The job validates events after aggregation instead of before, so malformed click events were counted twice"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "question": "A model is retrained weekly on a 30-day purchase aggregate, and predictions are generated once per night in batch. Which pipeline style fits best?",
+      "options": [
+        "A streaming job that updates the aggregate per event, since incremental updates always cost less than recomputes",
+        "A streaming job with a batch backfill, since 30-day aggregates cannot be recomputed inside one nightly window",
+        "A request-time computation of the aggregate, since precomputing values for every entity wastes storage",
+        "A scheduled batch job that recomputes the aggregate, since nothing consumes values fresher than the nightly run"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "question": "Click events can arrive up to 48 hours late. A daily-counts job is re-run three days after its first run and produces different totals. Which design makes re-runs reproducible?",
+      "options": [
+        "Switching the job to processing-time windows so each event is counted in whichever run first observes it",
+        "Windowing on event time, waiting out the 48-hour lateness horizon, then treating the closed partition as immutable",
+        "Storing the counts in the online store so that the latest write always replaces any earlier disagreeing value",
+        "Deduplicating events by entity key so that late arrivals collapse into rows that were already counted"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Feature Pipelines: From Raw Events to Model Inputs",
+      "question": "A fraud model needs a card's transaction count over the last 10 minutes, served within 50 ms, plus the cardholder's account age. How should each feature be produced?",
+      "options": [
+        "Maintain the 10-minute count incrementally with a streaming job; derive account age at lookup from the stored signup date",
+        "Recompute both features in a nightly batch job, since consistent snapshots matter more than freshness for fraud",
+        "Compute both features at request time by scanning the raw transaction log, since fraud tolerates no staleness at all",
+        "Maintain account age with a streaming job and compute the 10-minute count nightly, since counts change slowly"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "question": "Why do feature stores maintain both an offline store and an online store rather than a single database?",
+      "options": [
+        "Because training data must be encrypted at rest while serving data has to stay decrypted for fast reads",
+        "Because regulators require historical values to be kept apart from any system used in live decisions",
+        "Because training scans long histories in bulk while serving needs millisecond point reads, and one layout cannot be optimal for both",
+        "Because feature definitions differ between training and serving, so each path requires its own storage schema"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "question": "What does the online store of a feature store typically hold?",
+      "options": [
+        "The full history of every feature value, partitioned by date for efficient training scans",
+        "The raw event stream, so serving code can compute any feature on demand from source facts",
+        "The model's recent predictions, cached by entity key so repeated requests can skip inference",
+        "The latest feature values keyed by entity id, readable in a few milliseconds per request"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "question": "An API must assemble 40 features about a user within a 20 ms budget; most are aggregates over 90 days of events. Which design meets the budget?",
+      "options": [
+        "Precompute the aggregates in pipelines and serve them from a key-value online store with a single point read",
+        "Issue the 90-day aggregation queries against the warehouse at request time with a strict per-query timeout",
+        "Cache the raw events in memory at the API layer and aggregate them inside the request handler on each call",
+        "Shard the warehouse by user id so each request-time aggregation query touches only a single partition"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "question": "A feature store's registry keeps exactly one definition per feature: its name, entity, source, and transformation. Which failure does this primarily prevent?",
+      "options": [
+        "Storage bloat from materializing the same feature into both the offline store and the online store",
+        "Divergence between independently written training and serving implementations of the same feature",
+        "Slow training scans caused by feature history being stored row-wise instead of in a columnar layout",
+        "Entity key collisions when two teams register features about the same user under different names"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "question": "A `spend_30d` feature is refreshed nightly into the online store with a 24-hour TTL. A pipeline outage delays the refresh by 12 hours. What do serving reads see after the TTL expires?",
+      "options": [
+        "The previous value, because online stores retain the last write until a newer write replaces it",
+        "The offline store's value, because reads transparently fall back to the historical store on expiry",
+        "A recomputed value, because TTL expiry triggers the store to re-derive the feature from raw events",
+        "A missing value, so the model receives whatever default the serving code substitutes for the feature"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Feature Stores: Offline Training vs Online Serving",
+      "question": "A team scores all 200k customers once per night and writes results to a table an app reads; there is no request-time inference. How much does a full feature store add here?",
+      "options": [
+        "Considerable value, because nightly scoring requires point-in-time feature retrieval at millisecond latency",
+        "Considerable value, because without an online store the nightly job cannot access historical aggregates",
+        "Little value, because with no request-time inference nothing needs low-latency online feature lookups",
+        "Little value, because 200k customers is too few rows for an offline store to be worth partitioning by date"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "cards": [
+    {
+      "concept": "Encoding versus compression codec",
+      "intuition": "An encoding understands the type and reshapes values to expose regularity. A codec then treats the encoded result as bytes and squeezes whatever redundancy remains.",
+      "formula": "typed encoding first, general-purpose byte compression second",
+      "topic": "Dictionary and Run-Length Encoding",
+      "highway": true
+    },
+    {
+      "concept": "Dictionary encoding",
+      "intuition": "Store each distinct value once and replace every occurrence with a compact dictionary slot number. It is like replacing repeated long names with tiny numbered tickets.",
+      "formula": "bits per dictionary index = ceiling(log2(distinct values))",
+      "topic": "Dictionary and Run-Length Encoding",
+      "highway": true
+    },
+    {
+      "concept": "Run-length encoding and Parquet's hybrid",
+      "intuition": "Long consecutive repeats become one value plus a count, while irregular stretches fall back to bit-packed literals. Sorted low-cardinality data gives the hybrid its best case.",
+      "formula": "run = (value, consecutive count)",
+      "topic": "Dictionary and Run-Length Encoding",
+      "highway": false
+    },
+    {
+      "concept": "When does dictionary encoding fail?",
+      "intuition": "If almost every value is distinct, the dictionary grows toward the data itself. Once its capped page overflows, a writer can fall back to plain encoding and file size jumps.",
+      "formula": "dictionary value falls as distinct count approaches row count",
+      "topic": "Dictionary and Run-Length Encoding",
+      "highway": false
+    },
+    {
+      "concept": "Codec ratio versus speed",
+      "intuition": "Compression buys fewer stored and transferred bytes by spending CPU. The right exchange rate depends on whether the query waits for I/O or for decompression.",
+      "formula": "query time is governed by the active bottleneck: I/O or CPU",
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "highway": true
+    },
+    {
+      "concept": "Why prioritize decompression speed?",
+      "intuition": "Analytical data is commonly compressed once and read thousands of times. A small write-time saving matters once, while decode cost returns on every scan.",
+      "formula": "write once, decompress many times",
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "highway": true
+    },
+    {
+      "concept": "Temperature-aware codec policy",
+      "intuition": "Hot data favors Snappy, LZ4, or low-level Zstd for interactive reads. Cold data can justify stronger Zstd because a one-time compression cost buys long-term storage savings.",
+      "formula": "hot: fast decode; cold: stronger ratio when amortized",
+      "topic": "Compression Codecs: Ratio vs Speed",
+      "highway": false
+    },
+    {
+      "concept": "The shared compression playbook",
+      "intuition": "Postings and Parquet both apply a cheap reversible transform that turns structure into small integers, then encode only the bits those integers need.",
+      "formula": "structured values → low-entropy residuals → bit packing",
+      "topic": "Parquet Encodings vs Postings Compression",
+      "highway": true
+    },
+    {
+      "concept": "Postings gaps and Parquet deltas",
+      "intuition": "Sorted values make neighboring differences small. Document IDs 1000, 1003, 1007, 1012 become 1000, 3, 4, 5, just as sorted timestamps become compact increments.",
+      "formula": "gap1 = value1; gapi = valuei - value(i-1)",
+      "topic": "Parquet Encodings vs Postings Compression",
+      "highway": false
+    },
+    {
+      "concept": "Why sortedness pays twice in Parquet",
+      "intuition": "Nearby values create small deltas and repeated runs for compression, while each row group receives a narrow min-max range for pruning. One write-order choice improves size and reads.",
+      "formula": "sorting → tighter statistics + lower-entropy encodings",
+      "topic": "Parquet Encodings vs Postings Compression",
+      "highway": true
+    },
+    {
+      "concept": "Postings access versus Parquet access",
+      "intuition": "Search scoring needs sequential traversal plus fast skips inside a list. Analytical readers decompress whole pages into vectorized batches, so random access within a page matters less.",
+      "formula": "postings: traverse and skip; Parquet: decode page and vectorize",
+      "topic": "Parquet Encodings vs Postings Compression",
+      "highway": false
+    }
+  ]
+}

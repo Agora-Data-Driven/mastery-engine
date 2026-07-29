@@ -1,0 +1,88 @@
+{
+  "cards": [
+    {
+      "concept": "Why does a big chunk retrieve worse than a small one?",
+      "intuition": "One chunk gets exactly one embedding vector. Stuff three topics into a chunk and the vector becomes a smoothie of all three, close to none of them. A focused query vector then lands nearer to some sharper chunk. Small chunks keep the vector pointing at one idea, which is why they match precisely.",
+      "formula": "One chunk = one vector; more topics per chunk means a blurrier vector and lower cosine similarity to any focused query",
+      "topic": "Chunk Size and Overlap: The Core Tradeoffs",
+      "highway": true
+    },
+    {
+      "concept": "Stride, overlap, and index inflation",
+      "intuition": "A sliding window of size s that repeats the last o tokens advances by s minus o each step. Repeating text means more windows over the same document, so the index grows by the ratio of size to stride. 500-token chunks with 100 overlap advance 400 at a time: 25% more vectors to embed, store, and search.",
+      "formula": "\\text{stride} = s - o, \\quad \\text{index inflation} = \\frac{s}{s - o}",
+      "topic": "Chunk Size and Overlap: The Core Tradeoffs",
+      "highway": true
+    },
+    {
+      "concept": "What does overlap actually buy?",
+      "intuition": "Any chunk boundary can cut a sentence in half, and a halved fact exists nowhere intact in the index, so no retriever setting can recover it. Overlap repeats the boundary region so the straddling fact survives whole in at least one chunk. It is insurance: pay 10 to 20 percent extra index for protection at every seam.",
+      "formula": "Overlap of 10-20% of chunk size guards boundary-split facts; cost is s/(s-o) times more vectors",
+      "topic": "Chunk Size and Overlap: The Core Tradeoffs",
+      "highway": false
+    },
+    {
+      "concept": "Near-duplicate crowding in top-k",
+      "intuition": "Overlapping neighbors share text, so a query hitting the shared region scores both almost identically. Twins then occupy two of your few top-k slots while a genuinely different supporting chunk gets pushed out. The fix lives downstream: deduplicate near-identical hits before assembling context.",
+      "formula": "Deduplicate near-identical retrieved chunks before context assembly",
+      "topic": "Chunk Size and Overlap: The Core Tradeoffs",
+      "highway": false
+    },
+    {
+      "concept": "Small-to-big (parent-document) retrieval",
+      "intuition": "Stop forcing one chunk size to do two jobs. Match on small, sharp child chunks whose vectors point at one idea, then hand the LLM the larger parent section that contains the match. You get precise retrieval and complete context at once, paying only extra storage and a parent lookup.",
+      "formula": "Embed small child chunks for matching; return the larger parent section for generation",
+      "topic": "Chunk Size and Overlap: The Core Tradeoffs",
+      "highway": true
+    },
+    {
+      "concept": "Silent truncation at the embedding model's token cap",
+      "intuition": "Embedding models have a maximum input length, and text past it is usually dropped without any error. A 900-token chunk fed to a 512-token model embeds only its head; the tail sits in your index but is invisible to vector search forever. BM25 still finds it, which is the telltale asymmetry.",
+      "formula": "Text past the embedding model's token cap is silently truncated; keep chunk size under the cap",
+      "topic": "Chunk Size and Overlap: The Core Tradeoffs",
+      "highway": false
+    },
+    {
+      "concept": "Recursive splitting with a separator hierarchy",
+      "intuition": "Split on the strongest natural boundary first, blank lines between paragraphs, and only when a piece is still too big fall back to weaker separators: single newlines, then sentences, then words. Chunks come out as large as allowed while almost never cutting inside a semantic unit.",
+      "formula": "Split on the strongest separator first; recurse with weaker separators only when a piece exceeds the size cap",
+      "topic": "Structure-Aware and Semantic Chunking",
+      "highway": false
+    },
+    {
+      "concept": "Semantic chunking: boundaries from embedding distance spikes",
+      "intuition": "Embed each sentence and watch how far adjacent embeddings drift apart. Within one topic the distances stay small; at a topic shift the distance spikes. Cut there. The threshold is usually a percentile of that document's distances, so lowering the percentile fires on milder shifts and yields more, smaller chunks. Best where structure is absent: transcripts, chat logs, OCR text.",
+      "formula": "d = 1 - \\frac{a \\cdot b}{\\lVert a \\rVert \\, \\lVert b \\rVert}",
+      "topic": "Structure-Aware and Semantic Chunking",
+      "highway": false
+    },
+    {
+      "concept": "Atomic elements: never split tables, code, or lists",
+      "intuition": "A table cut mid-row indexes as gibberish in both halves, and a function cut mid-body loses its signature or its return. Structure-aware splitters treat tables, code blocks, and lists as indivisible, even when they blow past the size cap, because a whole oversized unit beats two meaningless fragments.",
+      "formula": "Treat tables, code blocks, and lists as indivisible units, oversized or not",
+      "topic": "Structure-Aware and Semantic Chunking",
+      "highway": false
+    },
+    {
+      "concept": "Breadcrumb prepending: the cheapest enrichment",
+      "intuition": "Splitting orphans a chunk from its document, so `the notice period is 60 days` no longer says whose notice period. Prefixing the title and heading path, like Acme MSA > Termination > Notice, restores the lost identity for both BM25 terms and the embedding. Nearly free, deterministic, and the default you should apply everywhere.",
+      "formula": "Prefix each chunk with its document title and heading path before embedding and BM25 indexing",
+      "topic": "Contextual Chunk Enrichment: Titles, Headers, Summaries",
+      "highway": true
+    },
+    {
+      "concept": "Contextual retrieval: LLM-written chunk context",
+      "intuition": "For each chunk, an LLM reads the whole document and writes a 50 to 100 token note situating the chunk, which is prepended before embedding and BM25 indexing. Reported to cut top-20 retrieval failures by roughly a third. Affordable because the document is a stable prompt prefix: prompt caching means you pay for it about once per document, not once per chunk.",
+      "formula": "Prepend an LLM-written 50-100 token situating context; index the enriched text; prompt-cache the shared document prefix",
+      "topic": "Contextual Chunk Enrichment: Titles, Headers, Summaries",
+      "highway": true
+    },
+    {
+      "concept": "Enrichment is derived data: staleness and hallucination",
+      "intuition": "An enrichment prefix is computed from the document, so editing the document silently invalidates it; re-enrichment must ride along with re-indexing. Worse, a hallucinated context plants confident falsehoods inside the index itself, attracting queries the chunk cannot answer. Constrain prompts to describe rather than infer, and spot-check outputs.",
+      "formula": "Re-generate enrichment on every document edit; audit prefixes for facts absent from the source",
+      "topic": "Contextual Chunk Enrichment: Titles, Headers, Summaries",
+      "highway": false
+    }
+  ]
+}

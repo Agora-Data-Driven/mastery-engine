@@ -1,0 +1,292 @@
+{
+  "questions": [
+    {
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "question": "In BigQuery's architecture, what is a slot?",
+      "options": [
+        "A reserved partition of Colossus storage dedicated to one project's table data",
+        "A unit of compute capacity, roughly a virtual CPU with memory, rented to a query for its duration",
+        "A network channel between the storage plane and compute plane assigned per table",
+        "A scheduling window during which a project is permitted to submit query jobs"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "question": "Why does selecting 2 columns from a 32-column table scan far fewer bytes than selecting all columns?",
+      "options": [
+        "Because the engine caches previously queried columns and serves repeats from memory",
+        "Because the planner samples a subset of rows first and extrapolates the full result",
+        "Because unselected columns are stored compressed and are skipped only after decompression",
+        "Because columnar storage keeps each column's values contiguous, so only referenced columns are read"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "question": "A nightly ETL pipeline and an analyst's exploratory queries hit the same BigQuery tables at the same time. What property of the architecture prevents them from corrupting or blocking each other's data access?",
+      "options": [
+        "Storage and compute are separate planes, so both workloads read shared storage with independent compute",
+        "Each table keeps one writer lock, so the pipeline and the analyst take turns executing",
+        "The analyst's queries run on read replicas that are refreshed after the pipeline commits",
+        "The engine copies each queried table into per-user scratch space before execution begins"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "question": "A GROUP BY query over 10 billion events runs slowly even after slots are doubled, and one worker processes far longer than the rest. What is the likely cause?",
+      "options": [
+        "The table lacks indexes, so every worker must scan the entire dataset repeatedly",
+        "The shuffle tier ran out of quota, forcing all workers to serialize their output",
+        "A heavily skewed grouping key concentrated one shuffle partition on a single worker",
+        "The query exceeded the two-stage limit, so extra stages executed without parallelism"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "question": "A team plans to use BigQuery as the backend for an app that updates individual user rows hundreds of times per second. Why is this architecturally wrong?",
+      "options": [
+        "BigQuery tables become read-only once they exceed their first billion rows",
+        "BigQuery cannot express UPDATE statements, so rows can never be modified",
+        "Each DML statement runs as a distributed job rather than an indexed row write, so frequent single-row updates are slow and costly",
+        "Each update triggers a full table re-cluster, locking out reads until it completes"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Storage-Compute Separation and the Columnar Engine",
+      "question": "Which consequence follows directly from BigQuery separating storage from compute?",
+      "options": [
+        "Petabytes can sit in storage costing nothing for compute until they are actually queried",
+        "Data must be reloaded into compute nodes whenever a new reservation is created",
+        "Storage throughput drops whenever many slots are active, since they share machines",
+        "Tables must be pre-sized for compute capacity before any data can be loaded"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Partitioning and Clustering in BigQuery",
+      "question": "What does partition pruning do?",
+      "options": [
+        "It deletes partitions that have passed their configured expiration age",
+        "It merges small partitions into larger ones to reduce metadata overhead",
+        "It re-sorts rows within each partition so block metadata stays accurate",
+        "It eliminates entire partitions from a scan at planning time based on the filter"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Partitioning and Clustering in BigQuery",
+      "question": "How does clustering reduce the bytes a query reads?",
+      "options": [
+        "By compressing cluster columns with a dictionary shared across the whole table",
+        "By sorting data into blocks whose min/max metadata lets non-matching blocks be skipped",
+        "By storing cluster columns in a separate index table consulted before the scan",
+        "By caching the most frequently filtered column values in the shuffle tier"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Partitioning and Clustering in BigQuery",
+      "question": "A 730 GB events table is partitioned by day across two years. A dashboard filters to the last 7 days. Roughly what does the query scan?",
+      "options": [
+        "About 365 GB, since pruning eliminates at most half of a table's partitions",
+        "About 730 GB, since partitioning affects storage layout but not scan volume",
+        "About 7 GB, since pruning skips all but the seven matching daily partitions",
+        "About 73 GB, since pruning works at monthly rather than daily granularity"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Partitioning and Clustering in BigQuery",
+      "question": "Every query against a multi-tenant retrieval corpus filters on `tenant_id`, a column with 50,000 distinct values. Which physical design serves this filter best?",
+      "options": [
+        "Partition the table by `tenant_id` so each tenant's rows form their own partition",
+        "Cluster the table with `tenant_id` as the first clustering column",
+        "Shard the corpus into 50,000 separate tables, one per tenant identifier",
+        "Add `require_partition_filter` so queries must always name a tenant"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Partitioning and Clustering in BigQuery",
+      "question": "A query filters a date-partitioned table with `WHERE partition_date = other_table.max_date` via a join, yet scans the entire table. Why did pruning fail?",
+      "options": [
+        "The filter value is not resolvable at planning time, and pruning happens before execution",
+        "The partition column was compared with equality, and pruning requires range predicates",
+        "The table also has clustering columns, which override partition pruning when present",
+        "The join forced a shuffle, and shuffled tables always bypass the pruning step"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Partitioning and Clustering in BigQuery",
+      "question": "A table is clustered by (`customer_id`, `event_type`). Which query benefits least from block pruning?",
+      "options": [
+        "A query filtering on `customer_id` alone with an equality predicate",
+        "A query filtering on both `customer_id` and `event_type` together",
+        "A query filtering on `customer_id` with an IN list of a few values",
+        "A query filtering on `event_type` alone without any customer predicate"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "question": "What is a reservation in BigQuery's capacity model?",
+      "options": [
+        "A prepaid discount contract covering a fixed number of on-demand queries",
+        "A quota on the maximum bytes a project may scan in one billing month",
+        "A scheduled maintenance window during which slots are upgraded per project",
+        "A named pool of slots created centrally and assigned to projects, folders, or an org"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "question": "In an autoscaling reservation, what does the baseline represent?",
+      "options": [
+        "The minimum queue depth required before any autoscaled slots are added",
+        "The slots that are always allocated and billed, with autoscaling adding more up to the max",
+        "The average slot usage measured over the previous month of workloads",
+        "The number of slots shared out to other reservations while the owner is idle"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "question": "Data scientists' ad-hoc queries keep slowing the SLA-bound nightly ETL under a single shared reservation. What is the standard fix?",
+      "options": [
+        "Raise the shared reservation's max so autoscaling absorbs everyone's peak together",
+        "Move the data scientists to a different region so their queries use separate capacity",
+        "Create separate reservations per workload and assign the projects accordingly",
+        "Switch the ETL project to on-demand pricing so it no longer competes for slots"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "question": "A team sets baseline 0 and max 400 on their reservation. What behavior should they expect?",
+      "options": [
+        "Zero cost at idle, with slots scaling up on demand and billed per second while provisioned",
+        "Zero cost at idle, but queries fail until an administrator manually allocates slots",
+        "Constant billing for 400 slots, since the max determines the reservation's charge",
+        "Constant billing for 200 slots, since billing uses the midpoint of baseline and max"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "question": "An organization needs multi-region disaster recovery for BigQuery workloads plus the strongest compliance controls. Which Edition tier is the match?",
+      "options": [
+        "Standard, since disaster recovery is included in every Edition tier",
+        "Enterprise Plus, since it adds the compliance and cross-region DR ceiling",
+        "Enterprise, since it is the designated production tier for all workloads",
+        "Any tier, provided a three-year slot commitment is attached to it"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Editions, Reservations, and Slot Autoscaling",
+      "question": "How should an expert set the baseline for a reservation with variable but sustained daytime load?",
+      "options": [
+        "At zero always, because autoscaled slots are cheaper per hour than baseline slots",
+        "At the P99 of usage, because latency consistency outweighs all idle-slot cost",
+        "At the licensed maximum, because idle slots are shared and thus never wasted",
+        "Near the P50 of sustained usage, letting autoscaling absorb the peaks above it"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "question": "What does on-demand BigQuery pricing bill for?",
+      "options": [
+        "The wall-clock duration each query holds its transient slot allocation",
+        "The rows returned to the client after all filters and limits are applied",
+        "The bytes processed from the referenced columns in the data actually read",
+        "The number of query jobs submitted by the project in the billing month"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "question": "What does a dry run of a query return?",
+      "options": [
+        "The bytes the query would process, computed without executing the query",
+        "The rows the query would return, sampled from a fraction of the table",
+        "The slot-hours the query would consume under the current reservation",
+        "The estimated wall-clock runtime based on similar historical queries"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "question": "An analyst adds `LIMIT 10` to a query on a large unpartitioned table to keep on-demand costs down. What actually happens?",
+      "options": [
+        "The cost drops proportionally, since only ten rows are read from storage",
+        "The cost drops only when the table is clustered on the selected columns",
+        "The query is rejected, since LIMIT requires a partition filter to execute",
+        "The cost is unchanged, since the full scan happens before the limit applies"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "question": "A query selects 4 of 40 equal-width columns from a 2 TB table, filtered to 30 of 365 daily partitions. Roughly what does it process on-demand?",
+      "options": [
+        "About 200 GB, since column selection reduces the scan but date filters do not",
+        "About 16 GB, since bytes scale by the column fraction times the partition fraction",
+        "About 2 TB, since on-demand billing always charges the full size of the table",
+        "About 160 GB, since partition pruning applies but column pruning does not"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "question": "A finance team demands a hard guarantee that no single ad-hoc query can produce a surprise multi-thousand-dollar charge under on-demand pricing. Which control delivers that guarantee?",
+      "options": [
+        "Setting `maximum_bytes_billed` so any query exceeding the cap fails instead of billing",
+        "Enabling clustering on all large tables so estimates become strict upper bounds",
+        "Reviewing `INFORMATION_SCHEMA.JOBS` weekly so expensive queries are flagged early",
+        "Granting analysts read access only to views so base tables cannot be scanned"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
+      "question": "An org scans about 400 TiB per month with spiky, unpredictable usage. Another org scans about 5 PiB per month, steadily, and wants flat predictable spend. Which pricing pairing is right?",
+      "options": [
+        "Capacity for the first org and on-demand for the second, since spiky loads need reserved headroom",
+        "On-demand for both orgs, since per-byte billing is always cheaper than slot billing",
+        "On-demand for the first org and capacity for the second, since sustained heavy volume favors slots",
+        "Capacity for both orgs, since reservations are required once monthly scans pass one TiB"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    }
+  ]
+}

@@ -1,0 +1,81 @@
+{
+  "cards": [
+    {
+      "concept": "ETL vs ELT: what actually differs?",
+      "intuition": "Both move data through extract, transform, load. The only real question is where the transform runs: on a separate processing tier before the warehouse ever sees the data (ETL), or inside the warehouse with SQL after loading raw data (ELT). Think of it as cooking at home versus bringing groceries to a shared kitchen: ETL delivers finished meals, ELT delivers ingredients you can re-cook any way you like later.",
+      "formula": "ETL: transform on external compute, load finished tables. ELT: load raw first, transform in-warehouse with SQL.",
+      "topic": "ETL vs ELT: Where Transformation Lives",
+      "highway": true
+    },
+    {
+      "concept": "Why did ELT take over as the default?",
+      "intuition": "Old warehouses made compute the scarce, expensive resource, so you transformed outside them. Cloud warehouses like BigQuery split cheap columnar storage (pennies per GB-month) from elastic pay-per-use query compute, so dumping raw data in first became nearly free and every transform became a re-runnable SQL statement. The economics flipped, so the architecture flipped.",
+      "formula": "Cheap storage + elastic warehouse compute → load raw first, transform later, re-run anytime.",
+      "topic": "ETL vs ELT: Where Transformation Lives",
+      "highway": false
+    },
+    {
+      "concept": "When does ETL (transform before load) still win?",
+      "intuition": "Three forces push the transform out of the warehouse: the transform needs real code, not SQL (ML inference, embedding generation, tokenization); regulation forbids landing raw data anywhere queryable (mask PII in flight); or latency demands stream processing. In practice most teams run EtLT: a light in-flight cleanup so nothing illegal or malformed lands, then heavy modeling in SQL.",
+      "formula": "Pick ETL when: non-SQL logic, compliance blocks raw landing, or low-latency streaming. Hybrid = EtLT.",
+      "topic": "ETL vs ELT: Where Transformation Lives",
+      "highway": false
+    },
+    {
+      "concept": "The hidden price of pure ETL",
+      "intuition": "ETL loads only the finished product, so any field you did not think to keep is gone. When a parsing bug or a new requirement (like wanting dwell-time you discarded) surfaces weeks later, there is nothing to re-run against. ELT keeps the raw payloads, so a bug costs one backfill instead of permanent loss. Recoverability is the deepest argument for loading raw data first.",
+      "formula": "ETL failure mode: discarded fields are unrecoverable. ELT failure mode: careless full scans of raw blow up cost.",
+      "topic": "ETL vs ELT: Where Transformation Lives",
+      "highway": false
+    },
+    {
+      "concept": "The three zones: staging, raw, curated",
+      "intuition": "Data flows through an airlock, an archive, and a showroom. Staging is the airlock: one transient folder per load batch, deletable after promotion. Raw is the archive: permanent, append-only, exactly what arrived, warts and all. Curated is the showroom: deduplicated, typed, business logic applied, the only layer consumers should read. Each zone trades fidelity to the source for trustworthiness.",
+      "formula": "staging (transient, per-run) → raw (immutable, append-only archive) → curated (modeled, consumer-facing)",
+      "topic": "Staging, Raw, and Curated Zones",
+      "highway": true
+    },
+    {
+      "concept": "Why keep a raw zone at all?",
+      "intuition": "Every transform you will ever write has a bug you have not found yet. Raw is reprocessing insurance: when the bug surfaces, you fix the transform and rebuild curated from the untouched originals. It also isolates blast radius: an upstream schema change can break the transform while raw keeps archiving, so the outage loses zero data. No raw zone means every transform bug destroys data instead of merely mis-presenting it.",
+      "formula": "Raw intact ⇒ any transform bug is fixable by re-running over raw and republishing curated.",
+      "topic": "Staging, Raw, and Curated Zones",
+      "highway": true
+    },
+    {
+      "concept": "The shortcut-into-raw anti-pattern",
+      "intuition": "When curated lacks a field, consumers are tempted to query raw directly. They then depend on an uncontracted, unstable schema that the next upstream change silently breaks. The pressure is legitimate; the fix is to promote the missing field into curated, not to bless raw reads. Also remember privacy: erasure requests must reach raw too, via partition rewrites or destroying per-user encryption keys (crypto-shredding).",
+      "formula": "Consumers read curated only; missing fields get promoted, not fetched from raw.",
+      "topic": "Staging, Raw, and Curated Zones",
+      "highway": false
+    },
+    {
+      "concept": "What is a data contract?",
+      "intuition": "It is a machine-checkable treaty between the team producing data and the teams consuming it. Not just field names and types: it pins down semantics (units, timezones, enum vocabularies), SLAs (freshness, completeness), and evolution rules (what may change without sign-off). Without one, the de facto interface is whatever the producer's database looks like today, and every producer refactor becomes your 3 a.m. incident.",
+      "formula": "Contract = schema + semantics + SLAs + evolution rules, versioned and enforced by machinery.",
+      "topic": "Data Contracts Between Producers and Consumers",
+      "highway": true
+    },
+    {
+      "concept": "Backward-compatible vs breaking schema changes",
+      "intuition": "A change is backward compatible if every existing consumer keeps working without edits. Adding a new optional, nullable field qualifies: old readers just ignore it. Renaming a field, changing its type, deleting it, or repurposing enum values all break someone. The nasty ones are silent: a renamed column often arrives as all-null rather than as an error, so loaders keep loading garbage.",
+      "formula": "Safe: add optional/nullable field. Breaking: rename, retype, delete, or repurpose existing fields.",
+      "topic": "Data Contracts Between Producers and Consumers",
+      "highway": false
+    },
+    {
+      "concept": "Where and how contracts get enforced",
+      "intuition": "A contract that is only a document is a wish. Real enforcement happens twice: in the producer's CI, where a schema diff against the contract blocks breaking merges before any bad event exists; and at your ingestion boundary, where incoming batches are validated and violators quarantined. If you cannot get producer buy-in yet, start as a monitor (validate, quarantine, alert) rather than a gate.",
+      "formula": "Enforce at producer CI (prevent) + ingestion validation (detect/quarantine); gate vs monitor is the adoption dial.",
+      "topic": "Data Contracts Between Producers and Consumers",
+      "highway": false
+    },
+    {
+      "concept": "Shipping an unavoidable breaking change",
+      "intuition": "Never do a big-bang cutover where producer and all consumers must flip at the same instant; someone always misses the memo. Instead run versioned coexistence: publish the new schema as v4 alongside v3 (dual-publish), give consumers a migration window, then retire v3 once telemetry shows everyone moved. The old version is a bridge you dismantle only after the traffic is across.",
+      "formula": "Breaking change → dual-publish v(n) and v(n+1), migrate consumers, then retire v(n).",
+      "topic": "Data Contracts Between Producers and Consumers",
+      "highway": false
+    }
+  ]
+}
