@@ -57,7 +57,7 @@ const CURRICULUM = {
     'The folder tour': [
       'One folder, seven projects',
       'What each app does',
-      'The two folders you never clean',
+      'The clients folder you never clean',
     ],
     'How it all connects': [
       'One login for everything',
@@ -159,11 +159,17 @@ lesson). Website is agoradatadriven.com, our public marketing site. Seo-pipeline
 writes and publishes blog posts onto the website automatically. Agora-devtools is the toolbox:
 the scripts that keep everyone's work in sync, like start-day, go, and park.
 
-THE TWO FOLDERS YOU NEVER CLEAN. Inside the Agora folder there are two data folders that belong
-to NO git project: _tcs-blog-data and ai-eng-build. They hold the only copies of real research
-data and course material. Never delete them, never "tidy them up", and never let an AI sweep
-them into a cleanup. If an AI ever proposes deleting them, say no. There is also a hidden .venv
-folder (shared Python setup) - leave it alone too.
+THE CLIENTS FOLDER YOU NEVER CLEAN. Inside the Agora folder there is one data folder that
+belongs to NO git project: clients. It holds per-client work products, one subfolder per client.
+For example clients\the-contract-shop\blog-data is the ONLY copy of the 679-post competitor blog
+research behind a client report. Because it is not in git there is no undo: never delete it,
+never "tidy it up", and never let an AI sweep it into a cleanup. If an AI ever proposes deleting
+anything under clients, say no. New loose client files always go INSIDE clients\<client-name>,
+never directly in the Agora folder - and if a file does not fit any named subfolder, it goes in
+clients\<client-name>\others, a catch-all every client folder has. (History: until 2026-07-29 this data sat in two loose root
+folders, _tcs-blog-data and ai-eng-build. The first is now clients\the-contract-shop\blog-data;
+the second is now git-tracked inside mastery-engine as content-build, so it is versioned and no
+longer fragile.) There is also a hidden .venv folder (shared Python setup) - leave it alone too.
 `;
 
 T['How it all connects'] = String.raw`
