@@ -146,7 +146,7 @@ import {
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
-import { holisticProfile, sentinelUserLookup } from './lib/sentinel.js';
+import { holisticProfile, mentorSearch, sentinelUserLookup } from './lib/sentinel.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
@@ -2399,6 +2399,52 @@ function looksLikeCatalogLookup(msg) {
   return /\b(card|deck|topic|sub-?lesson|lesson|course|track|section|module|curriculum|syllabus|teach|cover|where|study|learn about|is there|which|list|find|remove|hide|restore|skip)\b/i.test(String(msg || ''));
 }
 
+/** Which mentor (if any) THIS message is about, matched against the learner's own roster.
+ *  Matches the full name or any distinctive part of it, because people type "what would Nick say",
+ *  not "what would Nick Saraev say". Parts shorter than 4 chars are ignored so a mentor called
+ *  "Al" can't match every message containing "all". */
+function mentorNamedIn(msg, roster) {
+  const text = ` ${String(msg || '').toLowerCase()} `;
+  let best = '';
+  for (const m of roster) {
+    const name = String(m.name || '');
+    if (!name) continue;
+    const parts = name.toLowerCase().split(/\s+/).filter((p) => p.length >= 4);
+    const hit = text.includes(` ${name.toLowerCase()} `) || parts.some((p) => text.includes(p));
+    // Prefer the longest matching name: "Ben Heath - Google Ads" should beat "Ben Heath"
+    // when the learner actually named the more specific one.
+    if (hit && name.length > best.length) best = name;
+  }
+  return best;
+}
+
+/** Asking to be coached BY someone, rather than merely about them ("act as Nick", "channel Nick",
+ *  "what would Nick say", "mentor me as..."). Only a signal for WHEN to retrieve — the persona
+ *  itself is driven by the prompt block in lib/gemini.js. */
+function looksLikeMentorAsk(msg) {
+  return /\b(act|speak|talk|respond|answer|reply|coach|mentor|advise|channel|roleplay|role-play|pretend|as if you (?:are|were)|in the (?:voice|style)|what would|how would|what does|what do you think .* would)\b/i
+    .test(String(msg || ''));
+}
+
+/** Grounding for the mentor-library features: the passages from the learner's imported mentor
+ *  transcripts that bear on this message. Null when there's nothing to add.
+ *
+ *  WHEN we search (each Sentinel round trip costs, so this is deliberate):
+ *    - they NAMED a mentor they own material for  -> search that mentor (the "what would Nick
+ *      say about my plan" / "act as Nick" case),
+ *    - or it's a COACH turn that reads like asking for guidance -> search the whole library, so
+ *      real mentor material can inform ordinary coaching without being asked for by name.
+ *  Otherwise we skip it: a plain "explain gradient descent" needs no mentor lookup.
+ *
+ *  NEVER throws (mentorSearch degrades to null), so a Sentinel outage just means no mentor block. */
+async function mentorGroundingFor(email, message, holistic, coach) {
+  const roster = (holistic && Array.isArray(holistic.mentors)) ? holistic.mentors : [];
+  if (!roster.length) return null;
+  const named = mentorNamedIn(message, roster);
+  if (!named && !(coach && looksLikeMentorAsk(message))) return null;
+  return mentorSearch(email, { q: message, mentor: named, limit: named ? 10 : 6 });
+}
+
 /** The learner's accessible catalog (their Mastery-Engine shelf), as {track,course,lesson,topic}
  *  rows — the real curriculum the assistant grounds "which card teaches X" answers in.
  *  Sections the learner TEMPORARILY REMOVED ride along marked `removed: true` (a hidden
@@ -2501,6 +2547,9 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // Whole-person context from Sentinel (body-fat/PRs, career goals, reading, obstacles). Null-safe:
     // an unreachable/unconfigured Sentinel just means no holistic block.
     const holistic = await holisticProfile(chatUser);
+    // Passages from their imported mentor transcripts, when the turn calls for them — this is what
+    // makes "what would Nick say about my plan" / "act as Nick" grounded instead of an impression.
+    const mentorHits = await mentorGroundingFor(chatUser, message, holistic, coach);
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
     // True only when this app is embedded in someone else's frame (Sentinel's Coach) — that's
@@ -2508,7 +2557,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -2564,11 +2613,14 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // Whole-person context from Sentinel; fetched before streaming starts (null-safe) so a Sentinel
     // outage can never break the SSE stream — it just yields no holistic block.
     const holistic = await holisticProfile(chatUser);
+    // Mentor-library grounding (see the blocking sibling). Fetched before streaming starts and
+    // null-safe, so a Sentinel outage can never break the SSE stream.
+    const mentorHits = await mentorGroundingFor(chatUser, message, holistic, coach);
     const actions = !!req.body?.actions;
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
