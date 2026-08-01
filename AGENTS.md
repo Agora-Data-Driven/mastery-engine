@@ -93,7 +93,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `programs.js` `priority.js` | Pure logic, IO-free. |
 | `usage.js` | Token/cost tallying per user. |
 | `googleauth.js` | Google OAuth flow. |
-| `sentinel.js` | Fetches the Sentinel people list (for admin enrollment UI). |
+| `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, and `growthDetail` (growth-journal bodies — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` `watcher.js` | Import/analytics side-paths. |
 | `_*_test.js` | The **four** Node unit tests (auth, graph, programs, progress credit) — see §6. |
 
@@ -441,6 +441,30 @@ raw newlines/tabs in strings break parsing.
 
 A `<code>` chip inside a `$…$` span splits the TeX. The renderer has `stashTexttNoSplit` to
 handle it. Don't "simplify" that.
+
+### 🔴 The assistant's growth-journal index is complete; only the BODIES are lazy
+
+The learner's Sentinel growth journal reaches the assistant as **small-to-big retrieval**: the
+holistic digest carries every entry's TITLE (uncapped, every turn), and `growthGroundingFor`
+([server.js](server.js)) fetches the full `detail` bodies for the entries this turn bears on via
+`growthDetail` → Sentinel's `/api/internal/growth-detail`. `growthNotesBlock`
+([lib/gemini.js](lib/gemini.js)) renders both halves.
+
+Three invariants, and each one is load-bearing — breaking any of them makes the assistant deny
+things the learner can see on their own screen:
+
+1. **Everything ships while it fits.** Under `GROWTH_HYDRATE_BUDGET_CHARS` the whole journal is
+   hydrated and scoring is skipped entirely. Retrieval only switches on once the corpus genuinely
+   outgrows the prompt — small and complete beats large and sampled.
+2. **A body is whole or absent.** Sizes come from the index's `chars`, so budgeting happens
+   *before* fetching and no body is ever cut to fit. A truncated note reads exactly like a complete
+   one and gets summarised as though it were the whole thing.
+3. **Gaps are declared.** Anything not loaded is named in the prompt, so a retrieval miss becomes
+   "you have a note called X I haven't opened" instead of "you have no note about X".
+
+Keep `GROWTH_MAX_IDS` in sync with Sentinel's `MAX_GROWTH_DETAIL_IDS` — ask for more than it accepts
+and it drops the tail silently, which renders unloaded entries as loaded. See sentinel's AGENTS.md
+for the Sentinel half and the incident that produced all of this.
 
 ### 🟡 Microphone dead when embedded in Sentinel
 
