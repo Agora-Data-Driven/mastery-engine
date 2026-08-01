@@ -146,7 +146,7 @@ import {
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
-import { holisticProfile, mentorSearch, sentinelUserLookup } from './lib/sentinel.js';
+import { growthDetail, holisticProfile, mentorSearch, sentinelUserLookup } from './lib/sentinel.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
@@ -2445,6 +2445,98 @@ async function mentorGroundingFor(email, message, holistic, coach) {
   return mentorSearch(email, { q: message, mentor: named, limit: named ? 10 : 6 });
 }
 
+// How much growth-journal BODY text we'll pull into one turn's prompt, in characters (~6k tokens).
+// Below this the whole journal ships and there is no retrieval at all; above it we choose. Raising
+// it costs tokens on every turn; lowering it makes the coach choose sooner, never wrong.
+const GROWTH_HYDRATE_BUDGET_CHARS = 24000;
+// Mirrors MAX_GROWTH_DETAIL_IDS in Sentinel's development service. Asking for more than it accepts
+// would have it silently drop the tail, and we'd then render those entries as loaded when they
+// weren't — the precise lie this whole design exists to prevent. Anything past this is a declared gap.
+const GROWTH_MAX_IDS = 50;
+
+const GROWTH_STOPWORDS = new Set([
+  'the', 'and', 'for', 'with', 'that', 'this', 'was', 'are', 'you', 'your', 'about', 'what',
+  'how', 'why', 'can', 'have', 'has', 'from', 'into', 'they', 'them', 'his', 'her', 'our',
+  'not', 'but', 'all', 'any', 'out', 'get', 'got', 'did', 'does', 'were', 'been', 'more',
+  'some', 'than', 'then', 'there', 'when', 'who', 'whom', 'will', 'would', 'should', 'could',
+  'much', 'many', 'just', 'like', 'want', 'need', 'know', 'tell', 'show', 'give', 'make',
+]);
+
+/** Content words of a string, for the cheap title match below. */
+function growthTerms(s) {
+  return new Set(
+    String(s || '').toLowerCase().split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 3 && !GROWTH_STOPWORDS.has(w)),
+  );
+}
+
+/** Grounding for the learner's growth journal — the "big" half of small-to-big retrieval.
+ *
+ *  Sentinel ships a COMPLETE index (every entry's title, uncapped) on every turn; the bodies are
+ *  fetched here, whole, for the entries this turn actually bears on. Three properties matter, and
+ *  each of them is load-bearing:
+ *
+ *   1. WHILE IT FITS, EVERYTHING SHIPS. If the entire journal is under the budget we hydrate all of
+ *      it and skip scoring entirely — no retrieval, no misses, nothing to get wrong. Retrieval only
+ *      switches on once the corpus genuinely outgrows the prompt, which is the point at which its
+ *      risk finally buys something. Small and complete beats large and sampled.
+ *   2. BODIES ARE WHOLE OR ABSENT. We budget from the index's `chars` BEFORE fetching, so a body is
+ *      never cut to fit. A truncated note is indistinguishable to the model from a complete one and
+ *      gets summarised as though it were the whole thing — the original bug, one layer down.
+ *   3. GAPS ARE DECLARED. Whatever we chose not to load comes back in `skipped` and is named in the
+ *      prompt. That is what keeps a retrieval miss recoverable: the coach can say "you have a note
+ *      called X that I haven't opened" instead of "you have no note about X".
+ *
+ *  NEVER throws (growthDetail degrades to null) — a Sentinel outage just means titles-only, which is
+ *  degraded but still honest. */
+async function growthGroundingFor(email, message, holistic) {
+  const index = (holistic && holistic.growth && Array.isArray(holistic.growth.index))
+    ? holistic.growth.index : [];
+  const withBody = index.filter((e) => e && Number(e.chars) > 0);
+  if (!withBody.length) return null;
+
+  const total = withBody.reduce((n, e) => n + Number(e.chars), 0);
+  let chosen;
+  if (total <= GROWTH_HYDRATE_BUDGET_CHARS && withBody.length <= GROWTH_MAX_IDS) {
+    chosen = withBody;                                   // (1) it all fits — no retrieval needed
+  } else {
+    // Rank by how many content words the title shares with the message, then by recency (Sentinel
+    // orders the index newest-first). Titles are all we have to match on — that IS the "small" half
+    // — which is exactly why the gaps below get declared rather than swallowed.
+    const terms = growthTerms(message);
+    const scored = withBody.map((e, i) => {
+      let hits = 0;
+      for (const w of growthTerms(e.title)) if (terms.has(w)) hits += 1;
+      // Open entries edge out resolved/archived ones at equal relevance: an obstacle they're still
+      // living with matters more to this turn than one they closed months ago.
+      const live = e.status === 'open' ? 0.5 : 0;
+      return { e, rank: hits + live, i };
+    }).sort((a, b) => (b.rank - a.rank) || (a.i - b.i));
+
+    chosen = [];
+    let spent = 0;
+    for (const { e } of scored) {
+      // The top-ranked entry is always taken WHOLE even if it alone blows the budget — it's the
+      // thing they most likely asked about, and half of it would be worse than none of it.
+      if (chosen.length && (spent + Number(e.chars) > GROWTH_HYDRATE_BUDGET_CHARS
+        || chosen.length >= GROWTH_MAX_IDS)) continue;
+      chosen.push(e);
+      spent += Number(e.chars);
+    }
+  }
+
+  const keep = new Set(chosen.map((e) => e.id));
+  const skipped = withBody.filter((e) => !keep.has(e.id))
+    .map((e) => ({ id: e.id, title: e.title, kind: e.kind, chars: e.chars }));
+  const got = await growthDetail(email, chosen.map((e) => e.id));
+  if (!got) {
+    // Sentinel unreachable: every hydratable entry is now a gap. Say so — the index is still
+    // rendered from the profile, so the coach knows what exists, just not what any of it says.
+    return { entries: [], skipped: withBody.map((e) => ({ id: e.id, title: e.title, kind: e.kind, chars: e.chars })), failed: true };
+  }
+  return { entries: got.entries, skipped, failed: false };
+}
+
 /** The learner's accessible catalog (their Mastery-Engine shelf), as {track,course,lesson,topic}
  *  rows — the real curriculum the assistant grounds "which card teaches X" answers in.
  *  Sections the learner TEMPORARILY REMOVED ride along marked `removed: true` (a hidden
@@ -2549,7 +2641,13 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const holistic = await holisticProfile(chatUser);
     // Passages from their imported mentor transcripts, when the turn calls for them — this is what
     // makes "what would Nick say about my plan" / "act as Nick" grounded instead of an impression.
-    const mentorHits = await mentorGroundingFor(chatUser, message, holistic, coach);
+    // Alongside it, the bodies of the growth-journal entries this turn bears on (the digest carries
+    // only their titles). Both hang off `holistic` but not off each other, so they go out together:
+    // one round trip's latency instead of two, on a path the learner is sitting waiting on.
+    const [mentorHits, growthHits] = await Promise.all([
+      mentorGroundingFor(chatUser, message, holistic, coach),
+      growthGroundingFor(chatUser, message, holistic),
+    ]);
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
     // True only when this app is embedded in someone else's frame (Sentinel's Coach) — that's
@@ -2557,7 +2655,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -2613,14 +2711,18 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // Whole-person context from Sentinel; fetched before streaming starts (null-safe) so a Sentinel
     // outage can never break the SSE stream — it just yields no holistic block.
     const holistic = await holisticProfile(chatUser);
-    // Mentor-library grounding (see the blocking sibling). Fetched before streaming starts and
-    // null-safe, so a Sentinel outage can never break the SSE stream.
-    const mentorHits = await mentorGroundingFor(chatUser, message, holistic, coach);
+    // Mentor-library grounding + growth-journal bodies (see the blocking sibling for both). Fetched
+    // together before streaming starts, and null-safe, so a Sentinel outage can never break the
+    // SSE stream — it just costs the coach some grounding.
+    const [mentorHits, growthHits] = await Promise.all([
+      mentorGroundingFor(chatUser, message, holistic, coach),
+      growthGroundingFor(chatUser, message, holistic),
+    ]);
     const actions = !!req.body?.actions;
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
