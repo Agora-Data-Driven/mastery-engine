@@ -1936,17 +1936,28 @@
     }
   }
 
+  /* Runs are listed newest-first with identical-looking batch tags, so the date is
+     the only way to tell one from another. Year only when it isn't the current one. */
+  function fmtRunWhen(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    const opts = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+    return d.toLocaleString([], opts);
+  }
+
   async function loadJobs() {
     try {
       const { jobs } = await api('/api/admin/genjobs?' + q());
       if (!jobs.length) { $('gJobs').textContent = 'No runs yet.'; return; }
       $('gJobs').innerHTML = jobs.map((j) => {
         const p = j.progress || {};
+        const when = fmtRunWhen(j.createdAtMs);
         // The stepper is browser-driven (lib/genjobs.js): a queued/stalled run only
         // advances while some tab calls /step. Offer Resume whenever there's work left.
         const resumable = (j.status === 'queued' || j.status === 'running') && j.remaining > 0;
         return `<div style="padding:6px 0;border-bottom:1px solid #E7E8EE">
-          <b>${esc(j.batchTag)}</b> — ${esc(j.status)} · ${p.questionsWritten || 0} questions · $${(p.costUsd || 0).toFixed(4)}
+          <b>${esc(j.batchTag)}</b> — ${esc(j.status)} · ${p.questionsWritten || 0} questions · $${(p.costUsd || 0).toFixed(4)}${when ? ` · <span style="color:#6B7280">${esc(when)}</span>` : ''}
           ${resumable ? `<button class="btn" data-resume="${esc(j.id)}" style="padding:3px 9px;font-size:12px;margin-left:8px">Resume</button>` : ''}
           <button class="btn" data-batch="${esc(j.batchTag)}" style="padding:3px 9px;font-size:12px;margin-left:8px">Delete batch</button>
         </div>`;
