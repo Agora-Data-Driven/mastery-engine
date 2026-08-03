@@ -734,6 +734,7 @@
   function wireTranscripts() {
     if ($('tSearch')) $('tSearch').oninput = renderTranscriptList;
     loadWatcherClients();
+    wireWatcherAdd();
     // "Use this video": hand the selection to the auto-file box above. The heavy
     // transcript text is only fetched server-side when Analyze runs, so nothing
     // large rides through the browser here.
@@ -762,29 +763,130 @@
     });
   }
 
+  // Load (or re-load) one client's channels. Split out of loadWatcherClients so that adding a
+  // source can refresh the picker in place and show what it just created.
+  async function loadWatcherChannels(v, keepChannel) {
+    state.watcher = { client: v, channel: '', video: null, title: '' };
+    $('wImport').disabled = true;
+    $('wAdd').disabled = false;
+    $('wVideos').innerHTML = '';
+    $('wChannels').innerHTML = '<button disabled>Loading…</button>';
+    const { channels } = await api('/api/admin/watcher/channels?client=' + encodeURIComponent(v));
+    const openChannel = async (cid) => {
+      state.watcher.channel = cid; state.watcher.video = null; $('wImport').disabled = true;
+      $('wVideos').innerHTML = '<button disabled>Loading…</button>';
+      const { videos } = await api(`/api/admin/watcher/videos?client=${encodeURIComponent(v)}&channel=${encodeURIComponent(cid)}`);
+      const withText = videos.filter((x) => x.hasTranscript);
+      pick($('wVideos'), withText.map((x) => ({ value: x.id, ...x })), (i) => `${i.title}  ·  ${i.chars} chars`, (vid) => {
+        const chosen = withText.find((x) => x.id === vid);
+        state.watcher.video = vid; state.watcher.title = chosen ? chosen.title : '';
+        $('wImport').disabled = false;
+      });
+    };
+    pick($('wChannels'), channels.map((c) => ({ value: c.id, ...c })), (i) => `${i.title} (${i.transcriptCount}/${i.videoCount})`, openChannel);
+    // After an add, drop straight into the source that was just created.
+    if (keepChannel && channels.some((c) => c.id === keepChannel)) {
+      const btn = $('wChannels').querySelector(`button[data-v="${keepChannel}"]`);
+      if (btn) btn.setAttribute('aria-selected', 'true');
+      await openChannel(keepChannel);
+    }
+  }
+
   async function loadWatcherClients() {
     try {
       const { clients } = await api('/api/admin/watcher/clients');
-      pick($('wClients'), clients.map((c) => ({ value: c, name: c })), (i) => i.name, async (v) => {
-        state.watcher = { client: v, channel: '', video: null };
-        $('wImport').disabled = true;
-        $('wVideos').innerHTML = '';
-        const { channels } = await api('/api/admin/watcher/channels?client=' + encodeURIComponent(v));
-        pick($('wChannels'), channels.map((c) => ({ value: c.id, ...c })), (i) => `${i.title} (${i.transcriptCount}/${i.videoCount})`, async (cid) => {
-          state.watcher.channel = cid; state.watcher.video = null; $('wImport').disabled = true;
-          $('wVideos').innerHTML = '<button disabled>Loading…</button>';
-          const { videos } = await api(`/api/admin/watcher/videos?client=${encodeURIComponent(v)}&channel=${encodeURIComponent(cid)}`);
-          const withText = videos.filter((x) => x.hasTranscript);
-          pick($('wVideos'), withText.map((x) => ({ value: x.id, ...x })), (i) => `${i.title}  ·  ${i.chars} chars`, (vid) => {
-            const chosen = withText.find((x) => x.id === vid);
-            state.watcher.video = vid; state.watcher.title = chosen ? chosen.title : '';
-            $('wImport').disabled = false;
-          });
-        });
-      });
+      pick($('wClients'), clients.map((c) => ({ value: c, name: c })), (i) => i.name,
+        (v) => loadWatcherChannels(v));
     } catch (e) {
       $('wClients').innerHTML = `<button disabled style="color:#B3261E">${esc(e.message)}</button>`;
     }
+  }
+
+  /**
+   * Add a source to Atrium's Watcher from here.
+   *
+   * Two shapes, because Atrium's own pipeline has two: a SINGLE link comes back with its text
+   * already fetched (so we stage it for placement immediately — the whole point of doing this
+   * here), while a whole channel/blog is registered first and its bodies arrive over a loop of
+   * batch fetches, exactly as Atrium's Watcher tab does it.
+   */
+  function wireWatcherAdd() {
+    const msg = (html) => { $('wAddMsg').innerHTML = html; };
+    const busy = (on) => { $('wAdd').disabled = on || !state.watcher.client; $('wAddUrl').disabled = on; };
+    // The source IS added by this point, so a failed picker refresh must not read as a failed add.
+    const reshow = async (client, chan) => {
+      try { await loadWatcherChannels(client, chan); } catch { /* the add still stands */ }
+    };
+
+    $('wAdd').onclick = async () => {
+      const client = state.watcher.client;
+      const url = $('wAddUrl').value.trim();
+      const op = $('wAddOp').value;
+      if (!client) { msg('<span class="aa-err">Pick a client above first.</span>'); return; }
+      if (!url) { msg('<span class="aa-err">Paste a link first.</span>'); return; }
+      busy(true);
+      msg(op === 'add_video'
+        ? 'Scraping the link…'
+        : 'Listing everything on that source — this can take a minute…');
+      let added;
+      try {
+        added = await api('/api/admin/watcher/add', { method: 'POST', body: { client, url, op } });
+      } catch (e) { msg(`<span class="aa-err">${esc(e.message)}</span>`); busy(false); return; }
+
+      if (op === 'add_video') {
+        // Already fetched by Atrium — stage it for placement the same way "Use this video" does,
+        // so pasting a link here goes all the way to "Analyze & place" in one step.
+        $('wAddUrl').value = '';
+        busy(false);
+        if (added.blocked) {
+          msg('<span class="aa-err">Saved to Watcher, but YouTube rate-limited the transcript pull. '
+            + 'Try “Fetch missing” in Atrium later — nothing was lost.</span>');
+        } else if (!added.transcript) {
+          msg(`<span class="aa-err">Saved to Watcher, but no text came back${added.error ? ` (${esc(added.error)})` : ''}.</span>`);
+        } else {
+          $('iText').value = '';
+          if (!$('iTitle').value) $('iTitle').value = added.title || '';
+          state.ingest = {
+            source: 'watcher',
+            watcher: { client, channel: added.channel, video: added.video_id },
+            watcherTitle: added.title,
+          };
+          msg(`<span class="aa-ok">Added “${esc(added.title || 'it')}” to Watcher (${added.words} words) and staged it below.</span>`);
+          $('iMsg').textContent = 'Watcher item ready — press Analyze & place.';
+        }
+        await reshow(client, added.channel);
+        return;
+      }
+
+      // A whole channel/blog: registered, now pull the bodies one batch at a time. Bounded on
+      // every axis — a rate-limit, a stalled batch, or a runaway loop all end the run with a
+      // message, because the archive is durable and the next attempt resumes where this stopped.
+      const total = added.videos || added.posts || 0;
+      const label = op === 'add_site' ? 'posts' : 'videos';
+      msg(`Added “${esc(added.title || url)}” — ${total} ${label}. Pulling text…`);
+      let left = total;
+      for (let i = 0; i < 200; i += 1) {
+        let step;
+        try {
+          step = await api('/api/admin/watcher/fetch', { method: 'POST', body: { client, channel: added.channel } });
+        } catch (e) { msg(`<span class="aa-err">Added, but fetching text stopped: ${esc(e.message)}</span>`); break; }
+        if (step.blocked) {
+          msg(`<span class="aa-err">Added “${esc(added.title || url)}”. YouTube rate-limited the pull at `
+            + `${step.done}/${step.total} — use Safe pull in Atrium, or try again later. Nothing was lost.</span>`);
+          break;
+        }
+        msg(`Pulling text… ${step.done}/${step.total}`);
+        if (step.remaining <= 0) { msg(`<span class="aa-ok">Added “${esc(added.title || url)}” — ${step.done} ${label} with text, ready to use above.</span>`); break; }
+        if (step.remaining >= left) { // no progress this batch: stop rather than spin
+          msg(`<span class="aa-err">Added, but ${step.remaining} ${label} still have no text. Finish them in Atrium.</span>`);
+          break;
+        }
+        left = step.remaining;
+      }
+      $('wAddUrl').value = '';
+      busy(false);
+      await reshow(client, added.channel);
+    };
   }
 
   /* ------------------------- auto-file (AI placement) ---------------------- */
@@ -1936,17 +2038,28 @@
     }
   }
 
+  /* Runs are listed newest-first with identical-looking batch tags, so the date is
+     the only way to tell one from another. Year only when it isn't the current one. */
+  function fmtRunWhen(ms) {
+    if (!ms) return '';
+    const d = new Date(ms);
+    const opts = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+    if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+    return d.toLocaleString([], opts);
+  }
+
   async function loadJobs() {
     try {
       const { jobs } = await api('/api/admin/genjobs?' + q());
       if (!jobs.length) { $('gJobs').textContent = 'No runs yet.'; return; }
       $('gJobs').innerHTML = jobs.map((j) => {
         const p = j.progress || {};
+        const when = fmtRunWhen(j.createdAtMs);
         // The stepper is browser-driven (lib/genjobs.js): a queued/stalled run only
         // advances while some tab calls /step. Offer Resume whenever there's work left.
         const resumable = (j.status === 'queued' || j.status === 'running') && j.remaining > 0;
         return `<div style="padding:6px 0;border-bottom:1px solid #E7E8EE">
-          <b>${esc(j.batchTag)}</b> — ${esc(j.status)} · ${p.questionsWritten || 0} questions · $${(p.costUsd || 0).toFixed(4)}
+          <b>${esc(j.batchTag)}</b> — ${esc(j.status)} · ${p.questionsWritten || 0} questions · $${(p.costUsd || 0).toFixed(4)}${when ? ` · <span style="color:#6B7280">${esc(when)}</span>` : ''}
           ${resumable ? `<button class="btn" data-resume="${esc(j.id)}" style="padding:3px 9px;font-size:12px;margin-left:8px">Resume</button>` : ''}
           <button class="btn" data-batch="${esc(j.batchTag)}" style="padding:3px 9px;font-size:12px;margin-left:8px">Delete batch</button>
         </div>`;

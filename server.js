@@ -4508,7 +4508,9 @@ app.put('/api/admin/transcripts/:id', requireAdmin, bigJson, async (req, res, ne
 
 /* --------------------------- Watcher import (Atrium) ------------------------ */
 // Admin: browse Atrium's Watcher archive and pull a video's transcript across.
-// Read-only; a missing bucket grant surfaces as a clean message, not a crash.
+// The three GETs are read-only bucket reads; a missing grant surfaces as a clean
+// message, not a crash. The two POSTs at the end of this block are the other
+// direction — they ADD a source, and go through Atrium's own bridge (lib/watcher.js).
 app.get('/api/admin/watcher/clients', requireAdmin, async (_req, res, next) => {
   try {
     res.json({ clients: await watcher.listClients() });
@@ -4553,6 +4555,38 @@ app.post('/api/admin/watcher/import', requireAdmin, async (req, res, next) => {
     res.json({ ok: true, id, title: v.title, chars: v.chars });
   } catch (e) {
     next(e);
+  }
+});
+
+// Admin: add a NEW source to Atrium's Watcher without leaving this page — paste a
+// video/article link, a whole YouTube channel, or a whole blog. Atrium does the
+// scraping and owns the result; we only ask, and then read it back through the
+// GETs above. A refusal (bad link, already watching) is a 400 with Atrium's own
+// sentence, so the admin sees why rather than "something went wrong".
+app.post('/api/admin/watcher/add', requireAdmin, async (req, res) => {
+  try {
+    const { client, url, op } = req.body || {};
+    const out = await watcher.addSource(String(client || ''), {
+      url: String(url || ''), op: String(op || 'add_video'), actor: currentEmail(req),
+    });
+    res.json(out);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+// Admin: pull the next batch of missing bodies for a channel. ONE batch per call —
+// the browser loops it until `remaining` is 0, exactly like Atrium's own tab, so a
+// 200-video channel never depends on one long-lived request.
+app.post('/api/admin/watcher/fetch', requireAdmin, async (req, res) => {
+  try {
+    const { client, channel, retry } = req.body || {};
+    const out = await watcher.fetchBodies(String(client || ''), String(channel || ''), {
+      retry: !!retry, actor: currentEmail(req),
+    });
+    res.json(out);
+  } catch (e) {
+    res.status(400).json({ error: e.message });
   }
 });
 

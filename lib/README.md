@@ -25,7 +25,8 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 | [usage.js](usage.js) | Token/cost tally per user; its ALS store also carries `req.aiPolicy`. | `recordUsage` |
 | [googleauth.js](googleauth.js) | Google OAuth flow. | — |
 | [sentinel.js](sentinel.js) | Sentinel people-roster fetch (admin enrollment UI) + role lookups. | — |
-| [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) [watcher.js](watcher.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer, Watcher transcripts). | — |
+| [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer). | — |
+| [watcher.js](watcher.js) | Atrium's Watcher archive, both ways. `listClients`/`listChannels`/`listVideos`/`getVideo` READ the shared bucket; `addSource`/`fetchBodies` ADD a source by calling Atrium's HMAC bridge (`SSO_SECRET`, `ATRIUM_URL`) — never a bucket write. Reads degrade to a message, writes throw. | — |
 | `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` | The **four** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
 
 ## Data contract — Firestore doc → lib accessor → app.js consumer
