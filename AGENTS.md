@@ -422,6 +422,27 @@ Two separate problems, both fixed in [lib/lmstudio.js](lib/lmstudio.js) — don'
 DeepSeek V4 Flash defaults **thinking ON server-side**. You must explicitly send
 `thinking: { type: 'disabled' }` to get the fast path. Passing nothing is not neutral.
 
+### 🔴 Bulk generation dies with "Failed to fetch" while the server logged 200
+
+**Cause:** one `POST /api/admin/genjobs/:id/step` is a single thinking-model call, measured at
+**78–313s per topic**. Held as a plain POST the socket sends **no bytes** for those minutes, and
+a silent connection that long gets dropped in front of us — the `ghs.googlehosted.com`
+domain-mapping frontend, an office proxy, NAT. The step still **succeeds** (200 in the request
+log, questions banked); only the response is lost, so the browser reports a network-level
+`TypeError: Failed to fetch` and the run strands at `queued`/`running`. Observed cleanly:
+every step ≤115s came back, every step ≥148s did not. The service timeout (3600s) is a red
+herring, and there is no OOM or 5xx to find.
+
+**Fix (2026-08-03):** `/step` now content-negotiates. Send `Accept: text/event-stream` and it
+opens the stream immediately and heartbeats (`: ping`) every 15s until the model returns, then
+emits one `result` event — the same shape the admin planners use, for the same reason. Without
+that header it still answers plain JSON, which is what `scripts/` drives it with.
+
+> **Never "retry" a dropped step by re-POSTing `/step`.** The first one is almost certainly
+> still running: both would `queue.shift()` the same topic, so that topic gets generated twice
+> and the next one is skipped. `waitOutStep()` in `public/academy-admin.js` polls
+> `GET /api/admin/genjobs/:id` until the in-flight step lands instead.
+
 ### 🔴 Kimi returns 401
 
 `KIMI_API_KEY` is a **Kimi *Code* subscription key** (`sk-kimi-…`). It authenticates only

@@ -157,7 +157,7 @@ Guides are cached in `studyGuides`; `?refresh=1` forces regeneration.
 | POST | `/api/admin/lessons/bulk-commit` | 🛡📦 | Outline → lessons |
 | GET/POST/DELETE | `/api/admin/transcripts[/:id]` | 🛡📦 | Transcript CRUD |
 | GET/POST | `/api/admin/genjobs[/:id]` | 🛡 | Background generation jobs |
-| POST | `/api/admin/genjobs/:id/step` `/cancel` | 🛡 | Drive/stop a job |
+| POST | `/api/admin/genjobs/:id/step` `/cancel` | 🛡 | Drive/stop a job — `/step` streams SSE (heartbeated) when the caller sends `Accept: text/event-stream`, else plain JSON |
 
 ### Roadmaps & the learner "shelf"
 | Method | Path | Guard | Purpose |
