@@ -743,8 +743,8 @@ const App = (() => {
     const mastery = state.authed && !state.guest;
     document.querySelectorAll('#intentToggle [data-intent]').forEach((b) => {
       const on = b.dataset.intent === intent;
-      b.style.background = on ? 'var(--surface,#fff)' : 'transparent';
-      b.style.color = on ? 'var(--text,#0c1022)' : 'var(--muted,#6B7280)';
+      b.style.background = on ? 'var(--card)' : 'transparent';
+      b.style.color = on ? 'var(--ink)' : 'var(--muted)';
       b.style.boxShadow = on ? '0 1px 2px rgba(16,24,40,.10)' : 'none';
     });
     $('learnPanel').classList.toggle('hidden', !learn);
@@ -864,7 +864,7 @@ const App = (() => {
     for (const t of p.tracks) {
       html += `<h3 style="margin:22px 0 8px;font-size:16px">${esc(t.track)}</h3>`;
       for (const c of (t.courses || [])) {
-        html += `<div style="margin:0 0 14px;padding:12px 14px;border:1px solid var(--line,#E7E8EE);border-radius:12px">
+        html += `<div style="margin:0 0 14px;padding:12px 14px;border:1px solid var(--border);border-radius:12px">
           <div style="font-weight:700;margin-bottom:6px">${esc(c.course)}</div>`;
         if (c.videos && c.videos.length) {
           html += '<ol style="margin:0;padding-left:20px;line-height:1.9">'
@@ -987,11 +987,11 @@ const App = (() => {
       const ov = document.createElement('div');
       ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;';
       const opts = people.map((p) => `<option value="${esc(p.email)}">${esc(p.name || p.email)} (${esc(p.email)})</option>`).join('');
-      ov.innerHTML = `<div style="background:#fff;color:#111;border-radius:14px;padding:20px;min-width:340px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.35);">
+      ov.innerHTML = `<div style="background:var(--card);color:var(--ink);border-radius:14px;padding:20px;min-width:340px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,.35);">
         <div style="font-weight:700;font-size:16px;margin-bottom:10px;">Act as user</div>
-        <select id="__actAsSel" style="width:100%;padding:9px;border-radius:8px;border:1px solid #ccc;font-size:14px;">${opts}</select>
+        <select id="__actAsSel" style="width:100%;padding:9px;border-radius:8px;border:1px solid var(--border-strong);font-size:14px;">${opts}</select>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px;">
-          <button id="__actAsCancel" style="padding:7px 15px;border-radius:8px;border:1px solid #ccc;background:#f2f2f2;cursor:pointer;">Cancel</button>
+          <button id="__actAsCancel" style="padding:7px 15px;border-radius:8px;border:1px solid var(--border-strong);background:var(--bg-2);cursor:pointer;">Cancel</button>
           <button id="__actAsOk" style="padding:7px 15px;border-radius:8px;border:none;background:#16a34a;color:#fff;font-weight:600;cursor:pointer;">Act as</button>
         </div></div>`;
       document.body.appendChild(ov);
@@ -1230,7 +1230,7 @@ const App = (() => {
       const dataAttrs = LEVEL_KEYS.filter((k) => s[k] != null).map((k) => `data-${k}="${esc(s[k])}"`).join(' ')
         + (s.program ? ` data-program="${esc(s.program)}"` : '');
       return `<div class="prog-node learn-item" ${dataAttrs} data-label="${esc(s.topic)}">
-        <div style="border:1px solid var(--line,#E7E8EE);border-radius:12px;margin-bottom:10px">
+        <div style="border:1px solid var(--border);border-radius:12px;margin-bottom:10px">
           <div style="display:flex;align-items:center;gap:12px;padding:12px 14px">
             <div style="flex:1;min-width:140px">
               <div style="font-weight:700">${esc(s.topic)}</div>
@@ -5191,7 +5191,7 @@ const App = (() => {
       if (isSel || isHover) {
         ctx.beginPath();
         ctx.arc(n.x, n.y, n.r + lw(6), 0, Math.PI * 2);
-        ctx.fillStyle = isSel ? 'rgba(124,111,240,0.28)' : 'rgba(14,21,18,0.10)';
+        ctx.fillStyle = isSel ? 'rgba(124,111,240,0.28)' : gink().hover;
         ctx.fill();
       }
       if (n.agg) drawPieNode(ctx, n, lw);
@@ -5209,6 +5209,19 @@ const App = (() => {
     drawGraphLabels(ctx, lw, k);
   }
 
+  // Canvas can't read CSS custom properties, so the knowledge graph carries its own palette
+  // for the surfaces it paints. Read per draw (an attribute lookup, not a style recalc) so
+  // flipping the theme repaints correctly instead of needing a reload.
+  const GRAPH_INK = {
+    light: { empty: '#eef1ea', untaken: '#f3f5f1', ring: 'rgba(14,21,18,0.20)',
+             hover: 'rgba(14,21,18,0.10)', halo: 'rgba(255,255,255,0.88)',
+             label: 'rgba(14,21,18,0.72)', labelSel: 'rgba(14,21,18,0.95)' },
+    dark:  { empty: '#1c2822', untaken: '#22302a', ring: 'rgba(255,255,255,0.22)',
+             hover: 'rgba(255,255,255,0.12)', halo: 'rgba(11,15,13,0.85)',
+             label: 'rgba(231,238,233,0.78)', labelSel: 'rgba(231,238,233,0.98)' },
+  };
+  const gink = () => GRAPH_INK[document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light'];
+
   // Aggregate node: a pie — filled slice = share of its topics practised,
   // slice colour = accuracy over those. The ring is the TRACK's colour (that's
   // how clusters are identified — no blob, no big on-canvas names).
@@ -5216,7 +5229,7 @@ const App = (() => {
     const frac = n.nTopics ? n.attemptedTopics / n.nTopics : 0;
     ctx.beginPath();
     ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-    ctx.fillStyle = '#eef1ea';
+    ctx.fillStyle = gink().empty;
     ctx.fill();
     if (frac > 0) {
       ctx.beginPath();
@@ -5228,7 +5241,7 @@ const App = (() => {
     }
     ctx.beginPath();
     ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-    ctx.strokeStyle = graph.trackColor.get(n.track) || 'rgba(14,21,18,0.20)';
+    ctx.strokeStyle = graph.trackColor.get(n.track) || gink().ring;
     ctx.lineWidth = lw(1.7);
     ctx.stroke();
   }
@@ -5248,7 +5261,7 @@ const App = (() => {
     }
     ctx.beginPath();
     ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-    ctx.fillStyle = taken ? accHex(n.accuracy) : '#f3f5f1';
+    ctx.fillStyle = taken ? accHex(n.accuracy) : gink().untaken;
     ctx.fill();
     ctx.lineWidth = lw(taken ? 1.4 : 1.2);
     ctx.strokeStyle = taken ? track : track + '99';
@@ -5288,10 +5301,10 @@ const App = (() => {
       if (placed.some((p) => rect.x < p.x + p.w && p.x < rect.x + rect.w && rect.y < p.y + p.h && p.y < rect.y + rect.h)) continue;
       placed.push(rect);
       const ty = n.y - n.r - lw(7);
-      ctx.strokeStyle = 'rgba(255,255,255,0.88)';
+      ctx.strokeStyle = gink().halo;
       ctx.lineWidth = lw(3.5);
       ctx.strokeText(text, n.x, ty);
-      ctx.fillStyle = sel && n.id === sel.id ? 'rgba(14,21,18,0.95)' : 'rgba(14,21,18,0.72)';
+      ctx.fillStyle = sel && n.id === sel.id ? gink().labelSel : gink().label;
       ctx.fillText(text, n.x, ty);
     }
   }
@@ -5487,7 +5500,7 @@ const App = (() => {
       if (!hits.length) { results.classList.add('hidden'); return; }
       results.innerHTML = hits.map((hkt) => `
         <button data-graph-kind="${hkt.kind}" data-graph-id="${esc(hkt.id)}">
-          <span class="gsr-dot" style="background:${hkt.kind === 'unit' ? '#7c6ff0' : hkt.taken ? accHex(hkt.acc) : '#fff'};border:1.5px solid ${hkt.kind === 'unit' || hkt.taken ? 'transparent' : '#9aa39e'}"></span>
+          <span class="gsr-dot" style="background:${hkt.kind === 'unit' ? '#7c6ff0' : hkt.taken ? accHex(hkt.acc) : 'var(--card)'};border:1.5px solid ${hkt.kind === 'unit' || hkt.taken ? 'transparent' : '#9aa39e'}"></span>
           <span class="gsr-name">${esc(hkt.label)}</span>
           <span class="gsr-course">${esc(hkt.kind === 'unit' ? 'unit · ' + hkt.sub : hkt.sub)}</span>
         </button>`).join('');
@@ -5559,7 +5572,7 @@ const App = (() => {
   /* ------------------------------ side panel ----------------------------- */
   function graphNodeButton(n, extra = '') {
     const dot = n.agg
-      ? `<span class="gp-dot" style="background:${n.attemptedTopics ? accHex(n.accuracy) : '#fff'};${n.attemptedTopics ? '' : 'border:1.5px solid var(--faint);'}"></span>`
+      ? `<span class="gp-dot" style="background:${n.attemptedTopics ? accHex(n.accuracy) : 'var(--card)'};${n.attemptedTopics ? '' : 'border:1.5px solid var(--faint);'}"></span>`
       : n.attempts
         ? `<span class="gp-dot" style="background:${accHex(n.accuracy)}"></span>`
         : '<span class="gp-dot gp-hollow"></span>';

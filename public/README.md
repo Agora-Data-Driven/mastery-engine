@@ -14,7 +14,8 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Frontend stru
 | [index.html](index.html) | Learner shell (835 lines). Every view is a `<section id="xView" class="hidden">`. | `loginView` `:20` · `setupView` `:70` · `quizView` `:288` · `resultView` `:381` · `statsView` `:400` · `graphView` `:451` · `flashcardView` `:506` |
 | [app.js](app.js) | The entire learner frontend (6.2k lines), one IIFE. | `const App = (() => {` `:2` · `show()`/`hide()` `:4`/`:5` (the whole "router") · embed-mode boot block `:8–35` (`?embed=assistant`/`?actions=1` URL-only, never persisted) · **NUL line `:559`** |
 | [academy-admin.html](academy-admin.html) / [academy-admin.js](academy-admin.js) | The admin "Composing Room" (2.2k lines JS). **Server-gated**: an explicit route at server.js:5616 302s non-admins ahead of express.static. | station panels; typed-SSE consumers for the planners |
-| [styles.css](styles.css) | All styling (1.9k lines). Dark theme, CSS custom properties. | — |
+| [styles.css](styles.css) | All styling. Token-driven: a `:root` light palette, a `:root[data-theme="dark"]` retune of the SAME tokens, then a handful of dark rules for fills that carry white text. | `:root {` `:5` · `:root[data-theme="dark"]` (right after it) · tint families (`--violet-line`, `--amber-soft`, `--green-line`, …) |
+| [theme.js](theme.js) | Light/dark resolution, loaded **synchronously in `<head>`** so `data-theme` lands before first paint. Order: `?theme=` (what Sentinel passes into every iframe) → the learner's own toggle → the OS. Also accepts `{type:"agora-theme"}` from the framing window. | `window.AgoraTheme` · `SESSION`/`LOCAL` keys |
 | [video-lessons.json](video-lessons.json) | Curated resource list served by `/api/video-lessons`, shown in the **Resources** tab (UI label renamed from "Video Lessons" 2026-07-29; mode key `VIDEOS`, ids, and the API path stay canonical). Entries can be any link, not just videos — `agora_dev` links the onboarding presentation. | — |
 | [agora-logo.png](agora-logo.png) / [logo.svg](logo.svg) | Branding assets. | — |
 
@@ -51,6 +52,15 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
   "modernize", move, or delete them.
 - `stashTexttNoSplit` (KaTeX code-chip-inside-`$…$`) and `renderVisual`/`compileExpr` (no-eval
   plot parser) are load-bearing workarounds — don't simplify them away.
+- 🔴 **Colours belong in the token block**, not in a `[data-theme="dark"] .something` rule. The
+  only legitimate dark-mode rules are fills that carry WHITE text: their base token is a *text*
+  colour in dark mode (it has to lighten to stay readable on the canvas), so those few keep an
+  explicit `--*-deep` fill. Anything else added as an override will drift.
+- 🟡 **The Composing Room (`academy-admin.html`) is deliberately light-only** — it carries its own
+  design system (`--pine`/`--paper`/`--surface`, ~36 literals inline) and does NOT load `theme.js`.
+  Loading it there would half-darken the page. Theming it is its own piece of work.
+- A `<canvas>` cannot resolve CSS custom properties, so the knowledge graph keeps a two-entry
+  `GRAPH_INK` palette in `app.js`, read per draw off the live `data-theme`.
 - No React/Vue/bundler/TypeScript. Match the existing comment density.
 
 ## Status (volatile)

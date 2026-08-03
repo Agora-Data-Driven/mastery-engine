@@ -77,7 +77,8 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | [public/app.js](public/app.js) | 6.2k | The entire learner frontend, one IIFE (`const App = (() => {…})()`). |
 | [public/academy-admin.js](public/academy-admin.js) | 2.2k | The admin "Composing Room" frontend. |
 | [public/index.html](public/index.html) | 835 | Learner shell. All views are `<section>`s toggled by `hidden`. |
-| [public/styles.css](public/styles.css) | 1.9k | All styling. Dark theme, CSS custom properties. |
+| [public/styles.css](public/styles.css) | 2.0k | All styling. **Token-driven**: a `:root` light palette, a `:root[data-theme="dark"]` retune of the same tokens, then a few rules for fills that carry white text (§7). |
+| [public/theme.js](public/theme.js) | 100 | Light/dark resolution. Loaded **synchronously in `<head>`** so `data-theme` lands before first paint. |
 | [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md) | — | **Injected into the AI assistant's prompt** at runtime (`lib/gemini.js:29`). Editing it changes assistant behaviour. |
 
 ### `lib/` — one file per concern
@@ -94,7 +95,8 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `usage.js` | Token/cost tallying per user. |
 | `googleauth.js` | Google OAuth flow. |
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, and `growthDetail` (growth-journal bodies — see §7). |
-| `bigquery.js` `csv.js` `migrate.js` `watcher.js` | Import/analytics side-paths. |
+| `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
+| `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
 | `_*_test.js` | The **four** Node unit tests (auth, graph, programs, progress credit) — see §6. |
 
 ### Finding a route fast
@@ -122,7 +124,7 @@ Rough zones in `server.js`:
 | 3343–3550 | Hint/explain + admin data repair (latexify, fix-formats, merge-math) |
 | 3556–3995 | Programs, enrollment, video lessons, internal SSO endpoints (`verifyInternalSig` `:3619`), team + AI access, topic CRUD |
 | 4001–4345 | **Curriculum edit engine** (`runCurriculumEdits` `:4001`) + AI curriculum editing |
-| 4349–4765 | Transcripts admin, Watcher import, ingest plan/commit |
+| 4349–4800 | Transcripts admin, Watcher import (3 read GETs) + **Watcher add/fetch** (2 POSTs, §7), ingest plan/commit |
 | 4772–5100 | Goal planning, bulk lessons, genjobs |
 | 5105–5525 | Roadmaps + learner shelf (`/api/me/*`) |
 | 5527–5615 | Flags, question edits, migrations, BigQuery sync |
@@ -465,6 +467,51 @@ things the learner can see on their own screen:
 Keep `GROWTH_MAX_IDS` in sync with Sentinel's `MAX_GROWTH_DETAIL_IDS` — ask for more than it accepts
 and it drops the tail silently, which renders unloaded entries as loaded. See sentinel's AGENTS.md
 for the Sentinel half and the incident that produced all of this.
+
+### 🟡 A new colour looks wrong in dark mode
+
+Added 2026-08-03. There is one palette and it lives in `public/styles.css`: `:root` (light) and
+`:root[data-theme="dark"]` retuning **the same token names**. Put a new colour there, not in a
+`[data-theme="dark"] .something` rule — the ~180 literals that used to be scattered through the
+file are exactly what made a dark theme a day of work instead of an hour.
+
+Two things that are NOT arbitrary:
+
+- **`--x-deep` tokens exist because a fill that carries white text cannot lighten.** `--green-dark`
+  and `--violet` are overwhelmingly *text* colours, so in dark mode they have to go light to stay
+  readable on the canvas — which would leave `.btn-primary`'s white label on a pale green slab.
+  The handful of rules after the token block re-fill those with `--green-deep` / `--violet-deep`.
+- **A `<canvas>` cannot resolve CSS custom properties.** The knowledge graph therefore keeps its
+  own two-entry `GRAPH_INK` map in `app.js`, read per draw off the live `data-theme` attribute
+  (an attribute lookup, not a style recalc) so flipping the theme repaints without a reload.
+
+**Where the theme comes from** ([public/theme.js](public/theme.js), precedence order): `?theme=`
+on this document's URL → the learner's own toggle (`localStorage`) → the OS preference. Sentinel
+appends `&theme=` to every iframe src it builds and postMessages `{type:'agora-theme'}` when its
+own toggle moves, so the embedded engine wears the host's skin and changes with it. Unlike
+`?program=` / `?embed=assistant`, the theme IS safe in `sessionStorage`: every frame on a Sentinel
+page is handed the same value, so there is no per-frame value to leak across same-origin iframes.
+
+**The Composing Room is deliberately light-only.** `academy-admin.html` carries its own design
+system (`--pine`/`--paper`/`--surface`, inline) and does not load `theme.js`; loading it there
+would half-darken the page. Theming it is a separate piece of work.
+
+### 🟡 "Add to Watcher" fails locally but reading the archive works
+
+The two halves of [lib/watcher.js](lib/watcher.js) use **different transports, deliberately**.
+Reading is a direct GCS read of Atrium's archive objects (needs `storage.objectViewer`). **Adding a
+source is never a bucket write** — scraping YouTube/a blog, minting the registry entry, AI-labelling
+the industry and the audit trail all belong to Atrium, so `addSource`/`fetchBodies` POST to its
+HMAC-gated `POST /api/internal/watcher/add` (purpose `watcher-add`, shared `SSO_SECRET`, `ATRIUM_URL`
+defaults to `https://portal.agoradatadriven.com`). So: **no `SSO_SECRET` ⇒ adding fails while
+browsing still works**, which is exactly the local-dev picture. Same posture as `lib/sentinel.js`.
+
+Unlike the read helpers, these **throw** — the admin explicitly asked for the action, so a silent
+degrade would leave them looking at a source that was never created. Server routes
+`POST /api/admin/watcher/{add,fetch}` return Atrium's own sentence as a 400.
+`add`/`add_site` register the listing ONLY; the browser then loops `/fetch` until `remaining` is 0
+(one batch per call, exactly like Atrium's tab) — `blocked: true` means YouTube rate-limited Atrium
+and **nothing was marked failed**, so a later run resumes over the same missing set.
 
 ### 🟡 Microphone dead when embedded in Sentinel
 
