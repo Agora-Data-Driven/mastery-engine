@@ -27,7 +27,9 @@
   async function streamSSE(path, body, handlers = {}) {
     const res = await fetch(path, {
       method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      // Accept matters: /api/admin/genjobs/:id/step serves plain JSON by default and only
+      // switches to the heartbeated stream when the caller says it can read one.
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify(body),
     });
     const ct = res.headers.get('content-type') || '';
@@ -2021,10 +2023,54 @@
   /* Drive the stepper. One topic per request — see lib/genjobs.js for why the
      work isn't a server-side loop. `els` lets the auto-file flow reuse this with
      its own bar/status; `stopKey` names the state flag that pauses it. */
+  const STEP_POLL_MS = 8000;      // how often to re-check the job doc after a dropped step
+  const STEP_POLL_MAX_MS = 900000; // 15 min — well past the slowest observed topic (~5 min)
+
+  /* A dropped connection is NOT a failed step. The server keeps generating and banks the
+     result, so firing a second /step here would put TWO steps on one job and both would
+     shift the same topic off the queue — one topic generated twice, the next skipped.
+     So watch the job doc until the in-flight step lands, then let the loop carry on.
+     Returns null if the admin pressed Stop while we waited. */
+  async function waitOutStep(id, before, els, stopKey) {
+    const from = (before && before.progress && before.progress.topicsDone) || 0;
+    const started = Date.now();
+    for (;;) {
+      if (state[stopKey]) return null;
+      const waited = Math.round((Date.now() - started) / 1000);
+      if (waited * 1000 > STEP_POLL_MAX_MS) {
+        throw new Error('Lost the connection and the step never landed. Press Resume to pick it back up.');
+      }
+      $(els.status).textContent =
+        `Connection dropped — the step is still running on the server, waiting for it to land… (${waited}s)`;
+      await new Promise((r) => setTimeout(r, STEP_POLL_MS));
+      let job;
+      try { ({ job } = await api(`/api/admin/genjobs/${id}`)); } catch { continue; } // the poll can drop too
+      if (job.status === 'done' || job.status === 'cancelled') return job;
+      if (((job.progress || {}).topicsDone || 0) > from) return job;
+    }
+  }
+
   async function runSteps(id, els = { bar: 'gBar', status: 'gStatus', out: 'gOut' }, stopKey = 'stop') {
+    // Baseline for waitOutStep: it must know topicsDone as it was BEFORE the step it is
+    // waiting on, and a Resume starts mid-run, so a fresh loop reads it once up front.
+    let last = null;
+    try { ({ job: last } = await api(`/api/admin/genjobs/${id}`)); } catch { /* the step will surface it */ }
     for (;;) {
       if (state[stopKey]) { $(els.status).textContent = 'Stopped. Press Start to resume where it left off.'; return; }
-      const { job } = await api(`/api/admin/genjobs/${id}/step`, { method: 'POST' });
+      let job;
+      try {
+        // SSE, not a plain POST: one step is a single thinking-model call that can run
+        // minutes, and a POST sending no bytes that whole time gets cut by whatever sits
+        // in front of Cloud Run. The stream's heartbeat keeps the socket alive.
+        ({ job } = await streamSSE(`/api/admin/genjobs/${id}/step`, {}));
+      } catch (e) {
+        // fetch reports transport failures as TypeError; anything else is a real error
+        // the server sent us in-band, and re-trying it would just fail the same way.
+        if (!(e instanceof TypeError)) throw e;
+        job = await waitOutStep(id, last, els, stopKey);
+        if (!job) { $(els.status).textContent = 'Stopped. Press Start to resume where it left off.'; return; }
+      }
+      last = job;
       const p = job.progress || {};
       const pct = p.topicsTotal ? Math.round((p.topicsDone / p.topicsTotal) * 100) : 0;
       $(els.bar).style.width = pct + '%';

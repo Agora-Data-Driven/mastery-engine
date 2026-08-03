@@ -5174,12 +5174,39 @@ app.get('/api/admin/genjobs/:id', requireAdmin, async (req, res, next) => {
 
 /* Advance a job by ONE topic. Deliberately NOT behind rateLimitAI: that limiter
  * is a per-IP cost guard for learner-facing AI, and this is an admin-triggered
- * server-internal batch that would trip it within seconds. */
+ * server-internal batch that would trip it within seconds.
+ *
+ * A step is ONE model call and with thinking on it routinely runs 1-5 minutes
+ * (measured: 78-313s per topic). As a plain POST the socket carries NO bytes for
+ * that whole time, and a silent connection that long gets dropped in front of us
+ * — the custom domain's ghs.googlehosted.com frontend, office proxies, NAT. The
+ * step then SUCCEEDS here (200, questions banked) while the browser sees
+ * "Failed to fetch" and the run strands at queued/running. So when the caller can
+ * read SSE we open the stream immediately and heartbeat until the model returns,
+ * exactly like the admin planners. JSON stays the default: scripts/ drives this
+ * endpoint too, and it has no such problem over a short-lived CLI socket. */
+const STEP_HEARTBEAT_MS = 15000;
 app.post('/api/admin/genjobs/:id/step', requireAdmin, async (req, res, next) => {
+  if (!String(req.headers.accept || '').includes('text/event-stream')) {
+    try {
+      res.json({ job: await stepGenJob(req.params.id) });
+    } catch (e) {
+      next(e);
+    }
+    return;
+  }
+  sseInit(res);
+  // A bare comment frame is a no-op to any SSE reader but keeps the socket warm.
+  const beat = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, STEP_HEARTBEAT_MS);
   try {
-    res.json({ job: await stepGenJob(req.params.id) });
+    sseSend(res, 'result', { job: await stepGenJob(req.params.id) });
   } catch (e) {
-    next(e);
+    // The stream is already open, so a failure cannot be a 500 — report it in-band.
+    sseSend(res, 'error', { error: e.message || 'Step failed' });
+  } finally {
+    clearInterval(beat);
+    sseSend(res, 'done', {});
+    res.end();
   }
 });
 
