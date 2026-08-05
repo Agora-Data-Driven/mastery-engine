@@ -191,6 +191,24 @@ auto-populate it), not a whole program they're force-fed.
 (HMAC-signed, 5-minute replay window on the shared `SSO_SECRET`) to show each person's per-program
 progress, and defaults admins straight to this Academy Admin view.
 
+**What the Study Assistant / Coach can see about you, beyond this app.** It reads three things from
+your Agora (Sentinel) profile, server-to-server, and each is a separate HMAC-signed call:
+
+- your **holistic development** — body metrics and PRs, gym split, career goals and achievements,
+  skills, required reading, and the complete index of your growth-journal entries (bodies fetched on
+  demand for the entries a question touches);
+- your **mentor library** — the transcripts you imported, retrieved by relevance so it can answer
+  "what would <mentor> say about this?" from their actual material;
+- your **task board** — the cards on you (open, plus your finished history), the rest of the board
+  *you* are allowed to see, and, if you manage people, their workload rollup. Sentinel decides that
+  scope with the same permission rule as the Task Board page itself, so the assistant sees exactly
+  what you see there and no more — never the whole company's board when yours is narrower. For any
+  card whose full text it was not handed, it has the one-line summary only. **It can read this board
+  and cannot change it:** it cannot move, assign, reschedule or close a card.
+
+It can PROPOSE edits to your development profile (skills, goals, PRs, journal entries, gym week) as
+Approve/Cancel cards you confirm — never silently, and never to tasks.
+
 ## 11. AI engines
 
 One dispatcher (`complete()` / `completeStream()` in `lib/gemini.js`) routes every AI feature to the
