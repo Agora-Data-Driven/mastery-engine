@@ -186,6 +186,12 @@ Also per-user, under `users/{email}/meta/`: `enrollment` (programs + courses), `
 `ai` (the AI-provider allowlist the Team tab edits — **absent doc = Kimi only** for
 non-admins; admins are never policed).
 
+> **Growth-category programs are open to EVERY learner, enrollment or not** (2026-08-05).
+> Sentinel's Philosophical/Spiritual tabs pin `?program=` for the whole staff, so
+> `resolveProgramScope` honours a growth program's pin for any signed-in user (whole-program
+> scope, no course filter), and `/api/internal/enrollment-progress` emits growth cards for
+> everyone. Enrollment still gates **career** programs exactly as before.
+
 Chats (`cardChats` / `scopeChats` / `assistantChats` subcollections) are keyed by
 **`conversationUser(req)`**, not `effectiveUser(req)`: an admin's threads are their OWN,
 never the legacy owner's, and act-as is **not** honoured for chats (changed 2026-07-25) —

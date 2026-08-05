@@ -442,8 +442,11 @@ const optionalUser = (req) => (isAuthed(req) ? effectiveUser(req) : null);
  * The {program, courses} slice of the bank this request may see — pass it to
  * getCatalog/getQuestionsForTopics so a learner only ever gets their own
  * curriculum. Resolved from the user's enrollment; `?program=` (or a `program` in
- * the body) is honoured only for admins and guests, so it can never widen a
- * learner's access (see lib/programs.js resolveScope).
+ * the body) is honoured for admins, guests, and enrolled learners — plus, for
+ * ANY learner, a growth-category program (the Philosophical/Spiritual reading
+ * curricula are open to the whole staff — see lib/firestore.js
+ * resolveProgramScope). A career program a learner isn't enrolled in can never
+ * be widened into (lib/programs.js resolveScope).
  *
  * Everyone who existed before programs did resolves to the default program with
  * no course limit, which is exactly the whole catalog they see today.
@@ -3761,9 +3764,19 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
     // fallback there was the 50%-vs-39% drift). Growth programs mirror their PINNED tab
     // (Philosophical/Spiritual), which is WHOLE-PROGRAM scoped — shelf-filtering those
     // zeroed the ring while the tab itself showed real progress.
+    // Growth programs are open to EVERYONE (resolveProgramScope honours their pin
+    // regardless of enrollment), so every user gets their cards too — otherwise an
+    // un-enrolled learner's Philosophical/Spiritual rings stayed empty while their
+    // tab showed real progress. Un-enrolled cards take no course filter, matching
+    // the whole-program scope their tab resolves to.
+    const growthIds = allPrograms
+      .filter((p) => (p.category || 'career') === 'growth')
+      .map((p) => p.id)
+      .filter((id) => !enrollment.programs.includes(id));
     const programs = [];
-    for (const pid of enrollment.programs) {
-      let rows = filterCatalog(bank, { program: pid, courses: enrollment.courses });
+    for (const pid of [...enrollment.programs, ...growthIds]) {
+      const courseFilter = enrollment.programs.includes(pid) ? enrollment.courses : [];
+      let rows = filterCatalog(bank, { program: pid, courses: courseFilter });
       if (tracks && catOf(pid) !== 'growth') rows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
       let total = 0, practiced = 0, progSum = 0;
       const courses = new Set();
