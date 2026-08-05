@@ -146,7 +146,7 @@ import {
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
-import { growthDetail, holisticProfile, mentorSearch, sentinelUserLookup } from './lib/sentinel.js';
+import { growthDetail, holisticProfile, mentorSearch, sentinelUserLookup, workDetail, workDigest } from './lib/sentinel.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
@@ -2540,6 +2540,60 @@ async function growthGroundingFor(email, message, holistic) {
   return { entries: got.entries, skipped, failed: false };
 }
 
+// Mirrors MAX_WORK_DETAIL_IDS in Sentinel's work_digest service — ask for more and it drops the tail
+// silently, which would render un-loaded cards as loaded (the same lie the growth split avoids).
+const WORK_MAX_IDS = 25;
+// How many cards we'd ever pull the full body of in one turn. Task bodies carry comment threads, so
+// this is far smaller than the id cap: a turn is about one or two cards, not a whole board.
+const WORK_HYDRATE_TOP = 6;
+
+/** Grounding for the learner's TASK BOARD — the "big" half of small-to-big retrieval, again.
+ *
+ *  Sentinel's digest lists every card they may see as ONE COMPACT LINE (title, status, dates, who
+ *  holds it) and that index is complete for their own work, so "do I have anything about the TCS
+ *  landing page?" is already answerable without this. What the line cannot carry is the inside of a
+ *  card: the description, the internal notes, the breakdown's steps and the comment thread. This
+ *  fetches those, whole, for the handful of cards the turn is actually about.
+ *
+ *  Why retrieval here is keyed off the MESSAGE and not a budget (unlike the growth journal): the
+ *  digest carries no per-card size, so there is nothing to budget against before fetching. A board
+ *  also behaves differently from a journal — most turns ("what should I do today?") are answered
+ *  from the lines alone, and hydrating six comment threads to answer them would be pure cost.
+ *
+ *  So: a card is hydrated when the learner NAMES it — by `#id`, or by words that appear in its title.
+ *  A miss is safe and recoverable, because the card's line is in the prompt regardless and the block
+ *  tells the coach not to describe a card's contents it wasn't given (it can ask which one they mean,
+ *  and the next turn's message will name it).
+ *
+ *  NEVER throws (workDetail degrades to null) — a Sentinel outage just means lines without bodies. */
+async function workGroundingFor(email, message, work) {
+  const cards = [
+    ...(((work && work.mine && work.mine.open) || [])),
+    ...(((work && work.board && work.board.others) || [])),
+  ].filter((c) => Number.isInteger(c && c.id));      // Atrium cards have string ids and no bodies here
+  if (!cards.length) return null;
+
+  // An explicit "#412" is an unambiguous request for that card — always honour it, whatever the rest
+  // of the sentence says.
+  const named = new Set(
+    [...String(message || '').matchAll(/#(\d{1,9})\b/g)].map((m) => Number(m[1])),
+  );
+  const terms = growthTerms(message);                // same content-word split; one definition
+  const scored = cards.map((c, i) => {
+    if (named.has(c.id)) return { c, rank: 99, i };
+    let hits = 0;
+    for (const w of growthTerms(c.title)) if (terms.has(w)) hits += 1;
+    // Their own work edges out a colleague's at equal relevance — most questions are about their plate.
+    return { c, rank: hits + (c.mine ? 0.5 : 0), i };
+  }).filter((s) => s.rank >= 1)                      // no title/id match at all ⇒ this turn needs no body
+    .sort((a, b) => (b.rank - a.rank) || (a.i - b.i));
+  if (!scored.length) return null;
+
+  const ids = scored.slice(0, Math.min(WORK_HYDRATE_TOP, WORK_MAX_IDS)).map((s) => s.c.id);
+  const got = await workDetail(email, ids);
+  return got ? { cards: got.cards } : null;
+}
+
 /** The learner's accessible catalog (their Mastery-Engine shelf), as {track,course,lesson,topic}
  *  rows — the real curriculum the assistant grounds "which card teaches X" answers in.
  *  Sections the learner TEMPORARILY REMOVED ride along marked `removed: true` (a hidden
@@ -2641,15 +2695,22 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const progress = coach ? coachDigest(catalog) : '';
     // Whole-person context from Sentinel (body-fat/PRs, career goals, reading, obstacles). Null-safe:
     // an unreachable/unconfigured Sentinel just means no holistic block.
-    const holistic = await holisticProfile(chatUser);
+    // ...and their TASK BOARD, scoped by Sentinel to what this person may see. Fetched alongside the
+    // profile (not after it — neither depends on the other) so knowing their work costs no extra
+    // latency on a path the learner is sitting waiting on. Null-safe, exactly like the profile.
+    const [holistic, work] = await Promise.all([
+      holisticProfile(chatUser),
+      workDigest(chatUser),
+    ]);
     // Passages from their imported mentor transcripts, when the turn calls for them — this is what
     // makes "what would Nick say about my plan" / "act as Nick" grounded instead of an impression.
     // Alongside it, the bodies of the growth-journal entries this turn bears on (the digest carries
-    // only their titles). Both hang off `holistic` but not off each other, so they go out together:
-    // one round trip's latency instead of two, on a path the learner is sitting waiting on.
-    const [mentorHits, growthHits] = await Promise.all([
+    // only their titles) and of the task cards it names. All three hang off the payloads above but
+    // not off each other, so they go out together: one round trip's latency instead of three.
+    const [mentorHits, growthHits, workHits] = await Promise.all([
       mentorGroundingFor(chatUser, message, holistic, coach),
       growthGroundingFor(chatUser, message, holistic),
+      workGroundingFor(chatUser, message, work),
     ]);
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
@@ -2658,7 +2719,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, work, workHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -2713,19 +2774,25 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     const progress = coach ? coachDigest(catalog) : '';
     // Whole-person context from Sentinel; fetched before streaming starts (null-safe) so a Sentinel
     // outage can never break the SSE stream — it just yields no holistic block.
-    const holistic = await holisticProfile(chatUser);
-    // Mentor-library grounding + growth-journal bodies (see the blocking sibling for both). Fetched
-    // together before streaming starts, and null-safe, so a Sentinel outage can never break the
-    // SSE stream — it just costs the coach some grounding.
-    const [mentorHits, growthHits] = await Promise.all([
+    // ...and their task board, scoped by Sentinel to what they may see (see the blocking sibling).
+    const [holistic, work] = await Promise.all([
+      holisticProfile(chatUser),
+      workDigest(chatUser),
+    ]);
+    // Mentor-library grounding + growth-journal bodies + the bodies of any task cards this turn names
+    // (see the blocking sibling for all three). Fetched together before streaming starts, and
+    // null-safe, so a Sentinel outage can never break the SSE stream — it just costs the coach some
+    // grounding.
+    const [mentorHits, growthHits, workHits] = await Promise.all([
       mentorGroundingFor(chatUser, message, holistic, coach),
       growthGroundingFor(chatUser, message, holistic),
+      workGroundingFor(chatUser, message, work),
     ]);
     const actions = !!req.body?.actions;
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, work, workHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 

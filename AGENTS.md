@@ -94,7 +94,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `programs.js` `priority.js` | Pure logic, IO-free. |
 | `usage.js` | Token/cost tallying per user. |
 | `googleauth.js` | Google OAuth flow. |
-| `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, and `growthDetail` (growth-journal bodies — see §7). |
+| `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
 | `_*_test.js` | The **four** Node unit tests (auth, graph, programs, progress credit) — see §6. |
@@ -494,6 +494,34 @@ things the learner can see on their own screen:
 Keep `GROWTH_MAX_IDS` in sync with Sentinel's `MAX_GROWTH_DETAIL_IDS` — ask for more than it accepts
 and it drops the tail silently, which renders unloaded entries as loaded. See sentinel's AGENTS.md
 for the Sentinel half and the incident that produced all of this.
+
+### 🔴 The assistant can read the learner's TASK BOARD — and must never present it as the company's
+
+Added 2026-08-05. `workDigest` / `workDetail` ([lib/sentinel.js](lib/sentinel.js)) fetch Sentinel's
+`/api/internal/{work-digest,work-detail}`; `workGroundingFor` ([server.js](server.js)) hydrates the
+cards a turn names; `workBlock` ([lib/gemini.js](lib/gemini.js)) renders it, injected right after the
+holistic block in BOTH assistant paths (blocking + streaming). That adjacency is deliberate: an
+overdue card means one thing on a rest day and another before a 10k.
+
+**Sentinel scopes the payload to the caller** (`task_perms.can_view`) — an employee's digest is their
+own work plus their team's unclaimed queue; a manager's is the estate; the per-person rollup is
+manager-only. So three things in that block are load-bearing, not padding:
+
+1. **It prints `viewer.sees` first.** Without it the model reads a four-card board as "the company has
+   four tasks" and says so to an intern — a correct permission boundary turned into a false claim.
+2. **Gaps are declared, at two levels.** `board.truncated` covers cards that did not fit; and for any
+   card with no `FULL DETAIL` entry the block forbids describing its insides (ask which one they mean
+   — the next turn's message names it, and retrieval hits). Same rule as the growth journal.
+3. **The rollup's rows DO NOT SUM.** Sentinel counts a card on every plate it is on, so the block says
+   so outright, and forbids the word "overloaded" — a task on that board carries no size, and `load`
+   is only relative to the team's own median.
+
+Keep `WORK_MAX_IDS` in step with Sentinel's `MAX_WORK_DETAIL_IDS`: ask for more and it drops the tail
+silently, which renders un-loaded cards as loaded — the precise lie this design exists to prevent.
+
+🔴 **The assistant is READ-ONLY on the board.** No `agora-action` op touches tasks, and the block says
+it cannot move, assign, reschedule or close a card. Adding writes is an action-protocol change (with
+the host executor and the Approve card), never a widening of the digest.
 
 ### 🟡 A new colour looks wrong in dark mode
 
