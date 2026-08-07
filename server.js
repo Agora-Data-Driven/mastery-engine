@@ -15,9 +15,12 @@ import { readFileSync } from 'node:fs';
 
 import {
   getCatalog,
+  readTopicDocs,
+  overlayStats,
   getQuestionsForTopics,
   getSeenQuestionTexts,
   getRecentActivity,
+  getRecentAttemptStats,
   getQuizLogRows,
   getTopicsRows,
   getStreak,
@@ -81,6 +84,7 @@ import {
   flagQuestion,
   listQuestionFlags,
   resolveQuestionFlag,
+  deleteQuestionById,
   deleteQuestionBatch,
   saveRoadmap,
   getRoadmap,
@@ -270,6 +274,25 @@ function packageQuestions(questions, idx, count) {
     };
   });
 }
+
+/**
+ * One question doc shaped for the ADMIN tools (Proof station, question browser).
+ * Unlike packageQuestions this needs no catalog lookup — an admin is editing the
+ * doc itself, so it carries the doc's own provenance instead of a resolved
+ * track/course/lesson. Same read-time LaTeX repair, so what the editor shows is
+ * what a learner sees (and saving it back persists the repair).
+ */
+const publicQuestion = (q) => ({
+  id: q.id,
+  topic: q.topic || '',
+  program: q.program || '',
+  difficulty: q.difficulty || '',
+  source: q.source || '',
+  batchTag: q.batchTag || '',
+  question: restoreLatexEscapes(q.question || ''),
+  options: Array.isArray(q.options) ? q.options.map((o) => restoreLatexEscapes(String(o))) : [],
+  answer: restoreLatexEscapes(q.answer || ''),
+});
 
 /** Filter the catalog rows down to a Track>Course>Lesson>Topic selection. */
 function scopeCatalog(catalog, { track, course, lesson, topic }) {
@@ -2177,6 +2200,29 @@ app.post('/api/flashcards/set', requireAdmin, async (req, res, next) => {
   }
 });
 
+// Admin: put ONE shared card into Highway (rapid review) or take it out. The
+// generator tags roughly a third of a deck automatically; this is the manual
+// override for the ones it judged wrong, and it is shared like every other card
+// edit. Idempotent — pass `highway` explicitly, or omit it to flip the current
+// value. Book cards are excluded: a book deck is all-highway by construction, so
+// the filter (and its badge) would mean nothing there.
+app.post('/api/flashcards/highway', requireAdmin, async (req, res, next) => {
+  try {
+    const cardId = String(req.body?.cardId || '').trim();
+    if (!cardId) return res.status(400).json({ error: 'cardId is required' });
+    const card = await getFlashcardById(cardId);
+    if (!card) return res.status(404).json({ error: 'Card not found' });
+    if (card.kind) return res.status(400).json({ error: 'Book cards are all rapid-review already — Highway does not apply' });
+
+    const was = !!card.highway;
+    const highway = req.body?.highway === undefined ? !was : req.body.highway === true;
+    if (highway !== was) await bulkUpdateFlashcards([{ id: card.id, highway }]);
+    res.json({ ok: true, highway, changed: highway !== was });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* ------------------------ Fix quiz-question formatting -------------------- */
 // Raw HTML that leaked into a question renders literally (the "<code>def
 // demo(a, b, *args):</code>" case), so flag any recognised tag. Combined with
@@ -2266,6 +2312,51 @@ app.post('/api/questions/fix-format', requireAdmin, rateLimitAI, async (req, res
     // Compare against the TRUE stored value so a control-char-only repair still
     // counts as a change and gets saved.
     const changed = questionFixChanges(stored, fix);
+    if (changed.length) await bulkUpdateQuestions([{ id: q.id, ...fix }]);
+
+    res.json({ changed, question: { id: q.id, ...fix } });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: manual edit — save the exact question text/options/answer an admin
+// typed, shared for everyone (no AI). The sibling of /api/flashcards/set, and
+// the write behind both the quiz view's "Edit this question" panel and the
+// Composing Room's question browser.
+//
+// The answer MUST still equal one of the options, or the question becomes
+// unanswerable for everyone: handleAnswer() in the frontend grades by comparing
+// the clicked option's text to `answer`, so an answer that matches nothing marks
+// every attempt wrong. That check is the whole reason this isn't a raw write.
+app.post('/api/questions/set', requireAdmin, async (req, res, next) => {
+  try {
+    const questionId = String(req.body?.questionId || '').trim();
+    if (!questionId) return res.status(400).json({ error: 'questionId is required' });
+
+    const question = String(req.body?.question ?? '').trim();
+    const options = (Array.isArray(req.body?.options) ? req.body.options : [])
+      .map((o) => String(o ?? '').trim())
+      .filter(Boolean);
+    const answer = String(req.body?.answer ?? '').trim();
+    if (!question) return res.status(400).json({ error: 'The question cannot be empty' });
+    if (options.length < 2) return res.status(400).json({ error: 'A question needs at least two options' });
+    if (new Set(options).size !== options.length) return res.status(400).json({ error: 'Two options are identical — the learner could not tell them apart' });
+    if (!options.includes(answer)) return res.status(400).json({ error: 'The answer must match one of the options exactly' });
+    if (question.length > 4000 || options.some((o) => o.length > 2000)) {
+      return res.status(400).json({ error: 'One of the fields is too long' });
+    }
+
+    const q = await getQuestionById(questionId);
+    if (!q) return res.status(404).json({ error: 'Question not found' });
+
+    const orig = {
+      question: q.question || '',
+      options: Array.isArray(q.options) ? q.options.map(String) : [],
+      answer: q.answer || '',
+    };
+    const fix = { question, options, answer };
+    const changed = questionFixChanges(orig, fix);
     if (changed.length) await bulkUpdateQuestions([{ id: q.id, ...fix }]);
 
     res.json({ changed, question: { id: q.id, ...fix } });
@@ -3813,6 +3904,62 @@ function verifyInternalSig(req, purpose) {
 //     grouped by program; an uncurated shelf falls back to whole-program scope, which is what
 //     the engine derives anyway. `progressSum` is included raw so Sentinel can combine career
 //     programs topic-weighted — exactly the engine's overview formula.
+/**
+ * One person's per-program rollup — the shape BOTH internal progress endpoints report.
+ *
+ * Extracted (2026-08-03) so the single-person path (/enrollment-progress, behind Sentinel's
+ * Overview rings) and the batch path (/team-progress, behind its admin team table) cannot drift.
+ * The same person has to read the same number in both places, or one of the two is lying.
+ *
+ * One card per ASSIGNED PROGRAM, aggregated over the same rows ITS TAB shows.
+ * Career programs mirror the personal engine (the Professional tab is the unpinned,
+ * SHELF-scoped app — including programs the shelf omits reporting 0 topics; whole-program
+ * fallback there was the 50%-vs-39% drift). Growth programs mirror their PINNED tab
+ * (Philosophical/Spiritual), which is WHOLE-PROGRAM scoped — shelf-filtering those
+ * zeroed the ring while the tab itself showed real progress.
+ *
+ * Pass `deltas` (a getRecentAttemptStats map) to also get `progressSumThen`: the identical sum
+ * computed against each topic's stats AS THEY STOOD when the window opened. now − then over the
+ * window is a real rate of progress; without it a caller can only report a running total.
+ */
+function rollupPrograms({ enrollment, allPrograms, shelf, bank, deltas = null }) {
+  const nameOf = (id) => (allPrograms.find((p) => p.id === id) || {}).name || id;
+  const catOf = (id) => (allPrograms.find((p) => p.id === id) || {}).category || 'career';
+  const tracks = shelf && shelf.tracks && shelf.tracks.length ? shelf.tracks : null;
+  const programs = [];
+  for (const pid of enrollment.programs) {
+    let rows = filterCatalog(bank, { program: pid, courses: enrollment.courses });
+    if (tracks && catOf(pid) !== 'growth') rows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
+    let total = 0, practiced = 0, progSum = 0, progSumThen = 0;
+    const courses = new Set();
+    for (const r of rows) {
+      total += 1;
+      courses.add(r.course);
+      const attempts = r.totalAttempts || 0;
+      const correct = r.correctCount || 0;
+      if (attempts > 0) { practiced += 1; progSum += Math.round(correct / attempts * 100); }
+      if (!deltas) continue;
+      // Where this topic stood when the window opened. CLAMPED because quizLog and topicStats can
+      // legitimately disagree — a reset account, an import, a row logged under a since-re-filed
+      // tuple — and a negative attempt count is not a number. Clamping makes the worst case
+      // "this person's velocity reads low", never a nonsense percentage.
+      const d = deltas.get(r.id);
+      const wasAttempts = Math.max(0, attempts - (d ? d.attempts : 0));
+      const wasCorrect = Math.min(wasAttempts, Math.max(0, correct - (d ? d.correct : 0)));
+      if (wasAttempts > 0) progSumThen += Math.round(wasCorrect / wasAttempts * 100);
+    }
+    programs.push({
+      id: pid, name: nameOf(pid), category: catOf(pid),
+      courseCount: courses.size,
+      topicsTotal: total, topicsPracticed: practiced,
+      progressSum: progSum,
+      ...(deltas ? { progressSumThen: progSumThen } : {}),
+      pct: total ? Math.round(progSum / total) : 0,
+    });
+  }
+  return programs;
+}
+
 app.get('/api/internal/enrollment-progress', async (req, res, next) => {
   try {
     if (!verifyInternalSig(req, 'enrollment-progress')) return res.status(401).json({ error: 'bad signature' });
@@ -3822,50 +3969,77 @@ app.get('/api/internal/enrollment-progress', async (req, res, next) => {
     const [enrollment, allPrograms, shelf, bank] = await Promise.all([
       getEnrollment(acct), getPrograms(), getShelf(acct), getCatalog(acct, null),
     ]);
-    const nameOf = (id) => (allPrograms.find((p) => p.id === id) || {}).name || id;
-    const catOf = (id) => (allPrograms.find((p) => p.id === id) || {}).category || 'career';
-    const tracks = shelf && shelf.tracks && shelf.tracks.length ? shelf.tracks : null;
-    // One card per ASSIGNED PROGRAM, aggregated over the same rows ITS TAB shows.
-    // Career programs mirror the personal engine (the Professional tab is the unpinned,
-    // SHELF-scoped app — including programs the shelf omits reporting 0 topics; whole-program
-    // fallback there was the 50%-vs-39% drift). Growth programs mirror their PINNED tab
-    // (Philosophical/Spiritual), which is WHOLE-PROGRAM scoped — shelf-filtering those
-    // zeroed the ring while the tab itself showed real progress.
-    // Growth programs are open to EVERYONE (resolveProgramScope honours their pin
-    // regardless of enrollment), so every user gets their cards too — otherwise an
-    // un-enrolled learner's Philosophical/Spiritual rings stayed empty while their
-    // tab showed real progress. Un-enrolled cards take no course filter, matching
-    // the whole-program scope their tab resolves to.
-    const growthIds = allPrograms
-      .filter((p) => (p.category || 'career') === 'growth')
-      .map((p) => p.id)
-      .filter((id) => !enrollment.programs.includes(id));
-    const programs = [];
-    for (const pid of [...enrollment.programs, ...growthIds]) {
-      const courseFilter = enrollment.programs.includes(pid) ? enrollment.courses : [];
-      let rows = filterCatalog(bank, { program: pid, courses: courseFilter });
-      if (tracks && catOf(pid) !== 'growth') rows = rows.filter((r) => inEngine(r, tracks, shelf.included, shelf.hidden));
-      let total = 0, practiced = 0, progSum = 0;
-      const courses = new Set();
-      for (const r of rows) {
-        total += 1;
-        courses.add(r.course);
-        const attempts = r.totalAttempts || 0;
-        if (attempts > 0) { practiced += 1; progSum += Math.round((r.correctCount || 0) / attempts * 100); }
-      }
-      programs.push({
-        id: pid, name: nameOf(pid), category: catOf(pid),
-        courseCount: courses.size,
-        topicsTotal: total, topicsPracticed: practiced,
-        progressSum: progSum,
-        pct: total ? Math.round(progSum / total) : 0,
-      });
-    }
+    const programs = rollupPrograms({ enrollment, allPrograms, shelf, bank });
     // `admin` lets the Sentinel Academy tab default admins straight to the admin view. The
     // academy-admin page re-gates at the SERVER with full cookie context (non-admins are
     // 302'd to the homepage — see the /academy-admin.html gate), so this is only a UI default.
     // Role-aware: Sentinel super_admin/admin count, alongside the env break-glass list.
     res.json({ programs, admin: isAdminEmail(email) || isSentinelAdminRole((await sentinelInfo(email)).role) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// At most this many people per team-progress call. Not a performance ceiling (the shared catalog
+// is read once either way) — a guard so a malformed caller can't turn one request into an
+// unbounded fan-out of per-user Firestore reads. Sentinel pages its roster against it.
+const MAX_TEAM_EMAILS = 60;
+
+// Internal (HMAC-gated): the SAME rollup as /enrollment-progress for MANY people at once, plus
+// each person's recent attempt window — what Sentinel's admin "Team progress" panel ranks on.
+//
+// BATCHED for one reason: the shared `topics` catalog (~540 docs) is read ONCE here and overlaid
+// with each person's own stats, rather than re-read per person. Twelve staff cost ~540 topic reads
+// plus twelve small per-user reads, instead of ~6,500. That is the whole justification for a second
+// endpoint rather than Sentinel looping the first one.
+//
+// FAIL-SOFT PER PERSON, not per request: one unreadable account answers { found:false, error } in
+// its own slot and everybody else still reports. Failing the whole call would blank a panel that is
+// mostly fine, and (worse) an all-zeroes table reads as "nobody is doing anything" — a wrong
+// answer, where a named gap is an honest one.
+app.get('/api/internal/team-progress', async (req, res, next) => {
+  try {
+    if (!verifyInternalSig(req, 'team-progress')) return res.status(401).json({ error: 'bad signature' });
+    const emails = [...new Set(
+      String(req.query?.emails || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+    )];
+    if (!emails.length) return res.status(400).json({ error: 'emails required' });
+    if (emails.length > MAX_TEAM_EMAILS) {
+      return res.status(400).json({ error: `at most ${MAX_TEAM_EMAILS} emails per call` });
+    }
+    const days = Math.min(180, Math.max(1, Number(req.query?.days) || 30));
+    const [allPrograms, topicRows] = await Promise.all([getPrograms(), readTopicDocs()]);
+    const people = await Promise.all(emails.map(async (email) => {
+      try {
+        // Same account mapping as /enrollment-progress: a break-glass-listed admin's stats live
+        // under DEFAULT_ACCOUNT, so ranking them by their sign-in email would show an empty row.
+        const acct = isAdminEmail(email) ? DEFAULT_ACCOUNT : email;
+        const [enrollment, shelf, bank] = await Promise.all([
+          getEnrollment(acct), getShelf(acct), overlayStats(acct, topicRows, null),
+        ]);
+        const window = await getRecentAttemptStats(acct, days, topicRows);
+        return {
+          email,
+          found: true,
+          programs: rollupPrograms({ enrollment, allPrograms, shelf, bank, deltas: window.deltas }),
+          activity: {
+            days,
+            attempts: window.attempts,
+            correct: window.correct,
+            activeDays: window.activeDays,
+            streak: window.streak,
+            lastActive: window.lastActive,
+            unmatched: window.unmatched,
+          },
+        };
+      } catch (e) {
+        return {
+          email, found: false, programs: [], activity: null,
+          error: String((e && e.message) || e).slice(0, 160),
+        };
+      }
+    }));
+    res.json({ days, people });
   } catch (e) {
     next(e);
   }
@@ -5781,9 +5955,19 @@ app.post('/api/questions/:id/flag', requireAuth, async (req, res, next) => {
   }
 });
 
+// Each flag carries the question it points at, so the Proof station can show
+// (and fix) what's actually wrong instead of just a reason string. A question
+// already deleted comes back as `question: null` — the flag still needs
+// resolving, so it must not vanish from the list.
 app.get('/api/admin/flags', requireAdmin, async (req, res, next) => {
   try {
-    res.json({ flags: await listQuestionFlags(req.query.all === '1') });
+    const flags = await listQuestionFlags(req.query.all === '1');
+    const bodies = await mapWithConcurrency(
+      flags, 8, (f) => getQuestionById(f.questionId).catch(() => null),
+    );
+    res.json({
+      flags: flags.map((f, i) => ({ ...f, question: bodies[i] ? publicQuestion(bodies[i]) : null })),
+    });
   } catch (e) {
     next(e);
   }
@@ -5793,6 +5977,51 @@ app.post('/api/admin/flags/:id/resolve', requireAdmin, async (req, res, next) =>
   try {
     const ok = await resolveQuestionFlag(req.params.id, { deleteQuestion: req.body?.deleteQuestion === true });
     res.json({ ok });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: every question filed under a Course › Lesson › Sub-lesson, for the
+// Composing Room's question browser. Scoped through the catalog (not by topic
+// name alone) so a name shared by two lessons lists only the section asked for —
+// the same reason scopedMetaIndex exists.
+app.get('/api/admin/questions', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const sel = {
+      track: req.query?.track || '',
+      course: req.query?.course || '',
+      lesson: req.query?.lesson || '',
+      topic: req.query?.topic || '',
+    };
+    if (isAll(sel.course)) return res.status(400).json({ error: 'Pick a course first' });
+    const catalog = await getCatalog(null, scope);
+    const rows = scopeCatalog(catalog, sel);
+    const topics = [...new Set(rows.map((r) => r.topic))].filter(Boolean);
+    if (!topics.length) return res.json({ questions: [], topics: 0 });
+
+    const pool = await getQuestionsForTopics(topics, scope);
+    // Group by topic in catalog order so the browser reads like the curriculum,
+    // not like Firestore's document order.
+    const rank = new Map(topics.map((t, i) => [t, i]));
+    const questions = pool
+      .map(publicQuestion)
+      .sort((a, b) => (rank.get(a.topic) ?? 0) - (rank.get(b.topic) ?? 0)
+        || a.question.localeCompare(b.question));
+    res.json({ questions, topics: topics.length });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Admin: delete ONE question (the "this one is wrong and not worth fixing"
+// button). Corrects the topic's counter — see deleteQuestionById.
+app.delete('/api/admin/questions/:id', requireAdmin, async (req, res, next) => {
+  try {
+    const out = await deleteQuestionById(req.params.id);
+    if (!out.deleted) return res.status(404).json({ error: 'Question not found' });
+    res.json({ ok: true, ...out });
   } catch (e) {
     next(e);
   }

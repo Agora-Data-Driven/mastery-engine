@@ -128,6 +128,7 @@
     wireBulk();
     wireBuildModes();
     wireGenerate();
+    wireQuestionBrowser();
     loadEngines();
     wirePeople();
     wireRoadmaps();
@@ -164,6 +165,7 @@
     const rt = $('railTopics'); if (rt) rt.textContent = String(state.catalog.length); // mirror into the run-sheet rail
     renderCurriculumTree();
     populateGenerate();
+    populateQuestionBrowser();
   }
 
   /* -------- Generate: cascading Course › Lesson › Sub-lesson selectors -------- */
@@ -2141,6 +2143,85 @@
     } catch (e) { $('gJobs').textContent = 'Error: ' + e.message; }
   }
 
+  /* ---------------------- questions: read + edit + delete ------------------- */
+  /*
+   * ONE question editor, two homes: the flag list (Proof) and the browser under
+   * it. Both render a question with qBodyHtml and swap in openQuestionEditor on
+   * demand, so a fix looks and behaves the same however you arrived at it.
+   *
+   * The answer is a RADIO over the options on purpose. /api/questions/set
+   * refuses a save whose `answer` matches no option, because the learner app
+   * grades by comparing the clicked option's TEXT to `answer` — an answer that
+   * matches nothing marks every attempt wrong, silently, for everyone.
+   */
+
+  /** A question as it reads, with the correct option marked. */
+  function qBodyHtml(q) {
+    if (!q) return '<div class="aa-q-del">This question has already been deleted — clear the flag below.</div>';
+    const ans = String(q.answer || '').trim();
+    return `<div class="aa-q">
+      <div class="aa-q-meta">${esc(q.topic || 'no topic')}${q.difficulty ? ' · ' + esc(q.difficulty) : ''}${q.batchTag ? ' · batch ' + esc(q.batchTag) : ''}</div>
+      <div class="aa-q-text">${esc(q.question)}</div>
+      <ul class="aa-q-opts">${(q.options || []).map((o) =>
+        `<li class="${String(o).trim() === ans ? 'ok' : ''}">${esc(o)}</li>`).join('')}</ul>
+    </div>`;
+  }
+
+  /**
+   * Swap `host` (an element sitting where the read-only question was) for the
+   * editor. `onSaved(question)` gets the saved doc back; `onCancel()` restores.
+   */
+  function openQuestionEditor(host, q, onSaved, onCancel) {
+    const name = 'qe-' + q.id;
+    const ans = String(q.answer || '').trim();
+    host.innerHTML = `<div class="aa-qedit">
+      <label class="aa-field-label">Question</label>
+      <textarea class="qe-text">${esc(q.question)}</textarea>
+      <label class="aa-field-label">Options — tick the correct answer</label>
+      <div class="qe-opts">${(q.options || []).map((o, i) => `
+        <label class="qe-opt">
+          <input type="radio" name="${esc(name)}" value="${i}"${String(o).trim() === ans ? ' checked' : ''} />
+          <input type="text" value="${esc(o)}" />
+        </label>`).join('')}</div>
+      <div class="aa-row" style="margin:12px 0 0">
+        <button class="btn btn-primary qe-save">Save for everyone</button>
+        <button class="btn qe-cancel">Cancel</button>
+        <span class="aa-note qe-msg" style="margin:0"></span>
+      </div>
+    </div>`;
+
+    const msg = host.querySelector('.qe-msg');
+    const save = host.querySelector('.qe-save');
+    host.querySelector('.qe-cancel').onclick = () => onCancel();
+    save.onclick = async () => {
+      const question = host.querySelector('.qe-text').value.trim();
+      const options = [...host.querySelectorAll('.qe-opt input[type=text]')].map((el) => el.value.trim());
+      const picked = host.querySelector('.qe-opt input[type=radio]:checked');
+      if (!picked) { msg.className = 'aa-err qe-msg'; msg.textContent = 'Tick which option is correct.'; return; }
+      save.disabled = true;
+      msg.className = 'aa-note qe-msg';
+      msg.textContent = 'Saving…';
+      try {
+        const r = await api('/api/questions/set', {
+          method: 'POST',
+          body: { questionId: q.id, question, options, answer: options[Number(picked.value)] || '' },
+        });
+        onSaved(r.question, r.changed || []);
+      } catch (e) {
+        save.disabled = false;
+        msg.className = 'aa-err qe-msg';
+        msg.textContent = e.message;
+      }
+    };
+  }
+
+  /** Delete one question for good (also corrects its sub-lesson's count). */
+  async function deleteQuestion(id, label) {
+    if (!confirm(`Delete this question for everyone?\n\n${label}\n\nThis cannot be undone.`)) return false;
+    await api('/api/admin/questions/' + encodeURIComponent(id), { method: 'DELETE' });
+    return true;
+  }
+
   /* --------------------------------- flags --------------------------------- */
   async function loadFlags() {
     try {
@@ -2148,24 +2229,164 @@
       const rf = $('railFlags'); if (rf) rf.textContent = flags.length ? String(flags.length) : ''; // mirror flag count into the rail
       if (!flags.length) { $('fList').textContent = 'Nothing flagged.'; return; }
       $('fList').innerHTML = flags.map((f) => `
-        <div style="padding:8px 0;border-bottom:1px solid #E7E8EE">
-          <div style="font-size:13px"><b>${esc(f.topic || 'Unknown topic')}</b> — flagged by ${esc(f.email || 'someone')}</div>
-          <div class="aa-note">${esc(f.reason || '(no reason given)')}</div>
+        <div style="padding:10px 0;border-bottom:1px solid #E7E8EE" data-flag="${esc(f.id)}">
+          <div style="font-size:13px"><b>${esc(f.topic || f.question?.topic || 'Unknown topic')}</b> — flagged by ${esc(f.email || 'someone')}</div>
+          <div class="aa-note">“${esc(f.reason || '(no reason given)')}”</div>
+          <div class="fq-body">${qBodyHtml(f.question)}</div>
           <div class="aa-row" style="margin:6px 0 0">
-            <button class="btn" data-id="${esc(f.id)}" data-del="0" style="padding:3px 9px;font-size:12px">Keep &amp; resolve</button>
-            <button class="btn" data-id="${esc(f.id)}" data-del="1" style="padding:3px 9px;font-size:12px">Delete question</button>
+            ${f.question ? '<button class="btn fq-edit" style="padding:3px 9px;font-size:12px">✏️ Edit question</button>' : ''}
+            <button class="btn fq-resolve" style="padding:3px 9px;font-size:12px">Keep &amp; resolve</button>
+            ${f.question ? '<button class="btn aa-danger fq-delete" style="padding:3px 9px;font-size:12px">Delete question</button>' : ''}
+            <span class="aa-note fq-msg" style="margin:0"></span>
           </div>
         </div>`).join('');
-      $('fList').querySelectorAll('button[data-id]').forEach((b) => {
-        b.onclick = async () => {
-          b.disabled = true;
-          try {
-            await api(`/api/admin/flags/${b.dataset.id}/resolve`, { method: 'POST', body: { deleteQuestion: b.dataset.del === '1' } });
-            await loadFlags();
-          } catch (e) { alert(e.message); b.disabled = false; }
+
+      $('fList').querySelectorAll('[data-flag]').forEach((row) => {
+        const f = flags.find((x) => x.id === row.dataset.flag);
+        const body = row.querySelector('.fq-body');
+        const msg = row.querySelector('.fq-msg');
+        const edit = row.querySelector('.fq-edit');
+        // Editing a flagged question does NOT resolve the flag: fixing the text and
+        // agreeing the report is handled are two decisions, and only the admin
+        // knows whether the fix actually answered what was reported.
+        if (edit) {
+          edit.onclick = () => {
+            edit.disabled = true;
+            openQuestionEditor(body, f.question,
+              (saved, changed) => {
+                f.question = saved;
+                body.innerHTML = qBodyHtml(saved);
+                edit.disabled = false;
+                msg.className = 'aa-ok fq-msg';
+                msg.textContent = changed.length ? `Saved (${changed.join(' + ')}). Resolve the flag when you're happy.` : 'Nothing changed.';
+              },
+              () => { body.innerHTML = qBodyHtml(f.question); edit.disabled = false; });
+          };
+        }
+        row.querySelector('.fq-resolve').onclick = async () => {
+          row.querySelectorAll('button').forEach((b) => (b.disabled = true));
+          try { await api(`/api/admin/flags/${f.id}/resolve`, { method: 'POST', body: { deleteQuestion: false } }); await loadFlags(); }
+          catch (e) { msg.className = 'aa-err fq-msg'; msg.textContent = e.message; row.querySelectorAll('button').forEach((b) => (b.disabled = false)); }
         };
+        const del = row.querySelector('.fq-delete');
+        if (del) {
+          // Resolve-with-delete: one call that removes the question AND clears the
+          // flag, so a deleted question never leaves an unresolvable report behind.
+          del.onclick = async () => {
+            if (!confirm(`Delete this question for everyone?\n\n${f.question.question}\n\nThis cannot be undone.`)) return;
+            row.querySelectorAll('button').forEach((b) => (b.disabled = true));
+            try { await api(`/api/admin/flags/${f.id}/resolve`, { method: 'POST', body: { deleteQuestion: true } }); await loadFlags(); }
+            catch (e) { msg.className = 'aa-err fq-msg'; msg.textContent = e.message; row.querySelectorAll('button').forEach((b) => (b.disabled = false)); }
+          };
+        }
       });
     } catch (e) { $('fList').textContent = 'Error: ' + e.message; }
+  }
+
+  /* ---------------------------- question browser --------------------------- */
+  /* The same editor over the whole bank, scoped through the catalog rather than
+   * by topic name alone — a name shared by two lessons would otherwise list both
+   * sections' questions under whichever one you picked (see scopedMetaIndex). */
+  let _questions = [];
+
+  function wireQuestionBrowser() {
+    $('qbCourse').onchange = () => { populateQbLessons(); };
+    $('qbLesson').onchange = () => { populateQbTopics(); };
+    $('qbLoad').onclick = () => loadQuestions();
+    $('qbSearch').oninput = () => renderQuestions();
+  }
+
+  // Populated from the shared catalog, the same cascade the Generate station uses.
+  function populateQuestionBrowser() {
+    const courses = [...new Set(state.catalog.map((r) => r.course))].filter(Boolean);
+    $('qbCourse').innerHTML = courses.length
+      ? courses.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('')
+      : '<option value="">(no courses yet)</option>';
+    populateQbLessons();
+  }
+  function populateQbLessons() {
+    const course = $('qbCourse').value;
+    const lessons = [...new Set(state.catalog.filter((r) => r.course === course).map((r) => r.lesson))].filter(Boolean);
+    $('qbLesson').innerHTML = '<option value="">All lessons in this course</option>'
+      + lessons.map((l) => `<option value="${esc(l)}">${esc(l)}</option>`).join('');
+    populateQbTopics();
+  }
+  function populateQbTopics() {
+    const course = $('qbCourse').value, lesson = $('qbLesson').value;
+    const topics = lesson
+      ? [...new Set(state.catalog.filter((r) => r.course === course && r.lesson === lesson).map((r) => r.topic))].filter(Boolean)
+      : [];
+    $('qbTopic').innerHTML = '<option value="">All sub-lessons</option>'
+      + topics.map((t) => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    $('qbTopic').disabled = !lesson;
+  }
+
+  async function loadQuestions() {
+    const course = $('qbCourse').value;
+    if (!course) { $('qbList').textContent = 'There are no courses in this program yet.'; return; }
+    $('qbList').textContent = 'Loading…';
+    try {
+      const { questions } = await api('/api/admin/questions?' + q({
+        track: trackOf(course), course, lesson: $('qbLesson').value, topic: $('qbTopic').value,
+      }));
+      _questions = questions || [];
+      renderQuestions();
+    } catch (e) { $('qbList').textContent = 'Error: ' + e.message; }
+  }
+
+  function renderQuestions() {
+    const term = ($('qbSearch').value || '').trim().toLowerCase();
+    const rows = !term ? _questions : _questions.filter((x) =>
+      (x.question + ' ' + x.topic + ' ' + (x.options || []).join(' ')).toLowerCase().includes(term));
+    if (!rows.length) {
+      $('qbList').textContent = _questions.length
+        ? 'No question in this section matches that filter.'
+        : 'No questions banked for this section yet.';
+      return;
+    }
+    $('qbList').innerHTML = `<div class="aa-note" style="margin-bottom:6px">${rows.length} of ${_questions.length} question${_questions.length === 1 ? '' : 's'}</div>`
+      + rows.map((x) => `
+        <div data-qid="${esc(x.id)}">
+          <div class="qb-body">${qBodyHtml(x)}</div>
+          <div class="aa-row" style="margin:0 0 14px">
+            <button class="btn qb-edit" style="padding:3px 9px;font-size:12px">✏️ Edit</button>
+            <button class="btn aa-danger qb-delete" style="padding:3px 9px;font-size:12px">Delete</button>
+            <span class="aa-note qb-msg" style="margin:0"></span>
+          </div>
+        </div>`).join('');
+
+    $('qbList').querySelectorAll('[data-qid]').forEach((row) => {
+      const x = _questions.find((r) => r.id === row.dataset.qid);
+      const body = row.querySelector('.qb-body');
+      const msg = row.querySelector('.qb-msg');
+      const edit = row.querySelector('.qb-edit');
+      edit.onclick = () => {
+        edit.disabled = true;
+        openQuestionEditor(body, x,
+          (saved, changed) => {
+            // Patch the cached row so the filter and a later re-render agree with
+            // what was just saved, without re-reading the whole section.
+            Object.assign(x, saved);
+            body.innerHTML = qBodyHtml(x);
+            edit.disabled = false;
+            msg.className = 'aa-ok qb-msg';
+            msg.textContent = changed.length ? `Saved (${changed.join(' + ')}).` : 'Nothing changed.';
+          },
+          () => { body.innerHTML = qBodyHtml(x); edit.disabled = false; });
+      };
+      row.querySelector('.qb-delete').onclick = async () => {
+        row.querySelectorAll('button').forEach((b) => (b.disabled = true));
+        try {
+          if (!await deleteQuestion(x.id, x.question)) { row.querySelectorAll('button').forEach((b) => (b.disabled = false)); return; }
+          _questions = _questions.filter((r) => r.id !== x.id);
+          renderQuestions();
+        } catch (e) {
+          msg.className = 'aa-err qb-msg';
+          msg.textContent = e.message;
+          row.querySelectorAll('button').forEach((b) => (b.disabled = false));
+        }
+      };
+    });
   }
 
   /* --------------------------------- people -------------------------------- */

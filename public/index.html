@@ -295,12 +295,43 @@
           <span id="progressCount">Question 1</span>
           <span id="progressScore">Score 0</span>
         </div>
+
+        <!-- Step back over ground already covered. A revisited question is
+             READ-ONLY — it shows the answer you gave, never a second attempt,
+             because re-answering would double-count the score and rewrite the
+             log entry. Hidden on question 1; the row keeps its height so the
+             layout doesn't jump when it appears. -->
+        <div class="q-nav">
+          <button class="btn-quiz-prev hidden" id="quizPrevBtn" onclick="App.prevQuestion()">‹ Previous question</button>
+        </div>
+
         <div class="q-crumb" id="qCrumb"></div>
         <div class="q-text" id="qText"></div>
 
         <!-- Admin-only: reformat this question's code/math (and strip raw HTML)
-             so it renders correctly, saved for everyone. Shown by app.js. -->
-        <button class="btn-admin-fix hidden" id="qFixFormatBtn" onclick="App.fixQuestionFormat()">🛠️ Fix format</button>
+             so it renders correctly, or hand-edit its text/options/answer. Both
+             save for everyone. Shown by app.js. -->
+        <div id="qAdminActions" class="hidden">
+          <button class="btn-admin-fix" id="qFixFormatBtn" onclick="App.fixQuestionFormat()">🛠️ Fix format</button>
+          <button class="btn-admin-fix" id="qEditBtn" onclick="App.toggleQuestionEdit()">✏️ Edit this question</button>
+          <div id="qEditPanel" class="fc-edit-panel hidden">
+            <div class="fc-edit-field">
+              <label class="label" for="qEditText">Question</label>
+              <textarea id="qEditText" class="fc-edit-mono" rows="3"></textarea>
+            </div>
+            <div class="fc-edit-field">
+              <label class="label">Options · tick the correct answer</label>
+              <div id="qEditOptions" class="q-edit-options"></div>
+            </div>
+            <div class="fc-edit-actions">
+              <button class="btn btn-ai" id="qEditSave" onclick="App.saveQuestionEdit()">Save for everyone</button>
+              <button class="fc-edit-cancel" onclick="App.toggleQuestionEdit()">Cancel</button>
+            </div>
+          </div>
+          <!-- OUTSIDE the panel on purpose: a successful save collapses the panel,
+               and the confirmation still has to be readable afterwards. -->
+          <div id="qEditMsg" class="report-msg"></div>
+        </div>
 
         <div id="hintWrap">
           <button class="btn-ai-link" id="hintBtn" onclick="App.askHint()">Get a hint</button>
@@ -369,11 +400,32 @@
             <div id="genMoreError" class="err"></div>
           </div>
 
-          <!-- Flag + Next footer -->
+          <!-- Flag + Report + Next footer -->
+          <!-- Two different things, deliberately side by side. The checkbox is a
+               PRIVATE "come back to this" marker stored on your own quiz-log row.
+               Report files a questionFlags entry an admin works through in the
+               Composing Room's Proof station — use it when the question itself is
+               wrong, not when you found it hard. -->
           <label class="flag-line" for="reviewFlag">
             <input type="checkbox" id="reviewFlag" />
             <span>Flag this question for review</span>
           </label>
+
+          <div class="q-report" id="qReport">
+            <button class="btn-report" id="reportBtn" onclick="App.toggleReport()">🚩 Report a problem with this question</button>
+            <div class="report-panel hidden" id="reportPanel">
+              <label class="label" for="reportReason">What's wrong with it?</label>
+              <textarea id="reportReason" class="fc-edit-mono" rows="3"
+                        placeholder="e.g. the marked answer is wrong · two options say the same thing · it asks about something not in this topic. ⌘/Ctrl+Enter to send."
+                        onkeydown="App.reportKey(event)"></textarea>
+              <div class="fc-edit-actions">
+                <button class="btn btn-drill" id="reportSubmit" onclick="App.submitReport()">Send report</button>
+                <button class="fc-edit-cancel" onclick="App.toggleReport()">Cancel</button>
+              </div>
+              <div id="reportMsg" class="report-msg"></div>
+            </div>
+          </div>
+
           <button class="btn btn-primary btn-block btn-lg" id="nextBtn" style="margin-top: 14px;" onclick="App.nextQuestion()">Next</button>
         </div>
       </div>
@@ -656,6 +708,12 @@
              describe a change and the selected AI model applies it. Shown / reset
              by app.js. -->
         <div id="fcAdminActions" class="hidden" style="text-align:center;margin-top:4px;">
+          <!-- Highway is a SHARED property of the card (the generator tags about a
+               third of every deck); this is the manual override for the ones it
+               judged wrong, so it changes the deck for everyone. Label + hidden
+               state are set per card by App.renderCard — book cards have no
+               Highway, since a book deck is all rapid-review by construction. -->
+          <button class="btn-admin-fix" id="fcHighwayBtn" onclick="App.toggleCardHighway()">🛣️ Add to Highway</button>
           <button class="btn-admin-fix" id="fcEditBtn" onclick="App.toggleCardEdit()">✏️ Edit this card</button>
           <div id="fcEditPanel" class="fc-edit-panel hidden">
             <div class="segment fc-edit-modes">

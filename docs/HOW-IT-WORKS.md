@@ -62,6 +62,17 @@ rather than being invisible. Priority is **recomputed and stored on every logged
 - **Live/multi quiz** (`/api/quiz/multi`): an explicit topic set you pick; unseen-first for
   signed-in users. **Guest practice** (`/api/quiz/guest`): a shuffled sample, no history.
 
+**Inside a quiz.** **‹ Previous question** steps back over questions already answered; a revisited
+question is **read-only** (it shows what was answered, never a second attempt — a re-answer would
+double-count the score and rewrite the saved result), and **Next** walks forward again without
+re-logging anything. **Skip** reveals the answer and logs a miss. Two different flags: the
+**checkbox** ("Flag this question for review") is private to that learner's own quiz log, while
+**🚩 Report a problem with this question** files a report an admin works through in Academy Admin →
+Proof — that is the valve on questions being auto-published to the bank, so it's the right control
+when the question ITSELF is wrong (bad marked answer, duplicate options, off-topic), not when it was
+merely hard. Admins additionally get inline **Fix format** and **Edit this question**, saved for
+everyone.
+
 ## 5. Study modes
 
 1. **Mastery quiz** — priority-ranked, unseen-first.
@@ -123,7 +134,9 @@ distractors), and emits the answer as a 0-based index, not a copyable string.
 
 Decks are AI-written and scoped by level — **course** (18–30 cards), **lesson** (8–14), **topic**
 (5–9). Each card has a front **concept** and a two-part back: **Intuition** (plain-language) +
-**Formula** (the rule to memorise). **Highway mode** filters to the smallest high-impact set.
+**Formula** (the rule to memorise). **Highway mode** filters to the smallest high-impact set: the
+generator tags about a third of each deck, and an admin can add or remove any card by hand (🛣️ on
+the card) — that flag is on the shared card, so curating it changes the deck for everyone.
 Cards can carry a declarative **visual** (tangent lines, shaded integrals, etc.) drawn by a
 dependency-free SVG plotter with no `eval` — the model describes the plot, it never emits SVG.
 Per-user labels (Mastered / Still learning / Important) are private. **Speaker mode** grades a

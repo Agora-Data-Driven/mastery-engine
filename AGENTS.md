@@ -117,18 +117,19 @@ Rough zones in `server.js`:
 | 660–1010 | Catalog, models, question bank, stats, streak, usage (+ shelf resolver `inEngine` `:739`) |
 | 1021–1260 | Quiz guest/select/multi/priority/log (+ mastery flashcard deck `:1168`) |
 | 1264–1445 | Question generation, transcripts, drills |
-| 1451–2270 | Flashcards (incl. Speaker Mode `explain` `:1835`, card chat, admin card repair) |
-| 2281–2725 | Study assistant (scope chat, conversations, blocking + SSE streaming `:2578`) |
+| 1451–2330 | Flashcards (incl. Speaker Mode `explain` `:1835`, card chat, admin card repair, **Highway toggle** `:2209`) |
+| 2332–2380 | Admin question repair: `fix-format` (AI) and **`/api/questions/set`** (manual, `:2332`) |
+| 2381–2725 | Study assistant (scope chat, conversations, blocking + SSE streaming) |
 | 2730–2970 | Review / Lesson study guides, progress analysis |
 | 2979–3340 | Knowledge graph, readiness, warm-ups, learn-next, topic sequencing |
 | 3343–3550 | Hint/explain + admin data repair (latexify, fix-formats, merge-math) |
-| 3556–3995 | Programs, enrollment, video lessons, internal SSO endpoints (`verifyInternalSig` `:3619`), team + AI access, topic CRUD |
-| 4001–4345 | **Curriculum edit engine** (`runCurriculumEdits` `:4001`) + AI curriculum editing |
+| 3556–4190 | Programs, enrollment, video lessons, internal SSO endpoints (`verifyInternalSig` `:3724`, `rollupPrograms` `:3767`, `team-progress` `:3842`), team + AI access, topic CRUD |
+| 4199–4540 | **Curriculum edit engine** (`runCurriculumEdits` `:4199`) + AI curriculum editing |
 | 4349–4800 | Transcripts admin, Watcher import (3 read GETs) + **Watcher add/fetch** (2 POSTs, §7), ingest plan/commit |
 | 4772–5100 | Goal planning, bulk lessons, genjobs |
-| 5105–5525 | Roadmaps + learner shelf (`/api/me/*`) |
-| 5527–5615 | Flags, question edits, migrations, BigQuery sync |
-| 5616–5638 | Academy-admin gate, static serving, SPA catch-all (`:5627`), error handler (`:5632`) |
+| 5476–5940 | Roadmaps (`:5476`) + learner shelf (`/api/me/*`, `:5655`) |
+| 5941–6073 | **Flags + question CRUD** (`:5941`): learner flag, admin flag list *with the question body*, question browser (`:5989`), single delete (`:6020`), batch delete, migrations, BigQuery sync |
+| 6074–6110 | Academy-admin gate (`:6088`), static serving, SPA catch-all, error handler |
 
 ---
 
@@ -203,6 +204,53 @@ threads are private even from admins. Progress/stats stay on `effectiveUser`.
 priority = 0.5·(1−accuracy) + 0.3·min(daysSince/30, 1) + 0.2·(1 − min(attempts/10, 1))
 ```
 Returned 0–100. Higher = study this next. Never attempted ⇒ maximally stale ⇒ high priority.
+
+### ⚠️ A question's `answer` must equal one of its `options`, exactly
+
+The frontend grades by comparing the clicked option's **text** to `answer` (`handleAnswer` in
+`public/app.js`). An `answer` that matches no option therefore marks **every attempt wrong**, for
+everyone, silently — and mastery drops accordingly. Every write path enforces this:
+`acceptQuestionFix` (AI reformat) rejects the model's output rather than saving it, and
+`/api/questions/set` (the manual admin editor, `server.js`) 400s. That is the whole reason the
+admin editors present the answer as a **radio over the options** rather than a free-text field.
+Never add a question write that skips the check.
+
+### `questionFlags` is learner-written — the valve on auto-publishing
+
+Generated questions publish straight into the bank, so the safety valve is the learner: the quiz's
+**"Report a problem"** button (distinct from the private review-flag checkbox, which only marks a
+row in your own `quizLog`) POSTs `/api/questions/:id/flag`. Admins work the queue in Academy
+Admin → **Proof**, which fetches each flag *with the question body attached* so a report can be
+judged, fixed, or deleted in place. Resolving with `deleteQuestion:true` goes through
+`deleteQuestionById`, which also decrements the topic's `questionCount` — never delete a question
+doc directly, or the catalog claims questions that are gone.
+
+### Reporting progress to Sentinel — two endpoints, ONE rollup
+
+Sentinel's Overview rings and its admin **Team progress** table both read this engine's numbers,
+and they must agree about the same person on the same day. So both go through `rollupPrograms()`
+in `server.js`; only the fan-out differs.
+
+| Endpoint | Purpose (HMAC) | Answers | Used by |
+|---|---|---|---|
+| `GET /api/internal/enrollment-progress?email=` | `enrollment-progress` | one person's per-program rollup | the four Overview rings, the Professional tab |
+| `GET /api/internal/team-progress?emails=&days=` | `team-progress` | many people's rollup **+ each one's attempt window** | Sentinel's admin Team-progress table |
+
+- **Batched for read cost, not latency.** `team-progress` reads the shared `topics` catalogue ONCE
+  (`readTopicDocs`) and overlays each person's own stats onto it (`overlayStats`) — twelve staff
+  cost ~540 topic reads plus twelve small ones, not ~6,500. Capped at `MAX_TEAM_EMAILS` (60);
+  Sentinel chunks against it. **Never rebuild this by looping `enrollment-progress`.**
+- **`progressSumThen` is what makes VELOCITY possible.** `getRecentAttemptStats` replays the last
+  `days` of a person's `quizLog` into per-topic deltas (keyed through `buildTopicIdIndex`, never
+  `slug(fields)` — see §3), and `rollupPrograms` subtracts them to recompute the identical sum as
+  it stood when the window opened. Sentinel's `(now − then) / days × 7` is therefore measured
+  points-per-week, not a running total dressed up as a rate.
+- **Attribution is honest about its gap.** A quizLog row stores the track/course/lesson/topic as
+  they were *when it was logged*, so a topic re-filed inside the window no longer matches the
+  catalogue. Those rows land in `activity.unmatched` instead of being guessed at — velocity then
+  reads slightly LOW and says so, rather than wrong.
+- **Fail-soft PER PERSON.** One unreadable account returns `{found:false, error}` in its own slot;
+  everybody else still reports. Sentinel renders that slot as *unknown*, never as zero.
 
 ---
 
@@ -409,6 +457,23 @@ Audit any file before a delicate edit: `` tr -cd '\000' < server.js | wc -c ``
 
 **Cause:** stats keyed by `slug(current fields)` instead of the stable doc id. See §3.
 **Fix:** `buildTopicIdIndex()`. Never re-derive an id from field values.
+
+### 🔴 `state.log` is indexed by POSITION in `state.questions`
+
+Added 2026-08-07 with quiz back-navigation. `public/app.js` keeps the learner's results in
+`state.log[state.idx]` — a positional parallel array, not a map keyed by question id. Two rules
+follow, and both were free before "Previous question" existed:
+
+- **Anything that splices `state.questions` must splice `state.log` with it.** "Drill deeper" and
+  "Generate more like this" insert at `idx + 1`; that used to be safe because those actions were
+  only reachable at the frontier, where nothing after `idx` was answered. Back-navigation makes
+  mid-run insertion possible, and splicing one array alone re-points every later log row at a
+  different question — a passed answer filed against someone else's topic. Use
+  `queueAfterCurrent()`; don't splice `state.questions` by hand.
+- **A revisited question is READ-ONLY.** `renderQuestion` replays the stored row through
+  `showAnswered()` instead of re-arming the option buttons. Letting it be answered twice would
+  increment `state.score` again and overwrite the log entry, so the results screen and the saved
+  attempt would disagree with each other.
 
 ### 🔴 "No questions found" for a topic that plainly has questions
 
