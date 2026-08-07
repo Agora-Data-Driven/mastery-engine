@@ -136,7 +136,9 @@ const App = (() => {
   async function apiStreamSSE(path, body, onEvent, signal) {
     const res = await fetch(pinned(path), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Accept matters: routes whose model call can outlive a silent socket serve
+      // plain JSON by default and only heartbeat a stream when we say we read one.
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       credentials: 'same-origin',
       body: JSON.stringify(body),
       signal,
@@ -144,6 +146,13 @@ const App = (() => {
     if (!res.ok || !res.body) {
       const e = await res.json().catch(() => ({}));
       throw new Error(e.error || `Request failed (${res.status})`);
+    }
+    // A server that ignored the Accept — or a revision older than that route's
+    // stream — answers JSON. Hand the whole body over as the one 'result' frame
+    // instead of failing to parse it as SSE, so a deploy skew still works.
+    if (!(res.headers.get('content-type') || '').includes('text/event-stream')) {
+      onEvent('result', await res.json().catch(() => ({})));
+      return;
     }
     const reader = res.body.getReader();
     const dec = new TextDecoder();
@@ -157,6 +166,24 @@ const App = (() => {
       for (const f of frames) dispatchSSE(f, onEvent);
     }
     if (buf.trim()) dispatchSSE(buf, onEvent);
+  }
+
+  /** POST to a route that heartbeats an SSE stream while ONE slow model call runs,
+   *  and resolve with its single 'result' payload. Use this instead of api() for
+   *  anything that can take minutes: a plain POST sends no bytes for that whole
+   *  time and gets dropped in front of us, so the browser reports "Failed to fetch"
+   *  for work the server actually finished. The heartbeat is what prevents that. */
+  async function apiSlow(path, body) {
+    let out, failed;
+    await apiStreamSSE(path, body, (ev, data) => {
+      if (ev === 'result') out = data;
+      // The stream was already open, so the server could not send a status — it
+      // reports the failure in-band and we re-raise it as a normal Error.
+      else if (ev === 'error') failed = new Error(data.error || 'Request failed');
+    });
+    if (failed) throw failed;
+    if (!out) throw new Error('The connection closed before the result arrived');
+    return out;
   }
 
   /* ---------------------- Offline cache + sync queue --------------------- */
@@ -2967,22 +2994,36 @@ const App = (() => {
     $('fcError').textContent = '';
     $('fcEmpty').classList.add('hidden');
     $('fcGenerateBtn').disabled = true;
+    // A whole-course deck is one big model call: minutes, not "up to a minute".
     fcSetLoading(true, fc.book
       ? 'Building your book deck — the title card, then one card per key point…'
-      : 'Writing your deck — this can take up to a minute…');
+      : 'Writing your deck — a comprehensive one takes a few minutes. Leave this open…');
     try {
-      const r = await api('/api/flashcards/generate', {
-        method: 'POST', body: JSON.stringify(fc.scope),
-      });
+      // apiSlow, not api: the socket stays silent for the whole model call and a
+      // plain POST that long gets dropped, which read as "Failed to fetch" even
+      // though the deck had been written. The stream heartbeats until it lands.
+      const r = await apiSlow('/api/flashcards/generate', fc.scope);
       if (r.cards && r.cards.length) renderDeck(r.cards);
       else { $('fcEmpty').classList.remove('hidden'); $('fcError').textContent = 'No cards came back. Try again.'; }
     } catch (e) {
+      // The deck may exist anyway — generation banks it before replying, so a lost
+      // connection loses only the response. Look before charging for another run.
+      if (isNetworkError(e) && await recoverDeck()) return;
       $('fcEmpty').classList.remove('hidden');
       $('fcError').textContent = 'Could not generate flashcards: ' + e.message;
     } finally {
       fcSetLoading(false);
       $('fcGenerateBtn').disabled = false;
     }
+  }
+
+  /** Re-read the deck after a dropped generate; true if one was banked and rendered. */
+  async function recoverDeck() {
+    try {
+      const r = await api('/api/flashcards?' + fcQuery());
+      if (r.generated && r.cards.length) { renderDeck(r.cards); return true; }
+    } catch { /* still offline — fall through to the error message */ }
+    return false;
   }
 
   function regenerateFlashcards() {
