@@ -2251,13 +2251,19 @@ const App = (() => {
     $('qText').innerHTML = codeSpans(q.question);
     typeset($('qText'));
 
-    // Admin-only: "Fix format" reformats this shared question for everyone.
+    // "Previous" only exists behind the frontier — everything before this index
+    // has been answered, so stepping back always lands on a replayable question.
+    $('quizPrevBtn').classList.toggle('hidden', state.idx === 0);
+
+    // Admin-only: reformat this shared question, or hand-edit it, for everyone.
+    $('qAdminActions').classList.toggle('hidden', !isAdmin());
     const qFix = $('qFixFormatBtn');
-    qFix.classList.toggle('hidden', !isAdmin());
     qFix.disabled = false;
     qFix.textContent = '🛠️ Fix format';
+    resetQuestionEditUI();
 
     $('reviewFlag').checked = false;
+    resetReportUI();
     hide('postAnswer');
 
     // Skip control: shown until the learner answers or skips.
@@ -2316,31 +2322,62 @@ const App = (() => {
       area.appendChild(b);
     });
     typeset(area);
+
+    // Already been here? Stepping back (or forward again) over ground already
+    // covered replays what happened rather than offering a fresh attempt: a
+    // second answer would double-count the score and overwrite the log row.
+    const done = state.log[state.idx];
+    if (done) showAnswered(q, done);
+  }
+
+  /* --------------------- Answered-question presentation ------------------- */
+  // Shared by answering live and by replaying a question the learner stepped
+  // back to, so the two can never drift apart.
+
+  // Paint the options of an answered question: the correct one always
+  // highlighted, the learner's own pick marked wrong when it missed. `btn` pins
+  // the exact node clicked (live answering); on replay we match the stored
+  // answer text instead, since the buttons were rebuilt in a new shuffle.
+  function markOptions(q, userAnswer, btn = null) {
+    const ans = String(q.answer || '').trim();
+    const pick = userAnswer == null ? null : String(userAnswer).trim();
+    document.querySelectorAll('.option').forEach((el) => {
+      el.disabled = true;
+      const raw = (el.dataset.opt || '').trim();
+      if (raw === ans) el.classList.add('correct');
+      else if (btn ? el === btn : pick !== null && raw === pick) el.classList.add('wrong');
+    });
+  }
+
+  // The feedback line under an answered question. `kind` is the CSS state:
+  // ok (correct) | no (incorrect) | skip (skipped).
+  function paintFeedback(kind, answer) {
+    const f = $('feedback');
+    f.className = 'feedback ' + kind;
+    if (kind === 'ok') { f.textContent = 'Correct'; return; }
+    f.textContent = '';
+    f.appendChild(document.createTextNode(kind === 'skip' ? 'Skipped. Answer: ' : 'Incorrect. Answer: '));
+    const ans = document.createElement('span');
+    ans.innerHTML = codeSpans(answer);
+    f.appendChild(ans);
+    typeset(ans);
+  }
+
+  // Re-dress a question the learner already answered, from its log row.
+  function showAnswered(q, row) {
+    markOptions(q, row.userAnswer);
+    paintFeedback(row.skipped ? 'skip' : row.isCorrect ? 'ok' : 'no', q.answer);
+    $('reviewFlag').checked = !!row.reviewFlag;
+    hide('skipWrap');
+    show('postAnswer');
   }
 
   function handleAnswer(choice, q, btn) {
     const correct = choice.trim() === q.answer.trim();
     if (correct) state.score++;
 
-    document.querySelectorAll('.option').forEach((el) => {
-      el.disabled = true;
-      const raw = (el.dataset.opt || '').trim();
-      if (raw === q.answer.trim()) el.classList.add('correct');
-      else if (el === btn) el.classList.add('wrong');
-    });
-
-    const f = $('feedback');
-    if (correct) {
-      f.textContent = 'Correct';
-    } else {
-      f.textContent = '';
-      f.appendChild(document.createTextNode('Incorrect. Answer: '));
-      const ans = document.createElement('span');
-      ans.innerHTML = codeSpans(q.answer);
-      f.appendChild(ans);
-      typeset(ans);
-    }
-    f.className = 'feedback ' + (correct ? 'ok' : 'no');
+    markOptions(q, choice, btn);
+    paintFeedback(correct ? 'ok' : 'no', q.answer);
     $('progressScore').textContent = `Score ${state.score}`;
     hide('skipWrap');
     show('postAnswer');
@@ -2351,19 +2388,8 @@ const App = (() => {
   // (isCorrect false, skipped true) so mastery and priority bring it back.
   function skipQuestion() {
     const q = state.questions[state.idx];
-    document.querySelectorAll('.option').forEach((el) => {
-      el.disabled = true;
-      const raw = (el.dataset.opt || '').trim();
-      if (raw === q.answer.trim()) el.classList.add('correct');
-    });
-    const f = $('feedback');
-    f.textContent = '';
-    f.appendChild(document.createTextNode('Skipped. Answer: '));
-    const ans = document.createElement('span');
-    ans.innerHTML = codeSpans(q.answer);
-    f.appendChild(ans);
-    typeset(ans);
-    f.className = 'feedback skip';
+    markOptions(q, null);
+    paintFeedback('skip', q.answer);
     hide('skipWrap');
     show('postAnswer');
     state.log[state.idx] = { ...q, isCorrect: false, skipped: true, reviewFlag: false, userAnswer: null };
@@ -2505,11 +2531,24 @@ const App = (() => {
     }
   }
 
+  // Queue fresh questions right after the current one.
+  //
+  // state.log is indexed BY POSITION in state.questions, so it has to shift with
+  // it. That used to be free — drilling was only ever possible at the frontier,
+  // where nothing after the current index is answered yet. Back-navigation makes
+  // it possible to drill from a question in the MIDDLE of an answered run, and
+  // splicing only the questions there would re-point every later log row at the
+  // wrong question (a passed answer filed against someone else's topic).
+  function queueAfterCurrent(qs) {
+    state.questions.splice(state.idx + 1, 0, ...qs);
+    if (state.log.length > state.idx + 1) state.log.splice(state.idx + 1, 0, ...new Array(qs.length));
+  }
+
   // Insert the freshly-generated question right after the current one and jump
   // to it (mirroring nextQuestion's bookkeeping) so the learner answers it now.
   function insertDrillQuestion(nq) {
     if (state.log[state.idx]) state.log[state.idx].reviewFlag = $('reviewFlag').checked;
-    state.questions.splice(state.idx + 1, 0, nq);
+    queueAfterCurrent([nq]);
     state.idx++;
     renderQuestion();
   }
@@ -2556,7 +2595,7 @@ const App = (() => {
       });
       if (!Array.isArray(qs) || !qs.length) throw new Error('No usable questions came back');
       // Queue them right after this one; don't advance (learner is still reviewing).
-      state.questions.splice(state.idx + 1, 0, ...qs);
+      queueAfterCurrent(qs);
       $('progressCount').textContent = `Question ${state.idx + 1} of ${state.questions.length}`;
       msg.textContent = `Added ${qs.length} question${qs.length === 1 ? '' : 's'} - they're queued up next. Hit Next when you're ready.`;
       msg.classList.add('ok');
@@ -2741,6 +2780,18 @@ const App = (() => {
     else finish();
   }
 
+  // Step back to the question before this one. Everything behind the current
+  // index has been answered, so renderQuestion replays it read-only — the score
+  // and the log are left exactly as they were. The review flag is carried out of
+  // the checkbox first, the same bookkeeping nextQuestion does, so ticking it and
+  // going BACK doesn't silently drop it.
+  function prevQuestion() {
+    if (state.idx <= 0) return;
+    if (state.log[state.idx]) state.log[state.idx].reviewFlag = $('reviewFlag').checked;
+    state.idx--;
+    renderQuestion();
+  }
+
   function finish() {
     showOnly('resultView');
     const n = state.questions.length;
@@ -2750,7 +2801,11 @@ const App = (() => {
 
     const body = $('breakdownBody');
     body.innerHTML = '';
-    state.log.forEach((r) => {
+    // filter(Boolean): queueAfterCurrent can leave an empty slot for a question
+    // queued but not yet reached. Every slot is filled by the time the quiz ends,
+    // but neither the table nor the log write is worth crashing over if one isn't.
+    const answered = state.log.filter(Boolean);
+    answered.forEach((r) => {
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td style="color:var(--muted)">${esc(r.track)}</td>
@@ -2765,7 +2820,7 @@ const App = (() => {
       note.textContent = 'Guest mode: results were not saved.';
     } else {
       note.textContent = 'Saving results…';
-      const results = state.log.slice();
+      const results = answered;
       api('/api/quiz/log', { method: 'POST', body: JSON.stringify({ results }) })
         .then(() => {
           note.textContent = 'Results saved & mastery updated.';
@@ -2966,6 +3021,49 @@ const App = (() => {
     renderCard();
   }
 
+  // Admin: put this card into Highway (rapid review) or take it out, shared for
+  // everyone — the manual override for the ~third of each deck the generator
+  // tagged by itself. The card can leave the on-screen view when Highway mode is
+  // filtering, so re-find it by id afterwards rather than trusting the index.
+  async function toggleCardHighway() {
+    const card = fc.view[fc.idx];
+    const btn = $('fcHighwayBtn');
+    const err = $('fcQuizErr');
+    if (!card || !card.id) { if (err) err.textContent = 'No card to change.'; return; }
+    const want = !card.highway;
+    btn.disabled = true;
+    btn.textContent = want ? 'Adding…' : 'Removing…';
+    if (err) err.textContent = '';
+    try {
+      const r = await api('/api/flashcards/highway', {
+        method: 'POST', body: JSON.stringify({ cardId: card.id, highway: want }),
+      });
+      // Patch both arrays: fc.view can be the filtered copy, fc.cards the deck.
+      card.highway = !!r.highway;
+      const src = fc.cards.find((c) => c.id === card.id);
+      if (src) src.highway = card.highway;
+      // Taking the last highway card out would leave the filter showing the whole
+      // deck while the checkbox still claims "highway" — turn it off instead.
+      if (fc.highway && !fc.cards.some((c) => c.highway)) {
+        fc.highway = false;
+        $('fcHighway').checked = false;
+      }
+      applyHighwayFilter();
+      const at = fc.view.findIndex((c) => c.id === card.id);
+      fc.idx = at >= 0 ? at : Math.min(fc.idx, Math.max(0, fc.view.length - 1));
+      renderCard(); // repaints the badge, the counter and this button
+      if (err) err.textContent = card.highway ? 'Added to Highway for everyone. ✅' : 'Removed from Highway for everyone. ✅';
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = want ? '🛣️ Add to Highway' : '🛣️ Remove from Highway';
+      if (err) {
+        err.textContent = /admin|forbidden|\(403\)/i.test(e.message)
+          ? 'Only an admin can change a shared deck.'
+          : 'Could not change Highway: ' + e.message;
+      }
+    }
+  }
+
   function renderCard() {
     const card = fc.view[fc.idx];
     const stage = $('flashcard');
@@ -3025,9 +3123,15 @@ const App = (() => {
     $('fcPrev').disabled = fc.idx === 0;
     $('fcNext').disabled = fc.idx >= fc.view.length - 1;
 
-    // Admin-only: edit this card / fix its formatting, saved for everyone. Reset
-    // the edit panel to its idle (collapsed) state whenever the card changes.
+    // Admin-only: Highway / edit this card / fix its formatting, saved for
+    // everyone. Reset the edit panel to its idle (collapsed) state whenever the
+    // card changes.
     $('fcAdminActions').classList.toggle('hidden', !isAdmin());
+    const hwBtn = $('fcHighwayBtn');
+    hwBtn.classList.toggle('hidden', !!card.kind); // book decks are all rapid-review
+    hwBtn.classList.toggle('active', !!card.highway);
+    hwBtn.disabled = false;
+    hwBtn.textContent = card.highway ? '🛣️ Remove from Highway' : '🛣️ Add to Highway';
     resetCardEditUI();
 
     // Collapse Speaker Mode so a graded panel never lingers onto the next card.
@@ -4569,6 +4673,171 @@ const App = (() => {
       alert(/admin|forbidden|\(403\)/i.test(e.message)
         ? 'Only an admin can edit shared questions.'
         : 'Fix failed: ' + e.message);
+    }
+  }
+
+  /* ------------------------ Report a bad question ------------------------ */
+  // The learner-side safety valve on auto-published generated questions: this
+  // files a `questionFlags` entry that an admin works through in the Composing
+  // Room's Proof station. Distinct from the review-flag checkbox, which is a
+  // private marker on your own quiz-log row and never reaches anyone else.
+
+  // Reported this session. Kept so stepping BACK to a question you already
+  // reported doesn't offer to file a second flag for the same thing.
+  const reported = new Set();
+
+  function resetReportUI() {
+    const wrap = $('qReport');
+    if (!wrap) return;
+    // A question with no id is a guest/offline/preview row that isn't in the
+    // bank — there is nothing for an admin to open, so don't offer to report it.
+    const q = state.questions[state.idx];
+    const reportable = !!(q && q.id) && state.authed && !state.guest && !state.offline;
+    wrap.classList.toggle('hidden', !reportable);
+    $('reportPanel').classList.add('hidden');
+    const btn = $('reportBtn');
+    const already = !!(q && reported.has(q.id));
+    btn.disabled = already;
+    btn.textContent = already ? '🚩 Reported — an admin will review it' : '🚩 Report a problem with this question';
+    $('reportReason').value = '';
+    const submit = $('reportSubmit');
+    submit.disabled = false;
+    submit.textContent = 'Send report';
+    const msg = $('reportMsg');
+    msg.textContent = '';
+    msg.classList.remove('err');
+  }
+
+  function toggleReport() {
+    const panel = $('reportPanel');
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !opening);
+    if (opening) setTimeout(() => $('reportReason').focus(), 20);
+  }
+
+  // ⌘/Ctrl+Enter sends (Enter alone inserts a newline).
+  function reportKey(e) {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); submitReport(); }
+  }
+
+  async function submitReport() {
+    const q = state.questions[state.idx];
+    const reason = ($('reportReason').value || '').trim();
+    const submit = $('reportSubmit');
+    const msg = $('reportMsg');
+    if (!q || !q.id) { msg.textContent = 'This question is not in the bank, so there is nothing to report.'; msg.classList.add('err'); return; }
+    if (!reason) { msg.textContent = 'Say what is wrong with it first.'; msg.classList.add('err'); $('reportReason').focus(); return; }
+    msg.textContent = '';
+    msg.classList.remove('err');
+    submit.disabled = true;
+    submit.textContent = 'Sending…';
+    try {
+      await api('/api/questions/' + encodeURIComponent(q.id) + '/flag', {
+        method: 'POST', body: JSON.stringify({ reason, topic: q.topic || '' }),
+      });
+      reported.add(q.id);
+      $('reportPanel').classList.add('hidden');
+      const btn = $('reportBtn');
+      btn.disabled = true;
+      btn.textContent = '🚩 Reported — an admin will review it';
+    } catch (e) {
+      submit.disabled = false;
+      submit.textContent = 'Send report';
+      msg.textContent = "Couldn't send that report: " + e.message;
+      msg.classList.add('err');
+    }
+  }
+
+  /* ------------------ Admin: edit this question in place ----------------- */
+  // The hand-edit sibling of "Fix format" (which only repairs rendering): change
+  // the wording, the options, or which option is correct, saved for everyone.
+  // Deleting a question is deliberately NOT here — pulling the question out from
+  // under a running quiz is confusing; that lives in the Composing Room.
+
+  function resetQuestionEditUI() {
+    const panel = $('qEditPanel');
+    if (!panel) return;
+    panel.classList.add('hidden');
+    $('qEditBtn').classList.remove('active');
+    $('qEditText').value = '';
+    $('qEditOptions').innerHTML = '';
+    const save = $('qEditSave');
+    save.disabled = false;
+    save.textContent = 'Save for everyone';
+    const msg = $('qEditMsg');
+    msg.textContent = '';
+    msg.classList.remove('err');
+  }
+
+  function toggleQuestionEdit() {
+    const panel = $('qEditPanel');
+    if (!panel) return;
+    if (!panel.classList.contains('hidden')) { resetQuestionEditUI(); return; }
+    const q = state.questions[state.idx];
+    if (!q || !q.id) { alert('This question has no id to edit (offline or generated preview).'); return; }
+    panel.classList.remove('hidden');
+    $('qEditBtn').classList.add('active');
+    $('qEditText').value = q.question || '';
+    // Options render in their STORED order, not the shuffled on-screen order —
+    // the admin is editing the document, and the radio marks which one `answer`
+    // has to equal exactly (the server refuses a save where it matches none).
+    const ans = String(q.answer || '').trim();
+    $('qEditOptions').innerHTML = (q.options || []).map((opt, i) => `
+      <label class="q-edit-opt">
+        <input type="radio" name="qEditAnswer" value="${i}"${String(opt).trim() === ans ? ' checked' : ''} />
+        <input type="text" class="fc-edit-mono" data-opt-idx="${i}" value="${esc(opt)}" />
+      </label>`).join('');
+    setTimeout(() => $('qEditText').focus(), 20);
+  }
+
+  async function saveQuestionEdit() {
+    const q = state.questions[state.idx];
+    const save = $('qEditSave');
+    const msg = $('qEditMsg');
+    if (!q || !q.id) { msg.textContent = 'No question to edit.'; msg.classList.add('err'); return; }
+    const question = ($('qEditText').value || '').trim();
+    const options = [...$('qEditOptions').querySelectorAll('input[type="text"]')].map((el) => el.value.trim());
+    const picked = $('qEditOptions').querySelector('input[type="radio"]:checked');
+    if (!question) { msg.textContent = 'The question can’t be empty.'; msg.classList.add('err'); return; }
+    if (!picked) { msg.textContent = 'Tick which option is the correct answer.'; msg.classList.add('err'); return; }
+    const answer = options[Number(picked.value)] || '';
+    msg.textContent = '';
+    msg.classList.remove('err');
+    save.disabled = true;
+    save.textContent = 'Saving…';
+    try {
+      const r = await api('/api/questions/set', {
+        method: 'POST', body: JSON.stringify({ questionId: q.id, question, options, answer }),
+      });
+      // Patch the live copies (question bank + any log row) so the re-render
+      // shows the edit without a reload — same bookkeeping fixQuestionFormat does.
+      const fix = r.question || {};
+      for (const arr of [state.questions, state.log]) {
+        if (!Array.isArray(arr)) continue;
+        for (const item of arr) {
+          if (item && item.id === q.id) {
+            item.question = fix.question;
+            item.options = fix.options;
+            item.answer = fix.answer;
+          }
+        }
+      }
+      const changed = r.changed || [];
+      if (!changed.length) {
+        save.disabled = false;
+        save.textContent = 'Save for everyone';
+        msg.textContent = 'Nothing changed — this matches what’s already saved.';
+        return;
+      }
+      renderQuestion(); // also resets this panel
+      $('qEditMsg').textContent = 'Saved the ' + changed.join(' + ') + ' for everyone. ✅';
+    } catch (e) {
+      save.disabled = false;
+      save.textContent = 'Save for everyone';
+      msg.textContent = /admin|forbidden|\(403\)/i.test(e.message)
+        ? 'Only an admin can edit shared questions.'
+        : 'Save failed: ' + e.message;
+      msg.classList.add('err');
     }
   }
 
@@ -6181,7 +6450,10 @@ const App = (() => {
     sequenceTopics,
     fixQuestionFormat, fixCardFormat,
     toggleCardEdit, setCardEditMode, saveCardEdit, applyCardEdit, cardEditKey,
-    launchManual, launchPriority, launchPriorityCards, nextQuestion, skipQuestion, doneQuiz,
+    toggleQuestionEdit, saveQuestionEdit,
+    toggleReport, reportKey, submitReport,
+    launchManual, launchPriority, launchPriorityCards,
+    nextQuestion, prevQuestion, skipQuestion, doneQuiz,
     setIntent,
     askHint, askExplain,
     startDrill, submitCustomConfusion,
@@ -6191,7 +6463,7 @@ const App = (() => {
     closeRoadmap, addRoadmapToEngine,
     openAddTracks, closeAddTracks, filterAddTracks,
     openGraph, setGraphLevel,
-    generateFlashcards, regenerateFlashcards, toggleHighway,
+    generateFlashcards, regenerateFlashcards, toggleHighway, toggleCardHighway,
     flipCard, nextCard, prevCard, quizMeOnCard, toggleCardStats,
     openSpeaker, closeSpeaker, toggleSpeaking, gradeSpeaking, toggleSpeakerType,
     restartSpeaking, speakerNextCard, readAssessment,

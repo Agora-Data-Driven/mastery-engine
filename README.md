@@ -270,7 +270,12 @@ click.
   the plot, and a hand-rolled expression parser (no `eval`) evaluates the
   functions, so a bad/hostile `fn` simply renders nothing.
 - **Highway mode.** A toggle that filters the deck to the smallest high-impact
-  set (foundational + cross-lesson concepts) for a rapid review.
+  set (foundational + cross-lesson concepts) for a rapid review. The generator
+  tags roughly a third of each deck; an **admin can override any card** with
+  🛣️ Add to / Remove from Highway on the card itself. That flag lives on the
+  shared card (`POST /api/flashcards/highway`), so a curation change applies to
+  everyone — unlike the per-user labels below. Book decks have no Highway: they
+  are all rapid-review by construction, so the control is hidden there.
 - **Labels.** Each card can be marked **Mastered / Still learning / Important**;
   these are per-user (`users/{email}/flashcardStatus/{cardId}`) and private.
 - **Quiz me on this.** Generates one real MCQ for the card's topic, banks it
@@ -284,9 +289,43 @@ decks are still only built on demand (when a user clicks "Generate"), so nothing
 is pre-generated. To scope the feature back to specific courses, make
 `flashcardsEnabledFor` in `server.js` a regex test (mirrored by `flashcardsEnabled`
 in `public/app.js`), e.g. `/\bcalculus\b/i`. Endpoints:
-`GET /api/flashcards`, `POST /api/flashcards/{generate,status,quiz}`
+`GET /api/flashcards`, `POST /api/flashcards/{generate,status,quiz,highway}`
 (`server.js`); generators `generateFlashcards` / `generateFlashcardQuestion`
 (`lib/gemini.js`); data layer in `lib/firestore.js`.
+
+## Taking a quiz
+
+- **Going back.** **‹ Previous question** steps back through the questions you've
+  already answered. A revisited question is **read-only** — it shows what you
+  answered and whether it was right, not a second attempt: re-answering would
+  double-count the score and rewrite the saved result. Hit **Next** to walk
+  forward again; nothing is re-logged.
+- **Skip.** Reveals the answer without recording a guess. Still logged as a miss,
+  so priority brings the topic back.
+- **Flag this question for review** (checkbox) is **private** — it just marks that
+  row in your own quiz log.
+- **🚩 Report a problem with this question** is the one an admin sees. Generated
+  questions publish straight to the bank, so this is the safety valve: it files a
+  `questionFlags` entry that surfaces in Academy Admin → **Proof**, with the
+  question attached, where it can be edited, deleted, or dismissed. Hidden for
+  guests and for offline/preview questions that aren't in the bank.
+- **Admins** also get 🛠️ **Fix format** (AI repair of code/math rendering) and
+  ✏️ **Edit this question** (hand-edit the text, the options, and which one is
+  correct) inline in the quiz. Both save for everyone. Deleting a question lives
+  in Academy Admin, not here — pulling a question out from under a running quiz
+  is not a thing anyone wants mid-answer.
+
+### Editing the bank (Academy Admin → Proof)
+
+Two cards. **Flagged questions** works the report queue: each flag arrives with
+its question, and *Keep & resolve* / *Edit* / *Delete question* are separate
+decisions (editing does **not** clear the flag — only you know whether the fix
+answered what was reported). **Browse & edit questions** does the same over any
+section of the bank, flagged or not, via a Course › Lesson › Sub-lesson picker.
+Deleting corrects the sub-lesson's `questionCount`. Endpoints:
+`POST /api/questions/:id/flag` (learner), `GET /api/admin/flags`,
+`POST /api/admin/flags/:id/resolve`, `POST /api/questions/set`,
+`GET /api/admin/questions`, `DELETE /api/admin/questions/:id`.
 
 ## Knowledge Map ("Visualize my progress")
 

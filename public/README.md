@@ -12,7 +12,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Frontend stru
 | File | What it is | Greppable anchors |
 |---|---|---|
 | [index.html](index.html) | Learner shell (835 lines). Every view is a `<section id="xView" class="hidden">`. | `loginView` `:20` · `setupView` `:70` · `quizView` `:288` · `resultView` `:381` · `statsView` `:400` · `graphView` `:451` · `flashcardView` `:506` |
-| [app.js](app.js) | The entire learner frontend (6.2k lines), one IIFE. | `const App = (() => {` `:2` · `show()`/`hide()` `:4`/`:5` (the whole "router") · embed-mode boot block `:8–35` (`?embed=assistant`/`?actions=1` URL-only, never persisted) · **NUL line `:559`** |
+| [app.js](app.js) | The entire learner frontend (6.4k lines), one IIFE. | `const App = (() => {` `:2` · `show()`/`hide()` `:4`/`:5` (the whole "router") · embed-mode boot block `:8–35` (`?embed=assistant`/`?actions=1` URL-only, never persisted) · **NUL line `:559`** · quiz replay (`markOptions` / `paintFeedback` / `showAnswered` / `prevQuestion` / `queueAfterCurrent`) · `toggleCardHighway` · report + admin question editor (`resetReportUI` … `saveQuestionEdit`) |
 | [academy-admin.html](academy-admin.html) / [academy-admin.js](academy-admin.js) | The admin "Composing Room" (2.2k lines JS). **Server-gated**: an explicit route at server.js:5616 302s non-admins ahead of express.static. | station panels; typed-SSE consumers for the planners |
 | [styles.css](styles.css) | All styling. Token-driven: a `:root` light palette, a `:root[data-theme="dark"]` retune of the SAME tokens, then a handful of dark rules for fills that carry white text. | `:root {` `:5` · `:root[data-theme="dark"]` (right after it) · tint families (`--violet-line`, `--amber-soft`, `--green-line`, …) |
 | [theme.js](theme.js) | Light/dark resolution, loaded **synchronously in `<head>`** so `data-theme` lands before first paint. Order: `?theme=` (what Sentinel passes into every iframe) → the learner's own toggle → the OS. Also accepts `{type:"agora-theme"}` from the framing window. | `window.AgoraTheme` · `SESSION`/`LOCAL` keys |
@@ -44,6 +44,10 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
 ## Gotchas + do-not-touch
 
 - 🔴 **NUL (0x00) byte** on app.js line **559** — Node-script edits only.
+- 🔴 **`state.log` is a POSITIONAL parallel array to `state.questions`.** Splice one and you must
+  splice the other (`queueAfterCurrent`), or every later result is filed against the wrong
+  question. A question the learner steps BACK to is replayed read-only — never re-answerable.
+  Full rationale: [../AGENTS.md §7](../AGENTS.md).
 - 🔴 `?embed=assistant` and `?actions=1` must stay **URL-only, never persisted**: same-origin
   iframes share one `sessionStorage`, and persisting them flipped Sentinel's Academy tab into
   the assistant (the "stuck in the chat" bug). See the boot block, app.js:8–35.
