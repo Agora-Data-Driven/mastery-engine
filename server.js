@@ -33,6 +33,7 @@ import {
   bulkUpdateFlashcards,
   getFlashcards,
   getFlashcardById,
+  programForCard,
   getAllFlashcards,
   getAllFlashcardsWithId,
   saveFlashcards,
@@ -420,6 +421,44 @@ function sseInit(res) {
 function sseSend(res, event, data) {
   // JSON.stringify keeps the payload to a single line, so the `data:` framing holds.
   res.write(`event: ${event}\ndata: ${JSON.stringify(data ?? {})}\n\n`);
+}
+
+/** An Error that a route's extracted worker can throw to pick its own HTTP status
+ *  (the `if (e.status)` branch in the catch blocks below, and `sseResult`). */
+const httpErr = (status, message) => Object.assign(new Error(message), { status });
+
+/** True when the caller said it can read an SSE stream. Routes whose model call may
+ *  outlive a silent socket serve JSON by default and only switch shape on this. */
+const wantsSSE = (req) => String(req.headers.accept || '').includes('text/event-stream');
+
+/**
+ * Run one slow model call as a HEARTBEATED stream instead of a plain POST.
+ *
+ * A single thinking-model call routinely runs minutes. Held as a plain POST the
+ * socket carries NO bytes for that whole time, and a silent connection that long
+ * gets dropped in front of us — the custom domain's ghs.googlehosted.com frontend,
+ * office proxies, NAT. The work still SUCCEEDS here (200 in the request log,
+ * everything banked); only the response is lost, so the browser reports a
+ * network-level "Failed to fetch" for a request the server completed.
+ *
+ * So: open the stream immediately, `: ping` until `work()` settles, then emit the
+ * payload as one 'result' event. Once the stream is open a failure can no longer
+ * be a 500, which is why errors are reported in-band as an 'error' event.
+ */
+const SSE_HEARTBEAT_MS = 15000;
+async function sseResult(res, work, failMessage = 'Request failed') {
+  sseInit(res);
+  // A bare comment frame is a no-op to any SSE reader but keeps the socket warm.
+  const beat = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, SSE_HEARTBEAT_MS);
+  try {
+    sseSend(res, 'result', await work());
+  } catch (e) {
+    sseSend(res, 'error', { error: e.message || failMessage });
+  } finally {
+    clearInterval(beat);
+    sseSend(res, 'done', {});
+    res.end();
+  }
 }
 
 /** The AI engine an admin composer request picked (provider/model/thinking in the
@@ -1571,6 +1610,29 @@ function flashcardScope(src = {}) {
 }
 const flashcardScopeLabel = (s) => [s.course, s.lesson, s.topic].filter(Boolean).join(' › ');
 
+/**
+ * The program scope for a request that hangs off a CARD, rather than the ambient
+ * one `requestScope` derives from the caller.
+ *
+ * 🔴 The two are NOT interchangeable. A learner's shelf mixes programs and the
+ * mastery deck interleaves them, so the deck on screen is routinely not from the
+ * program their enrolment resolves to. `/api/flashcards` and `/generate` never hit
+ * this because the client sends `program` alongside the scope — the card-scoped
+ * endpoints have no scope to send, and silently resolved to the wrong program:
+ * "This card is not linked to a known topic" and a permanent "0 questions ·
+ * — accuracy" on a topic with a full question bank (fixed 2026-08-07).
+ *
+ * Enrolment still decides: the card's program goes through `resolveProgramScope`
+ * exactly like a requested one, so this widens nothing a learner couldn't reach.
+ * An unresolvable card falls back to the ambient scope and the caller's own
+ * "unknown topic" branch, which is the honest answer.
+ */
+async function cardScope(req, card) {
+  const program = await programForCard(card);
+  if (!program) return requestScope(req);
+  return resolveProgramScope(optionalUser(req), { requested: program, isAdmin: isAdmin(req) });
+}
+
 // Merge a user's private status labels + personalized "rewrite in place" overlay
 // onto shared card definitions. Callers pass conversationUser(req): the overlay
 // is written by the card CHAT under that identity, so reads must match — and an
@@ -1658,7 +1720,7 @@ async function buildBookDeck({ program, scope, points = null, instructions = '',
       highway: true,
     })),
   ];
-  await saveFlashcards({ ...scope, level: 'lesson' }, cards);
+  await saveFlashcards({ ...scope, level: 'lesson', program }, cards);
   return cards.length;
 }
 
@@ -1689,66 +1751,73 @@ app.get('/api/flashcards', requireAuth, async (req, res, next) => {
   }
 });
 
-// Auth: (re)generate the deck for a scope from the questions/topics it contains,
-// bank it, and return it. Rate-limited (an AI call). Gated to enabled courses.
-app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, next) => {
-  try {
-    const scope = flashcardScope(req.body);
-    if (!scope.course) return res.status(400).json({ error: 'A course is required' });
-    if (!flashcardsEnabledFor(scope.course)) {
-      return res.status(403).json({ error: 'Flashcards are not enabled for this course yet' });
-    }
-    const programScope = await requestScope(req);
+// (Re)generate the deck for a scope from the questions/topics it contains, bank it,
+// and return the same payload GET /api/flashcards would. Extracted from the route
+// because BOTH transports below run it — throws `httpErr` rather than writing a
+// status, since the SSE path has already sent its headers by the time this runs.
+async function buildDeckForRequest(req) {
+  const scope = flashcardScope(req.body);
+  if (!scope.course) throw httpErr(400, 'A course is required');
+  if (!flashcardsEnabledFor(scope.course)) throw httpErr(403, 'Flashcards are not enabled for this course yet');
+  const programScope = await requestScope(req);
+  const packaged = async () => ({
+    enabled: true,
+    level: scope.level,
+    generated: true,
+    cards: await packageFlashcards(await getFlashcards(scope), conversationUser(req)),
+  });
 
-    // Book deck: `book:true` asks for the fixed title→points shape; with `book`
-    // absent, an existing book deck stays a book on regenerate (kind marks it),
-    // and a reading program (category 'growth') books its lessons automatically.
-    let book = req.body?.book === true;
-    if (req.body?.book === undefined && scope.level === 'lesson') {
-      const existing = await getFlashcards(scope);
-      book = existing.some((c) => c.kind) || await isReadingProgram(programScope.program);
-    }
-    if (book) {
-      if (scope.level !== 'lesson') return res.status(400).json({ error: 'Book decks are built per lesson (the lesson is the book)' });
-      await buildBookDeck({
-        program: programScope.program,
-        scope,
-        instructions: req.body?.instructions || '',
-        ai: aiChoice(req),
-      });
-      const saved = await getFlashcards(scope);
-      return res.json({
-        enabled: true,
-        level: scope.level,
-        generated: true,
-        cards: await packageFlashcards(saved, conversationUser(req)),
-      });
-    }
-
-    const catalog = await getCatalog(req.userEmail, programScope);
-    const scoped = scopeCatalog(catalog, scope);
-    const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
-    if (!topics.length) return res.status(400).json({ error: 'No topics in this section yet' });
-
-    // Sample the section's questions so the deck is comprehensive enough to cover them.
-    const pool = await getQuestionsForTopics(topics.slice(0, 60), programScope);
-    const questions = shuffle(pool).slice(0, 40)
-      .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
-
-    const cards = await generateFlashcards(
-      { scopeLabel: flashcardScopeLabel(scope), level: scope.level, topics, questions, instructions: req.body?.instructions || '' },
-      aiChoice(req),
-    );
-    if (!cards.length) return res.status(502).json({ error: 'No flashcards were generated; try again' });
-
-    await saveFlashcards(scope, cards);
-    const saved = await getFlashcards(scope);
-    res.json({
-      enabled: true,
-      level: scope.level,
-      generated: true,
-      cards: await packageFlashcards(saved, conversationUser(req)),
+  // Book deck: `book:true` asks for the fixed title→points shape; with `book`
+  // absent, an existing book deck stays a book on regenerate (kind marks it),
+  // and a reading program (category 'growth') books its lessons automatically.
+  let book = req.body?.book === true;
+  if (req.body?.book === undefined && scope.level === 'lesson') {
+    const existing = await getFlashcards(scope);
+    book = existing.some((c) => c.kind) || await isReadingProgram(programScope.program);
+  }
+  if (book) {
+    if (scope.level !== 'lesson') throw httpErr(400, 'Book decks are built per lesson (the lesson is the book)');
+    await buildBookDeck({
+      program: programScope.program,
+      scope,
+      instructions: req.body?.instructions || '',
+      ai: aiChoice(req),
     });
+    return packaged();
+  }
+
+  const catalog = await getCatalog(req.userEmail, programScope);
+  const scoped = scopeCatalog(catalog, scope);
+  const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
+  if (!topics.length) throw httpErr(400, 'No topics in this section yet');
+
+  // Sample the section's questions so the deck is comprehensive enough to cover them.
+  const pool = await getQuestionsForTopics(topics.slice(0, 60), programScope);
+  const questions = shuffle(pool).slice(0, 40)
+    .map((q) => ({ topic: q.topic, question: q.question, answer: q.answer }));
+
+  const cards = await generateFlashcards(
+    { scopeLabel: flashcardScopeLabel(scope), level: scope.level, topics, questions, instructions: req.body?.instructions || '' },
+    aiChoice(req),
+  );
+  if (!cards.length) throw httpErr(502, 'No flashcards were generated; try again');
+
+  await saveFlashcards({ ...scope, program: programScope.program }, cards);
+  return packaged();
+}
+
+/* Auth: build the deck. Rate-limited (an AI call). Gated to enabled courses.
+ *
+ * A course-level deck is 18-30 cards, each with an intuition, a LaTeX formula and
+ * a visual spec, from ONE thinking-model call — minutes of a socket carrying no
+ * bytes, which is precisely the connection an intermediary drops (see `sseResult`).
+ * That is what surfaced as "Could not generate flashcards: Failed to fetch" while
+ * the deck was in fact written and banked. So when the browser can read a stream we
+ * heartbeat one; JSON stays the default for anything else that calls this. */
+app.post('/api/flashcards/generate', requireAuth, rateLimitAI, async (req, res, next) => {
+  if (wantsSSE(req)) return sseResult(res, () => buildDeckForRequest(req), 'Flashcard generation failed');
+  try {
+    res.json(await buildDeckForRequest(req));
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: e.message });
     next(e);
@@ -1782,7 +1851,9 @@ app.post('/api/flashcards/quiz', requireAuth, rateLimitAI, async (req, res, next
     const card = await getFlashcardById(cardId);
     if (!card) return res.status(404).json({ error: 'Card not found' });
 
-    const programScope = await requestScope(req);
+    // cardScope, NOT requestScope: the card's own program, or a learner whose
+    // enrolment resolves elsewhere quizzes against an empty catalog (see cardScope).
+    const programScope = await cardScope(req, card);
     // Bank once, then narrow — prereqContext below resolves prerequisite stats
     // from the BANK (prereq links cross programs); the card resolves scoped.
     const bank = await getCatalog(req.userEmail, null);
@@ -1842,7 +1913,9 @@ app.get('/api/flashcards/card-stats', requireAuth, async (req, res, next) => {
     if (!card.topic) return res.json({ topic: '', questionCount: 0, attempts: 0, correct: 0, accuracy: null, questions: [] });
 
     const [pool, attempts] = await Promise.all([
-      getQuestionsForTopics([card.topic], await requestScope(req)),
+      // cardScope: the ambient one reported "0 questions" for every card whose
+      // program wasn't the learner's enrolled one, however full its bank was.
+      getQuestionsForTopics([card.topic], await cardScope(req, card)),
       getTopicAttempts(req.userEmail, card.topic),
     ]);
     res.json({ topic: card.topic, questionCount: pool.length, ...attempts });
@@ -1891,7 +1964,7 @@ app.post('/api/flashcards/explain', requireAuth, rateLimitAI, async (req, res, n
 
       // One attempt per point, keyed to the point's own catalog row (scoped to
       // this lesson so a point name shared with another course can't miscredit).
-      const catalog = await getCatalog(req.userEmail, await requestScope(req));
+      const catalog = await getCatalog(req.userEmail, await cardScope(req, card));
       const idx = scopedMetaIndex(catalog, { track: card.track, course: card.course, lesson: card.lesson });
       const rows = grade.coverage
         .filter((c) => idx.has(c.point))
@@ -1931,8 +2004,10 @@ app.post('/api/flashcards/explain', requireAuth, rateLimitAI, async (req, res, n
     }
 
     // Resolve the card's full hierarchy (same lookup the quiz endpoint uses) so
-    // the attempt logs against the right Track > Course > Lesson > Topic.
-    const catalog = await getCatalog(req.userEmail, await requestScope(req));
+    // the attempt logs against the right Track > Course > Lesson > Topic. Scoped to
+    // the CARD's program — under the ambient one `meta` came back null for a
+    // cross-program deck and a graded explanation silently logged no progress.
+    const catalog = await getCatalog(req.userEmail, await cardScope(req, card));
     const idx = metaIndex(catalog);
     const meta = card.topic && idx.has(card.topic) ? idx.get(card.topic) : null;
     const scopeLabel = meta
@@ -2012,7 +2087,9 @@ app.post('/api/flashcards/chat', requireAuth, rateLimitAI, async (req, res, next
     const baseVisual = existing?.intuition ? existing.visual : card.visual;
 
     // A little context: sample questions from the same topic to gauge depth.
-    const programScope = await requestScope(req);
+    // cardScope: under the ambient one a cross-program card got neither its
+    // hierarchy label nor any sample questions, so the tutor answered blind.
+    const programScope = await cardScope(req, card);
     const catalog = await getCatalog(req.userEmail, programScope);
     const idx = metaIndex(catalog);
     const meta = card.topic && idx.has(card.topic) ? idx.get(card.topic) : {};
@@ -5431,36 +5508,19 @@ app.get('/api/admin/genjobs/:id', requireAdmin, async (req, res, next) => {
  * server-internal batch that would trip it within seconds.
  *
  * A step is ONE model call and with thinking on it routinely runs 1-5 minutes
- * (measured: 78-313s per topic). As a plain POST the socket carries NO bytes for
- * that whole time, and a silent connection that long gets dropped in front of us
- * — the custom domain's ghs.googlehosted.com frontend, office proxies, NAT. The
- * step then SUCCEEDS here (200, questions banked) while the browser sees
- * "Failed to fetch" and the run strands at queued/running. So when the caller can
- * read SSE we open the stream immediately and heartbeat until the model returns,
- * exactly like the admin planners. JSON stays the default: scripts/ drives this
- * endpoint too, and it has no such problem over a short-lived CLI socket. */
-const STEP_HEARTBEAT_MS = 15000;
+ * (measured: 78-313s per topic) — the exact socket `sseResult` exists for: held as
+ * a plain POST the step SUCCEEDS here (200, questions banked) while the browser
+ * sees "Failed to fetch" and the run strands at queued/running. JSON stays the
+ * default: scripts/ drives this endpoint too, and it has no such problem over a
+ * short-lived CLI socket. */
 app.post('/api/admin/genjobs/:id/step', requireAdmin, async (req, res, next) => {
-  if (!String(req.headers.accept || '').includes('text/event-stream')) {
-    try {
-      res.json({ job: await stepGenJob(req.params.id) });
-    } catch (e) {
-      next(e);
-    }
-    return;
+  if (wantsSSE(req)) {
+    return sseResult(res, async () => ({ job: await stepGenJob(req.params.id) }), 'Step failed');
   }
-  sseInit(res);
-  // A bare comment frame is a no-op to any SSE reader but keeps the socket warm.
-  const beat = setInterval(() => { try { res.write(': ping\n\n'); } catch { /* closed */ } }, STEP_HEARTBEAT_MS);
   try {
-    sseSend(res, 'result', { job: await stepGenJob(req.params.id) });
+    res.json({ job: await stepGenJob(req.params.id) });
   } catch (e) {
-    // The stream is already open, so a failure cannot be a 500 — report it in-band.
-    sseSend(res, 'error', { error: e.message || 'Step failed' });
-  } finally {
-    clearInterval(beat);
-    sseSend(res, 'done', {});
-    res.end();
+    next(e);
   }
 });
 

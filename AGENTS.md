@@ -111,13 +111,13 @@ Rough zones in `server.js`:
 
 | Lines | Zone |
 |---|---|
-| 167–430 | Middleware, CSP (`:198`), helpers (`shuffle`, `mapWithConcurrency`, `aiChoice` `:310`, `difficultyChoice` `:333`, `streamText` `:361`, `sseInit` `:389`, `rateLimitAI` `:419`) |
+| 167–490 | Middleware, CSP (`:198`), helpers (`shuffle` `:211`, `mapWithConcurrency`, `aiChoice` `:333`, `difficultyChoice` `:356`, `streamText` `:384`, `sseInit` `:412`, **`sseResult` `:448`** — the slow-AI transport, §7 — `rateLimitAI` `:480`) |
 | 430–577 | `bigJson`, the `/api` gate (`:555` — Sentinel user-lookup + per-user AI policy) |
 | 578–660 | Auth routes |
 | 660–1010 | Catalog, models, question bank, stats, streak, usage (+ shelf resolver `inEngine` `:739`) |
 | 1021–1260 | Quiz guest/select/multi/priority/log (+ mastery flashcard deck `:1168`) |
 | 1264–1445 | Question generation, transcripts, drills |
-| 1451–2330 | Flashcards (incl. Speaker Mode `explain` `:1835`, card chat, admin card repair, **Highway toggle** `:2209`) |
+| 1451–2400 | Flashcards (**`cardScope` `:1630`** — §7 — deck build `buildDeckForRequest` `:1758` + its two transports `:1817` (§7), Speaker Mode `explain`, card chat, admin card repair, **Highway toggle**) |
 | 2332–2380 | Admin question repair: `fix-format` (AI) and **`/api/questions/set`** (manual, `:2332`) |
 | 2381–2725 | Study assistant (scope chat, conversations, blocking + SSE streaming) |
 | 2730–2970 | Review / Lesson study guides, progress analysis |
@@ -475,6 +475,37 @@ follow, and both were free before "Previous question" existed:
   increment `state.score` again and overwrite the log entry, so the results screen and the saved
   attempt would disagree with each other.
 
+### 🔴 Anything hanging off a CARD must scope to the card, not to `requestScope`
+
+Added 2026-08-07. **A learner's shelf mixes programs**, and the Mastery deck interleaves them
+card by card — so the deck on screen is routinely NOT from the program the caller's enrolment
+resolves to. `requestScope(req)` reads `?program=`/`body.program` and otherwise falls back to
+the learner's **first enrolled program**. `/api/flashcards` and `/generate` never noticed,
+because the client sends `program` alongside the scope (`fcQuery()`, `fc.scope`). The
+card-scoped endpoints have no scope to send, so they silently resolved against the wrong
+curriculum and every catalog lookup came back empty:
+
+| Endpoint | How it failed |
+|---|---|
+| `POST /api/flashcards/quiz` | 400 **"This card is not linked to a known topic"** |
+| `GET /api/flashcards/card-stats` | permanent **"0 questions · — accuracy"** on a topic with a full bank |
+| `POST /api/flashcards/explain` | graded the explanation, then logged **no progress** (`meta` null) |
+| `POST /api/flashcards/chat` | tutor answered with no hierarchy label and no sample questions |
+
+**Use `cardScope(req, card)`** (`server.js`, next to `flashcardScopeLabel`) for every one of
+these. It resolves the card's own program via `programForCard()` ([lib/firestore.js](lib/firestore.js))
+and runs it through `resolveProgramScope` exactly like a requested one — so **enrolment still
+decides** and nothing widens: a learner enrolled elsewhere gets the same 400 as before.
+
+Cards banked from 2026-08-07 store `program` on the doc. Older ones don't, so `programForCard`
+falls back to one equality query on the card's topic row — deliberately not `getCatalog`, which
+is ~540 docs and this runs per card view. `program` is **not** part of `flashcardScopeId`; adding
+it there would orphan every deck already banked.
+
+> A client-side fix (send `program` with the card id) is NOT sufficient, and that is the whole
+> reason this lives on the server: in the Mastery deck `fc.scope` is `null` by design, because
+> consecutive cards belong to different programs.
+
 ### 🔴 "No questions found" for a topic that plainly has questions
 
 **Cause:** the legacy owner gets `priority: null` on never-attempted topics, and
@@ -493,26 +524,44 @@ Two separate problems, both fixed in [lib/lmstudio.js](lib/lmstudio.js) — don'
 DeepSeek V4 Flash defaults **thinking ON server-side**. You must explicitly send
 `thinking: { type: 'disabled' }` to get the fast path. Passing nothing is not neutral.
 
-### 🔴 Bulk generation dies with "Failed to fetch" while the server logged 200
+### 🔴 A slow AI POST dies with "Failed to fetch" while the server logged 200
 
-**Cause:** one `POST /api/admin/genjobs/:id/step` is a single thinking-model call, measured at
-**78–313s per topic**. Held as a plain POST the socket sends **no bytes** for those minutes, and
-a silent connection that long gets dropped in front of us — the `ghs.googlehosted.com`
-domain-mapping frontend, an office proxy, NAT. The step still **succeeds** (200 in the request
-log, questions banked); only the response is lost, so the browser reports a network-level
-`TypeError: Failed to fetch` and the run strands at `queued`/`running`. Observed cleanly:
-every step ≤115s came back, every step ≥148s did not. The service timeout (3600s) is a red
-herring, and there is no OOM or 5xx to find.
+**Any route whose model call can run for minutes has this bug until it is given the streamed
+transport.** Hit twice now: bulk generation (`/api/admin/genjobs/:id/step`, 2026-08-03) and
+whole-course flashcard decks (`/api/flashcards/generate`, 2026-08-07).
 
-**Fix (2026-08-03):** `/step` now content-negotiates. Send `Accept: text/event-stream` and it
-opens the stream immediately and heartbeats (`: ping`) every 15s until the model returns, then
-emits one `result` event — the same shape the admin planners use, for the same reason. Without
-that header it still answers plain JSON, which is what `scripts/` drives it with.
+**Cause:** the call is a single thinking-model call — `/step` measured at **78–313s per topic**,
+a course deck is 18–30 cards each with an intuition, a LaTeX formula and a visual spec. Held as
+a plain POST the socket sends **no bytes** for those minutes, and a silent connection that long
+gets dropped in front of us — the `ghs.googlehosted.com` domain-mapping frontend, an office
+proxy, NAT. The work still **succeeds** (200 in the request log, questions/cards banked); only
+the response is lost, so the browser reports a network-level `TypeError: Failed to fetch`.
+Observed cleanly on `/step`: every step ≤115s came back, every step ≥148s did not. The service
+timeout (3600s) is a red herring, and there is no OOM or 5xx to find.
 
-> **Never "retry" a dropped step by re-POSTing `/step`.** The first one is almost certainly
-> still running: both would `queue.shift()` the same topic, so that topic gets generated twice
-> and the next one is skipped. `waitOutStep()` in `public/academy-admin.js` polls
-> `GET /api/admin/genjobs/:id` until the in-flight step lands instead.
+**Fix — content-negotiate, both sides:**
+
+| Side | Use |
+|---|---|
+| `server.js` | `wantsSSE(req)` → `sseResult(res, work, failMsg)` ([server.js:447](server.js#L447)). Opens the stream at once, heartbeats `: ping` every 15s, emits one `result`. |
+| `public/app.js` | `apiSlow(path, body)` — sends `Accept: text/event-stream`, resolves the `result`. |
+| `public/academy-admin.js` | `streamSSE(path, body, handlers)` — same, plus live thinking. |
+
+JSON stays the **default** on both routes: `scripts/` drives `/step` over a short-lived CLI
+socket and has no such problem. Two consequences of the streamed shape:
+
+- Once the stream is open a failure can no longer be a 500 — `sseResult` reports it as an
+  `error` event, so a worker it runs must **throw `httpErr(status, msg)`**, never write a status.
+  That is why `/api/flashcards/generate`'s body lives in `buildDeckForRequest()`.
+- `apiStreamSSE` falls back to reading a JSON body as the single `result` frame, so a browser on
+  the new client against an older revision still works.
+
+> **Never "retry" a dropped call by re-POSTing.** The first one is almost certainly still
+> running. For `/step` that is corrupting — both would `queue.shift()` the same topic, so it
+> gets generated twice and the next is skipped; `waitOutStep()` in `public/academy-admin.js`
+> polls `GET /api/admin/genjobs/:id` instead. For a deck it is merely wasteful, so
+> `generateFlashcards()` re-reads `GET /api/flashcards` after a network error and renders the
+> deck the lost response was carrying.
 
 ### 🔴 Kimi returns 401
 
@@ -653,6 +702,7 @@ stops mid-sentence or mid-JSON.
 | `gcloud config set project/account` | Two VS Code windows share one global gcloud config. Breaks the other one. |
 | Add a route after `app.get('*')` ([server.js:5627](server.js#L5627)) | Unreachable — the SPA catch-all swallows it. |
 | Key stats/progress by `slug(fields)` | Moved topics keep their doc id. Guaranteed silent data bug. |
+| Use `requestScope(req)` in a route that starts from a card | The shelf mixes programs. Use `cardScope(req, card)` — see §7. |
 | Branch on the legacy owner outside `statsCol`/`logCol` | That's how the phantom-doc bugs happened. |
 | Call a provider SDK from `server.js` | All AI goes through `complete()`/`completeStream()` in `lib/gemini.js`. |
 | Hand-port a change to `mastery-engine-local` | Run `npm run port` there. See §9. |
