@@ -66,6 +66,11 @@ const App = (() => {
     // Engine for signed-in learners, Live Quiz for guests / ?home=quiz). A preset
     // here used to make that branch dead code — everyone landed on Live Quiz.
     mode: null,
+    // Which score the Mastery Engine + Roadmap trees render: 'coverage' (the original
+    // number — mean accuracy with untouched topics as 0) or 'mastery' (depth-aware, see
+    // lib/priority.js). Coverage is the default because it is what Sentinel's Overview
+    // rings report, so the landing view and the host's rings always agree.
+    scoreMetric: 'coverage',
     questions: [],
     idx: 0,
     score: 0,
@@ -187,7 +192,7 @@ const App = (() => {
   }
 
   /* ---------------------- Offline cache + sync queue --------------------- */
-  const LS = { catalog: 'agora.catalog', catalogFull: 'agora.catalog.full', qbank: 'agora.qbank', qbankTs: 'agora.qbank.ts', queue: 'agora.logqueue' };
+  const LS = { catalog: 'agora.catalog', catalogFull: 'agora.catalog.full', qbank: 'agora.qbank', qbankTs: 'agora.qbank.ts', queue: 'agora.logqueue', scoreMetric: 'agora.scoreMetric' };
   const lsGet = (k) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch { return null; } };
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
   const isNetworkError = (e) => !navigator.onLine || /Failed to fetch|NetworkError|load failed/i.test(e && e.message || '');
@@ -276,6 +281,10 @@ const App = (() => {
   async function init() {
     tickClock();
     setInterval(tickClock, 1000);
+    // Restore the Coverage/Mastery choice before anything renders a tree, so the first
+    // paint is already the score you left on rather than a flash of the default.
+    state.scoreMetric = lsGet(LS.scoreMetric) === 'mastery' ? 'mastery' : 'coverage';
+    syncMetricToggle();
     try {
       const [status, catalog] = await Promise.all([
         api('/api/auth/status'),
@@ -787,6 +796,36 @@ const App = (() => {
     }
   }
 
+  /* ---------------------- Coverage / Mastery toggle ---------------------- */
+  // Two different questions, one control: "how much have I touched?" (coverage, the
+  // original number, and the one Sentinel's Overview rings mirror) vs "how well do I
+  // actually know it?" (depth — see lib/priority.js). Nothing is recomputed on the
+  // server: every catalog row already carries both, so flipping is a re-render.
+
+  function setScoreMetric(metric) {
+    const next = metric === 'mastery' ? 'mastery' : 'coverage';
+    if (next === state.scoreMetric) return;
+    state.scoreMetric = next;
+    lsSet(LS.scoreMetric, next);
+    syncMetricToggle();
+    if (state.mode !== 'PROGRESS' && state.mode !== 'ROADMAP') return;
+    // Re-render whatever is on screen — both trees read state.scoreMetric directly, so
+    // there is nothing to thread through. Snapshot the expanded rows FIRST: a re-render
+    // collapses the tree, and having every row you opened slam shut on each click makes
+    // the two numbers impossible to compare, which is the entire point of the toggle.
+    progressSnapshot = captureProgressState();
+    if (state.mode === 'ROADMAP' && !_openRoadmapId) renderRoadmapList();
+    refreshEngineViews();
+  }
+
+  function syncMetricToggle() {
+    document.querySelectorAll('#metricToggle .mt-btn').forEach((b) => {
+      const on = b.dataset.metric === state.scoreMetric;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
+
   function setMode(mode) {
     state.mode = mode;
     const mastery = state.authed && !state.guest;
@@ -795,6 +834,11 @@ const App = (() => {
     const isRoadmap = mode === 'ROADMAP';
 
     updateModeNav(mode);
+    // The toggle only means something where a tree is rendered. The quiz-count control
+    // beside it is deliberately always visible (it applies to every launcher on this
+    // screen); this one is not.
+    const mt = $('metricToggle');
+    if (mt) mt.classList.toggle('hidden', !(isProgress || isRoadmap));
 
     // Toggle the panels of the setup card (quiz builder / progress / roadmaps / video lessons).
     $('quizBuilder').classList.toggle('hidden', isProgress || isVideos || isRoadmap);
@@ -1411,27 +1455,43 @@ const App = (() => {
   // leaves whose id is in `personalIds` — so a tree built from the whole bank can
   // still report engine-only mastery and flag which subtrees are added (see
   // nodeMembership). `personalIds` null ⇒ every leaf counts as in-engine.
+  //
+  // `masterySum` / `inMasterySum` are the same two rollups over the DEPTH score the
+  // server computes per row (lib/priority.js). Same denominators as progressSum, so
+  // the Coverage/Mastery toggle swaps numerator only and the two numbers stay
+  // comparable. `attemptSum` backs the "N questions · N per topic" sub-line, which is
+  // what makes a low depth number legible rather than mysterious.
   function rollupNode(node, personalIds) {
     if (node.leaf) {
       node.topicCount = 1;
       node.attemptedCount = node.attempts > 0 ? 1 : 0;
       node.progressSum = node.attempts > 0 ? (node.correct / node.attempts) * 100 : 0;
+      node.masterySum = node.mastery || 0;
+      node.attemptSum = node.attempts || 0;
       node.inEngine = !personalIds || (node.id != null && personalIds.has(node.id));
       node.inCount = node.inEngine ? 1 : 0;
       node.inAttempted = node.inEngine ? node.attemptedCount : 0;
       node.inProgressSum = node.inEngine ? node.progressSum : 0;
+      node.inMasterySum = node.inEngine ? node.masterySum : 0;
+      node.inAttemptSum = node.inEngine ? node.attemptSum : 0;
       return;
     }
     node.topicCount = 0; node.attemptedCount = 0; node.progressSum = 0;
+    node.masterySum = 0; node.attemptSum = 0;
     node.inCount = 0; node.inAttempted = 0; node.inProgressSum = 0;
+    node.inMasterySum = 0; node.inAttemptSum = 0;
     for (const child of node.children.values()) {
       rollupNode(child, personalIds);
       node.topicCount += child.topicCount;
       node.attemptedCount += child.attemptedCount;
       node.progressSum += child.progressSum;
+      node.masterySum += child.masterySum;
+      node.attemptSum += child.attemptSum;
       node.inCount += child.inCount;
       node.inAttempted += child.inAttempted;
       node.inProgressSum += child.inProgressSum;
+      node.inMasterySum += child.inMasterySum;
+      node.inAttemptSum += child.inAttemptSum;
     }
   }
 
@@ -1449,6 +1509,10 @@ const App = (() => {
       topic.id = r.id;
       topic.attempts = r.totalAttempts || 0;
       topic.correct = r.correctCount || 0;
+      // Server-computed (it needs lastAttempted for the retention decay). Absent on a
+      // catalog cached by an older revision — falls back to 0, i.e. "no depth yet",
+      // which self-heals on the next fetch.
+      topic.mastery = r.mastery || 0;
       topic.order = Number.isFinite(r.order) ? r.order : undefined;
     }
     for (const node of root.children.values()) rollupNode(node, personalIds);
@@ -1467,11 +1531,21 @@ const App = (() => {
   // The numbers a node shows. metric 'in' = engine-only rollup (the Mastery Engine
   // view, so a track reads e.g. "81/124 practised"); metric 'all' = every covered
   // topic (the Roadmap view rolls up the whole path regardless of what's added).
+  // `pct` follows the Coverage/Mastery toggle; `attempts` backs the sub-line.
   function nodeStats(node, metric) {
+    const deep = state.scoreMetric === 'mastery';
     if (metric === 'in') {
-      return { pct: node.inCount ? Math.round(node.inProgressSum / node.inCount) : 0, done: node.inAttempted, total: node.inCount };
+      const sum = deep ? node.inMasterySum : node.inProgressSum;
+      return {
+        pct: node.inCount ? Math.round(sum / node.inCount) : 0,
+        done: node.inAttempted, total: node.inCount, attempts: node.inAttemptSum,
+      };
     }
-    return { pct: nodeProgress(node), done: node.attemptedCount, total: node.topicCount };
+    const sum = deep ? node.masterySum : node.progressSum;
+    return {
+      pct: node.topicCount ? Math.round(sum / node.topicCount) : 0,
+      done: node.attemptedCount, total: node.topicCount, attempts: node.attemptSum,
+    };
   }
 
   // The ＋/✓ corner control for a node in either tree. 'in' → a ✓ that removes on
@@ -1489,7 +1563,23 @@ const App = (() => {
   }
 
   function nodeProgress(node) {
-    return node.topicCount ? Math.round(node.progressSum / node.topicCount) : 0;
+    const sum = state.scoreMetric === 'mastery' ? node.masterySum : node.progressSum;
+    return node.topicCount ? Math.round(sum / node.topicCount) : 0;
+  }
+
+  // Mastery runs on a different scale to accuracy: the formula is asymptotic (100 is
+  // unreachable) and ~75 already means a thoroughly drilled topic. Reusing accColor's
+  // 80/60 bands would paint a perfectly healthy shelf entirely red, which reads as
+  // "you're failing" rather than "here's the depth you have".
+  function deepColor(pct) {
+    if (pct == null) return 'var(--faint)';
+    if (pct >= 70) return 'var(--green)';   // solid: worked through, recently
+    if (pct >= 45) return 'var(--warning)'; // real but thin
+    return 'var(--error)';                  // a question or two, or gone stale
+  }
+  // Colour for whichever score the toggle is showing.
+  function metricColor(pct) {
+    return state.scoreMetric === 'mastery' ? deepColor(pct) : accColor(pct);
   }
 
   // Stable, deterministic order - by lesson/unit number (and natural name order
@@ -1569,7 +1659,7 @@ const App = (() => {
     const metric = opts.metric || 'all';
     const stats = node.leaf ? { pct: nodeProgress(node) } : nodeStats(node, metric);
     const pct = stats.pct;
-    const color = accColor(pct);
+    const color = metricColor(pct);
     // Courses (children of a track, level 0) follow the curriculum order; a
     // course's lessons (level 1) follow their recommended sequence; everything
     // else stays in natural name/unit-number order.
@@ -1584,9 +1674,16 @@ const App = (() => {
     // Lesson rows (level 2) show a recommended-order number prefix for the ML
     // courses; the raw name still drives data-* / routing.
     const displayName = level === 2 ? lessonLabel(scope.course, node.name) : node.name;
+    // In Mastery the sub-line has to explain the number, or a 46% on a track you have
+    // "finished" is just baffling. Depth comes from question VOLUME, so that is what it
+    // reports — practised-topic counts belong to the coverage story.
+    const deepMetric = state.scoreMetric === 'mastery';
+    const perTopic = stats.total ? (stats.attempts / stats.total).toFixed(1) : '0';
     const sub = node.leaf
       ? (node.attempts ? `${node.attempts} attempt${node.attempts === 1 ? '' : 's'}` : 'Not started')
-      : `${stats.done}/${stats.total} topics practised`;
+      : deepMetric
+        ? `${stats.attempts} question${stats.attempts === 1 ? '' : 's'} · ${perTopic} per topic`
+        : `${stats.done}/${stats.total} topics practised`;
     const membership = nodeMembership(node);
 
     // data-* carry this node's full scope so the action buttons know what to launch.
@@ -1640,22 +1737,34 @@ const App = (() => {
     </div>`;
   }
 
-  // Overall-mastery hero: a big ring + a linear bar, rolled up across all tracks.
-  // Counts only what's IN the engine (the tree may also list removed sections as
-  // addable ＋ rows) so the numbers match "the content you've chosen to master".
+  // The hero: a big ring + a linear bar, rolled up across all tracks. Counts only
+  // what's IN the engine (the tree may also list removed sections as addable ＋ rows)
+  // so the numbers match "the content you've chosen to master".
+  //
+  // Follows the Coverage/Mastery toggle, and RELABELS with it — the two are different
+  // axes, not two renderings of one, and a shelf can read 66% coverage / 31% mastery at
+  // the same instant. Leaving one label over both numbers is how you get a learner who
+  // trusts neither. The sub-line switches too: coverage counts topics, mastery counts
+  // the questions behind them.
   function overviewHtml(tracks) {
-    let sum = 0, count = 0, attempted = 0, nTracks = 0;
+    let sum = 0, deepSum = 0, count = 0, attempted = 0, attempts = 0, nTracks = 0;
     for (const t of tracks) {
       if (!t.inCount) continue; // a track with nothing added doesn't count here
-      sum += t.inProgressSum; count += t.inCount; attempted += t.inAttempted; nTracks++;
+      sum += t.inProgressSum; deepSum += t.inMasterySum; count += t.inCount;
+      attempted += t.inAttempted; attempts += t.inAttemptSum; nTracks++;
     }
-    const overall = count ? Math.round(sum / count) : 0;
-    const color = accColor(overall);
+    const deep = state.scoreMetric === 'mastery';
+    const overall = count ? Math.round((deep ? deepSum : sum) / count) : 0;
+    const color = metricColor(overall);
+    const tracksLabel = `${nTracks} track${nTracks === 1 ? '' : 's'}`;
+    const subline = deep
+      ? `${attempts.toLocaleString()} questions answered · ${count ? (attempts / count).toFixed(1) : '0'} per topic · ${tracksLabel}`
+      : `${attempted} of ${count} topics practised · ${tracksLabel}`;
     return `${ringHtml(overall, color, 76)}
       <div class="po-body">
-        <div class="po-label">Overall mastery</div>
+        <div class="po-label">${deep ? 'True mastery' : 'Topic coverage'}</div>
         <div class="po-bar"><span style="width:${overall}%;background:${color}"></span></div>
-        <div class="po-sub">${attempted} of ${count} topics practised · ${nTracks} track${nTracks === 1 ? '' : 's'}</div>
+        <div class="po-sub">${subline}</div>
       </div>`;
   }
 
@@ -1718,7 +1827,10 @@ const App = (() => {
     const root = buildProgressTree(source, personalIds);
     // Tracks in the suggested order: curriculum order, then TRACK_ORDER rank, then name.
     const tracks = [...root.children.values()].sort((a, b) => byTrackName(a.name, b.name));
-    if (overview) overview.innerHTML = overviewHtml(tracks);
+    if (overview) {
+      overview.dataset.metric = state.scoreMetric; // retints the hero — see styles.css
+      overview.innerHTML = overviewHtml(tracks);
+    }
     tree.innerHTML = tracks.map((t) => renderProgressNode(t, 0, { track: t.name, program: t.program }, { metric: 'in' })).join('');
     // Returning from a quiz/flashcard round? Re-expand + re-scroll to where they were.
     if (progressSnapshot) { applyProgressState(progressSnapshot); progressSnapshot = null; }
@@ -1760,11 +1872,18 @@ const App = (() => {
     });
   }
   const rowAcc = (r) => (r.totalAttempts ? Math.round((r.correctCount / r.totalAttempts) * 100) : 0);
-  // Roll a set of catalog rows to {pct, done, total}: pct = mean accuracy (0 for
-  // untouched), done = topics at/above the mastery bar.
+  // Roll a set of catalog rows to {pct, done, total}: pct = the score the Coverage/Mastery
+  // toggle is showing (mean accuracy, 0 for untouched — or mean depth), done = topics
+  // at/above the mastery bar. `done` stays accuracy-based whichever score is on screen:
+  // it feeds "N/M topics mastered" on a roadmap stage, which is a coverage statement.
   function rollRows(rows) {
+    const deep = state.scoreMetric === 'mastery';
     let sum = 0, done = 0;
-    for (const r of rows) { const a = rowAcc(r); sum += a; if (r.totalAttempts && a >= RM_STRONG) done += 1; }
+    for (const r of rows) {
+      const a = rowAcc(r);
+      sum += deep ? (r.mastery || 0) : a;
+      if (r.totalAttempts && a >= RM_STRONG) done += 1;
+    }
     return { pct: rows.length ? Math.round(sum / rows.length) : 0, done, total: rows.length };
   }
   // Every distinct topic row across a set of items (coarse items expanded, deduped).
@@ -1817,7 +1936,7 @@ const App = (() => {
     }
     listEl.innerHTML = _roadmaps.map((rm) => {
       const p = rollRows(itemsRows(allItems(rm)));
-      const color = accColor(p.pct);
+      const color = metricColor(p.pct);
       const badge = rm.assigned ? '<span class="rm-badge assigned">Required</span>'
         : rm.enrolled ? '<span class="rm-badge added">In your engine</span>' : '';
       return `<button type="button" class="rm-card" data-rm="${esc(rm.id)}">
@@ -1848,7 +1967,7 @@ const App = (() => {
       addBtn.classList.toggle('btn-ghost', !!rm.enrolled);
     }
     const p = rollRows(itemsRows(allItems(rm)));
-    const color = accColor(p.pct);
+    const color = metricColor(p.pct);
     const badge = rm.assigned ? '<span class="rm-badge assigned">Required</span>'
       : rm.enrolled ? '<span class="rm-badge added">In your engine</span>' : '';
     $('roadmapHead').innerHTML = `
@@ -1875,7 +1994,7 @@ const App = (() => {
   function renderRoadmapStage(stage, i, personalIds, rm) {
     const rows = itemsRows(stage.items);
     const p = rollRows(rows);
-    const color = accColor(p.pct);
+    const color = metricColor(p.pct);
     const root = buildProgressTree(rows, personalIds);
     const tracks = [...root.children.values()].sort((a, b) => byTrackName(a.name, b.name));
     const num = String(i + 1).padStart(2, '0');
@@ -6486,7 +6605,7 @@ const App = (() => {
 
   return {
     dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onWebAccessChange, onCoachChange,
-    enterMastery, goHome, setMode,
+    enterMastery, goHome, setMode, setScoreMetric,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceTopics,
     fixQuestionFormat, fixCardFormat,

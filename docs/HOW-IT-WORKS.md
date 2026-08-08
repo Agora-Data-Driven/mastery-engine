@@ -24,7 +24,7 @@ multiple curricula share one question bank. The **question bank** is shared acro
 user's **stats and attempt log are their own** (the legacy owner `ianfernandezctm@gmail.com` maps to
 the original shared docs; everyone else gets `users/{email}/…` subcollections).
 
-## 3. The mastery / priority formula (exact)
+## 3. The priority formula (exact)
 
 Each topic gets a **Master Priority** score from 0–100 — higher means "work on this next." It's a
 weighted blend of three drivers (`lib/priority.js`):
@@ -50,6 +50,43 @@ rather than being invisible. Priority is **recomputed and stored on every logged
 > Honest note: the original tool was a Google Sheet whose priority column was a spreadsheet formula
 > that couldn't be recovered, so this is a faithful **reconstruction** of the same three drivers —
 > a bespoke heuristic, not a textbook algorithm like SM-2.
+
+### 3b. Coverage vs True Mastery — the two numbers on the progress tree
+
+The Mastery Engine and Roadmap trees have a **Coverage / Mastery toggle**. Same rows, two
+different questions, and a learner can be at 66% on one and 32% on the other at the same moment.
+Both average over *every* topic on the shelf, untouched ones included as 0 — so they share a
+denominator and are directly comparable.
+
+**Coverage** (the default) is a topic's plain accuracy. It answers *how much have I touched?* It's
+also what Sentinel's Overview rings and goal tracking report, so the two always agree.
+
+**True Mastery** answers *how well do I actually know it?* — it weighs how much evidence backs each
+topic, and how fresh that evidence is:
+
+```
+mastery = retention × ( 0.7 × (correct + 1.6)/(attempts + 4)  +  0.3 × attempts/(attempts + 6) )
+retention = 1 − 0.35 × min(daysUntouched / 120, 1)     # eases to a 0.65 floor, never to 0
+```
+
+What that means in practice, and what to tell a learner who asks:
+
+- **One correct answer on a topic is worth about 40%, not 100%.** The `+1.6/+4` is a prior: until
+  you've answered several questions, the score assumes you might be at ~40% and lets your evidence
+  move it. Coverage counted that same topic as fully mastered.
+- **Answering more questions always helps, even if you get some wrong.** That's deliberate — the
+  expected change from practising is positive at *any* skill level, so there is never a reason to
+  protect a perfect score by avoiding a topic. A wrong answer does dent the number in the moment;
+  it's real evidence.
+- **Below ~15 attempts, volume beats perfection.** 20 questions at 90% outscores 10 at 100%. Above
+  that it flips, because twenty straight correct answers genuinely is stronger evidence.
+- **It fades if you never come back**, to a floor of 65% of what you earned, reached after about 4
+  months. One revision session restores it.
+- **It never reaches 100%.** Mastery is not a box to tick.
+
+A low mastery number next to a high coverage number is the normal, expected shape for someone who
+has been going broad — it means "you've met this material, you haven't drilled it yet", not "you've
+lost progress". The fix is more questions per topic, not more topics.
 
 ## 4. How questions are selected
 

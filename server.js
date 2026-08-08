@@ -105,7 +105,7 @@ import {
 } from './lib/firestore.js';
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
-import { deriveStats } from './lib/priority.js';
+import { computeMastery, deriveStats } from './lib/priority.js';
 import { DEFAULT_PROGRAM, filterCatalog } from './lib/programs.js';
 import {
   toNode,
@@ -828,6 +828,9 @@ app.get('/api/catalog', async (req, res, next) => {
     } else {
       catalog = await getCatalog(email, await requestScope(req));
     }
+    // One instant for the whole projection, so every row's retention decay is measured
+    // against the same clock (and the rollups the client builds are internally consistent).
+    const catalogNow = new Date();
     res.json(
       catalog.map((t) => ({
         id: t.id,
@@ -845,6 +848,19 @@ app.get('/api/catalog', async (req, res, next) => {
         priority: t.priority ?? null,
         totalAttempts: t.totalAttempts ?? 0,
         correctCount: t.correctCount ?? 0,
+        // Depth-aware mastery (lib/priority.js) — the progress tree's second metric,
+        // behind the Coverage/Mastery toggle. Computed HERE, not in the browser, because
+        // it needs `lastAttempted` for its retention decay and the client has no reason
+        // to carry raw timestamps for every one of ~800 rows. One formula, one file: the
+        // client only ever averages this number.
+        mastery: computeMastery(
+          {
+            correctCount: t.correctCount ?? 0,
+            totalAttempts: t.totalAttempts ?? 0,
+            lastAttempted: toDate(t.lastAttempted),
+          },
+          catalogNow,
+        ),
       }))
     );
   } catch (e) {
