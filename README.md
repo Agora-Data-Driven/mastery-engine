@@ -44,7 +44,7 @@ effect on the live app unless the migration is re-run.
 ```
 server.js          Express app: static frontend + API
 lib/firestore.js   Firestore data layer
-lib/priority.js    mastery / spaced-repetition scoring (reconstructed)
+lib/priority.js    priority (what to study next) + depth mastery (how well you know it)
 lib/gemini.js      question generation
 lib/migrate.js     one-time CSV -> Firestore importer
 lib/bigquery.js    streams logged attempts to BigQuery (analytics sink)

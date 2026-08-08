@@ -35,7 +35,15 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    Server side of both: AGENTS.md §5 "Stream a response".
 4. **Edit the NUL line** (app.js:559) — Node script only (`fs.readFileSync` → `replace` →
    `writeFileSync`); `Edit` cannot match it and the file must never be open-and-rewritten.
-5. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
+5. **Change what the progress/roadmap trees score** — every ring, bar and % in both trees
+   resolves through four places, and all four must agree or the tree and its hero disagree
+   with each other: `rollupNode()` (accumulates the per-topic sums), `nodeStats()` /
+   `nodeProgress()` (pick the numerator for the active metric), `metricColor()` (each metric
+   needs its OWN bands — mastery is asymptotic, so accuracy's 80/60 would paint a healthy
+   shelf red), and `overviewHtml()` (the hero, which relabels with the metric). The score
+   itself is **not** computed here — the server ships `row.mastery` per catalog row, and the
+   client only averages it. See AGENTS.md §3.
+6. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
    as a script), reload locally (`npm run dev`), then
    `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed (AGENTS.md §6); then re-port

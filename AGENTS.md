@@ -72,7 +72,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | [lib/firestore.js](lib/firestore.js) | 1.9k | **All database IO.** Every read/write goes through here. |
 | [lib/gemini.js](lib/gemini.js) | 3.3k | **All AI prompts + provider dispatch.** Misleading name — it fronts every provider. |
 | [lib/auth.js](lib/auth.js) | 314 | Cookies, tokens, SSO, admin checks. |
-| [lib/priority.js](lib/priority.js) | 71 | The mastery formula. Pure, IO-free, testable. |
+| [lib/priority.js](lib/priority.js) | 168 | The two scoring formulas (priority + depth mastery). Pure, IO-free, testable. |
 | [lib/programs.js](lib/programs.js) | 85 | Program/course scoping rules. Pure, IO-free, testable. |
 | [public/app.js](public/app.js) | 6.2k | The entire learner frontend, one IIFE (`const App = (() => {…})()`). |
 | [public/academy-admin.js](public/academy-admin.js) | 2.2k | The admin "Composing Room" frontend. |
@@ -97,7 +97,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
-| `_*_test.js` | The **four** Node unit tests (auth, graph, programs, progress credit) — see §6. |
+| `_*_test.js` | The **five** Node unit tests (auth, graph, programs, progress credit, priority) — see §6. |
 
 ### Finding a route fast
 
@@ -198,12 +198,45 @@ Chats (`cardChats` / `scopeChats` / `assistantChats` subcollections) are keyed b
 never the legacy owner's, and act-as is **not** honoured for chats (changed 2026-07-25) —
 threads are private even from admins. Progress/stats stay on `effectiveUser`.
 
-### The mastery formula ([lib/priority.js](lib/priority.js))
+### The two scoring formulas ([lib/priority.js](lib/priority.js))
 
 ```
 priority = 0.5·(1−accuracy) + 0.3·min(daysSince/30, 1) + 0.2·(1 − min(attempts/10, 1))
 ```
 Returned 0–100. Higher = study this next. Never attempted ⇒ maximally stale ⇒ high priority.
+
+```
+mastery = retention · ( 0.7·(correct+1.6)/(attempts+4)  +  0.3·attempts/(attempts+6) )
+retention = 1 − 0.35·min(daysUntouched/120, 1)          # floors at 0.65, never 0
+```
+Returned 0–100; never attempted ⇒ 0. This is the **depth** score behind the learner's
+Coverage/Mastery toggle, added 2026-08-08. It exists because the original number (mean
+accuracy with untouched topics as 0) is a *breadth* measure that had degenerated into
+measuring coverage twice: a real shelf read 66% against 67% coverage, with 509 of 542
+practised topics at exactly 100% and 322 of those resting on ≤2 questions. Same shelf,
+depth-scored: 32%.
+
+🔴 **Three properties are load-bearing, and all three are properties of the CONSTANTS.**
+[`lib/_priority_test.js`](lib/_priority_test.js) asserts each one — retune anything and
+re-run it:
+
+1. **Volume beats protecting a perfect score**, anywhere below ~15 attempts on a topic
+   (which is the whole range a real shelf occupies). It deliberately crosses over near 20:
+   twenty straight correct answers really is stronger evidence than forty at 90%.
+2. **More questions always pay in expectation, at any skill** — even 50%. That is why the
+   depth term is `a/(a+6)` and not `min(a/T, 1)`: past a hard cap only accuracy moves, so a
+   shaky topic becomes better left alone and you have rebuilt the incentive you removed.
+3. **It never reaches 100.** Asymptotic on both terms.
+
+A wrong answer still visibly dents the number — that is real evidence, and only the
+*expectation* is guaranteed positive. Don't turn it into a best-ever ratchet; a ratchet
+stops describing what you currently know.
+
+Computed **server-side**, in the `/api/catalog` projection, because retention needs
+`lastAttempted` and the client has no reason to carry ~800 raw timestamps. The browser only
+ever averages `row.mastery` — one formula, one file. **Sentinel's rollup is untouched**: the
+Overview rings and `rollupPrograms` still report coverage, deliberately, so the host's rings
+match the engine's default view.
 
 ### ⚠️ A question's `answer` must equal one of its `options`, exactly
 
@@ -402,11 +435,12 @@ There is **no test runner and no linter configured**. `npm test` does not exist.
 node --check server.js
 Get-ChildItem lib\*.js | ForEach-Object { node --check $_.FullName }
 
-# 2. The four real unit tests (pure logic, no cloud needed — all print "PASS")
+# 2. The five real unit tests (pure logic, no cloud needed — all print "PASS")
 node lib\_auth_test.js
 node lib\_graph_test.js              # warm-up / readiness graph logic
 node lib\_programs_test.js
 node lib\_progress_credit_test.js
+node lib\_priority_test.js           # priority + the depth-mastery properties (§3)
 
 # 3. Boot it and hit a route
 npm run dev

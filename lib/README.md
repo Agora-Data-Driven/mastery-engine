@@ -14,7 +14,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 | [firestore.js](firestore.js) | **All database IO** (1.9k lines). Every read/write goes through here. | `COL` `:33` · `LEGACY_OWNER` `:48` · `statsCol()`/`logCol()` `:56`/`:65` · `slug()` `:72` · `moveTopics()` `:227` · `flashcardScopeId()` `:1232` · `studyGuideId()` `:1329` · `tupleKey()` `:1789` (**NUL lines 1788+1790**) · `buildTopicIdIndex()` `:1814` · `logResults()` `:1838` |
 | [gemini.js](gemini.js) | **All AI prompts + provider dispatch** (3.3k lines). Misleading name — fronts every provider. | HOW-IT-WORKS injection `:29` · `META_QUESTION_RE` `:35` · `clampToPolicy()` `:119` (the HARD per-user AI-allowlist gate) · `complete()` `:132` · `completeStream()` `:148` · `parseLooseJson()` `:242` · `restoreLatexEscapes()` `:314` |
 | [auth.js](auth.js) | 4 sign-in paths, identity resolvers, guards. | `verifyAgSso()` `:139` · `currentEmail()` `:182` · `effectiveUser()` `:260` · `conversationUser()` `:280` · `requireAuth` `:302` · `requireAdmin` `:309` |
-| [priority.js](priority.js) | The mastery formula. Pure, IO-free. | 71 lines, one exported function |
+| [priority.js](priority.js) | The **two** scoring formulas. Pure, IO-free. | `computePriority()` (what to study next) · `computeMastery()` (depth: evidence + freshness — three load-bearing properties, see AGENTS.md §3) · `retentionFactor()` · `deriveStats()` |
 | [programs.js](programs.js) | Program/course scoping rules. Pure, IO-free. | `DEFAULT_PROGRAM`, `programOf`, `normalizeEnrollment` |
 | [graph.js](graph.js) | Knowledge-map prereq edges + warm-up/readiness logic. | `buildPrereqEdges` · `prereqClosure` · `topoSortScope` |
 | [deepseek.js](deepseek.js) | DeepSeek adapter. | default `deepseek-v4-flash` `:17`; `thinkingField()` sends `{type:'disabled'}` only on explicit `thinking === false` — server default is thinking ON |
@@ -27,7 +27,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 | [sentinel.js](sentinel.js) | Sentinel bridge, all HMAC (`SSO_SECRET`, `SENTINEL_URL`), all null-safe. People roster (admin enrollment UI) · `sentinelUserLookup` (the /api gate) · `holisticProfile` + `growthDetail` (development, small-to-big) · `mentorSearch` · **`workDigest` + `workDetail`** (their TASK BOARD, scoped by Sentinel to what the caller may see). | Purposes must match Sentinel's `internal.py` exactly; `workDetail` ids capped by `WORK_MAX_IDS` in server.js |
 | [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer). | — |
 | [watcher.js](watcher.js) | Atrium's Watcher archive, both ways. `listClients`/`listChannels`/`listVideos`/`getVideo` READ the shared bucket; `addSource`/`fetchBodies` ADD a source by calling Atrium's HMAC bridge (`SSO_SECRET`, `ATRIUM_URL`) — never a bucket write. Reads degrade to a message, writes throw. | — |
-| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` | The **four** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
+| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` `_priority_test.js` | The **five** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
 
 ## Data contract — Firestore doc → lib accessor → app.js consumer
 
@@ -57,8 +57,9 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 5. **Edit a NUL line** (firestore.js:1788/:1790, `tupleKey`) — Node script only:
    `fs.readFileSync` → `s.replace('… …', '…')` → `fs.writeFileSync`. `Edit` cannot match
    these lines; never open-and-rewrite the file.
-6. **Verify → deploy → re-port** — `node --check` every edited file; run the four tests
-   (`node lib\_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js`);
+6. **Verify → deploy → re-port** — `node --check` every edited file; run the five tests
+   (`node lib\_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js`
+   `_priority_test.js`);
    then `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed
    (`gcloud run services describe mastery-engine --region us-central1
