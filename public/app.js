@@ -3737,7 +3737,7 @@ const App = (() => {
   // Fully reset + hide the panel, stopping any live recognition or read-aloud.
   function resetSpeakerUI() {
     stopRecognition('reset');
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    ttsCancel();
     sp.finalText = ''; sp.interim = ''; sp.lastGrade = null; sp.grading = false;
     sp.blocked = false; sp.starting = false;
     const panel = $('fcSpeaker');
@@ -4056,14 +4056,14 @@ const App = (() => {
     $('fcsEncouragement').innerHTML = codeSpans(r.encouragement || '');
     typeset($('fcsVerdict'));
 
-    // Hide the read-aloud button if this browser can't speak.
-    $('fcsRead').classList.toggle('hidden', !window.speechSynthesis);
+    // Hide the read-aloud button if nothing here can speak — no browser voice AND no cloud engine.
+    $('fcsRead').classList.toggle('hidden', !ttsAvailable());
     $('fcsResult').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   // Fresh attempt on the same card.
   function restartSpeaking() {
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    ttsCancel();
     sp.finalText = ''; sp.interim = ''; sp.lastGrade = null; sp.blocked = false;
     $('fcsResult').classList.add('hidden');
     $('fcsGrading').classList.add('hidden');
@@ -4080,19 +4080,15 @@ const App = (() => {
   // Read-aloud: speak the assessment with the browser's free TTS. Toggles off if
   // it's already talking. Strips LaTeX/code markup so it reads naturally.
   function readAssessment() {
-    const synth = window.speechSynthesis;
-    if (!synth || !sp.lastGrade) return;
-    if (synth.speaking) { synth.cancel(); return; }
+    if (!sp.lastGrade || !ttsAvailable()) return;
+    if (ttsSpeaking()) { ttsCancel(); return; }          // tapping again stops it
     const g = sp.lastGrade;
     const parts = [`You scored ${g.score} out of 3.`, g.verdict];
     if (g.strengths && g.strengths.length) parts.push('What you got right: ' + g.strengths.join('; ') + '.');
     if (g.gaps && g.gaps.length) parts.push('What to work on: ' + g.gaps.join('; ') + '.');
     if (g.modelAnswer) parts.push('Model answer: ' + g.modelAnswer);
     if (g.encouragement) parts.push(g.encouragement);
-    const u = new SpeechSynthesisUtterance(plainForSpeech(parts.filter(Boolean).join(' ')));
-    u.rate = 1.02;
-    synth.cancel();
-    synth.speak(u);
+    ttsSpeak(plainForSpeech(parts.filter(Boolean).join(' ')));
   }
 
   // Turn markdown/LaTeX into something a TTS voice reads naturally — otherwise it literally says
@@ -6756,26 +6752,188 @@ const App = (() => {
     convo.voices = list;
     const saved = localStorage.getItem('assistant.voice') || '';
     convo.voice = list.find((v) => v.name === saved) || list[0] || null;
-    const sel = $('convoVoiceSel');
-    if (sel) {
-      sel.innerHTML = list
-        .map((v) => `<option value="${esc(v.name)}"${convo.voice && v.name === convo.voice.name ? ' selected' : ''}>${esc(voiceLabel(v))}</option>`)
-        .join('');
+    // Only repaint when the browser engine is the one on show — a late 'voiceschanged' must
+    // not overwrite a cloud engine's voice list with the OS's.
+    if (ttsEngine() === 'browser') paintVoiceList();
+  }
+
+  /* ------------- Speaking: the free browser voice, or a Google cloud voice ------------- */
+  // Three engines, ONE entry point. 'browser' is the default and costs nothing: it speaks
+  // through window.speechSynthesis and never touches the network, so it also works offline
+  // (which is what mastery-engine-local runs on). The two Google engines POST to /api/tts and
+  // play the MP3 it returns — far more human, and billed per character; rates and the reasoning
+  // live in lib/tts.js.
+  //
+  // Everything that speaks goes through ttsSpeak/ttsCancel so conversation mode, Speaker Mode's
+  // read-aloud and the settings preview share one engine choice, one barge-in and one fallback.
+  //
+  // 🔴 A cloud failure falls back to the BROWSER voice instead of going silent. A voice mode
+  // that says nothing reads as broken; a slightly worse voice does not. Quota, a revoked
+  // permission and an offline laptop all land here.
+  const tts = { catalog: null, audio: null, url: '', abort: null, warned: false };
+  // Bumped by every speak AND every cancel. An async continuation whose seq is stale lost the
+  // race (the learner barged in while we were still fetching or starting) and must do nothing —
+  // without this, an interrupted reply starts talking a second after it was cut off.
+  let ttsSeq = 0;
+
+  function ttsEngine() { return localStorage.getItem('assistant.ttsEngine') || 'browser'; }
+  function ttsCloudVoice() { return localStorage.getItem('assistant.ttsVoice') || 'Aoede'; }
+  function ttsAvailable() { return !!window.speechSynthesis || ttsEngine() !== 'browser'; }
+  function ttsSpeaking() { return !!tts.audio || !!(window.speechSynthesis && window.speechSynthesis.speaking); }
+
+  function releaseTtsAudio() {
+    if (tts.url) { try { URL.revokeObjectURL(tts.url); } catch { /* already gone */ } tts.url = ''; }
+    tts.audio = null;
+  }
+
+  // Drop whatever is playing OR still being fetched. Safe to call when nothing is.
+  function ttsCancel() {
+    ttsSeq++;
+    if (tts.abort) { try { tts.abort.abort(); } catch { /* already settled */ } tts.abort = null; }
+    if (tts.audio) { try { tts.audio.pause(); } catch { /* already stopped */ } }
+    releaseTtsAudio();
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+  }
+
+  // Speak `text`. onEnd fires exactly once — on finish, on failure, or on nothing-to-say — because
+  // conversation mode reopens the mic from there and a missed call would hang it in 'speaking'.
+  function ttsSpeak(text, { onStart, onEnd } = {}) {
+    ttsCancel();
+    const said = String(text || '').trim();
+    if (!said) { if (onEnd) onEnd(); return; }
+    const seq = ttsSeq;
+    if (ttsEngine() === 'browser') browserSpeak(said, seq, { onStart, onEnd });
+    else cloudSpeak(said, seq, { onStart, onEnd });
+  }
+
+  function browserSpeak(text, seq, { onStart, onEnd } = {}) {
+    const synth = window.speechSynthesis;
+    if (!synth) { if (onEnd) onEnd(); return; }
+    const u = new SpeechSynthesisUtterance(text);
+    if (convo.voice) u.voice = convo.voice;   // best available browser voice
+    u.rate = 1.02;
+    u.onstart = () => { if (seq === ttsSeq && onStart) onStart(); };
+    u.onend = () => { if (seq === ttsSeq && onEnd) onEnd(); };
+    u.onerror = () => { if (seq === ttsSeq && onEnd) onEnd(); };
+    synth.speak(u);
+  }
+
+  async function cloudSpeak(text, seq, { onStart, onEnd } = {}) {
+    const ctl = new AbortController();
+    tts.abort = ctl;
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        signal: ctl.signal,
+        body: JSON.stringify({ text, engine: ttsEngine(), voice: ttsCloudVoice() }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Voice request failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      if (seq !== ttsSeq) return;                        // barged in while it was synthesizing
+      tts.abort = null;
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      tts.audio = audio; tts.url = url;
+      const finish = () => { if (seq !== ttsSeq) return; releaseTtsAudio(); if (onEnd) onEnd(); };
+      audio.onplay = () => { if (seq === ttsSeq && onStart) onStart(); };
+      audio.onended = finish;
+      audio.onerror = finish;
+      await audio.play();                                // rejects if autoplay is blocked -> catch
+    } catch (e) {
+      if (seq !== ttsSeq) return;                        // a deliberate interruption, not a failure
+      tts.abort = null;
+      // Say it anyway with the free voice, and explain the downgrade ONCE per session — every
+      // turn would bury the conversation under the same apology.
+      if (!tts.warned) {
+        tts.warned = true;
+        const log = $('assistantLog');
+        if (log) appendBubble(log, 'assistant', `(Using the browser voice for now — ${e.message})`);
+      }
+      browserSpeak(text, seq, { onStart, onEnd });
     }
   }
-  function onConvoVoiceChange(sel) {
-    localStorage.setItem('assistant.voice', sel.value);
-    convo.voice = convo.voices.find((v) => v.name === sel.value) || null;
-    // Quick preview so the choice is audible.
-    try {
-      const synth = window.speechSynthesis;
-      synth.cancel();
-      const u = new SpeechSynthesisUtterance("Hi, this is how I'll sound.");
-      if (convo.voice) u.voice = convo.voice;
-      u.rate = 1.02;
-      synth.speak(u);
-    } catch { /* preview is best-effort */ }
+
+  // The engine/voice lists are SERVER-driven (GET /api/tts/voices) so adding a voice is one edit
+  // in lib/tts.js, not two. Fetched once, lazily, when the settings panel first syncs. A failure
+  // leaves only the free browser voice on offer — the right answer both offline and in
+  // mastery-engine-local, where there is no cloud to reach.
+  async function loadTtsCatalog() {
+    if (tts.catalog) return tts.catalog;
+    try { tts.catalog = await api('/api/tts/voices'); }
+    catch { tts.catalog = { engines: [], voices: [] }; }
+    return tts.catalog;
   }
+
+  const TTS_BROWSER_NOTE = 'Your browser’s built-in voices — free, and they work offline. On Chrome try "Google", on Edge/Windows a "Natural" voice.';
+
+  function paintVoicePickers() {
+    const engSel = $('convoEngineSel');
+    if (engSel) {
+      const cloud = (tts.catalog && tts.catalog.engines) || [];
+      const opts = [{ id: 'browser', label: 'Browser voice — free' }]
+        .concat(cloud.map((e) => ({ id: e.id, label: `${e.label} — paid` })));
+      // An engine we can no longer offer (catalog unreachable, or one was retired) must not
+      // silently resolve to a different paid voice — fall back to the free one.
+      const active = opts.some((o) => o.id === ttsEngine()) ? ttsEngine() : 'browser';
+      if (active !== ttsEngine()) localStorage.setItem('assistant.ttsEngine', active);
+      engSel.innerHTML = opts
+        .map((o) => `<option value="${esc(o.id)}"${o.id === active ? ' selected' : ''}>${esc(o.label)}</option>`)
+        .join('');
+    }
+    paintVoiceList();
+  }
+
+  function paintVoiceList() {
+    const sel = $('convoVoiceSel');
+    const note = $('convoVoiceNote');
+    if (ttsEngine() === 'browser') {
+      if (sel) {
+        sel.innerHTML = convo.voices
+          .map((v) => `<option value="${esc(v.name)}"${convo.voice && v.name === convo.voice.name ? ' selected' : ''}>${esc(voiceLabel(v))}</option>`)
+          .join('');
+      }
+      if (note) note.textContent = TTS_BROWSER_NOTE;
+      return;
+    }
+    const cat = tts.catalog || { voices: [], engines: [] };
+    const chosen = ttsCloudVoice();
+    if (sel) {
+      sel.innerHTML = (cat.voices || [])
+        .map((v) => `<option value="${esc(v)}"${v === chosen ? ' selected' : ''}>${esc(v)}</option>`)
+        .join('');
+    }
+    const meta = (cat.engines || []).find((e) => e.id === ttsEngine());
+    if (note) note.textContent = meta ? meta.note : '';
+  }
+
+  async function onTtsEngineChange(sel) {
+    localStorage.setItem('assistant.ttsEngine', sel.value);
+    ttsCancel();
+    tts.warned = false;                                  // a deliberate switch earns a fresh warning
+    if (sel.value !== 'browser') await loadTtsCatalog();
+    paintVoiceList();
+    previewVoice();
+  }
+
+  function onConvoVoiceChange(sel) {
+    // The two engines keep SEPARATE saved voices, so switching engine and back restores what you
+    // had rather than resetting you to the top of a list you never picked from.
+    if (ttsEngine() === 'browser') {
+      localStorage.setItem('assistant.voice', sel.value);
+      convo.voice = convo.voices.find((v) => v.name === sel.value) || null;
+    } else {
+      localStorage.setItem('assistant.ttsVoice', sel.value);
+    }
+    previewVoice();
+  }
+
+  // Say the choice out loud — a voice picker you can't hear is a guessing game.
+  function previewVoice() { ttsSpeak('Hi, this is how I’ll sound.'); }
 
   function setConvoStatus(state) {
     const el = $('assistantConvoStatus');
@@ -6831,7 +6989,7 @@ const App = (() => {
     if (chk) chk.checked = convoOn();
     const vwrap = $('asstVoiceWrap');
     if (vwrap) vwrap.style.display = supported ? '' : 'none';
-    if (supported) loadConvoVoices();
+    if (supported) { loadConvoVoices(); loadTtsCatalog().then(paintVoicePickers); }
     const webChk = $('asstWebChk');
     if (webChk) webChk.checked = webAccessOn();
   }
@@ -6844,8 +7002,14 @@ const App = (() => {
 
   function startConvo() { if (convoActive()) { setPhase('listening'); ensureListening(); } }
 
-  function abortGeneration() { if (convo.abort) { try { convo.abort.abort(); } catch {} convo.abort = null; } }
-  function duckTts() { if (window.speechSynthesis) window.speechSynthesis.cancel(); convo.spoken = ''; }
+  // Abort the in-flight answer — AND any speech it has already begun producing. With a cloud
+  // voice the reply's audio is fetched while the phase is still 'thinking', so aborting the
+  // generation alone would let a barged-over answer start talking a moment later.
+  function abortGeneration() {
+    if (convo.abort) { try { convo.abort.abort(); } catch {} convo.abort = null; }
+    ttsCancel();
+  }
+  function duckTts() { ttsCancel(); convo.spoken = ''; }
 
   // Heuristic to keep the recognizer from hearing our OWN voice while we speak: if most of what
   // was "heard" is words we're currently saying, it's speaker echo (on devices without hardware
@@ -6925,8 +7089,7 @@ const App = (() => {
   function stopConvo() {
     if (convo.rec) { try { convo.rec.stop(); } catch {} }
     convo.rec = null; convo.running = false;
-    abortGeneration();
-    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    abortGeneration();                                  // also silences any speech in flight
     convo.spoken = '';
     convo.muted = false;
     assistantMicBtn()?.classList.remove('recording');
@@ -6944,24 +7107,23 @@ const App = (() => {
 
   // Speak an assistant reply aloud. The mic stays open throughout so the user can talk over it.
   function speakAssistantReply(text) {
-    const synth = window.speechSynthesis;
-    if (!synth || !convoOn()) { if (convoOn()) setPhase('listening'); else setConvoStatus(''); return; }
+    if (!convoOn()) { setConvoStatus(''); return; }
     const spoken = plainForSpeech(text);
     if (!spoken) { setPhase('listening'); ensureListening(); return; }
     convo.spoken = spoken;
-    const u = new SpeechSynthesisUtterance(spoken);
-    if (convo.voice) u.voice = convo.voice;   // best available browser voice
-    u.rate = 1.02;
-    u.onstart = () => setPhase('speaking');
-    u.onend = () => { convo.spoken = ''; if (convo.phase === 'speaking') setPhase('listening'); if (convoActive()) ensureListening(); };
-    u.onerror = () => { convo.spoken = ''; if (convo.phase === 'speaking') setPhase('listening'); if (convoActive()) ensureListening(); };
-    synth.cancel();
-    synth.speak(u);
+    // A cloud voice takes a beat to synthesize, so the phase stays 'thinking' until audio
+    // actually starts — which is honest, and keeps the barge-in affordance on screen throughout.
+    const done = () => {
+      convo.spoken = '';
+      if (convo.phase === 'speaking') setPhase('listening');
+      if (convoActive()) ensureListening();
+    };
+    ttsSpeak(spoken, { onStart: () => setPhase('speaking'), onEnd: done });
     ensureListening();   // arm barge-in while we talk
   }
 
   return {
-    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onWebAccessChange, onCoachChange,
+    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onTtsEngineChange, onWebAccessChange, onCoachChange,
     enterMastery, goHome, setMode, setScoreMetric,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceTopics,

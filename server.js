@@ -162,6 +162,7 @@ import {
 } from './lib/gemini.js';
 import { growthDetail, holisticProfile, mentorSearch, sentinelUserLookup, workDetail, workDigest } from './lib/sentinel.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
+import { synthesize, ttsCatalog } from './lib/tts.js';
 import { listOllamaModels } from './lib/ollama.js';
 import { listLMStudioModels } from './lib/lmstudio.js';
 import { deepseekConfigured, listDeepSeekModels } from './lib/deepseek.js';
@@ -3000,6 +3001,40 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // Headers are already sent (sseInit), so surface the failure as an event.
     try { sseSend(res, 'error', { message: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ }
   }
+});
+
+/* ------------------------------ spoken replies ---------------------------- */
+// Which cloud voices the settings picker offers. Server-driven so adding a voice or an
+// engine is one edit in lib/tts.js, not two. The free browser voice is NOT listed here —
+// it is client-side only and never reaches this server.
+app.get('/api/tts/voices', requireAuth, (_req, res) => res.json(ttsCatalog()));
+
+// Auth: speak one utterance with a Google cloud voice and return the MP3 BYTES.
+//
+// Bytes, not a URL, on purpose: the client plays it from a blob on our own origin, so no
+// third-party media host is involved and the app's CSP needs no `media-src` widening.
+//
+// `rateLimitAI` is deliberate even though this is not a model call in the usual sense — it
+// is the per-user cost valve, and it shares its bucket with the chat turn that produced the
+// text. A spoken turn is one chat call plus one synthesize call, so a learner gets ~12
+// spoken turns a minute, which is well above what talking out loud can actually produce.
+//
+// This route is the ONLY thing that can spend money on voice, and it only runs when the
+// learner has explicitly chosen a paid engine — the default costs nothing. See lib/tts.js.
+app.post('/api/tts', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const out = await synthesize({
+      text: req.body?.text,
+      engine: String(req.body?.engine || ''),
+      voice: String(req.body?.voice || ''),
+      style: req.body?.style,
+    });
+    res.setHeader('Content-Type', out.mime);
+    res.setHeader('Content-Length', out.audio.length);
+    // Speech is per-learner and never worth revalidating: the same text is rarely spoken twice.
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(out.audio);
+  } catch (e) { next(e); }
 });
 
 /* --------------------------- progress AI features ------------------------- */

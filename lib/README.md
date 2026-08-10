@@ -23,6 +23,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 | [anthropic.js](anthropic.js) / [ollama.js](ollama.js) | Remaining adapters, same shape: `callX()` + `streamX()` (+ `listXModels()`). | — |
 | [genjobs.js](genjobs.js) | Background question-gen job runner — stepped, resumable, **browser-driven** (a dead tab = "queued forever"). | — |
 | [usage.js](usage.js) | Token/cost tally per user; its ALS store also carries `req.aiPolicy`. | `recordUsage` |
+| [tts.js](tts.js) | Google Cloud Text-to-Speech, the **paid** spoken voices. Both engines share one endpoint + response shape; only `voice.model_name` differs. Returns MP3 BYTES (not a URL) so playback stays on our origin and the CSP needs no `media-src`. **Throws on every failure** — the browser falls back to its free voice. | `TTS_ENGINES` · `ttsCatalog()` · `synthesize()` · `MAX_TTS_CHARS` |
 | [googleauth.js](googleauth.js) | Google OAuth flow. | — |
 | [sentinel.js](sentinel.js) | Sentinel bridge, all HMAC (`SSO_SECRET`, `SENTINEL_URL`), all null-safe. People roster (admin enrollment UI) · `sentinelUserLookup` (the /api gate) · `holisticProfile` + `growthDetail` (development, small-to-big) · `mentorSearch` · **`workDigest` + `workDetail`** (their TASK BOARD, scoped by Sentinel to what the caller may see). | Purposes must match Sentinel's `internal.py` exactly; `workDetail` ids capped by `WORK_MAX_IDS` in server.js |
 | [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer). | — |

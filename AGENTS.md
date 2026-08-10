@@ -93,6 +93,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `graph.js` | Knowledge-map prerequisite edges + warm-up/readiness logic. |
 | `programs.js` `priority.js` | Pure logic, IO-free. |
 | `usage.js` | Token/cost tallying per user. |
+| `tts.js` | Google Cloud Text-to-Speech — the **paid** cloud voices for spoken replies (Chirp 3 HD + Gemini Flash TTS). Opt-in; the free browser voice is the default and never reaches the server. See §7. |
 | `googleauth.js` | Google OAuth flow. |
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
@@ -120,6 +121,7 @@ Rough zones in `server.js`:
 | 1451–2400 | Flashcards (**`cardScope` `:1630`** — §7 — deck build `buildDeckForRequest` `:1758` + its two transports `:1817` (§7), Speaker Mode `explain`, card chat, admin card repair, **Highway toggle**) |
 | 2332–2380 | Admin question repair: `fix-format` (AI) and **`/api/questions/set`** (manual, `:2332`) |
 | 2381–2725 | Study assistant (scope chat, conversations, blocking + SSE streaming) |
+| ~3006–3040 | **Spoken replies**: `GET /api/tts/voices` (picker data) + `POST /api/tts` (text → MP3 bytes). §7 |
 | 2730–2970 | Review / Lesson study guides (+ regenerate w/ critique), progress analysis |
 | ~3280–3570 | **Visual guides**: the artifact shell (`renderVisualArtifact`), `availableProviders`/`nextEngine`, `/api/visualize`, `/api/guide/info`, `/api/visuals/:id/html` (§7) |
 | 2979–3340 | Knowledge graph, readiness, warm-ups, learn-next, topic sequencing |
@@ -872,6 +874,59 @@ degrade would leave them looking at a source that was never created. Server rout
 `add`/`add_site` register the listing ONLY; the browser then loops `/fetch` until `remaining` is 0
 (one batch per call, exactly like Atrium's tab) — `blocked: true` means YouTube rate-limited Atrium
 and **nothing was marked failed**, so a later run resumes over the same missing set.
+
+### 🔴 Spoken replies have THREE engines, and only the default is free
+
+Added 2026-08-10. The assistant speaks through one entry point in `public/app.js` —
+`ttsSpeak()` / `ttsCancel()` — shared by conversation mode, Speaker Mode's read-aloud and the
+settings preview. The learner picks the engine in the assistant settings (⚙ → Voice):
+
+| Engine | Where it runs | Cost |
+|---|---|---|
+| **Browser voice** (default) | `window.speechSynthesis`, never touches the network | free, works offline |
+| **Chirp 3 HD** | `POST /api/tts` → [lib/tts.js](lib/tts.js) | ~$30 / 1M characters |
+| **Gemini Flash TTS** | same route, `voice.model_name` carries the model | ~$10 / 1M audio-output tokens @ 25 tok/sec |
+
+Both cloud engines hit the SAME endpoint (`texttospeech.googleapis.com/v1/text:synthesize`,
+already enabled on the project) with the same auth and the same response shape — they differ
+only in whether a `model_name` rides along. Keep that symmetry when adding a third.
+
+Four things are load-bearing:
+
+1. **A cloud failure falls back to the BROWSER voice, never to silence.** `cloudSpeak()` catches
+   everything — quota, a bad voice name, a blocked autoplay, an offline laptop — speaks the same
+   text with `speechSynthesis` instead, and posts the reason into the chat log ONCE per session.
+   A voice mode that says nothing reads as broken; a worse voice does not.
+2. **`ttsSeq` is what makes barge-in correct.** A cloud reply is *fetched* while the phase is
+   still `'thinking'`, so aborting the generation alone would let a barged-over answer start
+   talking a second later. Every speak and every cancel bumps the counter; a stale async
+   continuation does nothing. This is also why `abortGeneration()` now calls `ttsCancel()`.
+3. **The cost lever is the 1-to-3-sentence rule** in `styleRule` ([lib/gemini.js](lib/gemini.js)).
+   A spoken reply is ~250 chars / ~15 seconds ≈ 0.75c (Chirp) or 0.4c (Gemini) per turn. Loosen
+   that instruction and this bill scales with it. `MAX_TTS_CHARS` (5,000) is the backstop.
+4. **`mastery-engine-local` must keep working.** `GET /api/tts/voices` failing leaves ONLY the
+   free browser voice in the picker, which is the correct answer both offline and in the mirror.
+
+🔴 **Local dev cannot call this API without an IAM grant.** A *user* credential (ADC or
+`gcloud auth print-access-token`) needs a quota project, and using one needs
+`roles/serviceusage.serviceUsageConsumer` on `agora-data-driven`. Without it every synthesize
+returns **403 "requires a quota project"** — which is a permissions failure, NOT a bad request,
+so it tells you nothing about whether your body was right. Grant once per operator:
+
+```powershell
+gcloud projects add-iam-policy-binding agora-data-driven `
+  --member="user:info@agoradatadriven.com" --role="roles/serviceusage.serviceUsageConsumer"
+gcloud auth application-default set-quota-project agora-data-driven
+```
+
+⚠️ **Unverified in production as of 2026-08-10.** The Cloud Run runtime SA
+(`585951669065-compute@developer.gserviceaccount.com`) carries a *pinned* role list — not
+`roles/editor` — and nothing in it obviously covers Text-to-Speech. A service account normally
+resolves its own project for quota and needs no `serviceUsageConsumer`, but that was not
+confirmed (this machine cannot impersonate the SA). **On the first deploy, pick a cloud voice
+and listen.** A 403 in the logs means the SA needs the same binding as above with
+`--member="serviceAccount:585951669065-compute@developer.gserviceaccount.com"`. The learner
+just hears the browser voice plus one explanatory line meanwhile, so this fails soft.
 
 ### 🟡 Microphone dead when embedded in Sentinel
 
