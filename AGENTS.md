@@ -668,6 +668,25 @@ Keep `GROWTH_MAX_IDS` in sync with Sentinel's `MAX_GROWTH_DETAIL_IDS` — ask fo
 and it drops the tail silently, which renders unloaded entries as loaded. See sentinel's AGENTS.md
 for the Sentinel half and the incident that produced all of this.
 
+### 🔴 The learner can withhold their GYM LOG — and a withheld log is not a log of zero
+
+Added 2026-08-10. Sentinel's Physical tab has a toggle (`coach_reads_gym_logs`); when it is off the
+holistic profile arrives with **`gym.logs_shared: false`** and `sessions_last_14d` /
+`completed_last_14d` as `null`. `holisticBlock` ([lib/gemini.js](lib/gemini.js)) branches on the
+flag and prints an explicit *draw no conclusion about training frequency* instruction instead.
+
+**The old line was `Trained ${gym.sessions_last_14d ?? 0} time(s)`** — so a person who trains six
+days a week and simply doesn't log it was told by their coach that they had been inconsistent, and
+an unshared log would have rendered as a flat "Trained 0 time(s)". `?? 0` on a field that can be
+absent is the same mistake as a capped growth index: it converts "I wasn't told" into a fact.
+
+- **`logs_shared !== false`** is the test, not `=== true` — an older Sentinel sends neither, and
+  must keep behaving as it always did.
+- **Only the log is withheld.** The weekly split and cardio still arrive, so the training-load
+  advice about *what to study today* is unaffected. Don't gate them together.
+- The gym **action ops** (`set_gym_week` / `set_gym_day` / `clear_gym_day`) are untouched: they
+  edit the PLAN, which was never hidden.
+
 ### 🔴 The assistant can read the learner's TASK BOARD — and must never present it as the company's
 
 Added 2026-08-05. `workDigest` / `workDetail` ([lib/sentinel.js](lib/sentinel.js)) fetch Sentinel's
