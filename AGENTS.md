@@ -21,7 +21,7 @@ a study assistant.
 | **Stack** | Node 20, Express 4, **vanilla JS frontend** (no framework, no build step), Firestore, Vertex AI |
 | **Runs on** | Cloud Run service `mastery-engine`, project `agora-data-driven`, region `us-central1` |
 | **Live URL** | `https://mastery-engine-585951669065.us-central1.run.app` |
-| **Embedded in** | Sentinel's **Professional** tab + **Philosophical**/**Spiritual** tabs + global **Coach** FAB, via `<iframe>` (`?embed=1`; `?program=<id>` PINS the whole session to one program — URL-derived at boot, threaded onto every API call, never persisted) |
+| **Embedded in** | Sentinel's **Professional** tab + **Philosophical**/**Spiritual** tabs (`?embed=1`) + its global **Coach** FAB (`?embed=assistant`), via `<iframe>`. `?program=<id>` PINS the whole session to one program — URL-derived at boot, threaded onto every API call, never persisted. **"Coach" is a door into this app's own study assistant, not a second assistant — see §7** |
 | **Sibling repo** | [`../mastery-engine-local`](../mastery-engine-local) runs this same app offline. **See §7 — it mirrors this repo; never hand-port.** |
 
 **There is no build step and no test runner.** `node server.js` serves `public/` statically.
@@ -491,7 +491,7 @@ file as binary.
 
 | File | Line | Content |
 |---|---|---|
-| [public/app.js](public/app.js) | 595 | `` lo(le, `${r.course}<NUL>${r.lesson}`, r.order); `` |
+| [public/app.js](public/app.js) | 598 | `` lo(le, `${r.course}<NUL>${r.lesson}`, r.order); `` |
 | [server.js](server.js) | 4159 | `` const key = `${r.track}<NUL>${r.course}<NUL>${r.lesson}`; `` |
 | [lib/firestore.js](lib/firestore.js) | 2163, 2165 | `tupleKey()` — joins with `<NUL>` (the comment above it contains one too) |
 
@@ -696,6 +696,39 @@ silently, which renders un-loaded cards as loaded — the precise lie this desig
 it cannot move, assign, reschedule or close a card. Adding writes is an action-protocol change (with
 the host executor and the Approve card), never a widening of the digest.
 
+### 🔴 "Coach" and "the study assistant" are ONE widget — don't build a second one
+
+Reaffirmed 2026-08-10, after the question "do we need both?" was asked. Three things wear the name
+and none of them is a separate assistant:
+
+| Name | What it is |
+|---|---|
+| **Coach FAB** | Sentinel frames THIS app at `?embed=assistant`; CSS hides every body child except `#assistantPanel` and `openAssistantFull()` fills the frame. The panel, streaming, voice, pause-and-steer and history all come for free — that comment in `public/app.js` is the design |
+| **Coach mode** | a toggle on that same panel → `coach:true` → `assistantCoachBlock` (progress digest + "Suggested path to drill this") + forced catalog/transcript grounding + a widened mentor search |
+| **Study assistant** | `#assistantPanel` — what the other two are made of |
+
+One route pair, one persona, one `assistantChats` store. **Deleting "the study assistant" would
+delete what Coach renders.** The holistic profile, growth journal, task board and mentor
+transcripts ground *every* turn regardless of which door was used.
+
+The two doors are not interchangeable in one direction only, and it is the important one:
+
+- **Only the in-app panel can see the screen.** `assistantContext()` reads live `state` — the
+  current question and the learner's answer, the flashcard, the open visual's active tab, the last
+  five results. The Coach frame is a *sibling* iframe of the engine, not the engine, so it reports
+  a blank `{view:'setup'}`. "Explain this question" / "teach me visual 2" cannot work there, in
+  text or in voice.
+- **Profile-edit proposals are NOT the difference.** They are gated on `hostFrame` — true in every
+  Sentinel embed. (`?actions=1` looked like the gate and never was; removed 2026-08-10.)
+
+So Sentinel suppresses its Coach FAB on pages that already embed the engine (`ENGINE_PAGES` in its
+`app.js`) — before that, both buttons rendered in the same corner, `#assistantDock` at `right:20px`
+under the Coach pill at `right:24px`. And `coachOn()` returns true unconditionally in the
+`?embed=assistant` frame, because a screen-blind door with coach mode off adds nothing at all.
+
+🔴 **The panel is the ONLY assistant outside Sentinel** — a standalone tab, and
+`mastery-engine-local`, which has no Sentinel by design. Never gate it on being embedded.
+
 ### 🔴 The Visualize button serves MODEL-AUTHORED HTML — never into this origin
 
 Added 2026-08-10. "Visualize this" turns the Lesson/Review guide on screen into ONE self-contained
@@ -776,7 +809,14 @@ Added 2026-08-03. There is one palette and it lives in `public/styles.css`: `:ro
 `[data-theme="dark"] .something` rule — the ~180 literals that used to be scattered through the
 file are exactly what made a dark theme a day of work instead of an hour.
 
-Two things that are NOT arbitrary:
+🔴 **A tint that COMPOUNDS is the worst kind of literal.** `.prog-children` carried
+`rgba(238, 241, 236, 0.4)` and nests inside itself, so a level-3 topic row wore three coats: on
+the dark card that resolved to `#bfc4bf` — a near-white slab under `--ink` text, **1.5:1**, which
+is the "hard to read in dark mode" the tree shipped with. It is `--tint-nested` now (`0.4` of the
+sunken tint in light, `0.04` white in dark → 9.85:1 at level 3). Fixed 2026-08-10, along with
+dark `--faint`, which carries every row's second line and read at 2.6:1 there.
+
+Three things that are NOT arbitrary:
 
 - **`--x-deep` tokens exist because a fill that carries white text cannot lighten.** `--green-dark`
   and `--violet` are overwhelmingly *text* colours, so in dark mode they have to go light to stay

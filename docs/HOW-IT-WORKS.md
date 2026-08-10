@@ -241,8 +241,17 @@ auto-populate it), not a whole program they're force-fed.
 (HMAC-signed, 5-minute replay window on the shared `SSO_SECRET`) to show each person's per-program
 progress, and defaults admins straight to this Academy Admin view.
 
-**What the Study Assistant / Coach can see about you, beyond this app.** It reads three things from
-your Agora (Sentinel) profile, server-to-server, and each is a separate HMAC-signed call:
+**The Study Assistant and "your Coach" are the SAME assistant, with the same memory of your
+conversations.** The Coach button on every Agora page opens this app's assistant panel in a small
+frame; the 💬 button inside the Mastery Engine opens the same panel in place. The only real
+difference is what's behind it: opened from inside the engine it can SEE your screen — the question
+you're on and how you answered it, the flashcard, the visual guide you have open — and the Coach
+button, which floats over a different page, cannot. "Coach mode" is a setting on that one panel
+(always on in the Coach frame): it pulls in your progress and your curriculum so answers can name
+the real sub-lessons to drill next.
+
+**What it can see about you, beyond this app.** It reads three things from your Agora (Sentinel)
+profile, server-to-server, and each is a separate HMAC-signed call:
 
 - your **holistic development** — body metrics and PRs, gym split, career goals and achievements,
   skills, required reading, and the complete index of your growth-journal entries (bodies fetched on
