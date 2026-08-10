@@ -7313,7 +7313,18 @@ const App = (() => {
     syncAsstChips();
   }
 
-  function startConvo() { if (convoActive()) { setPhase('listening'); ensureListening(); } }
+  // Conversation mode starts MUTED, deliberately. It gets switched on mid-thought — often
+  // mid-sentence out loud, or in a room with other people — and a hot mic turns the first stray
+  // words it hears into a question, which then gets answered and spoken over you. Replies are
+  // still spoken; one tap on Unmute (or the mic button) opens the mic when you actually mean to
+  // talk. `convo.muted` is transient either way: stopConvo clears it, and this sets it on every
+  // start, so the two never disagree about what the next session opens as.
+  function startConvo() {
+    if (!convoActive()) return;
+    convo.muted = true;
+    assistantMicBtn()?.classList.remove('recording');
+    setConvoStatus('muted');
+  }
 
   // Abort the in-flight answer — AND any speech it has already begun producing. With a cloud
   // voice the reply's audio is fetched while the phase is still 'thinking', so aborting the
