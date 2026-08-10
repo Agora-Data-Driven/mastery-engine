@@ -21,6 +21,7 @@ import {
   getSeenQuestionTexts,
   getRecentActivity,
   getRecentAttemptStats,
+  getQuizActivity,
   getQuizLogRows,
   getTopicsRows,
   getStreak,
@@ -41,6 +42,11 @@ import {
   getStudyGuide,
   saveStudyGuide,
   getStudyGuideIds,
+  visualGuideId,
+  getVisualGuide,
+  getVisualGuideById,
+  getAllVisualGuides,
+  saveVisualGuide,
   getFlashcardStatuses,
   setFlashcardStatus,
   getCardChat,
@@ -105,7 +111,7 @@ import {
 } from './lib/firestore.js';
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
-import { computeMastery, deriveStats } from './lib/priority.js';
+import { computeMastery, computePriority, deriveStats } from './lib/priority.js';
 import { DEFAULT_PROGRAM, filterCatalog } from './lib/programs.js';
 import {
   toNode,
@@ -124,6 +130,9 @@ import {
   generateExplanation,
   generateReview,
   generateLesson,
+  generateVisualGuide,
+  parseVisualGuide,
+  visualGuideLooksComplete,
   generateAnalysis,
   generateConfusions,
   generateDrillQuestion,
@@ -196,11 +205,20 @@ app.use(cookieParser());
  * under agoradatadriven.com. Until now NO framing header was sent at all, which let ANY site frame
  * the app (clickjacking); this pins it to the Agora family while keeping both real embeds working.
  * Override with FRAME_ANCESTORS (space-separated sources) if a new host ever needs it.
+ *
+ * `frame-src 'self'` is the other half, added 2026-08-10 with the visual guides. The generated
+ * page in that iframe is MODEL-AUTHORED and runs inline script by necessity. Its own CSP stops
+ * it reaching the network, but nothing in a document's own policy can stop it NAVIGATING ITSELF
+ * — not `default-src 'none'`, not `form-action`, not the sandbox — so a poisoned page could
+ * replace itself with an attacker's page and keep rendering inside our chrome with the real
+ * address bar. Only the EMBEDDER's frame-src governs a nested context's navigations, and it
+ * covers redirects too. Safe to pin at 'self': the viewer is the only <iframe> in the frontend
+ * and nothing creates one dynamically (video lessons are plain target=_blank links).
  */
 const FRAME_ANCESTORS = process.env.FRAME_ANCESTORS
   || "'self' https://*.agoradatadriven.com https://agoradatadriven.com";
 app.use((_req, res, next) => {
-  res.setHeader('Content-Security-Policy', `frame-ancestors ${FRAME_ANCESTORS}`);
+  res.setHeader('Content-Security-Policy', `frame-ancestors ${FRAME_ANCESTORS}; frame-src 'self'`);
   next();
 });
 
@@ -874,25 +892,10 @@ app.get('/api/catalog', async (req, res, next) => {
 // engine picker never offers a model the server-side clamp would refuse anyway.
 app.get('/api/models', async (req, res, next) => {
   try {
-    // Cloud (Gemini): offer both the fast and the higher-quality Pro variant.
-    const geminiModels = [...new Set([
-      process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-      'gemini-2.5-flash',
-      'gemini-2.5-pro',
-    ])];
-    let providers = [{ id: 'gemini', label: 'Cloud', models: geminiModels }];
-    // DeepSeek (hosted): available whenever an API key is configured.
-    if (deepseekConfigured()) providers.push({ id: 'deepseek', label: 'DeepSeek', models: listDeepSeekModels() });
-    // Kimi (hosted): available whenever an API key is configured.
-    if (kimiConfigured()) providers.push({ id: 'kimi', label: 'Kimi', models: listKimiModels() });
-    // Local engines only when this server can reach them (i.e. run locally).
-    const [ollama, lmstudio] = await Promise.all([listOllamaModels(), listLMStudioModels()]);
-    if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
-    if (lmstudio.length) providers.push({ id: 'lmstudio', label: 'Local (LM Studio)', models: lmstudio });
-    const pol = req.aiPolicy;
-    if (pol && Array.isArray(pol.providers) && pol.providers.length) {
-      providers = providers.filter((p) => pol.providers.includes(p.id));
-    }
+    // Enumerated in ONE place (availableProviders, next to the visual-guide
+    // routes) so the picker offered here and the "try a different model"
+    // rotation behind Regenerate always agree about what this caller may use.
+    const providers = await availableProviders(req);
     const has = (id) => providers.some((p) => p.id === id);
     res.json({
       providers,
@@ -1568,7 +1571,7 @@ app.get('/api/export/local', requireAuth, async (req, res, next) => {
         ]);
         return send({
           user: req.userEmail,
-          parts: ['topics', 'questions', 'flashcards', 'guides', 'quizlog', 'graph', 'programs', 'roadmaps', 'shelf', 'holistic'],
+          parts: ['topics', 'questions', 'flashcards', 'guides', 'visuals', 'quizlog', 'graph', 'programs', 'roadmaps', 'shelf', 'holistic'],
           counts: {
             topics: topics.length, questions: questions.length,
             flashcards: cards.length, guides: guides.length,
@@ -1583,6 +1586,12 @@ app.get('/api/export/local', requireAuth, async (req, res, next) => {
         return send({ flashcards: await getAllFlashcardsWithId() });
       case 'guides':
         return send({ guides: await getAllStudyGuides() });
+      case 'visuals':
+        // The generated visual-guide pages. Same rationale as 'guides': each one
+        // is a whole HTML document from one model call, and a laptop LLM would
+        // take hours to reproduce them worse. NOT in the 'meta' counts above —
+        // that block already pays four full-collection reads.
+        return send({ visualGuides: await getAllVisualGuides() });
       case 'quizlog':
         return send({ quizLog: await getQuizLogRows(req.userEmail) });
       case 'graph':
@@ -3087,18 +3096,23 @@ app.post('/api/review', requireAuth, async (req, res, next) => {
   try {
     const programScope = await requestScope(req);
     const scope = guideScope('review', programScope.program, req.body || {});
-    if (req.query.refresh !== '1') {
+    const critique = String(req.body?.critique || '').trim().slice(0, 2000);
+    const refresh = req.query.refresh === '1' || !!critique;
+    if (!refresh) {
       const cached = await getStudyGuide(scope).catch(() => null);
       if (cached && cached.markdown) return sendCachedText(res, cached.markdown);
     }
     const catalog = await getCatalog(req.userEmail, programScope);
     const inp = await buildReviewInputs(catalog, req.body || {}, programScope);
     if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
+    const ai = await regenerateEngine(req, scope, refresh, critique);
+    const meta = {};
     let acc = '';
     await streamText(res, (onToken) =>
-      generateReview({ scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, aiChoice(req),
+      generateReview({ scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions, critique },
+        { ...ai, meta },
         (t) => { acc += t; onToken(t); }));
-    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel }).catch(() => {});
+    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel, critique, provider: meta.provider, model: meta.model }).catch(() => {});
   } catch (e) {
     if (!res.headersSent) next(e);
   }
@@ -3112,7 +3126,9 @@ app.post('/api/lesson', requireAuth, async (req, res, next) => {
   try {
     const programScope = await requestScope(req);
     const scope = guideScope('lesson', programScope.program, req.body || {});
-    if (req.query.refresh !== '1') {
+    const critique = String(req.body?.critique || '').trim().slice(0, 2000);
+    const refresh = req.query.refresh === '1' || !!critique;
+    if (!refresh) {
       const cached = await getStudyGuide(scope).catch(() => null);
       if (cached && cached.markdown) return sendCachedText(res, cached.markdown);
     }
@@ -3126,13 +3142,15 @@ app.post('/api/lesson', requireAuth, async (req, res, next) => {
     try {
       graphCtx = lessonGraphContext(inp.scoped, bank, await getGraphLinks());
     } catch { /* graph unavailable — falls back to a plain from-scratch lesson */ }
+    const ai = await regenerateEngine(req, scope, refresh, critique);
+    const meta = {};
     let acc = '';
     await streamText(res, (onToken) =>
       generateLesson({
         scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
-        prereqs: graphCtx.prereqs, dependents: graphCtx.dependents,
-      }, aiChoice(req), (t) => { acc += t; onToken(t); }));
-    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel }).catch(() => {});
+        prereqs: graphCtx.prereqs, dependents: graphCtx.dependents, critique,
+      }, { ...ai, meta }, (t) => { acc += t; onToken(t); }));
+    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel, critique, provider: meta.provider, model: meta.model }).catch(() => {});
   } catch (e) {
     if (!res.headersSent) next(e);
   }
@@ -3152,6 +3170,475 @@ app.post('/api/lesson/context', requireAuth, async (req, res, next) => {
     } catch {
       return res.json({ prereqs: [], dependents: [] });
     }
+  } catch (e) {
+    next(e);
+  }
+});
+
+
+/* ------------------------- Visual guides ("Visualize this") ----------------
+ * The interactive companion to a Lesson/Review study guide: ONE self-contained
+ * HTML page of 3–6 named, numbered, interactive visuals, generated by whichever
+ * engine the learner picked, cached per scope, and served into a sandboxed
+ * iframe. While it is open the study assistant is grounded in the visuals' own
+ * names, so "explain visual 2" works — including out loud in voice mode.
+ *
+ * 🔴 The page is MODEL-AUTHORED MARKUP. It is never put through innerHTML in
+ * app.js and it never runs in this app's origin. It is served from its own route
+ * with `CSP: sandbox allow-scripts` (deliberately WITHOUT allow-same-origin),
+ * which puts it in an opaque origin: no cookies, no storage, no credentialed
+ * calls back to /api. The iframe's own `sandbox=` attribute says the same thing;
+ * the header is the backstop for the day someone edits the attribute away, and
+ * for a direct navigation to the URL. srcdoc/blob were rejected precisely
+ * because both INHERIT this app's CSP — which is frame-ancestors-only, i.e.
+ * imposes nothing — leaving the attribute as a single point of failure.
+ */
+
+// The artifact's palette, mirroring public/styles.css :root and its dark retune.
+// The generated page is told to use ONLY these, so a visual made on the light
+// theme is still readable on the dark one without regenerating it.
+const VIZ_BASE_CSS = `
+:root{color-scheme:light;--viz-bg:#f7f8f5;--viz-surface:#ffffff;--viz-ink:#0e1512;--viz-muted:#6c7671;--viz-line:#e9ece7;--viz-accent:#2fa14a;--viz-green:#2fa14a;--viz-red:#d6453f;--viz-amber:#c98a16;--viz-violet:#7c6ff0}
+:root[data-theme="dark"]{color-scheme:dark;--viz-bg:#0b0f0d;--viz-surface:#16211b;--viz-ink:#e7eee9;--viz-muted:#93a09a;--viz-line:rgba(255,255,255,.14);--viz-accent:#4fbf63;--viz-green:#4fbf63;--viz-red:#f0736d;--viz-amber:#e0a84a;--viz-violet:#9c90f7}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--viz-bg);color:var(--viz-ink);font:15px/1.55 'Inter',system-ui,-apple-system,'Segoe UI',sans-serif;padding:12px 12px 28px;-webkit-text-size-adjust:100%}
+h1,h2,h3{line-height:1.2;margin:0 0 8px}
+svg{max-width:100%;height:auto}
+img{max-width:100%;height:auto}
+table{width:100%;border-collapse:collapse}
+pre,code{font-family:ui-monospace,'SF Mono',Consolas,monospace}
+pre{overflow-x:auto}
+/* Tab chrome. The generated page supplies the buttons and panels with these
+   hooks; the behaviour and this styling are ours, so a page whose own script
+   breaks still switches tabs and still reads well on a phone. */
+.viz-tabs{display:flex;gap:6px;overflow-x:auto;padding:2px 2px 10px;margin:0 -2px 12px;border-bottom:1px solid var(--viz-line);-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.viz-tabs::-webkit-scrollbar{display:none}
+.viz-tab{flex:0 0 auto;min-height:44px;padding:10px 14px;border:1px solid var(--viz-line);border-radius:999px;background:var(--viz-surface);color:var(--viz-muted);font:inherit;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap}
+.viz-tab:hover{color:var(--viz-ink)}
+.viz-tab.is-active{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.viz-tab:focus-visible{outline:2px solid var(--viz-accent);outline-offset:2px}
+.viz-panel{animation:vizIn .18s ease}
+.viz-panel[data-viz-hidden]{display:none !important}
+.viz-panel[data-viz-force]{display:block !important}
+@keyframes vizIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+input[type=range]{width:100%;min-height:44px;accent-color:var(--viz-accent)}
+button:not(.viz-tab){min-height:40px;font:inherit;cursor:pointer}
+@media (max-width:420px){body{font-size:14px;padding:10px 10px 24px}.viz-tab{padding:10px 12px;font-size:13px}}
+`;
+
+// Injected into every artifact, after the page's own script.
+//
+// It owns tab switching (so the visuals still work when the model's own script
+// throws) and it is the ONLY way the app can learn which visual is on screen:
+// the artifact is opaque-origin, so the parent cannot read into it. The parent
+// must still verify `event.source === iframe.contentWindow` — the payload is
+// only tab names, but an unchecked listener is how a message from anywhere gets
+// treated as ours.
+const VIZ_RUNTIME_JS = `
+(function(){
+  var tabs = [].slice.call(document.querySelectorAll('[data-viz-tab]'));
+  var panels = [].slice.call(document.querySelectorAll('[data-viz-panel]'));
+  var names = tabs.map(function(b){ return label(b); });
+  function label(b){ return (b.textContent||'').replace(/\\s+/g,' ').trim(); }
+  function post(index, name){
+    try {
+      parent.postMessage({ type:'agora-viz-tab', index:index, name:name, tabs:names }, '*');
+    } catch(e){}
+  }
+  function activate(key, scroll){
+    tabs.forEach(function(b){
+      var on = b.getAttribute('data-viz-tab') === key;
+      b.classList.toggle('is-active', on);
+      // aria-current is global and valid on a plain button; aria-selected would
+      // not be, now that role="tab" is gone (see the listener below).
+      if (on) b.setAttribute('aria-current','true'); else b.removeAttribute('aria-current');
+    });
+    panels.forEach(function(p){
+      var on = p.getAttribute('data-viz-panel') === key;
+      // An ATTRIBUTE, never inline display. Generated pages routinely ship their
+      // own tab script too, and a common shape is .viz-panel{display:none} in
+      // their CSS plus style.display='block' from their JS. Clearing inline
+      // display would resolve the ACTIVE panel back to none and blank the page;
+      // this leaves their mechanism alone and still wins where it must, because
+      // [data-viz-hidden] carries !important.
+      if (on) { p.removeAttribute('data-viz-hidden'); p.removeAttribute('hidden'); }
+      else { p.removeAttribute('data-viz-force'); p.setAttribute('data-viz-hidden',''); p.setAttribute('hidden',''); }
+    });
+    var btn = null;
+    for (var i=0;i<tabs.length;i++) if (tabs[i].getAttribute('data-viz-tab')===key) btn = tabs[i];
+    post(key, btn ? label(btn) : '');
+    // Generated pages usually style .viz-panel{display:none} and reveal the
+    // active one from their OWN script. If that script threw, nothing is
+    // revealed and the learner gets a blank page. So: one tick later, if the
+    // panel we just activated still computes to display:none, force it. Only
+    // then — forcing it unconditionally would flatten a panel the page
+    // deliberately laid out as flex or grid.
+    setTimeout(function(){
+      for (var j=0;j<panels.length;j++) {
+        var p = panels[j];
+        if (p.getAttribute('data-viz-panel') !== key) continue;
+        try { if (getComputedStyle(p).display === 'none') p.setAttribute('data-viz-force',''); } catch(e){}
+      }
+    }, 0);
+    if (scroll) { try { window.scrollTo(0,0); } catch(e){} }
+  }
+  tabs.forEach(function(b){
+    // Deliberately NOT role="tab": that promises a tablist/tabpanel relationship
+    // this runtime cannot build (a generated page may wrap each button in its own
+    // element, so there is no reliable common parent to mark as the tablist), and
+    // a half-implemented pattern reads worse to a screen reader than a plain
+    // button — which is already focusable, operable and announced.
+    b.addEventListener('click', function(){ activate(b.getAttribute('data-viz-tab'), true); });
+  });
+  // The host flips light/dark without reloading the artifact.
+  window.addEventListener('message', function(e){
+    var d = e && e.data;
+    if (!d || d.type !== 'agora-viz-theme') return;
+    document.documentElement.setAttribute('data-theme', d.theme === 'dark' ? 'dark' : 'light');
+  });
+  if (tabs.length) activate(tabs[0].getAttribute('data-viz-tab'), false);
+  else post('', '');   // the page built its own tabs — still announce that it loaded
+})();
+`;
+
+const VIZ_HTML_ESCAPE = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+const vizEsc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => VIZ_HTML_ESCAPE[c]);
+
+/**
+ * Re-house the model's document inside a shell we control.
+ *
+ * Rebuilt rather than patched: that way OUR stylesheet is always first (so the
+ * page's own CSS wins on purpose), OUR runtime is always last, the viewport meta
+ * is guaranteed, and `data-theme` is guaranteed to be on <html>. It also drops
+ * the external <link>/<script src> tags a model sometimes reaches for out of
+ * habit — the CSP would block them anyway, but silently, which reads as "the
+ * visual is broken" rather than "that resource was never going to load".
+ */
+function renderVisualArtifact(html, { theme, title }) {
+  const src = String(html || '');
+  const headM = /<head[^>]*>([\s\S]*?)<\/head>/i.exec(src);
+  const bodyM = /<body[^>]*>([\s\S]*?)<\/body>/i.exec(src);
+  const strip = (s) => String(s || '')
+    .replace(/<link\b[^>]*>/gi, '')
+    .replace(/<base\b[^>]*>/gi, '')
+    .replace(/<meta\b[^>]*http-equiv=["']?content-security-policy[^>]*>/gi, '')
+    // A meta refresh is a NAVIGATION request that needs no script at all. The
+    // embedder's frame-src blocks it, but leaving the tag in means the only
+    // thing standing between us and it is a header somebody could later relax.
+    .replace(/<meta\b[^>]*http-equiv=["']?refresh[^>]*>/gi, '')
+    .replace(/<script\b[^>]*\bsrc=[^>]*>\s*<\/script>/gi, '');
+  const head = strip(headM ? headM[1] : '').replace(/<title[\s\S]*?<\/title>/i, '');
+  const body = strip(bodyM ? bodyM[1]
+    : src.replace(/<!doctype[^>]*>/i, '').replace(/<\/?html[^>]*>/gi, '').replace(/<head[\s\S]*?<\/head>/i, ''));
+  const t = theme === 'dark' ? 'dark' : 'light';
+  return `<!doctype html>
+<html lang="en" data-theme="${t}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>${vizEsc(title || 'Visual Guide')}</title>
+<style>${VIZ_BASE_CSS}</style>
+${head}
+</head>
+<body>
+${body}
+<script>${VIZ_RUNTIME_JS}</script>
+</body>
+</html>`;
+}
+
+// A visual guide's cache key. Mirrors guideScope exactly — same normalisation,
+// same tuple — so the visuals and the study guide they visualise agree about
+// which section they belong to. `kind` is part of the key: a Lesson's visuals
+// and a Review's visuals for the same section are two documents.
+function visualScope(kind, program, body = {}) {
+  return guideScope(kind === 'lesson' ? 'lesson' : 'review', program, body);
+}
+
+/** The line the generator puts at the top of its index: "Title: … Visual Guide". */
+function visualTitleFrom(outline, fallback) {
+  const m = /^\s*title\s*:\s*(.+)$/im.exec(String(outline || ''));
+  const t = m ? m[1].trim() : '';
+  return t || `${fallback}: Visual Guide`;
+}
+
+/** What the client gets back — never the HTML itself (it loads that from its own
+ *  route into the iframe), just what it needs to label and ground the viewer. */
+function visualPayload(doc, cached) {
+  return {
+    cached: !!cached,
+    id: doc.id,
+    url: `/api/visuals/${encodeURIComponent(doc.id)}/html`,
+    kind: doc.kind || 'review',
+    title: doc.title || '',
+    outline: doc.outline || '',
+    scopeLabel: doc.scopeLabel || '',
+    provider: doc.provider || '',
+    model: doc.model || '',
+    attempt: doc.attempt || 1,
+    critique: doc.critique || '',
+    bytes: doc.bytes || 0,
+    updatedAt: doc.updatedAt || '',
+  };
+}
+
+/**
+ * The cached visuals for a scope — but only if the study guide they were built
+ * from has not been rewritten since.
+ *
+ * Regenerating the WRITTEN guide silently invalidates its visuals: they teach
+ * the old text. Without this the button would still say "Open visuals" and hand
+ * back a page that contradicts the guide on screen. ISO-8601 `updatedAt` on both
+ * docs compares correctly as a string, so this costs one read that the callers
+ * were making anyway.
+ */
+async function freshVisualGuide(vscope, gscope) {
+  const [visual, guide] = await Promise.all([
+    getVisualGuide(vscope).catch(() => null),
+    getStudyGuide(gscope).catch(() => null),
+  ]);
+  if (!visual || !visual.html) return null;
+  if (guide && guide.updatedAt && visual.updatedAt && guide.updatedAt > visual.updatedAt) return null;
+  return visual;
+}
+
+/**
+ * Every engine THIS caller may actually use, as flat {provider, model} pairs.
+ *
+ * Extracted from GET /api/models so the picker and the "try a different model"
+ * rotation can never drift apart. Note the local probes are live network calls
+ * with short timeouts — fine on a user-initiated regenerate, never inside a loop.
+ */
+async function availableProviders(req) {
+  const geminiModels = [...new Set([
+    process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    'gemini-2.5-flash',
+    'gemini-2.5-pro',
+  ])];
+  let providers = [{ id: 'gemini', label: 'Cloud', models: geminiModels }];
+  if (deepseekConfigured()) providers.push({ id: 'deepseek', label: 'DeepSeek', models: listDeepSeekModels() });
+  if (kimiConfigured()) providers.push({ id: 'kimi', label: 'Kimi', models: listKimiModels() });
+  const [ollama, lmstudio] = await Promise.all([listOllamaModels(), listLMStudioModels()]);
+  if (ollama.length) providers.push({ id: 'ollama', label: 'Local (Ollama)', models: ollama });
+  if (lmstudio.length) providers.push({ id: 'lmstudio', label: 'Local (LM Studio)', models: lmstudio });
+  const pol = req.aiPolicy;
+  if (pol && Array.isArray(pol.providers) && pol.providers.length) {
+    providers = providers.filter((p) => pol.providers.includes(p.id));
+  }
+  return providers;
+}
+
+/**
+ * The next engine to try after `current`, for a regenerate with NO critique.
+ *
+ * "It's not good enough but I can't say why" is best answered by a different
+ * model rather than by the same one at a different temperature — which we have
+ * no lever for anyway. Rotation is over the caller's own permitted pairs, so it
+ * can never escape the AI policy, and it wraps around. Returns null when there
+ * is only one engine to choose from (then the caller just re-rolls the same one).
+ */
+async function nextEngine(req, current) {
+  const providers = await availableProviders(req).catch(() => []);
+  const pairs = [];
+  for (const p of providers) for (const m of (p.models || [])) pairs.push({ provider: p.id, model: m });
+  if (pairs.length < 2) return null;
+  const key = (x) => `${x.provider}|${x.model}`;
+  const at = pairs.findIndex((x) => key(x) === key(current || {}));
+  return pairs[(at + 1) % pairs.length] || null;
+}
+
+/**
+ * The engine a Lesson/Review REGENERATE should run on.
+ *
+ * Same rule as the visual guide: with a critique the learner's own engine keeps
+ * the job (their note is the new input); without one, "it's not good enough but
+ * I can't say why" is best answered by a different model — so rotate off
+ * whichever one wrote the cached guide. A first build, or a cached guide from
+ * before provenance was recorded, just uses their choice.
+ */
+async function regenerateEngine(req, guideCacheScope, refresh, critique) {
+  const ai = aiChoice(req);
+  if (!refresh || critique) return ai;
+  const previous = await getStudyGuide(guideCacheScope).catch(() => null);
+  if (!previous || !previous.provider) return ai;
+  const next = await nextEngine(req, previous);
+  return next ? { ...ai, provider: next.provider, model: next.model } : ai;
+}
+
+/**
+ * The written guide the visuals must follow, plus the curriculum context.
+ *
+ * The cached Lesson/Review markdown is the source of truth: the learner is
+ * looking at that text, so the visuals have to teach THAT, not a fresh reading
+ * of the question bank. On a cold cache it generates the guide first (and banks
+ * it, warming the button the learner would have pressed next) — two model calls,
+ * which is exactly why this route runs over a heartbeated stream.
+ */
+async function visualSourceInputs(req, kind, body, programScope, ai) {
+  const gscope = guideScope(kind, programScope.program, body);
+  const cachedGuide = await getStudyGuide(gscope).catch(() => null);
+
+  // The Lesson variant needs the WHOLE bank for its prereq graph (links cross
+  // programs); the guide itself stays scoped. Same split as /api/lesson.
+  const bank = await getCatalog(req.userEmail, kind === 'lesson' ? null : programScope);
+  const catalog = kind === 'lesson' ? filterCatalog(bank, programScope) : bank;
+  const inp = await buildReviewInputs(catalog, body, programScope);
+  if (!inp) throw httpErr(400, 'No topics in this section yet');
+
+  let guide = cachedGuide && cachedGuide.markdown ? cachedGuide.markdown : '';
+  if (!guide) {
+    const meta = {};
+    if (kind === 'lesson') {
+      let g = { prereqs: [], dependents: [] };
+      try { g = lessonGraphContext(inp.scoped, bank, await getGraphLinks()); } catch { /* plain lesson */ }
+      guide = await generateLesson({
+        scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
+        prereqs: g.prereqs, dependents: g.dependents,
+      }, { ...ai, meta });
+    } else {
+      guide = await generateReview(
+        { scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, { ...ai, meta });
+    }
+    if (guide && guide.trim()) {
+      saveStudyGuide(gscope, guide, { scopeLabel: inp.scopeLabel, provider: meta.provider, model: meta.model })
+        .catch((e) => console.error('study-guide save failed:', e.message));
+    }
+  }
+  return { guide, ...inp };
+}
+
+/** Generate + cache one visual guide. Throws httpErr so sseResult reports it in-band. */
+async function buildVisualGuide(req, { kind, scope, body, programScope, critique, regenerate }) {
+  const previous = await getVisualGuide(scope).catch(() => null);
+  let ai = aiChoice(req);
+  // A blind regenerate ("just make it better") switches engine; a regenerate WITH
+  // feedback keeps the learner's chosen one, because the note is the new input.
+  if (regenerate && !critique) {
+    // Anchor on the cached page's engine when there is one. When there is NOT,
+    // the last attempt failed before it could be banked (a truncated page is
+    // never cached), so the engine to rotate OFF is the one the learner is on —
+    // the one that just failed. Without this the 502's "try Regenerate, it will
+    // use a different engine" is a promise the code does not keep.
+    const next = await nextEngine(req, (previous && previous.provider) ? previous : ai);
+    if (next) ai = { ...ai, provider: next.provider, model: next.model };
+  }
+
+  const inp = await visualSourceInputs(req, kind, body, programScope, ai);
+  const meta = {};
+  const raw = await generateVisualGuide({
+    scopeLabel: inp.scopeLabel,
+    kind,
+    topics: inp.topics,
+    guide: inp.guide,
+    questions: inp.questions,
+    critique,
+  }, { ...ai, meta });
+
+  const { outline, html } = parseVisualGuide(raw);
+  // A page that stopped mid-document looks like a working one until you reach the
+  // tab that isn't there — and complete() has no maxOutputTokens lever to raise.
+  // Refusing to cache it is what keeps that failure from becoming permanent.
+  if (!visualGuideLooksComplete(html)) {
+    throw httpErr(502, 'The model returned an incomplete page. Try Regenerate — it will use a different engine.');
+  }
+
+  const title = visualTitleFrom(outline, inp.scopeLabel);
+  const attempt = (Number(previous?.attempt) || 0) + 1;
+  await saveVisualGuide(scope, html, {
+    scopeLabel: inp.scopeLabel, title, outline, critique, attempt,
+    provider: meta.provider, model: meta.model,
+  });
+  const saved = await getVisualGuide(scope);
+  return visualPayload(saved || { id: visualGuideId(scope), kind, title, outline, scopeLabel: inp.scopeLabel, attempt, ...meta }, false);
+}
+
+// Auth: get-or-build the interactive visual guide for a scope. A cache hit costs
+// nothing and returns instantly; a miss (or `regenerate`) generates. Answers SSE
+// when the caller asks for it — generation is one or two full model calls and a
+// plain POST that quiet for that long gets dropped in front of us (§7).
+app.post('/api/visualize', requireAuth, rateLimitAI, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const kind = body.kind === 'lesson' ? 'lesson' : 'review';
+    const regenerate = body.regenerate === true;
+    const critique = String(body.critique || '').trim().slice(0, 2000);
+    const programScope = await requestScope(req);
+    const scope = visualScope(kind, programScope.program, body);
+
+    if (!regenerate) {
+      const cached = await freshVisualGuide(scope, guideScope(kind, programScope.program, body));
+      if (cached && cached.html) {
+        const hit = visualPayload(cached, true);
+        if (wantsSSE(req)) return sseResult(res, async () => hit);
+        return res.json(hit);
+      }
+    }
+    const work = () => buildVisualGuide(req, { kind, scope, body, programScope, critique, regenerate });
+    if (wantsSSE(req)) return sseResult(res, work, 'Could not build the visual guide');
+    return res.json(await work());
+  } catch (e) {
+    // The JSON fallback only: over SSE the stream is already open and sseResult
+    // has reported the failure in-band as an 'error' event.
+    if (e.status && !res.headersSent) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+
+// Auth: what is CACHED for a scope — which engine wrote the study guide, and
+// whether a visual guide already exists. Lets the modal label its buttons
+// honestly ("Open visuals" vs "Visualize this") without generating anything.
+app.post('/api/guide/info', requireAuth, async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const kind = body.kind === 'lesson' ? 'lesson' : 'review';
+    const programScope = await requestScope(req);
+    const [guide, visual] = await Promise.all([
+      getStudyGuide(guideScope(kind, programScope.program, body)).catch(() => null),
+      getVisualGuide(visualScope(kind, programScope.program, body)).catch(() => null),
+    ]);
+    // Same staleness rule as /api/visualize, or the button would promise
+    // "Open visuals" for a page the click is about to regenerate anyway.
+    const stale = !!(visual && guide && guide.updatedAt && visual.updatedAt && guide.updatedAt > visual.updatedAt);
+    res.json({
+      kind,
+      guide: guide
+        ? { provider: guide.provider || '', model: guide.model || '', updatedAt: guide.updatedAt || '', critique: guide.critique || '' }
+        : null,
+      visual: visual && visual.html && !stale ? visualPayload(visual, true) : null,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Auth: serve one generated page into the viewer's iframe.
+//
+// 🔴 This is the ONLY place model-authored markup is served, and every header
+// below is load-bearing — see the block comment at the top of this section.
+// `frame-ancestors` reuses FRAME_ANCESTORS on purpose: the production chain is
+// Sentinel -> this app -> this artifact, and 'self' alone would block the whole
+// feature everywhere the engine is embedded.
+app.get('/api/visuals/:id/html', requireAuth, async (req, res, next) => {
+  try {
+    const doc = await getVisualGuideById(req.params.id);
+    if (!doc || !doc.html) return res.status(404).type('text/plain').send('No visual guide with that id');
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', [
+      'sandbox allow-scripts',        // opaque origin: no cookies, no storage, no credentialed /api calls
+      "default-src 'none'",
+      "script-src 'unsafe-inline'",   // safe ONLY because of the sandbox above
+      "style-src 'unsafe-inline'",
+      'img-src data:',
+      'font-src data:',
+      "base-uri 'none'",
+      "form-action 'none'",
+      `frame-ancestors ${FRAME_ANCESTORS}`,
+    ].join('; '));
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.send(renderVisualArtifact(doc.html, { theme: req.query.theme, title: doc.title }));
   } catch (e) {
     next(e);
   }
@@ -3234,20 +3721,29 @@ app.post('/api/admin/study-guides/build', requireAdmin, async (req, res, next) =
       try {
         const inp = await buildReviewInputs(catalog, scope, programScope);
         if (!inp) return;
+        // Per JOB, never hoisted: `ai` is shared by every concurrent job here, so
+        // one meta object would be cross-written by whichever finished last.
+        const meta = {};
         let acc = '';
         const onToken = (t) => { acc += t; };
         if (kind === 'review') {
           await generateReview(
-            { scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, ai, onToken);
+            { scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, { ...ai, meta }, onToken);
         } else {
           let g = { prereqs: [], dependents: [] };
           try { g = lessonGraphContext(inp.scoped, bank, links); } catch { /* plain lesson */ }
           await generateLesson({
             scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
             prereqs: g.prereqs, dependents: g.dependents,
-          }, ai, onToken);
+          }, { ...ai, meta }, onToken);
         }
-        if (acc.trim()) { await saveStudyGuide(gscope, acc, { scopeLabel: inp.scopeLabel }); built += 1; }
+        if (acc.trim()) {
+          // Pre-warmed guides are most of the library, so without provenance here
+          // the learner's engine tag is blank and Regenerate has nothing to
+          // rotate off for the majority of sections.
+          await saveStudyGuide(gscope, acc, { scopeLabel: inp.scopeLabel, provider: meta.provider, model: meta.model });
+          built += 1;
+        }
         else failed += 1;
       } catch (e) {
         failed += 1;
@@ -4133,6 +4629,109 @@ app.get('/api/internal/team-progress', async (req, res, next) => {
       }
     }));
     res.json({ days, people });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// How many attempt rows one quiz-activity call may return. A ceiling on the RESPONSE, not on the
+// window: the aggregates always cover every attempt in `days`, and `truncated` declares any drop.
+const MAX_ACTIVITY_ROWS = 1000;
+
+// Internal (HMAC-gated): ONE person's attempt-by-attempt history — the per-question detail that
+// /team-progress aggregates away. Sentinel's daily personal report reads this to say which
+// questions were missed, where /team-progress can only say how many.
+//
+// 🔴 A quizLog row carries the question text and a right/wrong bit — NOT the option that was
+// chosen, and not the correct one (see logResults in lib/firestore.js). Anything rendering this
+// payload may say "you missed this" and must never state what was answered.
+//
+// Defaults to `wrongOnly`, because that is the whole point of asking at a per-question grain: a
+// day's correct answers are adequately described by the counts, and the misses are not.
+app.get('/api/internal/quiz-activity', async (req, res, next) => {
+  try {
+    if (!verifyInternalSig(req, 'quiz-activity')) return res.status(401).json({ error: 'bad signature' });
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const days = Math.min(180, Math.max(1, Number(req.query?.days) || 1));
+    const limit = Math.min(MAX_ACTIVITY_ROWS, Math.max(1, Number(req.query?.limit) || 400));
+    // `wrongOnly=0` is the only way to ask for every row; anything else (including absent) keeps
+    // the default, so a caller has to opt IN to the heavy shape rather than out of it by accident.
+    const wrongOnly = String(req.query?.wrongOnly ?? '1') !== '0';
+    // Same account mapping as its two sibling endpoints: a break-glass-listed admin's stats live
+    // under DEFAULT_ACCOUNT, so reading their sign-in email would return an empty history.
+    const acct = isAdminEmail(email) ? DEFAULT_ACCOUNT : email;
+    const topicRows = await readTopicDocs();
+    const activity = await getQuizActivity(acct, days, topicRows, { wrongOnly, limit });
+    res.json({ email, ...activity });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Ceiling on the per-topic payload. A real shelf is ~850 rows, so this is headroom rather than a
+// limit anyone meets; `truncated` declares it if they ever do.
+const MAX_DETAIL_TOPICS = 2500;
+
+// Internal (HMAC-gated): the learner's WHOLE curriculum with their own stats on every topic.
+//
+// /enrollment-progress and /team-progress both answer "how far along are they" at PROGRAM grain.
+// That is the right size for a dashboard ring and far too coarse for anything that has to reason
+// about the learner — which topic is weak, what has never been started, what is about to be
+// forgotten. The in-app assistant never needed this endpoint because it runs INSIDE the engine and
+// reads the catalog directly; an outside reader (Sentinel's daily report, and through it whatever
+// assistant that document is handed to) has no such access, and without this it can only ever talk
+// in programme-level averages.
+//
+// Every derived number comes from lib/priority.js — `computeMastery` and `computePriority`, the
+// same two functions the learner's own progress tree renders. 🔴 Do NOT recompute either here:
+// mastery in particular is depth-aware and deliberately unlike the coverage figure the rollups
+// report, and a second implementation would quietly disagree with the app's own screens.
+app.get('/api/internal/learner-detail', async (req, res, next) => {
+  try {
+    if (!verifyInternalSig(req, 'learner-detail')) return res.status(401).json({ error: 'bad signature' });
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const acct = isAdminEmail(email) ? DEFAULT_ACCOUNT : email;
+
+    const [allPrograms, enrollment, shelf, topicRows] = await Promise.all([
+      getPrograms(), getEnrollment(acct), getShelf(acct), readTopicDocs(),
+    ]);
+    const bank = await overlayStats(acct, topicRows, null);
+    const now = new Date();
+    const rows = bank.slice(0, MAX_DETAIL_TOPICS).map((t) => {
+      const stats = {
+        correctCount: t.correctCount ?? 0,
+        totalAttempts: t.totalAttempts ?? 0,
+        lastAttempted: t.lastAttempted?.toDate ? t.lastAttempted.toDate() : (t.lastAttempted || null),
+      };
+      const attempts = stats.totalAttempts;
+      return {
+        program: t.program || '',
+        track: t.track || '',
+        course: t.course || '',
+        lesson: t.lesson || '',
+        topic: t.topic || '',
+        questions: t.questionCount ?? 0,
+        attempts,
+        correct: stats.correctCount,
+        // 🔴 null, never 0, when the topic was never attempted — 0% accuracy is a claim about
+        // performance and "never tried" is not one. The report renders the two differently.
+        accuracy: attempts ? Math.round((stats.correctCount / attempts) * 100) : null,
+        mastery: computeMastery(stats, now),
+        priority: computePriority(stats, now),
+        lastAttempted: stats.lastAttempted ? new Date(stats.lastAttempted).toISOString() : null,
+      };
+    });
+
+    res.json({
+      email,
+      programs: rollupPrograms({ enrollment, allPrograms, shelf, bank }),
+      enrolled: enrollment?.programs || [],
+      topics: rows,
+      topicsTotal: bank.length,
+      truncated: bank.length > rows.length,
+    });
   } catch (e) {
     next(e);
   }

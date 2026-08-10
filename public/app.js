@@ -2254,22 +2254,49 @@ const App = (() => {
     }
   }
 
-  let reviewScope = null; // remember scope so "quiz me on this" works from the modal
+  let reviewScope = null;      // remember scope so "quiz me on this" works from the modal
+  let reviewKind = 'review';   // which guide is open — Visualize/Regenerate key on it
+  let reviewLabel = '';        // the section's display name, so a regenerate can re-title
+
+  // ONE stream owns #reviewBody at a time. Without this a second Regenerate (or a
+  // Regenerate over a guide still streaming in) interleaves two token streams into
+  // the same element, and whichever finishes last also wins the cache write.
+  // Token, not a bare flag: a chip that opens another lesson mid-stream must not
+  // clear a flag it does not own.
+  let guideSeq = 0, guideBusy = false;
+  function syncGuideBusy() {
+    for (const id of ['reviewRegenBtn', 'reviewRegenGo', 'reviewVizBtn']) {
+      const el = $(id); if (el) el.disabled = guideBusy;
+    }
+  }
 
   // Original self-contained study guide (the "Review" button): teaches the
   // section from scratch, no cross-lesson links.
-  async function reviewFromScope(scope, label) {
+  async function reviewFromScope(scope, label, opts = {}) {
+    const mine = ++guideSeq;
+    guideBusy = true; syncGuideBusy();
     reviewScope = scope;
+    reviewKind = 'review';
+    reviewLabel = label || '';
     $('reviewTitle').textContent = 'Review: ' + (label || 'Section');
     $('reviewLinks').innerHTML = ''; // the plain Review has no prereq chips
+    resetGuideTools();
     const box = $('reviewBody');
-    box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your review…</div>';
+    box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> '
+      + (opts.refresh ? 'Rewriting your review…' : 'Reading the questions &amp; preparing your review…') + '</div>';
     show('reviewModal');
     try {
-      await apiStream('/api/review', scope, (acc) => { box.innerHTML = renderMarkdown(acc); });
+      // ?refresh=1 is what makes this ignore the cache. A critique implies it
+      // server-side too, so the two can never disagree about which one wins.
+      await apiStream('/api/review' + (opts.refresh ? '?refresh=1' : ''),
+        { ...scope, ...(opts.critique ? { critique: opts.critique } : {}) },
+        (acc) => { box.innerHTML = renderMarkdown(acc); });
       typeset(box);
+      syncGuideTools();
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t build a review: ' + esc(e.message) + '</span>';
+    } finally {
+      if (mine === guideSeq) { guideBusy = false; syncGuideBusy(); }
     }
   }
 
@@ -2310,18 +2337,29 @@ const App = (() => {
 
   // Prerequisite-aware study guide (the "Lesson" button): builds ON the section's
   // prerequisites and shows clickable "Builds on / Leads to" links to jump around.
-  async function lessonFromScope(scope, label) {
+  async function lessonFromScope(scope, label, opts = {}) {
+    const mine = ++guideSeq;
+    guideBusy = true; syncGuideBusy();
     reviewScope = scope;
+    reviewKind = 'lesson';
+    reviewLabel = label || '';
     $('reviewTitle').textContent = 'Lesson: ' + (label || 'Section');
+    resetGuideTools();
     const box = $('reviewBody');
-    box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> Reading the questions & preparing your lesson…</div>';
+    box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> '
+      + (opts.refresh ? 'Rewriting your lesson…' : 'Reading the questions &amp; preparing your lesson…') + '</div>';
     show('reviewModal');
     loadLessonLinks(scope); // fire-and-forget; chips fill in when ready
     try {
-      await apiStream('/api/lesson', scope, (acc) => { box.innerHTML = renderMarkdown(acc); });
+      await apiStream('/api/lesson' + (opts.refresh ? '?refresh=1' : ''),
+        { ...scope, ...(opts.critique ? { critique: opts.critique } : {}) },
+        (acc) => { box.innerHTML = renderMarkdown(acc); });
       typeset(box);
+      syncGuideTools();
     } catch (e) {
       box.innerHTML = '<span class="err">Couldn\'t build a lesson: ' + esc(e.message) + '</span>';
+    } finally {
+      if (mine === guideSeq) { guideBusy = false; syncGuideBusy(); }
     }
   }
 
@@ -2331,6 +2369,292 @@ const App = (() => {
     const scope = reviewScope;
     closeReview();
     if (scope) quizFromScope(scope);
+  }
+
+  // Wipe the tools row back to its resting state while a new guide streams in —
+  // the engine tag and "Open visuals" both describe the guide that just left.
+  function resetGuideTools() {
+    $('reviewRegenPanel')?.classList.add('hidden');
+    const note = $('reviewRegenNote'); if (note) note.value = '';
+    const tag = $('reviewEngineTag'); if (tag) tag.innerHTML = '';
+    const btn = $('reviewVizBtn'); if (btn) btn.textContent = '✨ Visualize this';
+    syncGuideBusy();   // never re-enable a button while a guide is still streaming
+  }
+
+  /* ---------------- Visual guides ("Visualize this") ---------------------- */
+  /*
+   * The interactive companion to the study guide on screen: one generated page
+   * of 3–6 NAMED, NUMBERED visuals, framed here and explained by the assistant.
+   *
+   * 🔴 The page is model-authored HTML and it never touches this document. It
+   * loads from /api/visuals/:id/html into an iframe with `sandbox="allow-scripts"`
+   * and NO allow-same-origin, so it runs in an opaque origin: it cannot read this
+   * DOM, our cookies or our storage, and cannot call /api as the learner. The
+   * server sends the same restriction as a CSP header on the artifact itself, so
+   * the attribute is not the only thing standing between us and it.
+   *
+   * Because it is opaque-origin we also cannot look INSIDE it — which is why the
+   * generator emits a plain-text index alongside the page and the injected
+   * runtime posts the active tab up. That pair is the entire basis for the
+   * assistant knowing what the learner is looking at.
+   */
+  const viz = {
+    open: false, busy: false, kind: 'review', scope: null,
+    id: '', title: '', outline: '', scopeLabel: '',
+    provider: '', model: '', attempt: 0,
+    tabs: [], activeTab: null,
+    // Bumped every time the viewer is pointed at a new section. A generation can
+    // run for minutes; without this, closing it and opening a DIFFERENT section's
+    // guide lets the first response land in the second section's viewer.
+    seq: 0,
+  };
+
+  const themeNow = () =>
+    (window.AgoraTheme && window.AgoraTheme.get()) ||
+    document.documentElement.getAttribute('data-theme') || 'light';
+
+  // "Made by Cloud · Gemini 2.5 Pro · v2". A regenerate can legitimately switch
+  // engines, so the tag is the only way to tell what you are actually reading.
+  function engineTag(o) {
+    if (!o || (!o.provider && !o.model)) return '';
+    const pretty = MODEL_LABELS[o.model] || [o.provider, o.model].filter(Boolean).join(' · ');
+    const v = Number(o.attempt) > 1 ? ` · v${Number(o.attempt)}` : '';
+    return `Made by <b>${esc(pretty)}</b>${esc(v)}`;
+  }
+
+  function setVizStatus(headline, sub) {
+    const box = $('vizStatus');
+    if (!box) return;
+    box.classList.remove('hidden');
+    box.innerHTML = `<div class="ai-box explain">
+        <div class="ai-loading"><div class="spinner"></div> ${esc(headline)}</div>
+        ${sub ? `<span class="viz-status-sub">${esc(sub)}</span>` : ''}
+      </div>`;
+  }
+
+  function setVizError(message) {
+    const box = $('vizStatus');
+    if (!box) return;
+    box.classList.remove('hidden');
+    box.innerHTML = `<div class="ai-box explain"><span class="err">${esc(message)}</span></div>`;
+  }
+
+  function syncVizButtons() {
+    const r = $('vizRegenBtn'), g = $('vizRegenGo');
+    if (r) r.disabled = viz.busy;
+    if (g) g.disabled = viz.busy;
+    const ask = $('vizAskBtn');
+    if (ask) ask.disabled = !viz.id;
+  }
+
+  // Open the viewer over the study guide it belongs to. `reviewScope`/`reviewKind`
+  // are whatever the learner opened the Review/Lesson modal on.
+  async function openVisualGuide() {
+    // Visualising a guide that is still streaming would build from the version
+    // the cache holds, not the one about to replace it.
+    if (guideBusy || !reviewScope) return;
+    viz.scope = reviewScope;
+    viz.kind = reviewKind;
+    viz.open = true;
+    viz.seq += 1;
+    viz.id = ''; viz.tabs = []; viz.activeTab = null;
+    $('vizRegenPanel')?.classList.add('hidden');
+    const note = $('vizRegenNote'); if (note) note.value = '';
+    show('vizModal');
+    updateAssistantHint();
+    await loadVisualGuide({});
+  }
+
+  function closeVisualGuide() {
+    viz.open = false;
+    hide('vizModal');
+    // Blank the frame: a generated page may be running an animation loop, and a
+    // hidden-but-live iframe keeps burning CPU on a phone.
+    const frame = $('vizFrame');
+    if (frame) { frame.removeAttribute('src'); frame.classList.add('hidden'); }
+    updateAssistantHint();
+  }
+
+  /**
+   * Fetch (or rebuild) the visuals for the open scope.
+   *
+   * apiSlow, not api: a cold build is one or two full model calls and a plain
+   * POST that silent for minutes gets dropped in front of us (see the SSE note
+   * in AGENTS §7). A cache hit comes back through the same stream instantly.
+   */
+  async function loadVisualGuide(opts) {
+    if (!viz.scope) return;
+    if (viz.busy) {
+      // Already generating for this section. Saying so beats a button that looks
+      // broken — and starting a second run would just pay for the same page twice.
+      setVizStatus('Still building…', 'One generation is already running for this section.');
+      return;
+    }
+    const mine = viz.seq;
+    viz.busy = true;
+    syncVizButtons();
+    const frame = $('vizFrame');
+    if (frame) { frame.removeAttribute('src'); frame.classList.add('hidden'); }
+    // Clear the artifact's identity AND its description together. Leaving
+    // title/outline behind is what let the assistant confidently teach the last
+    // section's visual 2 while this section was still building — or had failed.
+    viz.id = ''; viz.tabs = []; viz.activeTab = null;
+    viz.title = ''; viz.outline = ''; viz.scopeLabel = '';
+    $('vizTitle').textContent = 'Visual Guide';
+    $('vizEngineTag').innerHTML = '';
+    setVizStatus(
+      opts.regenerate ? 'Rebuilding your visuals…' : 'Building your visual guide…',
+      opts.regenerate
+        ? (opts.critique ? 'Rewriting it around your note.' : 'Trying a different AI model this time.')
+        : 'The first build runs a full AI generation, so give it a minute or two. After that it opens instantly.',
+    );
+    try {
+      const r = await apiSlow('/api/visualize', {
+        ...viz.scope,
+        kind: viz.kind,
+        ...(opts.regenerate ? { regenerate: true } : {}),
+        ...(opts.critique ? { critique: opts.critique } : {}),
+      });
+      // The viewer moved to another section while this ran. The page is cached
+      // server-side either way, so dropping the response costs nothing — whereas
+      // applying it would label section B's viewer with section A's visuals.
+      if (mine !== viz.seq) return;
+      viz.id = r.id || '';
+      viz.title = r.title || 'Visual Guide';
+      viz.outline = r.outline || '';
+      viz.scopeLabel = r.scopeLabel || '';
+      viz.provider = r.provider || '';
+      viz.model = r.model || '';
+      viz.attempt = r.attempt || 1;
+      $('vizTitle').textContent = viz.title;
+      $('vizEngineTag').innerHTML = engineTag(r);
+      if (frame && r.url) {
+        // `v=` busts the frame cache after a regenerate — same id, new document.
+        frame.src = `${r.url}?theme=${encodeURIComponent(themeNow())}&v=${encodeURIComponent(r.updatedAt || String(viz.attempt))}`;
+        frame.classList.remove('hidden');
+      }
+      $('vizStatus').classList.add('hidden');
+      // The button on the guide behind us now says "Open visuals".
+      syncGuideTools({ visual: r });
+    } catch (e) {
+      if (mine === viz.seq) setVizError("Couldn't build the visuals: " + e.message);
+    } finally {
+      viz.busy = false;
+      syncVizButtons();
+      updateAssistantHint();
+      // The viewer was re-pointed while this ran, so THAT open never issued a
+      // request — it only got the "still building" notice, and the response we
+      // just dropped was for the section it left. Drive it now, or the spinner
+      // it is showing is one nothing will ever replace. Terminates: this call
+      // captures the current seq with busy already false.
+      if (mine !== viz.seq && viz.open) loadVisualGuide({});
+    }
+  }
+
+  function toggleVizRegen() {
+    const panel = $('vizRegenPanel');
+    if (!panel) return;
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !opening);
+    if (opening) setTimeout(() => $('vizRegenNote')?.focus(), 30);
+  }
+
+  async function regenerateVisualGuide() {
+    const note = $('vizRegenNote');
+    const critique = note ? note.value.trim() : '';
+    $('vizRegenPanel')?.classList.add('hidden');
+    if (note) note.value = '';
+    await loadVisualGuide({ regenerate: true, critique });
+  }
+
+  // Hand the conversation over to the assistant with the visual already named,
+  // so the learner can then switch to voice and keep talking about it.
+  function askAboutVisual() {
+    const panel = $('assistantPanel');
+    const input = $('assistantInput');
+    if (panel && panel.classList.contains('hidden')) toggleAssistant();
+    if (input && !input.value.trim()) {
+      const t = viz.activeTab;
+      input.value = t && t.name
+        ? `Teach me visual ${t.index}: ${t.name}. Explain it from scratch.`
+        : 'Walk me through these visuals from the beginning.';
+    }
+    setTimeout(() => input && input.focus(), 60);
+  }
+
+  /*
+   * The artifact reports its tab state up. It is opaque-origin, so `e.origin` is
+   * "null" and useless — the SOURCE window is the only thing worth checking, and
+   * it must be our own frame. Without that check any page, or any other frame on
+   * a Sentinel tab, could write into what the assistant believes is on screen.
+   */
+  window.addEventListener('message', (e) => {
+    const d = e && e.data;
+    if (!d || d.type !== 'agora-viz-tab') return;
+    const frame = $('vizFrame');
+    if (!frame || !frame.contentWindow || e.source !== frame.contentWindow) return;
+    // Capped: these are ARTIFACT-controlled strings and they end up verbatim in
+    // the assistant's prompt. Tab names are specified as 2–4 words, so the limits
+    // are generous — they exist so a page cannot spend the prompt budget.
+    const cap = (v, n) => String(v == null ? '' : v).slice(0, n);
+    viz.tabs = Array.isArray(d.tabs) ? d.tabs.slice(0, 16).map((t) => cap(t, 80)) : [];
+    viz.activeTab = d.index ? { index: cap(d.index, 8), name: cap(d.name, 120) } : null;
+    updateAssistantHint();
+  });
+
+  // The host (or the learner's own toggle) can flip light/dark while a visual is
+  // open. Tell the artifact rather than reloading it — a reload would throw away
+  // whichever tab and slider positions they were mid-thought on.
+  new MutationObserver(() => {
+    const frame = $('vizFrame');
+    if (!viz.open || !frame || !frame.contentWindow) return;
+    try { frame.contentWindow.postMessage({ type: 'agora-viz-theme', theme: themeNow() }, '*'); } catch { /* gone */ }
+  }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+
+  /* ------------- Regenerating the study guide itself --------------------- */
+
+  function toggleGuideRegen() {
+    const panel = $('reviewRegenPanel');
+    if (!panel) return;
+    const opening = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden', !opening);
+    if (opening) setTimeout(() => $('reviewRegenNote')?.focus(), 30);
+  }
+
+  async function regenerateGuide() {
+    if (guideBusy) return;
+    const note = $('reviewRegenNote');
+    const critique = note ? note.value.trim() : '';
+    $('reviewRegenPanel')?.classList.add('hidden');
+    if (note) note.value = '';
+    if (!reviewScope) return;
+    const opts = { refresh: true, critique };
+    if (reviewKind === 'lesson') await lessonFromScope(reviewScope, reviewLabel, opts);
+    else await reviewFromScope(reviewScope, reviewLabel, opts);
+  }
+
+  /**
+   * Label the guide's tools from what is CACHED for this scope: which engine
+   * wrote the guide on screen, and whether visuals already exist (so the button
+   * can promise "Open visuals" instead of a two-minute wait). Best-effort — the
+   * buttons still work if this fails.
+   */
+  async function syncGuideTools(pre) {
+    const btn = $('reviewVizBtn'), tag = $('reviewEngineTag');
+    let info = pre;
+    if (!info) {
+      if (btn) btn.textContent = '✨ Visualize this';
+      if (tag) tag.innerHTML = '';
+      if (!reviewScope) return;
+      try {
+        info = await api('/api/guide/info', {
+          method: 'POST',
+          body: JSON.stringify({ ...reviewScope, kind: reviewKind }),
+        });
+      } catch { return; }
+    }
+    if (tag && info.guide) tag.innerHTML = engineTag(info.guide);
+    if (btn) btn.textContent = info.visual ? '✨ Open visuals' : '✨ Visualize this';
   }
 
   async function analyzeProgress() {
@@ -4028,6 +4352,19 @@ const App = (() => {
       if (c) ctx.card = { id: c.id, concept: c.concept, intuition: c.intuition, formula: c.formula, topic: c.topic };
       else if (fc.scope) ctx.scope = fc.scope;
     }
+    // A visual guide open over any view. Its tab names are what the learner says
+    // out loud ("teach me visual 2"), so they must be the names on their screen —
+    // hence the generator's own index rather than anything scraped from the page,
+    // which is sandboxed into an opaque origin and cannot be read.
+    if (viz.open && (viz.title || viz.outline)) {
+      ctx.visual = {
+        kind: viz.kind,
+        title: viz.title,
+        scopeLabel: viz.scopeLabel,
+        outline: viz.outline,
+        ...(viz.activeTab ? { activeTab: viz.activeTab } : {}),
+      };
+    }
     const recent = (state.log || []).filter(Boolean).slice(-5).map((r) => ({ topic: r.topic, isCorrect: !!r.isCorrect }));
     if (recent.length) ctx.recent = recent;
     return ctx;
@@ -4066,6 +4403,13 @@ const App = (() => {
   }
 
   function updateAssistantHint() {
+    if (viz.open && (viz.title || viz.outline)) {
+      const t = viz.activeTab;
+      $('assistantHint').textContent = t && t.name
+        ? `I can see visual ${t.index}: ${t.name}. Ask me to teach it.`
+        : 'I can see your visual guide. Say "teach me visual 1".';
+      return;
+    }
     const view = currentView();
     $('assistantHint').textContent = {
       quiz: "I can see this question. Ask for a nudge or an explanation.",
@@ -6620,6 +6964,8 @@ const App = (() => {
     toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
+    openVisualGuide, closeVisualGuide, toggleVizRegen, regenerateVisualGuide, askAboutVisual,
+    toggleGuideRegen, regenerateGuide,
     closeRoadmap, addRoadmapToEngine,
     openAddTracks, closeAddTracks, filterAddTracks,
     openGraph, setGraphLevel,

@@ -254,6 +254,30 @@ model to match Gemini's reliability.
 
 ---
 
+## Visual guides ("Visualize this")
+
+Open any **Lesson** or **Review** study guide and there is a **✨ Visualize this** button under it.
+It hands that guide to whichever AI engine you have picked and gets back one interactive page:
+3–6 numbered, named visuals as tabs — a slider whose movement changes the curve, click-to-advance
+steps, a labelled diagram with tap-to-reveal parts. One idea per visual, simple ones first.
+
+- **It is cached.** The first build runs a full generation (roughly 1–2 minutes). After that the
+  button says **Open visuals** and it opens instantly, for free, for everyone.
+- **↻ Regenerate** sits next to it, on the visuals *and* on the written guide. The note box is
+  optional: describe what was wrong and the same engine rewrites around it; leave it blank and it
+  rebuilds on a **different model**. Both are tagged "Made by <engine>", so you always know what
+  you are reading and a regenerate never silently repeats the same failure.
+- **Talk to it.** With the viewer open, the study assistant and the Coach can see the guide's
+  title, every visual's name and what it shows, and which tab you are looking at. Hit
+  **💬 Explain this to me**, or switch on Conversation mode and say *"teach me visual 2"*.
+- **Any engine.** Gemini, DeepSeek, Kimi or a local model — whatever your engine picker offers is
+  what builds and what teaches. Nothing here is tied to one vendor.
+
+The page runs in a sandboxed frame with no network access and no storage, so a generated visual can
+never reach your account, and it always follows the app's light/dark theme.
+
+---
+
 ## Flashcards (Course & Lesson level)
 
 AI-written study decks that sit **above** the quiz: mastering a deck should mean
