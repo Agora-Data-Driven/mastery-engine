@@ -827,13 +827,18 @@
           <button class="btn btn-neutral" id="vizRegenBtn" onclick="App.toggleVizRegen()">↻ Regenerate</button>
         </div>
         <div class="regen-panel hidden" id="vizRegenPanel">
-          <label class="label" for="vizRegenNote">What was wrong with these visuals? (optional)</label>
-          <textarea id="vizRegenNote" rows="2" placeholder="e.g. visual 3 is just a picture — make the slider actually change the curve"></textarea>
+          <!-- Tick visuals to rewrite ONLY those: the server regenerates each
+               named panel and splices it into the cached page, so the ones left
+               unticked are not re-rolled, they are untouched. Tick nothing and
+               it rebuilds the whole page — what this button always did. -->
+          <div class="viz-pick" id="vizRegenPicker"></div>
+          <label class="label" for="vizRegenNote">What should be different? (optional)</label>
+          <textarea id="vizRegenNote" rows="2" placeholder="e.g. the slider doesn't change the curve — make it actually move"></textarea>
           <div class="regen-actions">
-            <button class="btn btn-ai" id="vizRegenGo" onclick="App.regenerateVisualGuide()">Regenerate</button>
+            <button class="btn btn-ai" id="vizRegenGo" onclick="App.regenerateVisualGuide()">Rebuild whole page</button>
             <button class="fc-edit-cancel" onclick="App.toggleVizRegen()">Cancel</button>
           </div>
-          <p class="regen-note">Leave it blank and it rebuilds on a <b>different AI model</b> instead.</p>
+          <p class="regen-note" id="vizRegenHint">Leave it blank and it rebuilds on a <b>different AI model</b> instead.</p>
         </div>
       </div>
     </div>
@@ -856,21 +861,40 @@
   </div>
 
   <div id="assistantPanel" class="assistant-panel hidden">
-    <div class="assistant-head">
+    <!-- The header doubles as the drag handle; double-click puts the panel back where it started.
+         Both are no-ops in the ?embed=assistant frame (see app.js beginPanelGesture). -->
+    <div class="assistant-head" onpointerdown="App.panelDragStart(event)" ondblclick="App.resetPanelGeometry()"
+         title="Drag to move · double-click to reset">
       <div>
         <div class="assistant-title">Study Assistant</div>
         <div class="assistant-hint" id="assistantHint">I can see what's on your screen. Ask me anything.</div>
       </div>
       <div class="assistant-actions">
-        <button class="assistant-icobtn" id="assistantSettingsBtn" onclick="App.toggleAssistantSettings()" title="AI model &amp; thinking" aria-label="AI model & thinking">⚙</button>
+        <button class="assistant-icobtn" id="assistantSettingsBtn" onclick="App.toggleAssistantSettings()" title="AI model, voice &amp; difficulty" aria-label="AI model, voice and difficulty">⚙</button>
         <button class="assistant-icobtn" id="assistantHistBtn" onclick="App.toggleAssistantHistory()" title="Past conversations" aria-label="Past conversations">🕑</button>
         <button class="assistant-new" id="assistantNew" onclick="App.newAssistantChat()" title="Start a new conversation" aria-label="Start a new conversation">+ New</button>
         <button class="assistant-close" onclick="App.toggleAssistant()" aria-label="Close">×</button>
       </div>
     </div>
 
+    <!-- The four per-turn switches. They live in the header, not behind ⚙, because these are the
+         ones you flip mid-conversation ("go look at my quiz for this bit") and a per-turn switch
+         two clicks deep may as well not exist — which is exactly what happened to coach mode.
+         Anything needing a dropdown stays in the settings drawer below. -->
+    <div class="asst-chips" id="asstChips">
+      <button type="button" class="asst-chip" id="asstChipDeep" aria-pressed="false" onclick="App.toggleAsstChip('deep')"
+              title="Deep — read my REAL quiz questions, my scores and my written notes for the section I'm on. Slower and much more specific: turn it on to be quizzed, or to ask whether you're ready.">🔍<span>Deep</span></button>
+      <button type="button" class="asst-chip" id="asstChipCoach" aria-pressed="false" onclick="App.toggleAsstChip('coach')"
+              title="Coach — ground answers in my whole curriculum and progress, and end with a suggested study path.">🧠<span>Coach</span></button>
+      <button type="button" class="asst-chip" id="asstChipWeb" aria-pressed="false" onclick="App.toggleAsstChip('web')"
+              title="Web — let the assistant search the internet (Gemini only).">🌐<span>Web</span></button>
+      <button type="button" class="asst-chip" id="asstChipVoice" aria-pressed="false" onclick="App.toggleAsstChip('voice')"
+              title="Voice — talk hands-free; replies are spoken aloud.">🎙<span>Voice</span></button>
+    </div>
+
     <!-- Collapsible AI controls. Same global choice as the home card, so
-         switching here changes flashcards, explanations & generation too. -->
+         switching here changes flashcards, explanations & generation too.
+         Height-capped and scrollable — this used to grow until it owned the whole panel. -->
     <div class="assistant-settings hidden" id="assistantSettings">
 
       <!-- ── AI model ─────────────────────────────────────────── -->
@@ -884,33 +908,15 @@
         </label>
       </section>
 
-      <!-- ── How it answers ───────────────────────────────────── -->
-      <section class="aset-group">
-        <div class="aset-title">How it answers</div>
-        <label class="aset-toggle" id="asstCoachWrap">
-          <span class="aset-toggle-txt"><b>Coach mode</b><em>Use my progress + curriculum to answer and recommend a study path (slower)</em></span>
-          <input type="checkbox" id="asstCoachChk" onchange="App.onCoachChange(this)" />
-          <span class="aset-sw" aria-hidden="true"></span>
-        </label>
-        <label class="aset-toggle" id="asstWebWrap">
-          <span class="aset-toggle-txt"><b>Web access</b><em>Let the assistant search the internet (Gemini only)</em></span>
-          <input type="checkbox" id="asstWebChk" onchange="App.onWebAccessChange(this)" />
-          <span class="aset-sw" aria-hidden="true"></span>
-        </label>
-      </section>
-
+      <!-- Coach mode, Web access and Conversation mode are the header CHIPS now — only the voice
+           PICKERS are left here, because they need dropdowns. -->
       <!-- ── Voice ────────────────────────────────────────────── -->
       <section class="aset-group">
         <div class="aset-title">Voice</div>
-        <label class="aset-toggle" id="asstConvoWrap">
-          <span class="aset-toggle-txt"><b>Conversation mode</b><em>Talk hands-free — replies are spoken aloud</em></span>
-          <input type="checkbox" id="convoModeChk" onchange="App.toggleConvoMode(this)" />
-          <span class="aset-sw" aria-hidden="true"></span>
-        </label>
         <div id="asstVoiceWrap" style="display:none">
           <!-- Engine first, then the voices that engine offers — App.onTtsEngineChange repopulates
                the voice list below, so the two selects are never out of step. -->
-          <div class="select-wrap" style="margin-top:10px"><select id="convoEngineSel" onchange="App.onTtsEngineChange(this)"></select></div>
+          <div class="select-wrap"><select id="convoEngineSel" onchange="App.onTtsEngineChange(this)"></select></div>
           <div class="select-wrap" style="margin-top:8px"><select id="convoVoiceSel" onchange="App.onConvoVoiceChange(this)"></select></div>
           <p class="asst-set-note" id="convoVoiceNote"></p>
         </div>
@@ -956,6 +962,10 @@
       </div>
       <div class="assistant-history-list" id="assistantHistList"></div>
     </div>
+
+    <!-- Resize grip. Last child so it paints over the history overlay too. -->
+    <div class="assistant-resize" id="assistantResize" onpointerdown="App.panelResizeStart(event)"
+         title="Drag to resize" aria-hidden="true"></div>
   </div>
 
   <script src="app.js"></script>

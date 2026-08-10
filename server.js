@@ -133,6 +133,14 @@ import {
   generateVisualGuide,
   parseVisualGuide,
   visualGuideLooksComplete,
+  generateVisualPanel,
+  parseVisualPanel,
+  splitVisualPanels,
+  visualPanelIndex,
+  canSwapVisualPanel,
+  replaceVisualPanel,
+  replaceOutlineLine,
+  visualTabLabelFrom,
   generateAnalysis,
   generateConfusions,
   generateDrillQuestion,
@@ -2788,6 +2796,148 @@ async function workGroundingFor(email, message, work) {
   return got ? { cards: got.cards } : null;
 }
 
+/* ------------------------------ DEEP MODE --------------------------------- */
+/*
+ * "Look it up" — the opt-in grounding tier, off by default.
+ *
+ * WHY IT IS A MODE AND NOT ALWAYS ON. Everything below costs a Firestore read set and a large
+ * slice of prompt on a path the learner sits watching: the question bank for a section is
+ * hundreds of docs, a study guide is tens of thousands of characters. The ordinary turn
+ * ("explain this") needs none of it and is fast because it pays for none of it. So the learner
+ * arms it deliberately with the Deep chip, exactly like coach mode — and unlike coach mode it is
+ * SCOPE-BOUND: it loads the section they are actually looking at, not their whole shelf.
+ *
+ * The three sources answer three different questions the assistant could not previously answer:
+ *   - the QUESTION BANK   -> "am I ready for this quiz?" (it can rehearse the real items)
+ *   - PER-TOPIC PROGRESS  -> "how am I doing on this?" (real accuracy/mastery, not a name in a list)
+ *   - the STUDY GUIDE     -> "open my notes on X" (the written lesson, verbatim)
+ *
+ * Same posture as the growth journal and the task board: budget BEFORE fetching, ship a body
+ * whole or not at all, and DECLARE every gap — a section with no cached guide must read as
+ * "you haven't generated notes for this yet", never as "there is nothing to know here".
+ */
+
+// One section's bank, capped. 60 questions is more than any real lesson holds and still ~20k chars
+// with options; past that we are pasting a course, not a section, and the model stops rehearsing
+// and starts summarising.
+const DEEP_MAX_QUESTIONS = 60;
+// The written guide ships WHOLE or not at all (a half-guide reads exactly like a complete one).
+// Guides run 8-20k chars; anything past this is a course-level guide that would crowd out the bank.
+const DEEP_GUIDE_CHARS = 26000;
+// How many topics of per-topic progress to print. A lesson is ~5-15 sub-lessons; a course scope can
+// be a hundred, and the tail is noise next to the section on screen.
+const DEEP_MAX_TOPICS = 40;
+
+/**
+ * WHICH SECTION deep mode is about, read off what is on screen — most specific wins.
+ *
+ * A visual guide or a flashcard pins the section harder than the setup dropdowns do: the learner
+ * can have "Review All" selected on the home screen and still be looking at one lesson's visual
+ * guide. Returns null when nothing on screen names a section, which the prompt block declares
+ * rather than papering over with the whole shelf.
+ */
+function deepScopeFrom(context = {}) {
+  const viz = context.visual && context.visual.scope;
+  if (viz && (viz.track || viz.course || viz.lesson || viz.topic)) return viz;
+  if (context.card && context.card.topic) return { topic: context.card.topic };
+  const s = context.scope || {};
+  if (!isAll(s.topic) || !isAll(s.lesson) || !isAll(s.course) || !isAll(s.track)) return s;
+  // Nothing selected, but they have been answering questions: the topics they just practised are
+  // the truest statement of what they are working through.
+  const recent = [...new Set((context.recent || []).map((r) => r && r.topic).filter(Boolean))];
+  return recent.length ? { topics: recent } : null;
+}
+
+/**
+ * The opt-in bundle: the section's real question bank (with answers), the learner's own numbers on
+ * those topics, and the cached written guide. Returns `{ scopeLabel, topics, questions, progress,
+ * guide, gaps }` — `gaps` names what could not be loaded so the prompt can say so out loud.
+ *
+ * 🔴 Derived numbers come from lib/priority.js, never re-implemented here. `mastery` is the
+ * depth-aware score behind the learner's own Coverage/Mastery toggle; a second implementation
+ * would quote them a number their progress tree disagrees with (AGENTS.md §3).
+ *
+ * NEVER throws: every source degrades to a declared gap, because a deep turn that 500s is strictly
+ * worse than a deep turn that says "I couldn't open your notes".
+ */
+async function deepGroundingFor(req, context) {
+  const scope = deepScopeFrom(context);
+  if (!scope) return { gaps: ['nothing on screen names a section'] };
+
+  const gaps = [];
+  const programScope = await requestScope(req);
+  const catalog = await getCatalog(req.userEmail, programScope);
+  const rows = Array.isArray(scope.topics)
+    ? catalog.filter((r) => scope.topics.includes(r.topic))
+    : scopeCatalog(catalog, scope);
+  if (!rows.length) return { gaps: ['the section on screen matched no topics in their engine'] };
+
+  const topics = [...new Set(rows.map((r) => r.topic).filter(Boolean))];
+  const scopeLabel = Array.isArray(scope.topics)
+    ? `the topics they just practised: ${scope.topics.join(', ')}`
+    : [scope.track, scope.course, scope.lesson, scope.topic]
+      .filter((v) => !isAll(v)).join(' › ') || 'their current selection';
+
+  // The bank and the guide are independent reads; the progress rows are already in `catalog`.
+  const [bank, guide] = await Promise.all([
+    getQuestionsForTopics(topics.slice(0, DEEP_MAX_TOPICS), programScope)
+      .catch(() => { gaps.push('their question bank could not be read'); return []; }),
+    // A guide is keyed by its exact scope tuple, so a `topics` fallback (no tuple) has none to fetch.
+    (Array.isArray(scope.topics) ? Promise.resolve(null) : Promise.all([
+      getStudyGuide({ ...scope, program: programScope.program, kind: 'lesson' }),
+      getStudyGuide({ ...scope, program: programScope.program, kind: 'review' }),
+    ]).then(([lesson, review]) => lesson || review))
+      .catch(() => { gaps.push('their study guide could not be read'); return null; }),
+  ]);
+
+  // Real accuracy + both scoring formulas, per topic. `lastAttempted` is normalised through
+  // `toDate` exactly as /api/catalog does — it arrives as a Firestore timestamp, and retention
+  // decay silently reads "never" from an unconverted one.
+  const progress = rows.slice(0, DEEP_MAX_TOPICS).map((r) => {
+    const stats = {
+      correctCount: r.correctCount ?? 0,
+      totalAttempts: r.totalAttempts ?? 0,
+      lastAttempted: toDate(r.lastAttempted),
+    };
+    const d = deriveStats(stats);
+    return {
+      topic: r.topic,
+      lesson: r.lesson || '',
+      attempts: stats.totalAttempts,
+      correct: stats.correctCount,
+      accuracy: stats.totalAttempts ? d.accuracy : null,
+      mastery: d.mastery,
+      priority: d.priority,
+      daysSince: stats.totalAttempts ? d.daysSince : null,
+      questions: bank.filter((q) => q.topic === r.topic).length,
+    };
+  });
+  if (rows.length > DEEP_MAX_TOPICS) {
+    gaps.push(`${rows.length - DEEP_MAX_TOPICS} further topic(s) in this section were not loaded`);
+  }
+
+  // Answers ride along on purpose — the learner turned this on to be QUIZZED, and grading an oral
+  // answer against the real key is the whole point. The prompt block carries the one rule that
+  // survives this: the UNANSWERED question on their screen is still off-limits.
+  const questions = shuffle(bank).slice(0, DEEP_MAX_QUESTIONS).map(publicQuestion)
+    .map((q) => ({ topic: q.topic, question: q.question, options: q.options, answer: q.answer }));
+  if (bank.length > questions.length) {
+    gaps.push(`${bank.length - questions.length} of their ${bank.length} questions in this section were not loaded`);
+  }
+
+  let guideText = null;
+  if (guide && guide.markdown) {
+    // Whole or absent — never a slice. A truncated guide reads exactly like a complete one and gets
+    // taught as though it were the whole lesson.
+    if (String(guide.markdown).length <= DEEP_GUIDE_CHARS) guideText = String(guide.markdown);
+    else gaps.push(`their written guide for this section is too long to load (${guide.markdown.length} chars)`);
+  } else if (!Array.isArray(scope.topics)) {
+    gaps.push('they have not generated a written study guide for this section yet');
+  }
+
+  return { scopeLabel, topics, questions, progress, guide: guideText, bankTotal: bank.length, gaps };
+}
+
 /** The learner's accessible catalog (their Mastery-Engine shelf), as {track,course,lesson,topic}
  *  rows — the real curriculum the assistant grounds "which card teaches X" answers in.
  *  Sections the learner TEMPORARILY REMOVED ride along marked `removed: true` (a hidden
@@ -2906,6 +3056,12 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
       growthGroundingFor(chatUser, message, holistic),
       workGroundingFor(chatUser, message, work),
     ]);
+    // Deep mode: the learner armed the Deep chip, so load the section on screen in full — its real
+    // question bank, their own numbers on it, and the written guide. Off by default; see
+    // deepGroundingFor. Fail-soft, like every other grounding source.
+    const deepHits = req.body?.deep
+      ? await deepGroundingFor(req, context).catch(() => ({ gaps: ['deep context could not be loaded'] }))
+      : null;
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
     // True only when this app is embedded in someone else's frame (Sentinel's Coach) — that's
@@ -2913,7 +3069,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, work, workHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -2982,11 +3138,16 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
       growthGroundingFor(chatUser, message, holistic),
       workGroundingFor(chatUser, message, work),
     ]);
+    // Deep mode (see the blocking sibling). Inside the stream, after the heartbeat, so its extra
+    // reads can never hold the connection open silently before sseInit.
+    const deepHits = req.body?.deep
+      ? await deepGroundingFor(req, context).catch(() => ({ gaps: ['deep context could not be loaded'] }))
+      : null;
     const actions = !!req.body?.actions;
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, work, workHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
@@ -3415,6 +3576,15 @@ function visualPayload(doc, cached) {
     critique: doc.critique || '',
     bytes: doc.bytes || 0,
     updatedAt: doc.updatedAt || '',
+    // The regenerate picker's checkbox list. Read from the PAGE's own tab strip
+    // rather than from `outline`, which a model can leave stale — the learner
+    // must be ticking the visuals they can actually see. `editable` is resolved
+    // here too, so a panel that cannot be swapped is disabled in the UI instead
+    // of failing after the click.
+    panels: doc.html
+      ? visualPanelIndex(doc.html).map((p) => ({ ...p, editable: canSwapVisualPanel(doc.html, p.key).ok }))
+      : [],
+    patched: Array.isArray(doc.patched) ? doc.patched : [],
   };
 }
 
@@ -3588,6 +3758,122 @@ async function buildVisualGuide(req, { kind, scope, body, programScope, critique
   return visualPayload(saved || { id: visualGuideId(scope), kind, title, outline, scopeLabel: inp.scopeLabel, attempt, ...meta }, false);
 }
 
+/**
+ * How many visuals ONE targeted edit may rewrite. Past this a whole-page rebuild
+ * is both cheaper and more coherent: panels are rewritten independently and
+ * nothing reconciles them with each other, so rewriting most of a page this way
+ * buys a set of visuals that no longer reads as one lesson.
+ */
+const MAX_PATCH_PANELS = 3;
+
+/**
+ * Rewrite SOME visuals in the cached page, leaving every other byte identical.
+ *
+ * This is the cheap half of Regenerate. `buildVisualGuide` re-authors a whole
+ * ~90 KB document and never sees the page it is replacing, so fixing visual 3
+ * also re-rolls the three that were fine. Here the model is shown the panel it
+ * is fixing and returns just that panel, which `replaceVisualPanel` splices back
+ * in — one small call instead of one large one, and the visuals the learner
+ * liked are not merely "probably preserved", they are untouched.
+ *
+ * 🔴 It deliberately does NOT generate a missing study guide the way
+ * `visualSourceInputs` does. Writing one here would stamp `studyGuides.updatedAt`
+ * NEWER than the page being patched, and `freshVisualGuide` reads exactly that
+ * as "these visuals teach superseded text" — so the page would be discarded on
+ * the very next open, and the edit the learner just paid for with it. No cached
+ * guide means no patch; the answer is a rebuild, and it says so.
+ */
+async function patchVisualGuide(req, { kind, scope, body, programScope, critique, panels }) {
+  const previous = await getVisualGuide(scope).catch(() => null);
+  if (!previous || !previous.html) throw httpErr(409, 'There are no visuals to edit yet — build the page first.');
+
+  const guideDoc = await getStudyGuide(guideScope(kind, programScope.program, body)).catch(() => null);
+  if (!guideDoc || !guideDoc.markdown) {
+    throw httpErr(409, 'The written guide behind these visuals is no longer cached, so a single visual cannot be rewritten from it. Rebuild the whole page.');
+  }
+  if (guideDoc.updatedAt && previous.updatedAt && guideDoc.updatedAt > previous.updatedAt) {
+    throw httpErr(409, 'The written guide has been rewritten since these visuals were made. Rebuild the whole page so they teach the same text.');
+  }
+
+  const wanted = [...new Set((panels || []).map((p) => String(p).trim()).filter(Boolean))];
+  if (!wanted.length) throw httpErr(400, 'Pick at least one visual to rewrite');
+  // Rejected, never trimmed: silently rewriting 3 of the 4 they ticked reads as
+  // "it ignored one", and they would have no way to tell which.
+  if (wanted.length > MAX_PATCH_PANELS) {
+    throw httpErr(400, `One edit can rewrite at most ${MAX_PATCH_PANELS} visuals. Beyond that, rebuild the whole page — it is cheaper and keeps them reading as one lesson.`);
+  }
+
+  // Refuse BEFORE spending a token. A page that drives this panel's controls from
+  // a script shared with the others would keep that script and lose the elements
+  // it wires — it throws on the first missing one and the visuals after it die
+  // with it, so the "fix" would break more than it repaired.
+  for (const key of wanted) {
+    const v = canSwapVisualPanel(previous.html, key);
+    if (!v.ok) {
+      throw httpErr(409, `Visual ${key} can't be edited on its own — ${v.reason}. Rebuild the whole page once; pages built after that can be edited one visual at a time.`);
+    }
+  }
+
+  // Same rule as the whole-page regenerate: a note is the new input, so the
+  // learner's own engine keeps the job; "not good enough, can't say why" is best
+  // answered by a different model. Anchored on whoever wrote the cached page.
+  let ai = aiChoice(req);
+  if (!critique) {
+    const next = await nextEngine(req, previous.provider ? previous : ai);
+    if (next) ai = { ...ai, provider: next.provider, model: next.model };
+  }
+
+  const index = visualPanelIndex(previous.html);
+  const current = new Map(splitVisualPanels(previous.html).map((p) => [p.key, p.html]));
+  const edits = await mapWithConcurrency(wanted, 2, async (key) => {
+    const meta = {};
+    const raw = await generateVisualPanel({
+      scopeLabel: previous.scopeLabel || '',
+      kind,
+      number: key,
+      name: (index.find((i) => i.key === key) || {}).name || '',
+      current: current.get(key) || '',
+      outline: previous.outline || '',
+      guide: guideDoc.markdown,
+      critique,
+    }, { ...ai, meta });
+    const parsed = parseVisualPanel(raw, key);
+    // Same posture as the truncation guard on a whole page: an unbalanced
+    // fragment is what running out of tokens looks like, and splicing it in
+    // would corrupt a page that is currently fine.
+    if (!parsed) throw httpErr(502, `The replacement for visual ${key} came back incomplete. Try again — a blank note switches model.`);
+    return { key, ...parsed, meta };
+  });
+
+  let html = previous.html;
+  let outline = previous.outline || '';
+  for (const e of edits) {
+    const next = replaceVisualPanel(html, e.key, e.html, visualTabLabelFrom(e.line, e.key));
+    if (!next) throw httpErr(500, `Could not splice visual ${e.key} back into the page`);
+    html = next;
+    outline = replaceOutlineLine(outline, e.key, e.line);
+  }
+  if (!visualGuideLooksComplete(html)) {
+    throw httpErr(502, 'The edited page no longer reads as a complete document, so nothing was saved. Rebuild the whole page.');
+  }
+
+  await saveVisualGuide(scope, html, {
+    scopeLabel: previous.scopeLabel || '',
+    title: previous.title || '',
+    outline,
+    critique,
+    attempt: (Number(previous.attempt) || 0) + 1,
+    patched: wanted,
+    // The engine that made the EDIT — the untouched panels are still whoever
+    // wrote them, which is why the tag names the visuals that changed.
+    provider: edits[0]?.meta?.provider || previous.provider || '',
+    model: edits[0]?.meta?.model || previous.model || '',
+    source: 'visualize-patch',
+  });
+  const saved = await getVisualGuide(scope);
+  return visualPayload(saved || { ...previous, html, outline, patched: wanted }, false);
+}
+
 // Auth: get-or-build the interactive visual guide for a scope. A cache hit costs
 // nothing and returns instantly; a miss (or `regenerate`) generates. Answers SSE
 // when the caller asks for it — generation is one or two full model calls and a
@@ -3598,6 +3884,10 @@ app.post('/api/visualize', requireAuth, rateLimitAI, async (req, res, next) => {
     const kind = body.kind === 'lesson' ? 'lesson' : 'review';
     const regenerate = body.regenerate === true;
     const critique = String(body.critique || '').trim().slice(0, 2000);
+    // Which visuals to rewrite. Empty = the whole page, which is the original
+    // behaviour and stays the default — naming panels is the learner opting into
+    // the cheap path, never something inferred for them.
+    const panels = Array.isArray(body.panels) ? body.panels.slice(0, 16) : [];
     const programScope = await requestScope(req);
     const scope = visualScope(kind, programScope.program, body);
 
@@ -3608,6 +3898,11 @@ app.post('/api/visualize', requireAuth, rateLimitAI, async (req, res, next) => {
         if (wantsSSE(req)) return sseResult(res, async () => hit);
         return res.json(hit);
       }
+    }
+    if (regenerate && panels.length) {
+      const edit = () => patchVisualGuide(req, { kind, scope, body, programScope, critique, panels });
+      if (wantsSSE(req)) return sseResult(res, edit, 'Could not rewrite those visuals');
+      return res.json(await edit());
     }
     const work = () => buildVisualGuide(req, { kind, scope, body, programScope, critique, regenerate });
     if (wantsSSE(req)) return sseResult(res, work, 'Could not build the visual guide');

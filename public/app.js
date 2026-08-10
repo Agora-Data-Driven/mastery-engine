@@ -2406,6 +2406,10 @@ const App = (() => {
     id: '', title: '', outline: '', scopeLabel: '',
     provider: '', model: '', attempt: 0,
     tabs: [], activeTab: null,
+    // [{key, name, editable}] straight from the server, which reads them off the
+    // page's own tab strip. The frame reports the SAME names once it loads, but
+    // this arrives with the response — so the picker is ready before the iframe is.
+    panels: [], patched: [],
     // Bumped every time the viewer is pointed at a new section. A generation can
     // run for minutes; without this, closing it and opening a DIFFERENT section's
     // guide lets the first response land in the second section's viewer.
@@ -2418,11 +2422,19 @@ const App = (() => {
 
   // "Made by Cloud · Gemini 2.5 Pro · v2". A regenerate can legitimately switch
   // engines, so the tag is the only way to tell what you are actually reading.
+  //
+  // After a targeted edit the page has TWO authors — the named engine wrote only
+  // the visuals it lists, and the rest are still whoever built them. Saying which
+  // ones changed is the honest version of that, and it also tells the learner the
+  // untouched visuals really were left alone.
   function engineTag(o) {
     if (!o || (!o.provider && !o.model)) return '';
     const pretty = MODEL_LABELS[o.model] || [o.provider, o.model].filter(Boolean).join(' · ');
     const v = Number(o.attempt) > 1 ? ` · v${Number(o.attempt)}` : '';
-    return `Made by <b>${esc(pretty)}</b>${esc(v)}`;
+    const p = Array.isArray(o.patched) && o.patched.length
+      ? ` · rewrote visual${o.patched.length > 1 ? 's' : ''} ${o.patched.join(', ')}`
+      : '';
+    return `Made by <b>${esc(pretty)}</b>${esc(v)}${esc(p)}`;
   }
 
   function setVizStatus(headline, sub) {
@@ -2443,9 +2455,12 @@ const App = (() => {
   }
 
   function syncVizButtons() {
-    const r = $('vizRegenBtn'), g = $('vizRegenGo');
+    const r = $('vizRegenBtn');
     if (r) r.disabled = viz.busy;
-    if (g) g.disabled = viz.busy;
+    // The Go button's label AND its disabled state both depend on the picker, so
+    // it is owned there — setting `disabled = busy` here would re-enable it over
+    // an invalid selection every time this ran.
+    syncVizPick();
     const ask = $('vizAskBtn');
     if (ask) ask.disabled = !viz.id;
   }
@@ -2461,6 +2476,7 @@ const App = (() => {
     viz.open = true;
     viz.seq += 1;
     viz.id = ''; viz.tabs = []; viz.activeTab = null;
+    viz.panels = []; viz.patched = [];
     $('vizRegenPanel')?.classList.add('hidden');
     const note = $('vizRegenNote'); if (note) note.value = '';
     show('vizModal');
@@ -2505,11 +2521,20 @@ const App = (() => {
     viz.title = ''; viz.outline = ''; viz.scopeLabel = '';
     $('vizTitle').textContent = 'Visual Guide';
     $('vizEngineTag').innerHTML = '';
+    // A targeted edit is a fraction of the output of a rebuild, so promising "a
+    // minute or two" for it would read as a hang that resolved early. Say which
+    // one is running, and say what is NOT being touched — that is the whole
+    // reason to have picked visuals in the first place.
+    const picked = opts.panels || [];
     setVizStatus(
-      opts.regenerate ? 'Rebuilding your visuals…' : 'Building your visual guide…',
-      opts.regenerate
-        ? (opts.critique ? 'Rewriting it around your note.' : 'Trying a different AI model this time.')
-        : 'The first build runs a full AI generation, so give it a minute or two. After that it opens instantly.',
+      picked.length
+        ? `Rewriting visual${picked.length > 1 ? 's' : ''} ${picked.join(', ')}…`
+        : opts.regenerate ? 'Rebuilding your visuals…' : 'Building your visual guide…',
+      picked.length
+        ? 'The other visuals are left exactly as they are, so this is quick.'
+        : opts.regenerate
+          ? (opts.critique ? 'Rewriting it around your note.' : 'Trying a different AI model this time.')
+          : 'The first build runs a full AI generation, so give it a minute or two. After that it opens instantly.',
     );
     try {
       const r = await apiSlow('/api/visualize', {
@@ -2517,6 +2542,7 @@ const App = (() => {
         kind: viz.kind,
         ...(opts.regenerate ? { regenerate: true } : {}),
         ...(opts.critique ? { critique: opts.critique } : {}),
+        ...(picked.length ? { panels: picked } : {}),
       });
       // The viewer moved to another section while this ran. The page is cached
       // server-side either way, so dropping the response costs nothing — whereas
@@ -2529,6 +2555,8 @@ const App = (() => {
       viz.provider = r.provider || '';
       viz.model = r.model || '';
       viz.attempt = r.attempt || 1;
+      viz.panels = Array.isArray(r.panels) ? r.panels : [];
+      viz.patched = Array.isArray(r.patched) ? r.patched : [];
       $('vizTitle').textContent = viz.title;
       $('vizEngineTag').innerHTML = engineTag(r);
       if (frame && r.url) {
@@ -2554,20 +2582,83 @@ const App = (() => {
     }
   }
 
+  // Server-side cap on one targeted edit (MAX_PATCH_PANELS). Mirrored here so the
+  // learner is told BEFORE the click, rather than 400'd after it — and never
+  // silently trimmed, which would read as "it rewrote 3 of my 4".
+  const VIZ_MAX_PICK = 3;
+
+  function pickedPanels() {
+    const box = $('vizRegenPicker');
+    if (!box) return [];
+    return [...box.querySelectorAll('input[type=checkbox]')].filter((c) => c.checked).map((c) => c.value);
+  }
+
+  /**
+   * The checkbox list of visuals.
+   *
+   * Built from the server's panel index — it reads the page's own tab strip, so
+   * the rows match what is on screen, and it is also the only side that knows
+   * which panels are actually EDITABLE (a page that drives its controls from one
+   * shared script cannot have a single visual swapped out from under it). The
+   * frame's reported tab names are the fallback for a page the server could not
+   * parse: names but no surgery, which is the honest degradation.
+   */
+  function renderVizPicker() {
+    const box = $('vizRegenPicker');
+    if (!box) return;
+    let rows = viz.panels;
+    if (!rows.length && viz.tabs.length) rows = viz.tabs.map((t, i) => ({ key: String(i + 1), name: t, editable: false }));
+    if (!rows.length) { box.innerHTML = ''; box.classList.add('hidden'); syncVizPick(); return; }
+    box.classList.remove('hidden');
+    const locked = rows.filter((p) => !p.editable).length;
+    box.innerHTML = `<span class="label">Which visuals should change?</span>
+      <div class="viz-pick-list">${rows.map((p) => `
+        <label class="viz-pick-row${p.editable ? '' : ' is-locked'}">
+          <input type="checkbox" value="${esc(p.key)}"${p.editable ? '' : ' disabled'} onchange="App.syncVizPick()">
+          <span>${esc(p.name || `Visual ${p.key}`)}</span>
+        </label>`).join('')}</div>
+      ${locked ? `<p class="regen-note">${locked === rows.length ? 'These visuals share' : 'The greyed-out visuals share'} one script with the rest of the page, so they can only change in a full rebuild. Rebuild once — pages built after that can be edited one visual at a time.</p>` : ''}`;
+    syncVizPick();
+  }
+
+  /** Ticking a visual turns "rebuild everything" into "edit exactly these". */
+  function syncVizPick() {
+    const picked = pickedPanels();
+    const go = $('vizRegenGo');
+    const hint = $('vizRegenHint');
+    const over = picked.length > VIZ_MAX_PICK;
+    if (go) {
+      go.textContent = picked.length ? `Rewrite ${picked.length} visual${picked.length > 1 ? 's' : ''}` : 'Rebuild whole page';
+      go.disabled = viz.busy || over;
+    }
+    if (hint) {
+      hint.innerHTML = over
+        ? `<span class="err">Pick at most ${VIZ_MAX_PICK}.</span> Beyond that a full rebuild is cheaper, and keeps the visuals reading as one lesson.`
+        : picked.length
+          ? 'Only the ticked visuals are regenerated. The rest of the page is kept exactly as it is — not re-rolled.'
+          : 'Rebuilds every visual. Leave the note blank and it uses a <b>different AI model</b>.';
+    }
+  }
+
   function toggleVizRegen() {
     const panel = $('vizRegenPanel');
     if (!panel) return;
     const opening = panel.classList.contains('hidden');
     panel.classList.toggle('hidden', !opening);
-    if (opening) setTimeout(() => $('vizRegenNote')?.focus(), 30);
+    if (opening) {
+      renderVizPicker();
+      setTimeout(() => $('vizRegenNote')?.focus(), 30);
+    }
   }
 
   async function regenerateVisualGuide() {
     const note = $('vizRegenNote');
     const critique = note ? note.value.trim() : '';
+    const panels = pickedPanels();
+    if (panels.length > VIZ_MAX_PICK) return;
     $('vizRegenPanel')?.classList.add('hidden');
     if (note) note.value = '';
-    await loadVisualGuide({ regenerate: true, critique });
+    await loadVisualGuide({ regenerate: true, critique, panels });
   }
 
   // Hand the conversation over to the assistant with the visual already named,
@@ -4334,10 +4425,12 @@ const App = (() => {
   function assistantContext() {
     const view = currentView();
     const ctx = { view };
-    if (view === 'setup') {
-      const s = selection();
-      ctx.scope = { track: s.track, course: s.course, lesson: s.lesson, topic: s.topic };
-    }
+    // The selection travels on EVERY view, not just setup. It used to be setup-only, which was
+    // fine while the scope was decoration — but deep mode resolves the section to load from it,
+    // and a learner mid-quiz or mid-flashcard is exactly who asks "am I ready for this?". Without
+    // it the server has no section to pull a question bank for on the only screens that matter.
+    const s = selection();
+    ctx.scope = { track: s.track, course: s.course, lesson: s.lesson, topic: s.topic };
     if (view === 'quiz') {
       const q = state.questions[state.idx];
       if (q) {
@@ -4361,6 +4454,10 @@ const App = (() => {
         title: viz.title,
         scopeLabel: viz.scopeLabel,
         outline: viz.outline,
+        // The tuple, not just the label: a visual guide pins the section harder than the setup
+        // dropdowns do (they can still say "Review All" while a lesson's guide is open), so this
+        // is what deep mode resolves its question bank and study guide from.
+        ...(viz.scope ? { scope: viz.scope } : {}),
         ...(viz.activeTab ? { activeTab: viz.activeTab } : {}),
       };
     }
@@ -4379,30 +4476,144 @@ const App = (() => {
       if (!assistant.loaded) loadAssistant();
       setTimeout(() => $('assistantInput').focus(), 30);
       syncConvoUi();
+      syncAsstChips();
+      restorePanelGeometry();
       if (convoOn()) startConvo();   // resume hands-free if it was left on
     } else {
       stopConvo();                            // never keep the mic open behind a closed panel
     }
   }
 
-  // Reveal/hide the in-panel AI model + thinking controls. These drive the same
-  // global choice as the home card, so switching here affects everything.
+  // Reveal/hide the settings drawer: the AI model, extended thinking, the voice engine and the
+  // question difficulty. The four per-turn switches (coach / web / deep / voice) are NOT in here
+  // any more — they're the header chips, see toggleAsstChip.
   function toggleAssistantSettings() {
     const box = $('assistantSettings');
     if (!box) return;
     const opening = box.classList.contains('hidden');
     box.classList.toggle('hidden', !opening);
     $('assistantSettingsBtn')?.classList.toggle('active', opening);
-    if (opening) {
-      syncConvoUi();
-      // Reflect saved toggle state so the checkboxes aren't stuck unchecked.
-      const wc = $('asstWebChk'); if (wc) wc.checked = webAccessOn();
-      // Coach mode is forced on in the Coach frame (see coachOn) — render it as the fixed fact it
-      // is, rather than as a live toggle whose flips silently change nothing.
-      const cc = $('asstCoachChk');
-      if (cc) { cc.checked = coachOn(); cc.disabled = assistantOnly(); }
+    if (opening) { syncConvoUi(); syncAsstChips(); }
+  }
+
+  /* ---- Moving & resizing the panel ----------------------------------------
+   * The panel is a fixed overlay pinned bottom-right, which is fine until the thing you are asking
+   * about is UNDERNEATH it — a quiz option, the active tab of a visual guide, the diagram you want
+   * explained. So the header is a drag handle, the bottom-right corner is a resize grip, and both
+   * persist. Double-click the header to put it back.
+   *
+   * 🔴 NEVER in the ?embed=assistant frame. There the panel IS the whole document (styles.css
+   * html.assistant-only pins it to inset:0 and Sentinel sizes the iframe), so dragging it would
+   * slide the only content out of a viewport it exactly fills, with no way to get it back.
+   * Every entry point below returns early on assistantOnly().
+   */
+  const PANEL_GEO = 'assistant.geo';
+  const drag = { on: false, mode: '', dx: 0, dy: 0, x0: 0, y0: 0, w: 0, h: 0 };
+
+  function panelGeo() {
+    try { return JSON.parse(localStorage.getItem(PANEL_GEO) || 'null'); } catch { return null; }
+  }
+
+  // Clamp so a saved position can never strand the panel off-screen — the window may be smaller
+  // than it was when the geometry was saved, or on another monitor entirely. 140px of panel and
+  // its whole header row always stay reachable.
+  function applyPanelGeo(g) {
+    const panel = $('assistantPanel');
+    if (!panel || !g) return;
+    const w = Math.max(300, Math.min(g.w, window.innerWidth - 16));
+    const h = Math.max(240, Math.min(g.h, window.innerHeight - 16));
+    const left = Math.max(140 - w, Math.min(g.left, window.innerWidth - 140));
+    const top = Math.max(0, Math.min(g.top, window.innerHeight - 44));
+    panel.style.left = `${Math.round(left)}px`;
+    panel.style.top = `${Math.round(top)}px`;
+    panel.style.width = `${Math.round(w)}px`;
+    panel.style.height = `${Math.round(h)}px`;
+    // The stylesheet anchors bottom-right and caps the height; an explicit box has to release all
+    // three or it fights the drag.
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+    panel.style.maxHeight = 'none';
+  }
+
+  // Below 560px the stylesheet stretches the panel edge-to-edge, which is the only usable layout
+  // there — a geometry saved on a desktop must not turn a phone back into a 390px box floating in
+  // a corner. The saved value is kept, not cleared: it applies again on a wide window.
+  const panelFloats = () => !assistantOnly() && window.innerWidth > 560;
+
+  function restorePanelGeometry() {
+    if (!panelFloats()) return;
+    const g = panelGeo();
+    if (g) applyPanelGeo(g);
+  }
+
+  function resetPanelGeometry() {
+    localStorage.removeItem(PANEL_GEO);
+    const panel = $('assistantPanel');
+    if (!panel) return;
+    for (const p of ['left', 'top', 'width', 'height', 'right', 'bottom', 'max-height']) {
+      panel.style.removeProperty(p);
     }
   }
+
+  function savePanelGeo() {
+    const panel = $('assistantPanel');
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    localStorage.setItem(PANEL_GEO, JSON.stringify({ left: r.left, top: r.top, w: r.width, h: r.height }));
+  }
+
+  function panelDragStart(e) {
+    // The header carries ⚙ 🕑 + New ×; a pointerdown on any of them is a click, not a drag.
+    if (e.target.closest('button, input, select, textarea, a')) return;
+    beginPanelGesture(e, 'move');
+  }
+  function panelResizeStart(e) { beginPanelGesture(e, 'size'); }
+
+  function beginPanelGesture(e, mode) {
+    if (!panelFloats()) return;
+    const panel = $('assistantPanel');
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    // Freeze the CURRENT rect as an explicit left/top/width/height before the anchors change,
+    // otherwise releasing right/bottom makes the panel jump on the first pointermove.
+    applyPanelGeo({ left: r.left, top: r.top, w: r.width, h: r.height });
+    Object.assign(drag, {
+      on: true, mode, dx: e.clientX - r.left, dy: e.clientY - r.top,
+      x0: e.clientX, y0: e.clientY, w: r.width, h: r.height,
+    });
+    panel.classList.add('is-dragging');
+    e.preventDefault();
+    window.addEventListener('pointermove', onPanelPointerMove);
+    window.addEventListener('pointerup', endPanelGesture, { once: true });
+  }
+
+  function onPanelPointerMove(e) {
+    if (!drag.on) return;
+    const panel = $('assistantPanel');
+    if (!panel) return;
+    const r = panel.getBoundingClientRect();
+    if (drag.mode === 'move') {
+      applyPanelGeo({ left: e.clientX - drag.dx, top: e.clientY - drag.dy, w: r.width, h: r.height });
+    } else {
+      applyPanelGeo({ left: r.left, top: r.top, w: drag.w + (e.clientX - drag.x0), h: drag.h + (e.clientY - drag.y0) });
+    }
+  }
+
+  function endPanelGesture() {
+    if (!drag.on) return;
+    drag.on = false;
+    $('assistantPanel')?.classList.remove('is-dragging');
+    window.removeEventListener('pointermove', onPanelPointerMove);
+    savePanelGeo();
+  }
+
+  // A window that shrank (or a laptop undocked from a second monitor) must not leave the panel
+  // parked outside it — re-clamp against the geometry we stored, never against a stale rect.
+  window.addEventListener('resize', () => {
+    if (!panelFloats()) return;
+    const g = panelGeo();
+    if (g) applyPanelGeo(g);
+  });
 
   function updateAssistantHint() {
     if (viz.open && (viz.title || viz.outline)) {
@@ -4589,6 +4800,15 @@ const App = (() => {
           conversationId: assistant.activeId || undefined,
           conversational: spoken || undefined,
           web: webAccessOn() || undefined,
+          // These four rode only on the streaming path, so every VOICE turn was silently
+          // ungrounded: coach mode off, no engine actions, no profile proposals. That hit
+          // Sentinel's Coach hardest, where coachOn() is unconditionally true and the spoken
+          // reply was the one that ignored it. Deep mode matters here most of all — an oral
+          // rehearsal is the reason to arm it.
+          coach: coachOn() || undefined,
+          deep: deepOn() || undefined,
+          actions: engineActionsEnabled() || undefined,
+          hostFrame: inHostFrame() || undefined,
         }),
       });
       if (spoken && convo.abort === ac) convo.abort = null;
@@ -4829,6 +5049,7 @@ const App = (() => {
         steer: steer || undefined,
         web: webAccessOn() || undefined,
         coach: coachOn() || undefined,
+        deep: deepOn() || undefined,
         actions: engineActionsEnabled() || undefined,
         hostFrame: inHostFrame() || undefined,
         attachments: assistantAttachments.length ? assistantAttachments.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data })) : undefined,
@@ -6707,7 +6928,6 @@ const App = (() => {
   // Web access (Google Search grounding) — applies to any assistant chat, not just voice. Gemini-only
   // server-side; harmless to request on other providers (it's ignored). Persisted, default off.
   function webAccessOn() { return localStorage.getItem('assistant.web') === '1'; }
-  function onWebAccessChange(chk) { localStorage.setItem('assistant.web', chk && chk.checked ? '1' : '0'); }
   // Coach mode: ground answers in the learner's progress + curriculum + transcripts and
   // recommend a personalised study path. Heavier per turn (a catalog + transcript read every
   // turn), so in this app it's opt-in. Default off.
@@ -6718,7 +6938,54 @@ const App = (() => {
   // can add over a plain chat. Left to the toggle, a button labelled "Your Coach" shipped without
   // any of it unless the learner had opened the panel's settings and found the checkbox.
   function coachOn() { return assistantOnly() || localStorage.getItem('assistant.coach') === '1'; }
-  function onCoachChange(chk) { localStorage.setItem('assistant.coach', chk && chk.checked ? '1' : '0'); }
+
+  /* ---- Deep mode ("look it up") + the chip row ---------------------------
+   * Deep mode is the opt-in grounding tier, and OFF BY DEFAULT is the feature: an ordinary turn is
+   * fast precisely because it loads none of it. Armed, the server pulls the section on screen in
+   * full — its real question bank WITH the answer key (so "am I ready?" is answerable and it can
+   * run an oral rehearsal), the learner's per-topic accuracy/mastery/priority, and the written
+   * study guide verbatim. See server.js deepGroundingFor.
+   *
+   * All four switches live as CHIPS in the panel header rather than as rows in the settings
+   * drawer: they are the ones flipped per-conversation ("look at my quiz for this bit"), and a
+   * per-turn switch buried two clicks deep behind ⚙ may as well not exist — which is exactly what
+   * happened to coach mode. The drawer keeps only what needs a dropdown.
+   */
+  function deepOn() { return localStorage.getItem('assistant.deep') === '1'; }
+
+  function toggleAsstChip(kind) {
+    if (kind === 'coach') {
+      // Forced on in the ?embed=assistant frame (see coachOn) — rendering a flip that changes
+      // nothing is worse than rendering it fixed.
+      if (assistantOnly()) return;
+      localStorage.setItem('assistant.coach', coachOn() ? '0' : '1');
+    } else if (kind === 'web') {
+      localStorage.setItem('assistant.web', webAccessOn() ? '0' : '1');
+    } else if (kind === 'deep') {
+      localStorage.setItem('assistant.deep', deepOn() ? '0' : '1');
+    } else if (kind === 'voice') {
+      if (!convoSupported()) return;
+      localStorage.setItem('assistant.convoMode', convoOn() ? '0' : '1');
+      if (convoOn()) startConvo(); else stopConvo();
+      syncConvoUi();
+    }
+    syncAsstChips();
+  }
+
+  function syncAsstChips() {
+    const paint = (id, on, disabled) => {
+      const el = $(id);
+      if (!el) return;
+      el.classList.toggle('on', !!on);
+      el.setAttribute('aria-pressed', on ? 'true' : 'false');
+      el.disabled = !!disabled;
+    };
+    paint('asstChipCoach', coachOn(), assistantOnly());
+    paint('asstChipWeb', webAccessOn(), false);
+    paint('asstChipDeep', deepOn(), false);
+    paint('asstChipVoice', convoOn(), !convoSupported());
+  }
+
   function convoActive() { return convoOn() && !$('assistantPanel')?.classList.contains('hidden'); }
   function assistantMicBtn() { return document.querySelector('#assistantPanel .chat-input .me-mic'); }
 
@@ -7035,23 +7302,15 @@ const App = (() => {
   function setPhase(p) { convo.phase = p; setConvoStatus(p === 'idle' ? '' : p); }
 
   // Reflect the saved state onto the checkbox and hide the whole row when unsupported.
+  // The voice SECTION of the settings drawer (engine + voice pickers). Conversation mode itself is
+  // the header's 🎙 chip now, so there's no checkbox left to reflect here — only the pickers, which
+  // are hidden wholesale on a browser with no SpeechRecognition/speechSynthesis.
   function syncConvoUi() {
     const supported = convoSupported();
-    const wrap = $('asstConvoWrap');
-    if (wrap) wrap.style.display = supported ? '' : 'none';
-    const chk = $('convoModeChk');
-    if (chk) chk.checked = convoOn();
     const vwrap = $('asstVoiceWrap');
     if (vwrap) vwrap.style.display = supported ? '' : 'none';
     if (supported) { loadConvoVoices(); loadTtsCatalog().then(paintVoicePickers); }
-    const webChk = $('asstWebChk');
-    if (webChk) webChk.checked = webAccessOn();
-  }
-
-  function toggleConvoMode(chk) {
-    localStorage.setItem('assistant.convoMode', chk && chk.checked ? '1' : '0');
-    if (convoOn()) startConvo();
-    else stopConvo();
+    syncAsstChips();
   }
 
   function startConvo() { if (convoActive()) { setPhase('listening'); ensureListening(); } }
@@ -7179,7 +7438,8 @@ const App = (() => {
   }
 
   return {
-    dictateInto, toggleConvoMode, convoInterrupt, convoToggleMute, onConvoVoiceChange, onTtsEngineChange, onWebAccessChange, onCoachChange,
+    dictateInto, convoInterrupt, convoToggleMute, onConvoVoiceChange, onTtsEngineChange,
+    toggleAsstChip, resetPanelGeometry, panelDragStart, panelResizeStart,
     enterMastery, goHome, setMode, setScoreMetric,
     submitPassword, actAs, stopActing, fixAllFormats, fixAllQuestionFormats,
     sequenceTopics,
@@ -7195,7 +7455,7 @@ const App = (() => {
     toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
-    openVisualGuide, closeVisualGuide, toggleVizRegen, regenerateVisualGuide, askAboutVisual,
+    openVisualGuide, closeVisualGuide, toggleVizRegen, regenerateVisualGuide, syncVizPick, askAboutVisual,
     toggleGuideRegen, regenerateGuide,
     closeRoadmap, addRoadmapToEngine,
     openAddTracks, closeAddTracks, filterAddTracks,
