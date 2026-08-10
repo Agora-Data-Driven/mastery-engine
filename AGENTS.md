@@ -122,7 +122,7 @@ Rough zones in `server.js`:
 | 2332–2380 | Admin question repair: `fix-format` (AI) and **`/api/questions/set`** (manual, `:2332`) |
 | 2381–2725 | Study assistant (scope chat, conversations, blocking + SSE streaming) |
 | ~3006–3040 | **Spoken replies**: `GET /api/tts/voices` (picker data) + `POST /api/tts` (text → MP3 bytes). §7 |
-| 2730–2970 | Review / Lesson study guides (+ regenerate w/ critique), progress analysis |
+| 2730–2970 | The Lesson study guide — `GUIDE_KIND`, `scopeSourceText`, `lessonInputs`, `streamStudyGuide` (serving `/api/lesson` **and** the deprecated `/api/review`), regenerate w/ critique, progress analysis |
 | ~3280–3570 | **Visual guides**: the artifact shell (`renderVisualArtifact`), `availableProviders`/`nextEngine`, `/api/visualize`, `/api/guide/info`, `/api/visuals/:id/html` (§7) |
 | 2979–3340 | Knowledge graph, readiness, warm-ups, learn-next, topic sequencing |
 | 3343–3550 | Hint/explain + admin data repair (latexify, fix-formats, merge-math) |
@@ -796,11 +796,82 @@ under the Coach pill at `right:24px`. And `coachOn()` returns true unconditional
 🔴 **The panel is the ONLY assistant outside Sentinel** — a standalone tab, and
 `mastery-engine-local`, which has no Sentinel by design. Never gate it on being embedded.
 
+### 🔴 There is ONE study guide per section, and it is called "Lesson"
+
+Merged 2026-08-10. Review and Lesson were the same prompt apart from whether the prerequisite
+graph was named — but they cached separately, so every section could hold **two** guides and
+**two** generated visual pages, and the learner had to choose between them *before reading
+either*. `generateReview` is gone; [`generateLesson`](lib/gemini.js) is the only guide generator.
+Four things about the merge are load-bearing:
+
+1. **It teaches the section IN FULL and names what it builds on.** The old Lesson prompt said
+   "do NOT re-explain [prerequisites] from scratch", which produced a thin delta — and then thin
+   VISUALS, because the guide is the only source the visual generator gets. The merged prompt
+   connects to prereqs by name in a clause and then teaches the material anyway. Do not
+   "optimise" that back into a delta.
+2. **`kind` is pinned to `GUIDE_KIND = 'lesson'`** in `guideScope` ([server.js](server.js)), so
+   both routes and the visual scope collapse onto one cache key. Guides banked under the old
+   `'review'` key (110 of them, plus 3 visual pages) are orphaned and cost only storage.
+   `/api/review` survives as a **deprecated alias to the same handler** — a browser holding the
+   pre-merge `app.js` must not bank a rival document.
+3. **The guide is GROUNDED on the authored lesson document when one exists.** `scopeSourceText`
+   pulls the scope's `transcripts` (lesson grain, so a sub-lesson inherits its lesson's doc) via
+   `getScopeTranscripts` — equality-only filters, verified against prod as needing no composite
+   index, and fail-soft to `''`. Before this, both prompts re-derived the lesson from its own
+   quiz questions while 934k chars of hand-authored `doc.md` sat unread in Firestore. Whole or
+   absent, never truncated (same rule as the growth journal). `studyGuides.grounded` records
+   which kind of build is cached; the bulk pre-build reports the split.
+4. **`lessonInputs()` is the one input builder** — both guide routes, the visual guide's
+   cold-cache path and the admin bulk pre-build all go through it, so a guide is identical
+   however it was triggered. Those four had drifted into three different input shapes.
+
+Measured on prod at the merge: **1,189 of 1,229 topics carry prereq links** (avg 2.8 each), so
+prereq-awareness is the normal case, not the exception. Grounding is patchier — **190 of 342
+lesson-grain scopes** have a transcript, 82 of them `claude-authored`, and the split is lopsided:
+`ai_engineering` 82/82, `digital_marketing` 70/110, **`data_science` 9/121**. A guide with no
+source still builds from topics + questions exactly as before, so this degrades, never fails.
+(18 transcript scope-keys match no topic scope at all — course/lesson renamed since the paste;
+those are silently unreachable and worth a sweep some day.)
+
+### 🔴 Some guides and visual pages are HAND-WRITTEN — `locked: true` protects them
+
+Added 2026-08-10 with DE 202. `content-build/` already authored the source material (`doc.md` →
+transcripts, questions, cards); it now also authors the two learner-facing artifacts —
+`guide.md` → `studyGuides` and `visual.html` + `visual.json` → `visualGuides` — published by
+[`content-build/assemble-guides.js`](content-build/assemble-guides.js) (dry-run by default,
+`--apply` to write). Four things are load-bearing:
+
+1. **`locked: true` is written on both docs, and the routes refuse over it.** `streamStudyGuide`
+   409s on a refresh and `/api/visualize` 409s on any regenerate — including a single-panel edit,
+   which would otherwise splice model output into an authored page and leave it looking hand-made.
+   `LOCKED_MESSAGE` is the sentence; the client turns it into a confirm and retries with
+   `force: true`. A forced rebuild clears the flag, because what is cached afterwards genuinely is
+   model output. The engine tag reads **✍️ Written by hand** instead of naming a model.
+2. **🔴 THE GUIDE IS WRITTEN FIRST, ALWAYS.** `freshVisualGuide()` treats a visual older than its
+   study guide as a cache MISS. Write them the other way round and every hand-made page reads as
+   stale and is silently replaced by a model on the first click. The assembler enforces the order
+   and re-reads both docs afterwards to prove it.
+3. **The assembler validates with the server's own parsers**, not with its own: `visualGuideLooksComplete`,
+   `splitVisualPanels`, `visualPanelIndex`, `canSwapVisualPanel`. So a hand-made page is held to
+   exactly the standard a generated one is — including that **every panel must be individually
+   editable**, which is most of the value of making it by hand.
+4. **There is no undo inside the app.** The repo copy is the only original. That is the whole
+   reason for the confirm, and why `assemble-guides.js` is re-runnable: it republishes from
+   `content-build/` at any time.
+
 ### 🔴 The Visualize button serves MODEL-AUTHORED HTML — never into this origin
 
-Added 2026-08-10. "Visualize this" turns the Lesson/Review guide on screen into ONE self-contained
-interactive page (`generateVisualGuide` in [lib/gemini.js](lib/gemini.js)), cached in
-`visualGuides` and framed by the learner. Four things are load-bearing:
+Added 2026-08-10. The Lesson guide becomes ONE self-contained interactive page
+(`generateVisualGuide` in [lib/gemini.js](lib/gemini.js)), cached in `visualGuides` and framed by
+the learner. **Two doors reach it**: `✨ Visuals` in the progress tree's Learn menu (straight in,
+no lesson to read first) and `✨ Visualize this` inside the guide modal. Both call
+`showVisualGuide()` and produce the same cached artifact — `/api/visualize` writes the study guide
+itself on a cold cache, so the standalone door is never the lesser one.
+
+**The generator is graph-aware**: `prereqs`/`dependents` reach it from the same `lessonInputs()`
+the written guide used, and when prereqs exist **visual 1 must be the bridge** — familiar ground
+on one side, this section on the other, connection drawn. Conditional on purpose: with no prereqs
+on record a "what you already know" panel would be invented. Four things are load-bearing:
 
 1. **It is served from its own route into a sandboxed iframe, never through `innerHTML`.**
    `GET /api/visuals/:id/html` sends `CSP: sandbox allow-scripts; default-src 'none';

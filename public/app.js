@@ -1652,8 +1652,8 @@ const App = (() => {
           </div>
           <div class="menu-group learn">
             <button class="prog-btn menu-back" data-action="back" title="Back" aria-label="Back">‹</button>
-            <button class="prog-btn lesson" data-action="lesson" title="A lesson that builds on this section's prerequisites">Lesson</button>
-            <button class="prog-btn review" data-action="review" title="AI teaches this section from scratch">Review</button>
+            <button class="prog-btn lesson" data-action="lesson" title="Teaches this section in full, built on what you already covered">Lesson</button>
+            <button class="prog-btn review" data-action="visualize" title="Interactive visuals for this section — opens straight up, no lesson to read first">✨ Visuals</button>
           </div>
         </div>`;
   }
@@ -2258,7 +2258,12 @@ const App = (() => {
   }
 
   let reviewScope = null;      // remember scope so "quiz me on this" works from the modal
-  let reviewKind = 'review';   // which guide is open — Visualize/Regenerate key on it
+  // There is one guide kind since the Review/Lesson merge. The variable stays
+  // because the viewer and Regenerate both key their requests on it, and the
+  // server still takes `kind` on the wire.
+  let reviewKind = 'lesson';
+  // Is the guide on screen HAND-WRITTEN? Regenerate confirms before replacing it.
+  let guideLocked = false;
   let reviewLabel = '';        // the section's display name, so a regenerate can re-title
 
   // ONE stream owns #reviewBody at a time. Without this a second Regenerate (or a
@@ -2275,34 +2280,6 @@ const App = (() => {
 
   // Original self-contained study guide (the "Review" button): teaches the
   // section from scratch, no cross-lesson links.
-  async function reviewFromScope(scope, label, opts = {}) {
-    const mine = ++guideSeq;
-    guideBusy = true; syncGuideBusy();
-    reviewScope = scope;
-    reviewKind = 'review';
-    reviewLabel = label || '';
-    $('reviewTitle').textContent = 'Review: ' + (label || 'Section');
-    $('reviewLinks').innerHTML = ''; // the plain Review has no prereq chips
-    resetGuideTools();
-    const box = $('reviewBody');
-    box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> '
-      + (opts.refresh ? 'Rewriting your review…' : 'Reading the questions &amp; preparing your review…') + '</div>';
-    show('reviewModal');
-    try {
-      // ?refresh=1 is what makes this ignore the cache. A critique implies it
-      // server-side too, so the two can never disagree about which one wins.
-      await apiStream('/api/review' + (opts.refresh ? '?refresh=1' : ''),
-        { ...scope, ...(opts.critique ? { critique: opts.critique } : {}) },
-        (acc) => { box.innerHTML = renderMarkdown(acc); });
-      typeset(box);
-      syncGuideTools();
-    } catch (e) {
-      box.innerHTML = '<span class="err">Couldn\'t build a review: ' + esc(e.message) + '</span>';
-    } finally {
-      if (mine === guideSeq) { guideBusy = false; syncGuideBusy(); }
-    }
-  }
-
   // A clickable chip for a prerequisite / dependent lesson. Carries the referred
   // section's full scope in data-* so clicking it opens that lesson — including
   // `program`, because prereq links cross programs and the referred lesson may
@@ -2338,8 +2315,12 @@ const App = (() => {
     } catch { wrap.innerHTML = ''; }
   }
 
-  // Prerequisite-aware study guide (the "Lesson" button): builds ON the section's
-  // prerequisites and shows clickable "Builds on / Leads to" links to jump around.
+  /**
+   * THE study guide (the "Lesson" button) — one path since the Review/Lesson
+   * merge (2026-08-10). It teaches the section in full AND names what it builds
+   * on, so there is nothing left to choose between; the "Builds on / Leads to"
+   * chips come from the same graph the guide's prereq block does.
+   */
   async function lessonFromScope(scope, label, opts = {}) {
     const mine = ++guideSeq;
     guideBusy = true; syncGuideBusy();
@@ -2350,12 +2331,16 @@ const App = (() => {
     resetGuideTools();
     const box = $('reviewBody');
     box.innerHTML = '<div class="ai-loading"><div class="spinner"></div> '
-      + (opts.refresh ? 'Rewriting your lesson…' : 'Reading the questions &amp; preparing your lesson…') + '</div>';
+      + (opts.refresh ? 'Rewriting your lesson…' : 'Preparing your lesson…') + '</div>';
     show('reviewModal');
     loadLessonLinks(scope); // fire-and-forget; chips fill in when ready
     try {
       await apiStream('/api/lesson' + (opts.refresh ? '?refresh=1' : ''),
-        { ...scope, ...(opts.critique ? { critique: opts.critique } : {}) },
+        {
+          ...scope,
+          ...(opts.critique ? { critique: opts.critique } : {}),
+          ...(opts.force ? { force: true } : {}),
+        },
         (acc) => { box.innerHTML = renderMarkdown(acc); });
       typeset(box);
       syncGuideTools();
@@ -2381,6 +2366,7 @@ const App = (() => {
     const note = $('reviewRegenNote'); if (note) note.value = '';
     const tag = $('reviewEngineTag'); if (tag) tag.innerHTML = '';
     const btn = $('reviewVizBtn'); if (btn) btn.textContent = '✨ Visualize this';
+    guideLocked = false;   // describes the guide that just left, not the one arriving
     syncGuideBusy();   // never re-enable a button while a guide is still streaming
   }
 
@@ -2403,8 +2389,8 @@ const App = (() => {
    */
   const viz = {
     open: false, busy: false, kind: 'review', scope: null,
-    id: '', title: '', outline: '', scopeLabel: '',
-    provider: '', model: '', attempt: 0,
+    id: '', title: '', outline: '', scopeLabel: '', label: '',
+    provider: '', model: '', attempt: 0, locked: false,
     tabs: [], activeTab: null,
     // [{key, name, editable}] straight from the server, which reads them off the
     // page's own tab strip. The frame reports the SAME names once it loads, but
@@ -2428,6 +2414,7 @@ const App = (() => {
   // ones changed is the honest version of that, and it also tells the learner the
   // untouched visuals really were left alone.
   function engineTag(o) {
+    if (o && o.locked) return '✍️ <b>Written by hand</b>';
     if (!o || (!o.provider && !o.model)) return '';
     const pretty = MODEL_LABELS[o.model] || [o.provider, o.model].filter(Boolean).join(' · ');
     const v = Number(o.attempt) > 1 ? ` · v${Number(o.attempt)}` : '';
@@ -2465,14 +2452,25 @@ const App = (() => {
     if (ask) ask.disabled = !viz.id;
   }
 
-  // Open the viewer over the study guide it belongs to. `reviewScope`/`reviewKind`
-  // are whatever the learner opened the Review/Lesson modal on.
-  async function openVisualGuide() {
-    // Visualising a guide that is still streaming would build from the version
-    // the cache holds, not the one about to replace it.
-    if (guideBusy || !reviewScope) return;
-    viz.scope = reviewScope;
-    viz.kind = reviewKind;
+  /**
+   * Open the viewer on a scope. TWO doors, one implementation:
+   *
+   *  - `openVisualGuide()` — from inside the guide modal, visualising the text
+   *    on screen.
+   *  - `visualsFromScope()` — straight from the progress tree's Learn menu, with
+   *    no lesson to read first. Added 2026-08-10 because that is how the visuals
+   *    are actually wanted: as the way IN to a section, not as a footnote to a
+   *    wall of prose you have to open first.
+   *
+   * The standalone door is not a lesser one. `/api/visualize` writes the study
+   * guide itself when the cache is cold, so both produce the same artifact under
+   * the same cache key — and the Lesson button is warm afterwards either way.
+   */
+  async function showVisualGuide(scope, label) {
+    if (!scope) return;
+    viz.scope = scope;
+    viz.kind = 'lesson';
+    viz.label = label || '';
     viz.open = true;
     viz.seq += 1;
     viz.id = ''; viz.tabs = []; viz.activeTab = null;
@@ -2482,6 +2480,17 @@ const App = (() => {
     show('vizModal');
     updateAssistantHint();
     await loadVisualGuide({});
+  }
+
+  async function openVisualGuide() {
+    // Visualising a guide that is still streaming would build from the version
+    // the cache holds, not the one about to replace it.
+    if (guideBusy || !reviewScope) return;
+    await showVisualGuide(reviewScope, reviewLabel);
+  }
+
+  async function visualsFromScope(scope, label) {
+    await showVisualGuide(scope, label);
   }
 
   function closeVisualGuide() {
@@ -2519,7 +2528,10 @@ const App = (() => {
     // section's visual 2 while this section was still building — or had failed.
     viz.id = ''; viz.tabs = []; viz.activeTab = null;
     viz.title = ''; viz.outline = ''; viz.scopeLabel = '';
-    $('vizTitle').textContent = 'Visual Guide';
+    // Keep the section's name up while it builds. Opened straight from the tree
+    // there is no modal behind the viewer to say what it is about, and a cold
+    // build is minutes of a spinner labelled "Visual Guide".
+    $('vizTitle').textContent = viz.label ? `${viz.label}: Visual Guide` : 'Visual Guide';
     $('vizEngineTag').innerHTML = '';
     // A targeted edit is a fraction of the output of a rebuild, so promising "a
     // minute or two" for it would read as a hang that resolved early. Say which
@@ -2543,6 +2555,7 @@ const App = (() => {
         ...(opts.regenerate ? { regenerate: true } : {}),
         ...(opts.critique ? { critique: opts.critique } : {}),
         ...(picked.length ? { panels: picked } : {}),
+        ...(opts.force ? { force: true } : {}),
       });
       // The viewer moved to another section while this ran. The page is cached
       // server-side either way, so dropping the response costs nothing — whereas
@@ -2557,6 +2570,7 @@ const App = (() => {
       viz.attempt = r.attempt || 1;
       viz.panels = Array.isArray(r.panels) ? r.panels : [];
       viz.patched = Array.isArray(r.patched) ? r.patched : [];
+      viz.locked = !!r.locked;
       $('vizTitle').textContent = viz.title;
       $('vizEngineTag').innerHTML = engineTag(r);
       if (frame && r.url) {
@@ -2656,9 +2670,10 @@ const App = (() => {
     const critique = note ? note.value.trim() : '';
     const panels = pickedPanels();
     if (panels.length > VIZ_MAX_PICK) return;
+    if (viz.locked && !confirm(lockedConfirm('These visuals were', 'them'))) return;
     $('vizRegenPanel')?.classList.add('hidden');
     if (note) note.value = '';
-    await loadVisualGuide({ regenerate: true, critique, panels });
+    await loadVisualGuide({ regenerate: true, critique, panels, force: viz.locked });
   }
 
   // Hand the conversation over to the assistant with the visual already named,
@@ -2715,16 +2730,26 @@ const App = (() => {
     if (opening) setTimeout(() => $('reviewRegenNote')?.focus(), 30);
   }
 
+  /**
+   * Confirm before replacing HAND-WRITTEN content.
+   *
+   * The server refuses a `locked` artifact outright (409); this is what turns
+   * that into a decision the learner actually makes. It matters because the
+   * authored copy lives in the repo — an accidental regenerate cannot be undone
+   * from inside the app.
+   */
+  const lockedConfirm = (subject, object) => `${subject} written by hand, not generated.\n\n`
+    + `Regenerating replaces ${object} with an AI version, and that cannot be undone from here.\n\nReplace anyway?`;
+
   async function regenerateGuide() {
     if (guideBusy) return;
+    if (guideLocked && !confirm(lockedConfirm('This lesson was', 'it'))) return;
     const note = $('reviewRegenNote');
     const critique = note ? note.value.trim() : '';
     $('reviewRegenPanel')?.classList.add('hidden');
     if (note) note.value = '';
     if (!reviewScope) return;
-    const opts = { refresh: true, critique };
-    if (reviewKind === 'lesson') await lessonFromScope(reviewScope, reviewLabel, opts);
-    else await reviewFromScope(reviewScope, reviewLabel, opts);
+    await lessonFromScope(reviewScope, reviewLabel, { refresh: true, critique, force: guideLocked });
   }
 
   /**
@@ -2747,7 +2772,12 @@ const App = (() => {
         });
       } catch { return; }
     }
-    if (tag && info.guide) tag.innerHTML = engineTag(info.guide);
+    if (info.guide) guideLocked = !!info.guide.locked;
+    if (tag && info.guide) {
+      // A hand-written lesson has no engine to name, so the tag says what it IS
+      // instead — which is also the only warning before ↻ Regenerate replaces it.
+      tag.innerHTML = info.guide.locked ? '✍️ <b>Written by hand</b>' : engineTag(info.guide);
+    }
     if (btn) btn.textContent = info.visual ? '✨ Open visuals' : '✨ Visualize this';
   }
 
@@ -6813,8 +6843,10 @@ const App = (() => {
         if (act === 'quiz') quizFromScope(scope);
         else if (act === 'prereq-quiz') prereqQuizFromScope(scope);
         else if (act === 'prereq-cards') prereqCardsFromScope(scope);
-        else if (act === 'review') reviewFromScope(scope, node.dataset.label);
-        else if (act === 'lesson') lessonFromScope(scope, node.dataset.label);
+        // 'review' is the old button's action, kept so a stale cached page still
+        // opens the guide it means. One generator now serves both.
+        else if (act === 'review' || act === 'lesson') lessonFromScope(scope, node.dataset.label);
+        else if (act === 'visualize') visualsFromScope(scope, node.dataset.label);
         else if (act === 'cards') openFlashcards(scope, node.dataset.label);
         else if (act === 'engadd') toggleSectionScope(scope, node, true);
         else if (act === 'engremove') toggleSectionScope(scope, node, false);
@@ -7466,7 +7498,7 @@ const App = (() => {
     toggleGenMore, generateSimilar,
     openStats, priorityFromStats, onAiEngineChange, onThinkingChange, onDifficultyChange,
     analyzeProgress, closeReview, quizFromReview,
-    openVisualGuide, closeVisualGuide, toggleVizRegen, regenerateVisualGuide, syncVizPick, askAboutVisual,
+    openVisualGuide, visualsFromScope, closeVisualGuide, toggleVizRegen, regenerateVisualGuide, syncVizPick, askAboutVisual,
     toggleGuideRegen, regenerateGuide,
     closeRoadmap, addRoadmapToEngine,
     openAddTracks, closeAddTracks, filterAddTracks,

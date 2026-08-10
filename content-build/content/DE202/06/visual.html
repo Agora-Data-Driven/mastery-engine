@@ -1,0 +1,363 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY. No page-level behaviour, and nothing here reaches into a
+   panel by id — each visual carries its own so each stays rewritable alone. */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px}
+.vz-seg button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:13px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Retry Meets Idempotency</button>
+  <button class="viz-tab" data-viz-tab="2">2. Edges Cost Time</button>
+  <button class="viz-tab" data-viz-tab="3">3. Green But Empty</button>
+  <button class="viz-tab" data-viz-tab="4">4. Threshold Goldilocks</button>
+  <button class="viz-tab" data-viz-tab="5">5. Three Separate Decisions</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Retry Meets Idempotency</h2>
+  <p class="vz-lede">The orchestrator's most basic feature is the retry — and it is exactly the
+    thing lesson 2 warned you about. A task dies halfway through writing a partition. Choose what
+    the task does on its next attempt. <b>Like a builder who either finishes the half-built wall or
+    knocks it down and starts clean.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Task write strategy">
+    <button id="v1-app" aria-pressed="true">Append as it goes</button>
+    <button id="v1-stage" aria-pressed="false">Stage under attempt ID, then commit</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-attempts" id="v1-attempts"></div>
+    <div class="v1-out" id="v1-out"></div>
+  </div>
+  <p class="vz-note">Nothing here is new — it is lesson 2's idempotent write, now triggered by
+    something you did not choose. That is the point: the orchestrator <em>will</em> re-run your task,
+    so the retry policy is only as safe as the write path underneath it.</p>
+
+  <style>
+    .v1-attempts{display:flex;flex-direction:column;gap:6px}
+    .v1-a{display:grid;grid-template-columns:74px 1fr auto;gap:9px;align-items:center;
+      border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;font-size:12.5px;background:var(--viz-bg)}
+    .v1-tag{font-size:9.5px;font-weight:800;letter-spacing:.05em;color:var(--viz-muted)}
+    .v1-what{line-height:1.35}
+    .v1-res{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-align:right;white-space:nowrap}
+    .v1-out{margin-top:14px;padding-top:13px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.55}
+    .v1-big{display:block;font-size:15px;font-weight:800;margin-bottom:5px}
+  </style>
+  <script>
+  (function(){
+    var staged = false;
+    var wrap = document.getElementById('v1-attempts');
+    var out = document.getElementById('v1-out');
+    var bA = document.getElementById('v1-app'), bS = document.getElementById('v1-stage');
+
+    function render(){
+      bA.setAttribute('aria-pressed', staged ? 'false' : 'true');
+      bS.setAttribute('aria-pressed', staged ? 'true' : 'false');
+      var rows = staged
+        ? [ ['attempt 1', 'writes 60% of the partition to <code>tmp_attempt_1</code>, then the worker dies', 'DISCARDED', 'var(--viz-muted)'],
+            ['attempt 2', 'writes 100% to <code>tmp_attempt_2</code>, validates, atomically commits', 'COMMITTED', 'var(--viz-green)'] ]
+        : [ ['attempt 1', 'appends 60% of the rows directly to the live partition, then dies', 'PARTIAL ROWS LIVE', 'var(--viz-red)'],
+            ['attempt 2', 'appends 100% of the rows to the same live partition', 'ADDED ON TOP', 'var(--viz-red)'] ];
+      wrap.innerHTML = rows.map(function(r){
+        return '<div class="v1-a"><span class="v1-tag">' + r[0] + '</span><span class="v1-what">' + r[1] + '</span>'
+          + '<span class="v1-res" style="color:' + r[3] + '">' + r[2] + '</span></div>';
+      }).join('');
+
+      out.innerHTML = staged
+        ? '<span class="v1-big" style="color:var(--viz-green)">Partition holds exactly 100% — once</span>'
+          + 'The half-written attempt was never visible to anyone, because it lived under its own attempt ID until it was proven complete. '
+          + 'Stage, validate, then atomically commit to the logical partition. Retries become free.'
+        : '<span class="v1-big" style="color:var(--viz-red)">Partition holds 160% of the rows</span>'
+          + 'The first attempt\'s partial output is still there, and the second attempt piled a full copy on top of it. '
+          + 'The task reports SUCCESS, the orchestrator is satisfied, and 60% of the rows are duplicated with nothing marking which.';
+    }
+    bA.addEventListener('click', function(){ staged = false; render(); });
+    bS.addEventListener('click', function(){ staged = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Edges Cost Time</h2>
+  <p class="vz-lede">Two dimension builds depend on the same raw snapshot. Add an edge between them
+    and watch the critical path. <b>Like two cooks who could work at once, told to take turns.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Dependency shape">
+    <button id="v2-par" aria-pressed="true">True dependencies only</button>
+    <button id="v2-ser" aria-pressed="false">Extra edge: dim B waits for dim A</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-gantt" id="v2-gantt"></div>
+    <div class="v2-out" id="v2-out"></div>
+  </div>
+  <p class="vz-note">The opposite mistake costs correctness rather than time: omit a <em>true</em>
+    dependency and the fact table publishes before its dimensions are ready. Edges should encode
+    data readiness — never incidental code order.</p>
+
+  <style>
+    .v2-gantt{display:flex;flex-direction:column;gap:7px}
+    .v2-row{display:grid;grid-template-columns:96px 1fr;gap:9px;align-items:center}
+    .v2-name{font-size:11.5px;font-weight:700;font-family:ui-monospace,Consolas,monospace}
+    .v2-lane{position:relative;height:22px;background:var(--viz-line);border-radius:5px;overflow:hidden}
+    .v2-bar{position:absolute;top:0;bottom:0;background:var(--viz-accent);border-radius:5px;
+      display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;transition:left .16s,width .16s}
+    .v2-bar.v2-crit{background:var(--viz-amber)}
+    .v2-out{margin-top:14px;padding-top:13px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.55}
+    .v2-big{display:block;font-size:15px;font-weight:800;margin-bottom:5px}
+  </style>
+  <script>
+  (function(){
+    var serial = false;
+    var g = document.getElementById('v2-gantt');
+    var out = document.getElementById('v2-out');
+    var bP = document.getElementById('v2-par'), bS = document.getElementById('v2-ser');
+    var TOTAL = 60;
+
+    function render(){
+      bP.setAttribute('aria-pressed', serial ? 'false' : 'true');
+      bS.setAttribute('aria-pressed', serial ? 'true' : 'false');
+      var tasks = serial
+        ? [ ['extract_raw', 0, 10], ['build_dim_a', 10, 15], ['build_dim_b', 25, 12], ['build_facts', 37, 14] ]
+        : [ ['extract_raw', 0, 10], ['build_dim_a', 10, 15], ['build_dim_b', 10, 12], ['build_facts', 25, 14] ];
+      var end = Math.max.apply(null, tasks.map(function(t){ return t[1] + t[2]; }));
+
+      g.innerHTML = tasks.map(function(t){
+        var crit = (t[1] + t[2]) === end;
+        return '<div class="v2-row"><span class="v2-name">' + t[0] + '</span>'
+          + '<div class="v2-lane"><div class="v2-bar' + (crit ? ' v2-crit' : '') + '" style="left:'
+          + (t[1] / TOTAL) * 100 + '%;width:' + (t[2] / TOTAL) * 100 + '%">' + t[2] + 'm</div></div></div>';
+      }).join('');
+
+      out.innerHTML = serial
+        ? '<span class="v2-big" style="color:var(--viz-red)">Critical path: ' + end + ' minutes</span>'
+          + 'The edge from dim A to dim B is not a data dependency — B never reads A\'s output. It just serializes two tasks that could have run side by side, '
+          + 'and every downstream consumer waits ' + (end - 39) + ' extra minutes for data that was ready sooner.'
+        : '<span class="v2-big" style="color:var(--viz-green)">Critical path: ' + end + ' minutes</span>'
+          + 'Both dimensions depend only on the raw snapshot, so they run in parallel and the facts build starts as soon as the later one finishes. '
+          + 'The critical path is now genuinely the longest chain of real dependencies.';
+    }
+    bP.addEventListener('click', function(){ serial = false; render(); });
+    bS.addEventListener('click', function(){ serial = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Green But Empty</h2>
+  <p class="vz-lede">Four runs. Every one of them exited zero. Tap each to see what the orchestrator
+    knew, and what it could not possibly know. <b>Like a delivery marked "completed" with an empty
+    box on the doorstep.</b></p>
+
+  <div class="v3-runs" id="v3-runs"></div>
+  <div class="vz-card" id="v3-detail"></div>
+
+  <style>
+    .v3-runs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-run{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v3-run[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-dot{flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:var(--viz-green)}
+    .v3-gate{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;white-space:nowrap}
+    #v3-detail{font-size:13px;line-height:1.55}
+    #v3-detail b{display:block;margin-bottom:4px}
+    #v3-detail .v3-meta{display:block;margin-top:9px;padding-top:9px;border-top:1px dashed var(--viz-line);
+      color:var(--viz-muted);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var RUNS = [
+      { t:'SELECT … wrote 4.1M rows', pass:true,
+        h:'Exit 0, and genuinely fine',
+        d:'Row count within its expected band, uniqueness holds, freshness current. This is the only case where a green task and good data coincide — and you cannot tell it apart from the others without the gate.',
+        meta:'Gate recorded: rows=4,108,221 · unique_pk=pass · freshness=12m · reconciliation=±0.02%' },
+      { t:'SELECT … wrote 0 rows (upstream partition missing)', pass:false,
+        h:'Exit 0, and completely empty',
+        d:'The SQL was valid, the engine ran it, nothing matched. The task is a success by every measure the scheduler has. Downstream consumers read an empty table and quietly report zero.',
+        meta:'A volume gate with a minimum-rows floor blocks publication here. "Any nonzero count" would not — it would also pass a 99% drop.' },
+      { t:'SELECT … wrote 8.2M rows (duplicate join key)', pass:false,
+        h:'Exit 0, and doubled',
+        d:'A dimension picked up a second row per key, so the join multiplied. Twice the data is not an error to the scheduler — it is a bigger success.',
+        meta:'A structural gate on primary-key uniqueness is BLOCKING: it must stop publication, not warn. Relative-change bounds would catch it too (+100% overnight).' },
+      { t:'Validation task crashed before finishing', pass:false,
+        h:'Exit 0 on the pipeline, unknown on the data',
+        d:'The check itself failed — an exception in custom test code. If a crash is read as "no failures found", the gate has silently stopped protecting anything.',
+        meta:'A blocking gate must FAIL CLOSED. Version the test suite, unit-test custom checks against known bad data, and treat an unfinished check as a failed one.' }
+    ];
+    var wrap = document.getElementById('v3-runs');
+    var detail = document.getElementById('v3-detail');
+
+    RUNS.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.className = 'v3-run';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-dot"></span><span>' + r.t + '</span>'
+        + '<span class="v3-gate" style="color:' + (r.pass ? 'var(--viz-green)' : 'var(--viz-red)') + '">'
+        + (r.pass ? 'GATE ✓' : 'GATE ✕') + '</span>';
+      b.addEventListener('click', function(){
+        [].slice.call(wrap.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        detail.innerHTML = '<b style="color:' + (r.pass ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + r.h + '</b>'
+          + r.d + '<span class="v3-meta">' + r.meta + '</span>';
+      });
+      wrap.appendChild(b);
+    });
+    wrap.children[1].click();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Threshold Goldilocks</h2>
+  <p class="vz-lede">Yesterday: 4.0M rows. Drag today's count and see which rule fires.
+    <b>Like a smoke alarm: too sensitive and you disable it, too dull and it never wakes you.</b></p>
+
+  <div class="vz-card">
+    <label for="v4-rows" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      Today's row count: <span id="v4-rowsl" style="color:var(--viz-accent)">4.10M</span>
+      <span style="color:var(--viz-muted);font-weight:500"> · yesterday 4.00M</span></label>
+    <input type="range" id="v4-rows" min="0" max="80" step="1" value="41" aria-label="Today's row count, in hundred-thousands">
+
+    <div class="v4-rules" id="v4-rules"></div>
+  </div>
+  <p class="vz-note">Severity is a design decision, not a property of the test. Classify each as
+    blocking, warning or informational — and make warning <em>accumulation</em> observable, or a
+    slow drift becomes permanent background noise nobody reads.</p>
+
+  <style>
+    .v4-rules{margin-top:16px;display:flex;flex-direction:column;gap:6px}
+    .v4-rule{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+      border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;background:var(--viz-bg)}
+    .v4-name{font-size:12.5px;line-height:1.35}
+    .v4-name em{font-style:normal;color:var(--viz-muted);font-size:11.5px;display:block;margin-top:2px}
+    .v4-verdict{font-size:10.5px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+  </style>
+  <script>
+  (function(){
+    var BASE = 4.0e6;
+    var s = document.getElementById('v4-rows');
+    var lab = document.getElementById('v4-rowsl');
+    var wrap = document.getElementById('v4-rules');
+
+    function render(){
+      var rows = Number(s.value) * 1e5;
+      lab.textContent = (rows / 1e6).toFixed(2) + 'M';
+      var pct = ((rows - BASE) / BASE) * 100;
+
+      var RULES = [
+        { n:'Exact equality with yesterday', why:'rows == 4,000,000',
+          pass: rows === BASE,
+          note:'Too tight — normal daily growth trips it every morning until someone mutes it.' },
+        { n:'Any nonzero count', why:'rows > 0',
+          pass: rows > 0,
+          note:'Too loose — it passes a 99% collapse just as happily as a healthy day.' },
+        { n:'Relative change within ±20%', why:'|Δ| ≤ 20% of the trailing baseline',
+          pass: Math.abs(pct) <= 20,
+          note:'Right shape: tolerant of growth, sensitive to a cliff or a doubling.' },
+        { n:'Absolute floor', why:'rows ≥ 2,000,000',
+          pass: rows >= 2e6,
+          note:'Backstop for the case relative change cannot see — a source that has been shrinking for weeks.' }
+      ];
+      wrap.innerHTML = RULES.map(function(r){
+        return '<div class="v4-rule"><span class="v4-name">' + r.n + '<em>' + r.why + ' — ' + r.note + '</em></span>'
+          + '<span class="v4-verdict" style="color:' + (r.pass ? 'var(--viz-green)' : 'var(--viz-red)') + '">'
+          + (r.pass ? 'PASS' : 'FAIL') + '</span></div>';
+      }).join('')
+        + '<div class="v4-rule" style="border-color:var(--viz-accent);background:var(--viz-surface)">'
+        + '<span class="v4-name">Change vs baseline<em>what the sensible rules are actually measuring</em></span>'
+        + '<span class="v4-verdict" style="color:var(--viz-accent)">' + (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%</span></div>';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Three Separate Decisions</h2>
+  <p class="vz-lede">Shipping code, computing history, and making data visible. Fuse them into one
+    release and you get one irreversible event. Step through the durable pattern and see what each
+    stage buys back. <b>Like a stage play: rehearse, run a preview, then open the doors.</b></p>
+
+  <div class="v5-track" id="v5-track"></div>
+  <div class="vz-card" id="v5-detail"></div>
+
+  <style>
+    .v5-track{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v5-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v5-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-i{flex:0 0 auto;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--viz-line);
+      display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;color:var(--viz-muted)}
+    .v5-s[aria-pressed="true"] .v5-i{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-phase{margin-left:auto;font-size:9px;font-weight:800;letter-spacing:.06em;color:var(--viz-muted);white-space:nowrap}
+    #v5-detail{font-size:13px;line-height:1.55}
+    #v5-detail b{display:block;margin-bottom:4px}
+    #v5-detail .v5-buy{display:block;margin-top:9px;padding-top:9px;border-top:1px dashed var(--viz-line);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [
+      { n:'Deploy code that handles BOTH contracts', p:'CODE',
+        d:'Readers tolerate the old and the new field. Nothing about the data has changed yet — this step is reversible by reverting the artifact.',
+        buy:'Buys: expand-and-contract. The same shape as the CDC schema change and the lesson-1 data contract, applied to your own pipeline.' },
+      { n:'Canary one current partition', p:'CODE',
+        d:'Run the new logic on real production data for a single partition and compare against current logic — row counts and business measures, not just "it did not crash".',
+        buy:'Buys: the environment and data-shape failures CI fixtures never contain. Cheap, because it is one partition.' },
+      { n:'Backfill history, immutably, at a pinned version', p:'DATA',
+        d:'Explicit code version, resource limits, bounded concurrency so production runs keep priority — and a manifest of partitions and status so an interruption resumes deterministically instead of restarting.',
+        buy:'Buys: reproducibility. A mutable "latest" image here would make every future retry of this history un-rebuildable.' },
+      { n:'Gate the candidate data', p:'DATA',
+        d:'Structural, volume, distribution and reconciliation checks run against the candidate — which is not yet visible to anyone.',
+        buy:'Buys: the separation between producing bytes and declaring them trustworthy. Failed artifacts stay staged for diagnosis, never exposed through the production pointer.' },
+      { n:'Switch the pointer', p:'VISIBILITY',
+        d:'One atomic move makes the validated data the published data. This is the only moment consumers observe anything change.',
+        buy:'Buys: a data rollback that actually exists. Reverting a DAG does not un-commit partitions — but a pointer over immutable versioned generations moves back in one step.' },
+      { n:'Monitor the operational window', p:'VISIBILITY',
+        d:'DAG parse errors, task failure rates, duration, cost, quality gates, freshness, downstream incidents — with automatic rollback or pause thresholds defined in advance for high-risk changes.',
+        buy:'Buys: the honest definition of done. A deployment is not complete when it deploys; it is complete when the resulting data has survived its window.' }
+    ];
+    var track = document.getElementById('v5-track');
+    var detail = document.getElementById('v5-detail');
+    var COLOUR = { CODE:'var(--viz-violet)', DATA:'var(--viz-amber)', VISIBILITY:'var(--viz-green)' };
+
+    STEPS.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v5-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-i">' + (i + 1) + '</span><span>' + s.n + '</span>'
+        + '<span class="v5-phase" style="color:' + COLOUR[s.p] + '">' + s.p + '</span>';
+      b.addEventListener('click', function(){
+        [].slice.call(track.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        detail.innerHTML = '<b style="color:' + COLOUR[s.p] + '">' + s.p + ' &middot; step ' + (i + 1) + '</b>'
+          + s.d + '<span class="v5-buy" style="color:var(--viz-accent)">' + s.buy + '</span>';
+      });
+      track.appendChild(b);
+    });
+    track.children[0].click();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

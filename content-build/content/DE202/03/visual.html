@@ -1,0 +1,401 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY. No page-level behaviour and nothing here reaches into a
+   panel by id — each visual carries its own, so each stays rewritable alone. */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px}
+.vz-seg button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:13.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Same Word, New Job</button>
+  <button class="viz-tab" data-viz-tab="2">2. Fuse Or Shuffle</button>
+  <button class="viz-tab" data-viz-tab="3">3. Combiner Saves Wire</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Hot Key Tail</button>
+  <button class="viz-tab" data-viz-tab="5">5. Four Questions Builder</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Same Word, New Job</h2>
+  <p class="vz-lede">You met <b>deterministic</b> in the last lesson as a property of partitioning.
+    Beam needs the same word in two more places, for the same underlying reason. Tap each to see
+    where it moved. <b>Like a passport photo: the value only works if it looks identical every time
+    it is presented.</b></p>
+
+  <div class="v1-map">
+    <div class="v1-from">
+      <span class="v1-cap">FROM LESSON 2</span>
+      <b>Deterministic partitioning</b>
+      <span class="v1-sub">the slice is a pure function of the element's own data</span>
+    </div>
+    <div class="v1-arrows" aria-hidden="true">&rarr;</div>
+    <div class="v1-to" id="v1-to"></div>
+  </div>
+
+  <div class="vz-card" id="v1-detail"></div>
+
+  <style>
+    .v1-map{display:flex;align-items:stretch;gap:8px;margin-bottom:12px}
+    .v1-from{flex:1;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 9px;
+      background:var(--viz-bg);display:flex;flex-direction:column;gap:3px}
+    .v1-from b{font-size:13.5px}
+    .v1-cap{font-size:9.5px;font-weight:800;letter-spacing:.09em;color:var(--viz-muted)}
+    .v1-sub{font-size:11.5px;color:var(--viz-muted);line-height:1.35}
+    .v1-arrows{align-self:center;font-size:19px;font-weight:800;color:var(--viz-muted)}
+    .v1-to{flex:1;display:flex;flex-direction:column;gap:6px}
+    .v1-to button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:7px 9px;text-align:left}
+    .v1-to button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    #v1-detail{font-size:13px;line-height:1.55}
+    #v1-detail b{display:block;margin-bottom:4px}
+    #v1-detail .v1-break{display:block;margin-top:8px;padding-top:8px;border-top:1px dashed var(--viz-line);color:var(--viz-muted);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var USES = [
+      { k:'Key coders', t:'Key encoding must be deterministic',
+        why:'Coders decide how an element is encoded for transport, shuffle and state. Two logically equal keys must encode to identical bytes — the runner compares the bytes, not your objects.',
+        breaks:'Breaks as: a map or set with nondeterministic iteration order used as a key. The same customer silently splits into two groups, and every aggregate over them is quietly wrong.' },
+      { k:'Salt shards', t:'Hot-key shard assignment must be deterministic',
+        why:'Splitting a hot key into (UNKNOWN, shard_0 … shard_99) spreads the work. But which shard an element lands in has to be a function of the element, exactly like a partition.',
+        breaks:'Breaks as: assigning shards round-robin or "wherever there is room". The job stops being replayable — re-running produces a different distribution, which is the property lesson 2 spent its whole budget establishing.' },
+      { k:'Event time', t:'Window membership is a function of the data',
+        why:'An event at 10:07 belongs to the [10:05, 10:10) window whether it arrives at 10:08 or 10:20. Membership is read off the element, never off the clock at arrival.',
+        breaks:'Breaks as: processing-time windows applied to data that has an event time. That is the streaming form of ingestion-date partitioning — the same mistake, one lesson later.' }
+    ];
+    var to = document.getElementById('v1-to');
+    var detail = document.getElementById('v1-detail');
+    USES.forEach(function(u, i){
+      var b = document.createElement('button');
+      b.textContent = u.k;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){
+        [].slice.call(to.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        detail.innerHTML = '<b>' + u.t + '</b>' + u.why + '<span class="v1-break">' + u.breaks + '</span>';
+      });
+      to.appendChild(b);
+    });
+    to.children[0].click();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Fuse Or Shuffle</h2>
+  <p class="vz-lede">One pipeline, six steps. Tap a step to see whether it stays on the worker that
+    already holds the data, or forces every element across the network.
+    <b>Like sorting your own mail at your desk versus everyone posting theirs to one room first.</b></p>
+
+  <div class="v2-pipe" id="v2-pipe"></div>
+  <div class="vz-card" id="v2-detail"></div>
+  <p class="vz-note">A pipeline diagram can hide a shuffle inside a composite transform. Read the
+    runner's execution graph for materialization boundaries — and optimise the largest movement
+    first, not the local parsing.</p>
+
+  <style>
+    .v2-pipe{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v2-step{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);color:var(--viz-ink);
+      border-radius:10px;padding:9px 12px;font:inherit;font-size:12.5px;display:flex;align-items:center;
+      gap:10px;text-align:left;line-height:1.35}
+    .v2-step[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-badge{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.06em;border-radius:999px;
+      padding:3px 8px;border:1.5px solid}
+    .v2-local{color:var(--viz-green);border-color:var(--viz-green)}
+    .v2-net{color:var(--viz-red);border-color:var(--viz-red)}
+    .v2-name{font-family:ui-monospace,Consolas,monospace;font-weight:700}
+    #v2-detail{font-size:13px;line-height:1.55}
+    #v2-detail b{display:block;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [
+      { n:'ReadFromPubSub', s:0, d:'Source. Elements arrive on the workers that will process them; nothing is redistributed yet.' },
+      { n:'ParDo(parse JSON)', s:0, d:'Element-wise. The runner can FUSE this with its neighbours and stream elements through memory without materializing anything in between.' },
+      { n:'Filter(accepted types)', s:0, d:'Element-wise, and it makes everything downstream cheaper — dropping data before a shuffle is the highest-leverage optimisation in the pipeline.' },
+      { n:'Map(to (customer, amount))', s:0, d:'Still element-wise. Producing a key does NOT move anything; only an operation that needs a key\'s values together does.' },
+      { n:'CombinePerKey(sum)', s:1, d:'Shuffles — but combines locally first. Each worker reduces its own rows to one partial sum per customer, and only those partials cross the network. This is the shape you want.' },
+      { n:'GroupByKey → join', s:2, d:'Full shuffle, no reduction: every raw value for a key must meet at one place. Adds serialization, network transfer, intermediate storage, coordination and straggler risk — and a join can multiply on top (100 × 1,000 rows at one key = 100,000 pairs).' }
+    ];
+    var pipe = document.getElementById('v2-pipe');
+    var detail = document.getElementById('v2-detail');
+    var LABEL = ['FUSED · LOCAL', 'SHUFFLE · REDUCED', 'SHUFFLE · FULL'];
+    var KLASS = ['v2-local', 'v2-net', 'v2-net'];
+
+    STEPS.forEach(function(st, i){
+      var b = document.createElement('button');
+      b.className = 'v2-step';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v2-badge ' + KLASS[st.s] + '">' + LABEL[st.s] + '</span><span class="v2-name">' + st.n + '</span>';
+      b.addEventListener('click', function(){
+        [].slice.call(pipe.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        detail.innerHTML = '<b>' + st.n + '</b>' + st.d;
+      });
+      pipe.appendChild(b);
+    });
+    pipe.children[4].click();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Combiner Saves Wire</h2>
+  <p class="vz-lede">100 million purchase rows, spread over workers. Drag the number of customers
+    and watch what actually crosses the network under each choice.
+    <b>Like mailing one summary per branch instead of every receipt.</b></p>
+
+  <div class="vz-card">
+    <label for="v3-cust" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      Distinct customers: <span id="v3-custl" style="color:var(--viz-accent)">50,000</span>
+      &nbsp;·&nbsp; 100M rows across 40 workers</label>
+    <input type="range" id="v3-cust" min="1" max="100" step="1" value="50" aria-label="Distinct customers, in thousands">
+
+    <div class="v3-bars">
+      <div class="v3-line"><span class="v3-lab">GroupByKey</span>
+        <div class="v3-track"><div class="v3-fill v3-gbk" id="v3-gfill"></div></div>
+        <span class="v3-val" id="v3-gval"></span></div>
+      <div class="v3-line"><span class="v3-lab">CombinePerKey</span>
+        <div class="v3-track"><div class="v3-fill v3-cpk" id="v3-cfill"></div></div>
+        <span class="v3-val" id="v3-cval"></span></div>
+    </div>
+    <div class="v3-msg" id="v3-msg"></div>
+  </div>
+  <p class="vz-note">This only works because sum is <b>associative and commutative</b> — partial
+    sums merge in any grouping and order. Median has no small exact accumulator, so it needs
+    retained values or an approximate sketch. That is a property of the algebra, not of Beam.</p>
+
+  <style>
+    .v3-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v3-line{display:grid;grid-template-columns:100px 1fr 96px;align-items:center;gap:9px}
+    .v3-lab{font-size:12px;font-weight:700;font-family:ui-monospace,Consolas,monospace}
+    .v3-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-fill{height:100%;transition:width .12s linear;min-width:2px}
+    .v3-gbk{background:var(--viz-red)}
+    .v3-cpk{background:var(--viz-green)}
+    .v3-val{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+    .v3-msg{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:13.5px;line-height:1.5}
+    .v3-msg b{font-size:16px}
+  </style>
+  <script>
+  (function(){
+    var ROWS = 100e6, WORKERS = 40;
+    var s = document.getElementById('v3-cust');
+    var lab = document.getElementById('v3-custl');
+    var gf = document.getElementById('v3-gfill'), gv = document.getElementById('v3-gval');
+    var cf = document.getElementById('v3-cfill'), cv = document.getElementById('v3-cval');
+    var msg = document.getElementById('v3-msg');
+
+    function fmt(n){
+      if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+      if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+      return String(Math.round(n));
+    }
+    function render(){
+      var customers = Number(s.value) * 1000;
+      lab.textContent = customers.toLocaleString('en-US');
+      // GroupByKey ships every raw value. CombinePerKey ships one partial per
+      // (customer, worker) — capped by the rows that actually exist.
+      var gbk = ROWS;
+      var cpk = Math.min(customers * WORKERS, ROWS);
+      gf.style.width = '100%';
+      cf.style.width = Math.max(1, (cpk / gbk) * 100) + '%';
+      gv.textContent = fmt(gbk) + ' values';
+      cv.textContent = fmt(cpk) + ' partials';
+      var x = Math.round(gbk / cpk);
+      msg.innerHTML = 'The combiner puts <b style="color:var(--viz-green)">' + x + '&times;</b> less on the wire. '
+        + 'Notice what moves the number: not the row count, but how many <em>distinct keys per worker</em> there are. '
+        + (customers * WORKERS >= ROWS
+            ? 'Push customers high enough and the advantage vanishes — with nearly one row per key there is nothing to pre-combine.'
+            : 'Each worker reduces its own rows to one partial per customer before anything is transferred.');
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Hot Key Tail</h2>
+  <p class="vz-lede">Customer <code>UNKNOWN</code> owns a share of every event. Drag its share and
+    watch the workers finish — then salt it. <b>Like one supermarket queue where a single trolley
+    holds 40% of the shop.</b></p>
+
+  <div class="vz-card">
+    <label for="v4-skew" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      <code>UNKNOWN</code> owns <span id="v4-skewl" style="color:var(--viz-accent)">40%</span> of events</label>
+    <input type="range" id="v4-skew" min="5" max="70" step="5" value="40" aria-label="Percent of events owned by the hot key">
+
+    <div class="vz-seg" style="margin:14px 0 12px" role="group" aria-label="Mitigation">
+      <button id="v4-off" aria-pressed="true">No salting</button>
+      <button id="v4-on" aria-pressed="false">Salt into 100 shards</button>
+    </div>
+
+    <div class="v4-workers" id="v4-workers"></div>
+    <div class="v4-msg" id="v4-msg"></div>
+  </div>
+
+  <style>
+    .v4-workers{display:flex;align-items:flex-end;gap:3px;height:104px;padding-top:6px}
+    .v4-w{flex:1;background:var(--viz-accent);border-radius:3px 3px 0 0;min-height:3px;transition:height .14s linear}
+    .v4-w.v4-hot{background:var(--viz-red)}
+    .v4-msg{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.55}
+    .v4-msg b{display:block;margin-bottom:3px}
+  </style>
+  <script>
+  (function(){
+    var N = 24;
+    var salted = false;
+    var s = document.getElementById('v4-skew');
+    var lab = document.getElementById('v4-skewl');
+    var wrap = document.getElementById('v4-workers');
+    var msg = document.getElementById('v4-msg');
+    var bOff = document.getElementById('v4-off'), bOn = document.getElementById('v4-on');
+
+    function render(){
+      var hot = Number(s.value) / 100;
+      lab.textContent = Math.round(hot * 100) + '%';
+      bOff.setAttribute('aria-pressed', salted ? 'false' : 'true');
+      bOn.setAttribute('aria-pressed', salted ? 'true' : 'false');
+
+      var loads = [];
+      if (!salted) {
+        var rest = (1 - hot) / (N - 1);
+        for (var i = 0; i < N; i++) loads.push(i === 11 ? hot : rest);
+      } else {
+        for (var j = 0; j < N; j++) loads.push(1 / N);   // shards spread the hot key evenly
+      }
+      var max = Math.max.apply(null, loads);
+      wrap.innerHTML = loads.map(function(l, i){
+        var isHot = !salted && i === 11;
+        return '<div class="v4-w' + (isHot ? ' v4-hot' : '') + '" style="height:' + Math.max(3, (l / max) * 100) + '%"'
+          + ' title="worker ' + (i + 1) + '"></div>';
+      }).join('');
+
+      var ratio = (max / (1 / N));
+      msg.innerHTML = salted
+        ? '<b style="color:var(--viz-green)">Even — wall time is the average, not the worst</b>'
+          + 'The hot key is split into (UNKNOWN, shard_0 … shard_99), each shard aggregated, then the partial results shuffled back to UNKNOWN. '
+          + 'One extra stage buys you the whole tail. The shard assignment must be <b style="display:inline">deterministic</b> or you lose replayability.'
+        : '<b style="color:var(--viz-red)">Long tail — the job waits for one worker</b>'
+          + 'That worker carries <b style="display:inline">' + ratio.toFixed(1) + '&times;</b> the average load. '
+          + 'The others finish and idle; wall time is set by the slowest, and if the hot group does not fit in memory the job fails rather than merely crawls.';
+    }
+    s.addEventListener('input', render);
+    bOff.addEventListener('click', function(){ salted = false; render(); });
+    bOn.addEventListener('click', function(){ salted = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Four Questions Builder</h2>
+  <p class="vz-lede">"Hourly active users in real time" is not a specification. Answer the four
+    questions and watch it become one — including what the sink must then promise.
+    <b>Like ordering coffee: size, milk, when, and what to do with the old cup.</b></p>
+
+  <div class="v5-qs" id="v5-qs"></div>
+  <div class="vz-card v5-spec" id="v5-spec"></div>
+  <div class="vz-card v5-sink" id="v5-sink"></div>
+
+  <style>
+    .v5-qs{display:flex;flex-direction:column;gap:10px;margin-bottom:13px}
+    .v5-q{display:flex;flex-direction:column;gap:5px}
+    .v5-q > span{font-size:10.5px;font-weight:800;letter-spacing:.07em;color:var(--viz-muted)}
+    .v5-opts{display:flex;gap:5px}
+    .v5-opts button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:9px;font:inherit;font-weight:700;font-size:12px;padding:5px 6px;line-height:1.25}
+    .v5-opts button[aria-pressed="true"]{border-color:var(--viz-accent);background:var(--viz-accent);color:#fff}
+    .v5-spec{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75;white-space:pre-wrap}
+    .v5-sink{margin-top:10px;font-size:13px;line-height:1.55}
+    .v5-sink b{display:block;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var Q = [
+      { id:'what',  label:'WHAT is computed',   opts:[['exact','exact distinct'],['sketch','approximate sketch']] },
+      { id:'where', label:'WHERE in event time', opts:[['fixed','1-hour fixed'],['sliding','sliding'],['session','session']] },
+      { id:'when',  label:'WHEN to emit',        opts:[['ontime','on-time only'],['early','early + on-time + late']] },
+      { id:'how',   label:'HOW refinements relate', opts:[['acc','accumulating'],['disc','discarding']] }
+    ];
+    var pick = { what:'sketch', where:'fixed', when:'early', how:'acc' };
+    var qs = document.getElementById('v5-qs');
+    var spec = document.getElementById('v5-spec');
+    var sink = document.getElementById('v5-sink');
+
+    Q.forEach(function(q){
+      var wrap = document.createElement('div');
+      wrap.className = 'v5-q';
+      var lab = document.createElement('span'); lab.textContent = q.label; wrap.appendChild(lab);
+      var opts = document.createElement('div'); opts.className = 'v5-opts';
+      q.opts.forEach(function(o){
+        var b = document.createElement('button');
+        b.textContent = o[1];
+        b.addEventListener('click', function(){ pick[q.id] = o[0]; render(); });
+        b.dataset.v = o[0];
+        opts.appendChild(b);
+      });
+      wrap.appendChild(opts);
+      qs.appendChild(wrap);
+    });
+
+    function render(){
+      Q.forEach(function(q, i){
+        var btns = qs.children[i].querySelector('.v5-opts').children;
+        [].slice.call(btns).forEach(function(b){ b.setAttribute('aria-pressed', b.dataset.v === pick[q.id] ? 'true' : 'false'); });
+      });
+
+      var whatT = pick.what === 'exact'
+        ? 'COUNT(DISTINCT user_id)        // exact: large keyed state + full shuffle'
+        : 'APPROX_COUNT_DISTINCT(user_id) // sketch: small mergeable accumulator';
+      var whereT = { fixed:'fixed windows of 1 hour, on EVENT time',
+                     sliding:'sliding windows (overlapping) on EVENT time',
+                     session:'session windows, split by an inactivity gap' }[pick.where];
+      var whenT = pick.when === 'ontime'
+        ? 'fire once, when the watermark passes the window end'
+        : 'early speculative panes, then on-time, then late panes within allowed lateness';
+      var howT = pick.how === 'acc'
+        ? 'ACCUMULATING — each pane carries the full running total'
+        : 'DISCARDING — each pane carries only what changed since the last one';
+
+      spec.textContent =
+        'what   : ' + whatT + '\n' +
+        'where  : ' + whereT + '\n' +
+        'when   : ' + whenT + '\n' +
+        'how    : ' + howT + '\n' +
+        'also   : timestamp source, allowed lateness, state cleanup, sink semantics';
+
+      if (pick.how === 'acc') {
+        sink.innerHTML = '<b style="color:var(--viz-amber)">The sink MUST upsert by (window, key)</b>'
+          + 'Early pane says <b style="display:inline">8</b>. Two more events arrive. On-time pane says <b style="display:inline">10</b>. '
+          + 'A sink that appends-and-sums stores <b style="display:inline;color:var(--viz-red)">18</b> — and nothing errors. '
+          + 'Accumulating panes are <em>replacements</em>, so the sink has to overwrite the previous value for that window.';
+      } else {
+        sink.innerHTML = '<b style="color:var(--viz-green)">The sink may append deltas</b>'
+          + 'Early pane says <b style="display:inline">8</b>. On-time pane says <b style="display:inline">+2</b>. Summing gives 10, correctly. '
+          + 'But now the sink must receive <em>every</em> pane — lose one and the total is silently short, with no way to detect it from the data.';
+      }
+      sink.innerHTML += '<span style="display:block;margin-top:8px;padding-top:8px;border-top:1px dashed var(--viz-line);color:var(--viz-muted);font-size:12.5px">'
+        + 'Pipeline and sink are one contract. Leave "how" implicit and the runner picks a default that is syntactically valid and wrong for the product.</span>';
+    }
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

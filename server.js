@@ -81,6 +81,7 @@ import {
   deleteTopic,
   addTranscript,
   getTranscripts,
+  getScopeTranscripts,
   getTranscriptById,
   deleteTranscript,
   updateTranscript,
@@ -128,7 +129,6 @@ import {
   generateQuestions,
   generateHint,
   generateExplanation,
-  generateReview,
   generateLesson,
   generateVisualGuide,
   parseVisualGuide,
@@ -3228,16 +3228,92 @@ async function buildReviewInputs(catalog, body, programScope) {
 // A study guide's cache key mirrors the exact scope tuple a learner's progress
 // node carries (track/course/lesson/topic in data-*), with "all"/N-A fields
 // normalised to empty so both sides slug to the same id.
+//
+// 🔴 `kind` is pinned to 'lesson' (2026-08-10). It used to separate the Review
+// and Lesson guides, which meant two cached guides AND two generated visual
+// pages per section — for output that differed only in whether prerequisites
+// were named. One generator now serves both routes, so the key must collapse
+// too, or the merge would buy nothing. The parameter survives because the id
+// shape does; guides cached under the old 'review' key are simply orphaned
+// (110 of them at the merge) and cost nothing but storage.
+const GUIDE_KIND = 'lesson';
+
+/**
+ * 🔴 What a `locked` artifact refuses with.
+ *
+ * Some guides and visual pages are HAND-WRITTEN (`content-build/`, banked with
+ * `locked: true`) rather than generated. Regenerating one replaces hours of
+ * authored work with model output and there is no undo inside the app — the
+ * authored copy is in the repo, but nothing here can fetch it back. So the
+ * routes refuse, the client turns the refusal into a confirm, and only an
+ * explicit `force: true` proceeds. A forced rebuild then clears the flag,
+ * because what is cached afterwards genuinely IS model output.
+ */
+const LOCKED_MESSAGE =
+  'This one was written by hand, not generated. Regenerating replaces it with an AI version and cannot be undone.';
+
 const cleanScopeField = (v) => (isAll(v) ? '' : String(v || '').trim());
-function guideScope(kind, program, body = {}) {
+function guideScope(_kind, program, body = {}) {
   return {
     program: program || '',
-    kind,
+    kind: GUIDE_KIND,
     track: cleanScopeField(body.track),
     course: cleanScopeField(body.course),
     lesson: cleanScopeField(body.lesson),
     topic: cleanScopeField(body.topic),
   };
+}
+
+/**
+ * The authored source document(s) behind a scope, for grounding its guide.
+ *
+ * Transcripts are stored at LESSON grain, so a sub-lesson scope correctly
+ * inherits its lesson's document. A whole-track scope gets nothing: there is no
+ * single authoritative text for it, and stitching a dozen together would just
+ * be a worse question sample.
+ *
+ * Whole or absent, never truncated — the same rule the growth journal follows
+ * (AGENTS §7). Half a lesson document reads exactly like a complete one and
+ * would be taught as though it were the whole thing.
+ */
+const GUIDE_SOURCE_BUDGET = 24000;
+async function scopeSourceText(program, body = {}) {
+  const course = cleanScopeField(body.course);
+  if (!course) return '';
+  const docs = await getScopeTranscripts({ program, course, lesson: cleanScopeField(body.lesson) });
+  let out = '';
+  let used = 0;
+  for (const d of docs) {
+    const text = String(d.text || '').trim();
+    if (!text || used + text.length > GUIDE_SOURCE_BUDGET) continue;
+    out += `${out ? '\n\n---\n\n' : ''}${d.title ? `# ${d.title}\n\n` : ''}${text}`;
+    used += text.length;
+  }
+  return out;
+}
+
+/**
+ * Everything `generateLesson` needs for one scope, in one place: the catalog
+ * slice, the prerequisite graph context, and the authored source document.
+ *
+ * Shared by both guide routes, the visual guide's cold-cache path and the admin
+ * bulk pre-build, so a guide is built from identical inputs however it was
+ * triggered — before the merge those four had drifted into three different
+ * input shapes. `bank` is the WHOLE catalog (prereq links cross programs); pass
+ * it in when the caller already holds it.
+ */
+async function lessonInputs(email, body, programScope, bank) {
+  const rows = bank || await getCatalog(email, null);
+  const inp = await buildReviewInputs(filterCatalog(rows, programScope), body, programScope);
+  if (!inp) return null;
+  let graph = { prereqs: [], dependents: [] };
+  try {
+    graph = lessonGraphContext(inp.scoped, rows, await getGraphLinks());
+  } catch { /* graph unavailable — the guide degrades to foundational, never fails */ }
+  // Fail-soft on purpose: a guide grounded on nothing is worse than one grounded
+  // on the authored document, and far better than no guide at all.
+  const source = await scopeSourceText(programScope.program, body).catch(() => '');
+  return { ...inp, ...graph, source };
 }
 
 // Send a cached guide as a single-chunk text response (same shape the client
@@ -3284,73 +3360,58 @@ function lessonGraphContext(scoped, bank, links) {
   return { prereqs: [...prereqs.values()].slice(0, 12), dependents: [...dependents.values()].slice(0, 12) };
 }
 
-// Auth: the original self-contained AI study guide for a scope — reads the
-// existing questions and teaches the concepts from scratch (the "Review" button).
-// The guide is derived from shared data, so it's cached (once) and replayed
-// instantly on later clicks; only a cache miss (or ?refresh=1) spends tokens.
-app.post('/api/review', requireAuth, async (req, res, next) => {
+/**
+ * Auth: THE study guide for a scope — the "Lesson" button.
+ *
+ * One handler behind two paths since the Review/Lesson merge (2026-08-10).
+ * `/api/review` is kept as a deprecated alias, not as a second guide: a browser
+ * still holding the pre-merge `app.js` calls it, and it must reach the same
+ * generator and the SAME cache key rather than banking a rival document.
+ *
+ * The guide is derived from shared data, so it is cached once and replayed
+ * instantly on later clicks; only a cache miss (or ?refresh=1) spends tokens.
+ * "Builds on / Leads to" chips come from /api/lesson/context, which stays live.
+ */
+async function streamStudyGuide(req, res, next) {
   try {
     const programScope = await requestScope(req);
-    const scope = guideScope('review', programScope.program, req.body || {});
+    const scope = guideScope(GUIDE_KIND, programScope.program, req.body || {});
     const critique = String(req.body?.critique || '').trim().slice(0, 2000);
     const refresh = req.query.refresh === '1' || !!critique;
+    const cachedNow = await getStudyGuide(scope).catch(() => null);
     if (!refresh) {
-      const cached = await getStudyGuide(scope).catch(() => null);
-      if (cached && cached.markdown) return sendCachedText(res, cached.markdown);
+      if (cachedNow && cachedNow.markdown) return sendCachedText(res, cachedNow.markdown);
+    } else if (cachedNow && cachedNow.locked && req.body?.force !== true) {
+      // 🔴 Hand-written. Replacing it with model output is not recoverable — the
+      // authored copy lives in content-build, but nothing here can fetch it back.
+      // The client turns this into a confirm and retries with force:true.
+      return res.status(409).json({ error: LOCKED_MESSAGE, locked: true });
     }
-    const catalog = await getCatalog(req.userEmail, programScope);
-    const inp = await buildReviewInputs(catalog, req.body || {}, programScope);
+    const inp = await lessonInputs(req.userEmail, req.body || {}, programScope);
     if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
-    const ai = await regenerateEngine(req, scope, refresh, critique);
-    const meta = {};
-    let acc = '';
-    await streamText(res, (onToken) =>
-      generateReview({ scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions, critique },
-        { ...ai, meta },
-        (t) => { acc += t; onToken(t); }));
-    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel, critique, provider: meta.provider, model: meta.model }).catch(() => {});
-  } catch (e) {
-    if (!res.headersSent) next(e);
-  }
-});
-
-// Auth: the prerequisite-aware study guide (the "Lesson" button) — same scope,
-// but built ON the section's prerequisites from the graph (teaches the delta)
-// rather than from scratch. Cached the same way as Review (the "Builds on /
-// Leads to" chips come from /api/lesson/context, which stays live + free).
-app.post('/api/lesson', requireAuth, async (req, res, next) => {
-  try {
-    const programScope = await requestScope(req);
-    const scope = guideScope('lesson', programScope.program, req.body || {});
-    const critique = String(req.body?.critique || '').trim().slice(0, 2000);
-    const refresh = req.query.refresh === '1' || !!critique;
-    if (!refresh) {
-      const cached = await getStudyGuide(scope).catch(() => null);
-      if (cached && cached.markdown) return sendCachedText(res, cached.markdown);
-    }
-    // Bank once, then narrow: the graph context needs the WHOLE bank (prereq
-    // links cross programs); the guide itself stays scoped to the launch.
-    const bank = await getCatalog(req.userEmail, null);
-    const catalog = filterCatalog(bank, programScope);
-    const inp = await buildReviewInputs(catalog, req.body || {}, programScope);
-    if (!inp) return res.status(400).json({ error: 'No topics in this section yet' });
-    let graphCtx = { prereqs: [], dependents: [] };
-    try {
-      graphCtx = lessonGraphContext(inp.scoped, bank, await getGraphLinks());
-    } catch { /* graph unavailable — falls back to a plain from-scratch lesson */ }
     const ai = await regenerateEngine(req, scope, refresh, critique);
     const meta = {};
     let acc = '';
     await streamText(res, (onToken) =>
       generateLesson({
         scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
-        prereqs: graphCtx.prereqs, dependents: graphCtx.dependents, critique,
+        prereqs: inp.prereqs, dependents: inp.dependents, source: inp.source, critique,
       }, { ...ai, meta }, (t) => { acc += t; onToken(t); }));
-    if (acc.trim()) saveStudyGuide(scope, acc, { scopeLabel: inp.scopeLabel, critique, provider: meta.provider, model: meta.model }).catch(() => {});
+    if (acc.trim()) {
+      saveStudyGuide(scope, acc, {
+        scopeLabel: inp.scopeLabel, critique, provider: meta.provider, model: meta.model,
+        // Whether the authored document was behind this build. A guide written
+        // from a source and one inferred from quiz questions are not the same
+        // artifact, and only this says which one is cached.
+        grounded: !!inp.source,
+      }).catch(() => {});
+    }
   } catch (e) {
     if (!res.headersSent) next(e);
   }
-});
+}
+app.post('/api/lesson', requireAuth, streamStudyGuide);
+app.post('/api/review', requireAuth, streamStudyGuide);   // deprecated alias — see above
 
 // Auth: the prereq/dependent context for a Lesson scope (non-streaming), so the
 // modal can render clickable "Builds on / Leads to" chips while the guide streams.
@@ -3585,6 +3646,7 @@ function visualPayload(doc, cached) {
       ? visualPanelIndex(doc.html).map((p) => ({ ...p, editable: canSwapVisualPanel(doc.html, p.key).ok }))
       : [],
     patched: Array.isArray(doc.patched) ? doc.patched : [],
+    locked: !!doc.locked,
   };
 }
 
@@ -3674,40 +3736,33 @@ async function regenerateEngine(req, guideCacheScope, refresh, critique) {
 /**
  * The written guide the visuals must follow, plus the curriculum context.
  *
- * The cached Lesson/Review markdown is the source of truth: the learner is
- * looking at that text, so the visuals have to teach THAT, not a fresh reading
- * of the question bank. On a cold cache it generates the guide first (and banks
- * it, warming the button the learner would have pressed next) — two model calls,
+ * The cached guide markdown is the source of truth: the learner is looking at
+ * that text, so the visuals have to teach THAT, not a fresh reading of the
+ * question bank. On a cold cache it generates the guide first (and banks it,
+ * warming the button the learner would have pressed next) — two model calls,
  * which is exactly why this route runs over a heartbeated stream.
+ *
+ * It returns the graph context too, because the VISUALS now use it: the prereqs
+ * drive the bridge visual, and they must be the same list the written guide was
+ * built from or visual 1 would reconcile with nothing on the page.
  */
 async function visualSourceInputs(req, kind, body, programScope, ai) {
   const gscope = guideScope(kind, programScope.program, body);
   const cachedGuide = await getStudyGuide(gscope).catch(() => null);
-
-  // The Lesson variant needs the WHOLE bank for its prereq graph (links cross
-  // programs); the guide itself stays scoped. Same split as /api/lesson.
-  const bank = await getCatalog(req.userEmail, kind === 'lesson' ? null : programScope);
-  const catalog = kind === 'lesson' ? filterCatalog(bank, programScope) : bank;
-  const inp = await buildReviewInputs(catalog, body, programScope);
+  const inp = await lessonInputs(req.userEmail, body, programScope);
   if (!inp) throw httpErr(400, 'No topics in this section yet');
 
   let guide = cachedGuide && cachedGuide.markdown ? cachedGuide.markdown : '';
   if (!guide) {
     const meta = {};
-    if (kind === 'lesson') {
-      let g = { prereqs: [], dependents: [] };
-      try { g = lessonGraphContext(inp.scoped, bank, await getGraphLinks()); } catch { /* plain lesson */ }
-      guide = await generateLesson({
-        scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
-        prereqs: g.prereqs, dependents: g.dependents,
-      }, { ...ai, meta });
-    } else {
-      guide = await generateReview(
-        { scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, { ...ai, meta });
-    }
+    guide = await generateLesson({
+      scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
+      prereqs: inp.prereqs, dependents: inp.dependents, source: inp.source,
+    }, { ...ai, meta });
     if (guide && guide.trim()) {
-      saveStudyGuide(gscope, guide, { scopeLabel: inp.scopeLabel, provider: meta.provider, model: meta.model })
-        .catch((e) => console.error('study-guide save failed:', e.message));
+      saveStudyGuide(gscope, guide, {
+        scopeLabel: inp.scopeLabel, provider: meta.provider, model: meta.model, grounded: !!inp.source,
+      }).catch((e) => console.error('study-guide save failed:', e.message));
     }
   }
   return { guide, ...inp };
@@ -3737,6 +3792,11 @@ async function buildVisualGuide(req, { kind, scope, body, programScope, critique
     topics: inp.topics,
     guide: inp.guide,
     questions: inp.questions,
+    // The same prereq/dependent lists the written guide was built from — visual 1
+    // is the bridge from these to this section, so they have to agree with the
+    // text behind them and with the "Builds on" chips above it.
+    prereqs: inp.prereqs,
+    dependents: inp.dependents,
     critique,
   }, { ...ai, meta });
 
@@ -3899,6 +3959,16 @@ app.post('/api/visualize', requireAuth, rateLimitAI, async (req, res, next) => {
         return res.json(hit);
       }
     }
+    // A hand-written page is refused BEFORE either rebuild path — including a
+    // single-panel edit, which would splice model output into an authored page
+    // and leave it looking hand-made.
+    if (regenerate && body.force !== true) {
+      const held = await getVisualGuide(scope).catch(() => null);
+      if (held && held.locked) {
+        if (wantsSSE(req)) return sseResult(res, async () => { throw httpErr(409, LOCKED_MESSAGE); });
+        return res.status(409).json({ error: LOCKED_MESSAGE, locked: true });
+      }
+    }
     if (regenerate && panels.length) {
       const edit = () => patchVisualGuide(req, { kind, scope, body, programScope, critique, panels });
       if (wantsSSE(req)) return sseResult(res, edit, 'Could not rewrite those visuals');
@@ -3933,7 +4003,10 @@ app.post('/api/guide/info', requireAuth, async (req, res, next) => {
     res.json({
       kind,
       guide: guide
-        ? { provider: guide.provider || '', model: guide.model || '', updatedAt: guide.updatedAt || '', critique: guide.critique || '' }
+        ? {
+          provider: guide.provider || '', model: guide.model || '', updatedAt: guide.updatedAt || '',
+          critique: guide.critique || '', locked: !!guide.locked, grounded: !!guide.grounded,
+        }
         : null,
       visual: visual && visual.html && !stale ? visualPayload(visual, true) : null,
     });
@@ -4028,63 +4101,60 @@ app.post('/api/admin/study-guides/build', requireAdmin, async (req, res, next) =
     }
     if (!targets.size) return res.status(400).json({ error: 'Nothing to build for that grain' });
 
-    // The prereq graph is shared; fetch it once for all Lesson builds.
-    let links = [];
-    if (kinds.includes('lesson')) { try { links = await getGraphLinks(); } catch { links = []; } }
-
     const ai = aiChoice(req);
     const cachedIds = force ? new Set() : await getStudyGuideIds(program).catch(() => new Set());
 
-    // Flatten to a work list of {kind, scope, gscope}, dropping already-cached.
+    // Flatten to a work list of {scope, gscope}, dropping already-cached. There
+    // is ONE guide per scope since the merge, so `kinds` no longer multiplies the
+    // work list — asking for Lessons and Reviews builds the same single guide.
     const jobs = [];
     let skipped = 0;
     for (const scope of targets.values()) {
-      for (const kind of kinds) {
-        const gscope = guideScope(kind, program, scope);
-        if (!force && cachedIds.has(studyGuideId(gscope))) { skipped++; continue; }
-        jobs.push({ kind, scope, gscope });
-      }
+      const gscope = guideScope(GUIDE_KIND, program, scope);
+      if (!force && cachedIds.has(studyGuideId(gscope))) { skipped++; continue; }
+      jobs.push({ scope, gscope });
     }
 
-    let built = 0, failed = 0;
-    await mapWithConcurrency(jobs, STUDY_GUIDE_CONCURRENCY, async ({ kind, scope, gscope }) => {
+    let built = 0, failed = 0, grounded = 0;
+    await mapWithConcurrency(jobs, STUDY_GUIDE_CONCURRENCY, async ({ scope, gscope }) => {
       try {
-        const inp = await buildReviewInputs(catalog, scope, programScope);
+        // The whole bank is already in hand — passing it in keeps this to the
+        // per-scope reads (graph links, the scope's transcript) instead of
+        // re-fetching ~1,200 topic rows for every target.
+        const inp = await lessonInputs(req.userEmail, scope, programScope, bank);
         if (!inp) return;
         // Per JOB, never hoisted: `ai` is shared by every concurrent job here, so
         // one meta object would be cross-written by whichever finished last.
         const meta = {};
         let acc = '';
-        const onToken = (t) => { acc += t; };
-        if (kind === 'review') {
-          await generateReview(
-            { scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions }, { ...ai, meta }, onToken);
-        } else {
-          let g = { prereqs: [], dependents: [] };
-          try { g = lessonGraphContext(inp.scoped, bank, links); } catch { /* plain lesson */ }
-          await generateLesson({
-            scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
-            prereqs: g.prereqs, dependents: g.dependents,
-          }, { ...ai, meta }, onToken);
-        }
+        await generateLesson({
+          scopeLabel: inp.scopeLabel, topics: inp.topics, questions: inp.questions,
+          prereqs: inp.prereqs, dependents: inp.dependents, source: inp.source,
+        }, { ...ai, meta }, (t) => { acc += t; });
         if (acc.trim()) {
           // Pre-warmed guides are most of the library, so without provenance here
           // the learner's engine tag is blank and Regenerate has nothing to
           // rotate off for the majority of sections.
-          await saveStudyGuide(gscope, acc, { scopeLabel: inp.scopeLabel, provider: meta.provider, model: meta.model });
+          await saveStudyGuide(gscope, acc, {
+            scopeLabel: inp.scopeLabel, provider: meta.provider, model: meta.model, grounded: !!inp.source,
+          });
           built += 1;
+          if (inp.source) grounded += 1;
         }
         else failed += 1;
       } catch (e) {
         failed += 1;
-        console.error('study-guide build failed:', kind, scope.topic || scope.lesson, e.message);
+        console.error('study-guide build failed:', scope.topic || scope.lesson, e.message);
       }
     });
 
     res.json({
       ok: true, program, kinds,
       targets: targets.size, attempted: jobs.length,
-      built, failed, skipped,
+      // `grounded` is how many were built FROM the authored lesson document
+      // rather than inferred from the question bank — the quality split that
+      // matters most, and invisible without it.
+      built, grounded, failed, skipped,
       concurrency: STUDY_GUIDE_CONCURRENCY,
     });
   } catch (e) {

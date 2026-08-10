@@ -281,18 +281,25 @@ picked engine (cookie `aiProvider`/`aiModel`):
 - **DeepSeek / Kimi** — optional, appear when their API keys are configured.
 - **Local (Ollama / LM Studio)** — only when running the app locally.
 
-## 11b. Visual guides ("Visualize this")
+## 11b. Visual guides ("Visuals")
 
-Any Lesson or Review study guide has a **Visualize this** button. It sends that guide to the
-learner's chosen AI engine, which returns ONE self-contained interactive page: 3–6 numbered, named
-visuals as tabs ("1. The Leaky Bucket", "2. Compounding Curve"), each teaching a single idea with
-something the learner can actually move — a slider, click-to-advance steps, a labelled diagram.
+Every section has ONE interactive visual page: 3–6 numbered, named visuals as tabs ("1. The Leaky
+Bucket", "2. Compounding Curve"), each teaching a single idea with something the learner can
+actually move — a slider, click-to-advance steps, a labelled diagram. **Two ways in**: the
+**✨ Visuals** button in a section's Learn menu (straight there, no lesson to read first) and
+**✨ Visualize this** inside the Lesson modal. Both build and open the same page.
 
-- **Cached per section and per kind.** A Lesson's visuals and a Review's visuals for the same
-  section are separate. The first build costs one generation; every later open is instant and free.
-- **Regenerate**, on the guide and on the visuals, takes an OPTIONAL note about what was wrong.
+- **It starts where the learner already is.** When a section has prerequisites on record, visual 1
+  is a *bridge*: the familiar ground on one side, this section on the other, and the connection
+  drawn. Visuals 2 onward teach the section itself.
+- **Cached per section.** The first build costs one generation; every later open is instant and free.
+- **Regenerate**, on the lesson and on the visuals, takes an OPTIONAL note about what was wrong.
   With a note, the same engine rewrites around it. Blank means "just better", which rebuilds on a
   **different model**. Every version is tagged with the engine that made it, and the tag is shown.
+- **A single visual can be rewritten on its own.** Regenerate lists the visuals as checkboxes; tick
+  one or two and only those are rebuilt — the rest of the page is kept exactly as it is, not
+  re-rolled. (Older pages that wire every control from one shared script can only be rebuilt whole;
+  those checkboxes are greyed out and say so.)
 - **The assistant can see it.** While the viewer is open, the assistant/Coach is given the guide's
   title, the full list of visuals with what each shows, and which tab is on screen — so
   "teach me visual 2" works, out loud in voice mode included. It should teach FROM the visuals:
