@@ -1,0 +1,336 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY. No page-level behaviour, and nothing here reaches into a
+   panel by id — each visual carries its own so each stays rewritable alone. */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px}
+.vz-seg button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:13px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two Ways To Watch</button>
+  <button class="viz-tab" data-viz-tab="2">2. What Polling Misses</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Version Guard</button>
+  <button class="viz-tab" data-viz-tab="4">4. Snapshot Handoff</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two Ways To Watch</h2>
+  <p class="vz-lede">You already know both of these shapes. Query-based CDC <em>is</em> the
+    high-water mark from lesson 2, pointed at a source table. Log-based CDC is the event stream from
+    lesson 4, produced by a database that never meant to emit one. Tap either.
+    <b>Like reading a shop's till roll versus counting the shelves each morning.</b></p>
+
+  <div class="v1-two">
+    <button class="v1-opt" id="v1-log" aria-pressed="true">
+      <span class="v1-cap">READS THE WAL</span><b>Log-based</b><span class="v1-sub">decodes what the database already wrote for recovery</span></button>
+    <button class="v1-opt" id="v1-poll" aria-pressed="false">
+      <span class="v1-cap">RUNS A QUERY</span><b>Query-based</b><span class="v1-sub">polls for rows changed since a cursor</span></button>
+  </div>
+
+  <div class="vz-card"><table class="v1-tbl" id="v1-tbl"></table></div>
+  <div class="vz-card v1-echo" id="v1-echo"></div>
+
+  <style>
+    .v1-two{display:flex;gap:8px;margin-bottom:12px}
+    .v1-opt{flex:1;min-height:84px;border:1.5px solid var(--viz-line);background:var(--viz-surface);color:var(--viz-ink);
+      border-radius:11px;padding:10px 9px;font:inherit;display:flex;flex-direction:column;gap:3px;text-align:left}
+    .v1-opt b{font-size:14px}
+    .v1-cap{font-size:9.5px;font-weight:800;letter-spacing:.08em;color:var(--viz-muted)}
+    .v1-sub{font-size:11.5px;color:var(--viz-muted);line-height:1.35}
+    .v1-opt[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-opt[aria-pressed="true"] .v1-cap{color:var(--viz-accent)}
+    .v1-tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+    .v1-tbl td{padding:6px 0;border-bottom:1px solid var(--viz-line);vertical-align:top;line-height:1.45}
+    .v1-tbl tr:last-child td{border-bottom:0}
+    .v1-tbl td:first-child{color:var(--viz-muted);width:112px;font-size:11px;font-weight:700;
+      letter-spacing:.03em;text-transform:uppercase;padding-right:11px}
+    .v1-mark{font-weight:800}
+    .v1-echo{margin-top:10px;font-size:13px;line-height:1.55;border-color:var(--viz-accent)}
+    .v1-echo b{display:block;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MODES = {
+      log: {
+        rows: [
+          ['Deletes', '<span class="v1-mark" style="color:var(--viz-green)">✓ free</span> — the log records the deletion even though the row is gone'],
+          ['Intermediate states', '<span class="v1-mark" style="color:var(--viz-green)">✓ every transition</span> — A, B and C all appear'],
+          ['Transactions', '<span class="v1-mark" style="color:var(--viz-green)">✓ boundaries preserved</span>'],
+          ['Source load', 'Low — no repeated scans of application tables'],
+          ['Needs', 'Replication privileges, version compatibility, and log retention long enough to survive an outage'],
+          ['Fails as', '<span class="v1-mark" style="color:var(--viz-red)">falling past retention</span> — you cannot resume, you need a whole new snapshot']
+        ],
+        echo: ['This is lesson 4 again', 'A database emitting an ordered event stream. Everything you learned about duplicates, per-key ordering and idempotent sinks applies unchanged — the log position simply plays the part of the event ID.']
+      },
+      poll: {
+        rows: [
+          ['Deletes', '<span class="v1-mark" style="color:var(--viz-red)">✕ invisible</span> — needs soft-delete flags, a deletion log, or periodic full comparison'],
+          ['Intermediate states', '<span class="v1-mark" style="color:var(--viz-red)">✕ latest only</span> — A→B→C between polls returns just C'],
+          ['Transactions', '<span class="v1-mark" style="color:var(--viz-red)">✕ no boundaries</span>'],
+          ['Source load', 'Recurring query load — and a full scan on every poll without an index on the cursor column'],
+          ['Needs', 'Only ordinary SQL credentials, which is why it gets adopted'],
+          ['Fails as', '<span class="v1-mark" style="color:var(--viz-red)">rows in the cursor gap</span> — tied timestamps or a late commit below the stored cursor']
+        ],
+        echo: ['This is lesson 2 again', 'A high-water mark pointed at a source table — and it inherits every leak you already saw. The fix is the same shape too: a composite cursor (updated_at, primary_key) compared lexicographically, plus an overlapping safety interval, deduplicated on stable change identities.']
+      }
+    };
+    var tbl = document.getElementById('v1-tbl');
+    var echo = document.getElementById('v1-echo');
+    var bL = document.getElementById('v1-log'), bP = document.getElementById('v1-poll');
+
+    function show(k){
+      var m = MODES[k];
+      bL.setAttribute('aria-pressed', k === 'log' ? 'true' : 'false');
+      bP.setAttribute('aria-pressed', k === 'poll' ? 'true' : 'false');
+      tbl.innerHTML = m.rows.map(function(r){ return '<tr><td>' + r[0] + '</td><td>' + r[1] + '</td></tr>'; }).join('');
+      echo.innerHTML = '<b style="color:var(--viz-accent)">' + m.echo[0] + '</b>' + m.echo[1];
+    }
+    bL.addEventListener('click', function(){ show('log'); });
+    bP.addEventListener('click', function(){ show('poll'); });
+    show('log');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. What Polling Misses</h2>
+  <p class="vz-lede">An order row changes three times between two polls. Drag the poll interval and
+    watch which transitions reach the consumer.
+    <b>Like a security camera that only takes a photo every hour.</b></p>
+
+  <div class="vz-card">
+    <label for="v2-int" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      Poll every <span id="v2-intl" style="color:var(--viz-accent)">30 min</span></label>
+    <input type="range" id="v2-int" min="5" max="60" step="5" value="30" aria-label="Poll interval in minutes">
+
+    <div class="v2-track" id="v2-track"></div>
+    <div class="v2-out" id="v2-out"></div>
+  </div>
+  <p class="vz-note">This is not a tuning problem you can poll your way out of — shortening the
+    interval reduces the odds, never the possibility. If a downstream consumer genuinely needs the
+    intermediate state, polling is the wrong mechanism, not a mis-tuned one.</p>
+
+  <style>
+    .v2-track{position:relative;margin-top:20px;height:96px}
+    .v2-line{position:absolute;left:0;right:0;top:34px;height:3px;background:var(--viz-line);border-radius:2px}
+    .v2-ev{position:absolute;top:12px;transform:translateX(-50%);text-align:center}
+    .v2-dot{width:13px;height:13px;border-radius:50%;background:var(--viz-violet);margin:0 auto;border:2px solid var(--viz-bg)}
+    .v2-lbl{font-size:10.5px;font-weight:700;margin-top:5px;white-space:nowrap;color:var(--viz-violet)}
+    .v2-poll{position:absolute;top:0;bottom:22px;width:2px;background:var(--viz-accent)}
+    .v2-poll span{position:absolute;bottom:-20px;left:50%;transform:translateX(-50%);font-size:9.5px;
+      font-weight:800;color:var(--viz-accent);white-space:nowrap}
+    .v2-out{margin-top:12px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.55}
+    .v2-out b{display:block;margin-bottom:4px}
+    .v2-seen{font-family:ui-monospace,Consolas,monospace;font-size:12px;margin-top:7px;display:block}
+  </style>
+  <script>
+  (function(){
+    var CHANGES = [ {t:12, v:'A'}, {t:26, v:'B'}, {t:41, v:'C'} ];   // minutes past the hour
+    var SPAN = 60;
+    var s = document.getElementById('v2-int');
+    var lab = document.getElementById('v2-intl');
+    var track = document.getElementById('v2-track');
+    var out = document.getElementById('v2-out');
+
+    function render(){
+      var iv = Number(s.value);
+      lab.textContent = iv + ' min';
+
+      var polls = [];
+      for (var t = iv; t <= SPAN; t += iv) polls.push(t);
+
+      var html = '<div class="v2-line"></div>';
+      polls.forEach(function(p){
+        html += '<div class="v2-poll" style="left:' + (p / SPAN) * 100 + '%"><span>poll</span></div>';
+      });
+      CHANGES.forEach(function(c){
+        html += '<div class="v2-ev" style="left:' + (c.t / SPAN) * 100 + '%"><div class="v2-dot"></div>'
+          + '<div class="v2-lbl">→ ' + c.v + '</div></div>';
+      });
+      track.innerHTML = html;
+
+      // Each poll observes only the CURRENT row value at that instant.
+      var seen = [], last = null;
+      polls.forEach(function(p){
+        var cur = null;
+        CHANGES.forEach(function(c){ if (c.t <= p) cur = c.v; });
+        if (cur && cur !== last) { seen.push(cur); last = cur; }
+      });
+      var missed = ['A', 'B', 'C'].filter(function(v){ return seen.indexOf(v) === -1; });
+
+      out.innerHTML = (missed.length
+        ? '<b style="color:var(--viz-red)">Transitions lost: ' + missed.join(', ') + '</b>'
+          + 'A poll asks "what does the row look like now?", so any value that was overwritten before the next poll never existed as far as the consumer is concerned. '
+          + 'Fine for latest-state replication. Fatal for an audit stream or for a side effect that had to fire on ' + missed[0] + '.'
+        : '<b style="color:var(--viz-green)">All three transitions observed</b>'
+          + 'At this interval every change happened to survive until a poll saw it. That is luck, not a guarantee — a burst of updates between two polls collapses again.')
+        + '<span class="v2-seen">consumer sees: ' + (seen.length ? seen.join(' → ') : '(nothing yet)') + '   ·   truth: A → B → C</span>';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Version Guard</h2>
+  <p class="vz-lede">Four events for customer <code>C42</code>, arriving out of order — including a
+    delete. Apply them with and without a per-key version guard.
+    <b>Like refusing to file a document stamped older than the one already in the folder.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Sink rule">
+    <button id="v3-blind" aria-pressed="true">Apply blindly</button>
+    <button id="v3-guard" aria-pressed="false">Guard on source version</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-feed" id="v3-feed"></div>
+    <div class="v3-state" id="v3-state"></div>
+  </div>
+  <p class="vz-note">The guard does two jobs at once: it fixes ordering <b>and</b> makes redelivery
+    idempotent, because a duplicate carries a version that is not newer. That is effectively-once
+    from lesson 4, expressed as one comparison.</p>
+
+  <style>
+    .v3-feed{display:flex;flex-direction:column;gap:5px}
+    .v3-e{display:grid;grid-template-columns:56px 1fr auto;gap:9px;align-items:center;border:1.5px solid var(--viz-line);
+      border-radius:9px;padding:8px 11px;font-size:12.5px;background:var(--viz-bg)}
+    .v3-v{font-family:ui-monospace,Consolas,monospace;font-weight:800;font-size:11.5px;color:var(--viz-muted)}
+    .v3-op{font-family:ui-monospace,Consolas,monospace}
+    .v3-act{font-size:10.5px;font-weight:800;letter-spacing:.04em;text-align:right}
+    .v3-state{margin-top:14px;padding-top:13px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.55}
+    .v3-row{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:700;display:block;margin-bottom:6px}
+  </style>
+  <script>
+  (function(){
+    var EVENTS = [
+      { v:105, op:'UPDATE tier = silver' },
+      { v:110, op:'UPDATE tier = gold' },
+      { v:105, op:'UPDATE tier = silver', dup:true },
+      { v:109, op:'DELETE' }
+    ];
+    var guarded = false;
+    var feed = document.getElementById('v3-feed');
+    var state = document.getElementById('v3-state');
+    var bB = document.getElementById('v3-blind'), bG = document.getElementById('v3-guard');
+
+    function render(){
+      bB.setAttribute('aria-pressed', guarded ? 'false' : 'true');
+      bG.setAttribute('aria-pressed', guarded ? 'true' : 'false');
+
+      var lastV = 0, row = '(none)', deleted = false, acts = [];
+      EVENTS.forEach(function(e){
+        var applied;
+        if (guarded) { applied = e.v > lastV; }
+        else { applied = true; }
+        if (applied) {
+          lastV = Math.max(lastV, e.v);
+          if (e.op === 'DELETE') { deleted = true; row = 'deleted (tombstone @' + e.v + ')'; }
+          else { deleted = false; row = 'C42 tier = ' + e.op.split('= ')[1] + '  @' + e.v; }
+        }
+        acts.push(applied);
+      });
+
+      feed.innerHTML = EVENTS.map(function(e, i){
+        var ok = acts[i];
+        return '<div class="v3-e"><span class="v3-v">@' + e.v + '</span>'
+          + '<span class="v3-op">' + e.op + (e.dup ? '  <span style="color:var(--viz-muted)">(redelivery)</span>' : '') + '</span>'
+          + '<span class="v3-act" style="color:' + (ok ? 'var(--viz-amber)' : 'var(--viz-muted)') + '">'
+          + (ok ? 'APPLIED' : 'REJECTED — not newer') + '</span></div>';
+      }).join('');
+
+      var correct = guarded;
+      state.innerHTML = '<span class="v3-row" style="color:' + (correct ? 'var(--viz-green)' : 'var(--viz-red)') + '">'
+        + 'final state: ' + row + '</span>'
+        + (correct
+          ? 'Correct. The highest version wins, so <code>@110 gold</code> stands: the redelivered <code>@105</code> is rejected as a duplicate and the <code>@109</code> delete is rejected as stale. '
+            + 'Note the tombstone still has to be <em>stored</em> with its version — otherwise a later stale update could resurrect a genuinely deleted row.'
+          : 'Wrong. Applying in arrival order lets <code>@105</code> revert the <code>@110</code> update, and then a <em>stale</em> delete at <code>@109</code> removes a customer who was never deleted at the source. '
+            + 'Nothing errored, and no amount of retrying fixes it — the sink has no way to tell which write is newer.');
+    }
+    bB.addEventListener('click', function(){ guarded = false; render(); });
+    bG.addEventListener('click', function(){ guarded = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Snapshot Handoff</h2>
+  <p class="vz-lede">A new consumer needs baseline state before the live stream is useful. Step
+    through the handoff and see which failure each choice causes.
+    <b>Like photographing a whiteboard while someone is still writing on it.</b></p>
+
+  <div class="v4-steps" id="v4-steps"></div>
+  <div class="vz-card" id="v4-detail"></div>
+
+  <style>
+    .v4-steps{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-step{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v4-step[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-n{flex:0 0 auto;width:20px;height:20px;border-radius:50%;border:1.5px solid var(--viz-line);
+      display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;color:var(--viz-muted)}
+    .v4-step[aria-pressed="true"] .v4-n{border-color:var(--viz-accent);color:var(--viz-accent)}
+    #v4-detail{font-size:13px;line-height:1.55}
+    #v4-detail b{display:block;margin-bottom:4px}
+    #v4-detail .v4-bad{display:block;margin-top:9px;padding-top:9px;border-top:1px dashed var(--viz-line);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [
+      { t:'Record the log position L, before reading any rows',
+        h:'The order matters', good:true,
+        d:'L is the fence. Everything already committed is in the table you are about to read; everything after L will arrive on the stream.',
+        bad:'Take the snapshot first and record L afterwards, and every change committed in between is lost — it is neither in your snapshot nor after your resume point. A silent, permanent gap.' },
+      { t:'Read the current rows as the baseline',
+        h:'The expensive part', good:true,
+        d:'This establishes state. On a large table it takes long enough that the schema itself can change during it — so record the snapshot schema alongside L and apply later transitions in order during catch-up.',
+        bad:'Without snapshot isolation and a fixed schema view, rows read early and rows read late can have different shapes, and nothing downstream can tell which is which.' },
+      { t:'Replay the stream from L onwards',
+        h:'Catch-up', good:true,
+        d:'Live changes now flow on top of the baseline. The consumer is caught up when it reaches the current log position.',
+        bad:'If the connector paused long enough for L to fall out of the log retention window, there is nothing to replay from — the only recovery is to start over with a new snapshot.' },
+      { t:'Apply snapshot rows and stream events into the same sink',
+        h:'Where it actually breaks', good:false,
+        d:'The two sources overlap, and they will not arrive in a tidy order. Overlap itself is <b style="display:inline">harmless</b> — stable keys plus idempotent upserts mean applying the same row twice converges.',
+        bad:'The failure is directional: a snapshot row landing AFTER a newer change overwrites it, quietly rolling a record back in time. Guard the sink with the source position or version — the same rule as visual 3 — so a stale write is rejected rather than applied.' }
+    ];
+    var wrap = document.getElementById('v4-steps');
+    var detail = document.getElementById('v4-detail');
+
+    STEPS.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v4-step';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-n">' + (i + 1) + '</span><span>' + s.t + '</span>';
+      b.addEventListener('click', function(){
+        [].slice.call(wrap.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        detail.innerHTML = '<b style="color:' + (s.good ? 'var(--viz-accent)' : 'var(--viz-amber)') + '">' + s.h + '</b>'
+          + s.d + '<span class="v4-bad" style="color:var(--viz-red)">' + s.bad + '</span>';
+      });
+      wrap.appendChild(b);
+    });
+    wrap.children[3].click();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

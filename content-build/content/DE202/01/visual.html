@@ -1,0 +1,341 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own. That is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px}
+.vz-seg button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:14px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Where The T Happens</button>
+  <button class="viz-tab" data-viz-tab="2">2. Three Zones Ladder</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Backfill Rescue</button>
+  <button class="viz-tab" data-viz-tab="4">4. Contract Gate</button>
+</nav>
+
+<!-- ══════════════════════════ 1 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Where The T Happens</h2>
+  <p class="vz-lede">ETL and ELT run the same three verbs. They disagree about one thing: whether
+    the transform happens <em>before</em> the data lands or <em>after</em>. Flip it and watch what
+    survives. <b>Like developing film — ELT keeps the negatives.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Pipeline pattern">
+    <button id="v1-etl" aria-pressed="false">ETL &mdash; transform, then load</button>
+    <button id="v1-elt" aria-pressed="true">ELT &mdash; load, then transform</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-flow" id="v1-flow"></div>
+    <div class="v1-disk" id="v1-disk"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <button class="v1-bug" id="v1-bug">🐛 Three weeks later, you find a parsing bug</button>
+    <div class="v1-out" id="v1-out"></div>
+  </div>
+
+  <p class="vz-note" id="v1-cost"></p>
+
+  <style>
+    .v1-flow{display:flex;align-items:stretch;gap:8px;flex-wrap:wrap}
+    .v1-box{flex:1 1 96px;min-height:72px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px;display:flex;flex-direction:column;justify-content:center;gap:3px;background:var(--viz-bg)}
+    .v1-box b{font-size:13px}
+    .v1-box span{font-size:11.5px;color:var(--viz-muted);line-height:1.35}
+    .v1-box.is-t{border-color:var(--viz-violet);border-style:dashed}
+    .v1-box.is-t b{color:var(--viz-violet)}
+    .v1-arrow{align-self:center;color:var(--viz-muted);font-size:16px;font-weight:700}
+    .v1-disk{margin-top:12px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.6}
+    .v1-disk .v1-tag{display:inline-block;min-width:118px;font-weight:700;font-size:11.5px;letter-spacing:.02em}
+    .v1-yes .v1-tag::before{content:"✓ KEPT ";color:var(--viz-green)}
+    .v1-no  .v1-tag::before{content:"✕ GONE ";color:var(--viz-red)}
+    .v1-bug{width:100%;min-height:44px;border:1.5px solid var(--viz-amber);background:var(--viz-surface);
+      color:var(--viz-amber);border-radius:10px;font:inherit;font-weight:700;font-size:13.5px}
+    .v1-out{font-size:13px;line-height:1.55;margin-top:11px}
+    .v1-out:empty{display:none}
+    .v1-out .v1-verdict{font-weight:700;display:block;margin-bottom:3px}
+  </style>
+  <script>
+  (function(){
+    var mode = 'elt';
+    var flow = document.getElementById('v1-flow');
+    var disk = document.getElementById('v1-disk');
+    var out  = document.getElementById('v1-out');
+    var cost = document.getElementById('v1-cost');
+    var bEtl = document.getElementById('v1-etl'), bElt = document.getElementById('v1-elt');
+
+    function box(title, sub, isT){
+      return '<div class="v1-box' + (isT ? ' is-t' : '') + '"><b>' + title + '</b><span>' + sub + '</span></div>';
+    }
+    var ARROW = '<div class="v1-arrow">&rarr;</div>';
+
+    function render(){
+      if (mode === 'etl') {
+        flow.innerHTML = box('Source', '10M events/day') + ARROW
+          + box('Transform', 'Dataflow parses + sessionizes', true) + ARROW
+          + box('Warehouse', 'only the 50 MB summary lands');
+        disk.className = 'v1-disk v1-no';
+        disk.innerHTML = '<div><span class="v1-tag"></span>the original payloads. The warehouse never saw them.</div>'
+          + '<div class="v1-no"><span class="v1-tag"></span><code>dwell_time</code> &mdash; a field the transform discarded.</div>';
+        cost.textContent = 'Cheap to query (50 MB), and the transform tier can run anything: tokenizing, PII masking, calling an embedding model. Things SQL cannot express.';
+      } else {
+        flow.innerHTML = box('Source', '10M events/day') + ARROW
+          + box('Warehouse', 'raw JSON lands as-is, ~8 GB/day') + ARROW
+          + box('Transform', 'scheduled SQL builds curated', true);
+        disk.className = 'v1-disk v1-yes';
+        disk.innerHTML = '<div><span class="v1-tag"></span>every original payload, still in <code>raw.events</code>.</div>'
+          + '<div><span class="v1-tag"></span><code>dwell_time</code> &mdash; you did not model it, but it is still there.</div>';
+        cost.textContent = 'Storage is about $0.02/GB-month and compute bills only when queried. That price change is what made ELT viable — it is economics, not fashion.';
+      }
+      bEtl.setAttribute('aria-pressed', mode === 'etl' ? 'true' : 'false');
+      bElt.setAttribute('aria-pressed', mode === 'elt' ? 'true' : 'false');
+      out.innerHTML = '';
+    }
+
+    bEtl.addEventListener('click', function(){ mode = 'etl'; render(); });
+    bElt.addEventListener('click', function(){ mode = 'elt'; render(); });
+    document.getElementById('v1-bug').addEventListener('click', function(){
+      out.innerHTML = mode === 'elt'
+        ? '<span class="v1-verdict" style="color:var(--viz-green)">✓ Recoverable — one re-run.</span>'
+          + 'The raw payloads are still on disk. Patch the SQL, re-run it over <code>raw.events</code>, republish curated. The bug mis-<em>presented</em> your data; it did not destroy it.'
+        : '<span class="v1-verdict" style="color:var(--viz-red)">✕ Unrecoverable — unless the source can re-extract.</span>'
+          + 'The rows were transformed before landing. Whatever the parser dropped was never written down anywhere. This is ETL\'s signature failure: <b>information loss</b>.';
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Three Zones Ladder</h2>
+  <p class="vz-lede">Each rung earns more trust and keeps less of the source's mess. Tap a zone to
+    see what it holds, how long it lives, and who is allowed to read it.
+    <b>Like a kitchen: delivery crate → pantry → the plated dish.</b></p>
+
+  <div class="v2-rungs" id="v2-rungs">
+    <button class="v2-rung" data-z="0"><b>Staging</b><span>the airlock</span></button>
+    <button class="v2-rung" data-z="1"><b>Raw</b><span>the archive</span></button>
+    <button class="v2-rung" data-z="2"><b>Curated</b><span>the product</span></button>
+  </div>
+
+  <div class="vz-card v2-detail" id="v2-detail"></div>
+  <p class="vz-note">The same record, one rung further up each time. Watch the duplicate and the
+    bad enum survive into Raw <em>on purpose</em> — Raw records what arrived, not what should have.</p>
+
+  <style>
+    .v2-rungs{display:flex;gap:6px;margin-bottom:12px}
+    .v2-rung{flex:1;min-height:56px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      border-radius:10px;font:inherit;color:var(--viz-ink);padding:7px 6px;display:flex;flex-direction:column;gap:2px}
+    .v2-rung b{font-size:14px}
+    .v2-rung span{font-size:11px;color:var(--viz-muted)}
+    .v2-rung[aria-pressed="true"]{border-color:var(--viz-accent);background:var(--viz-accent);color:#fff}
+    .v2-rung[aria-pressed="true"] span{color:#fff;opacity:.85}
+    .v2-detail dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:7px 12px;font-size:13px;align-items:baseline}
+    .v2-detail dt{color:var(--viz-muted);font-size:11.5px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+    .v2-detail dd{margin:0;line-height:1.5}
+    .v2-life{display:inline-block;font-size:11.5px;font-weight:700;border-radius:999px;padding:2px 9px;border:1.5px solid}
+    .v2-rec{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+    .v2-strike{text-decoration:line-through;opacity:.55}
+  </style>
+  <script>
+  (function(){
+    var ZONES = [
+      { name:'Staging', life:'Transient — delete after promotion', colour:'var(--viz-amber)',
+        holds:'Exactly what was extracted, one folder per source per batch.',
+        path:'gs://agora-lake/staging/orders/2026-07-25/run-42/part-*.avro',
+        reads:'Nothing but the loader that promotes it.',
+        job:'Decouples extraction from loading — a failed load re-reads the staged batch instead of hitting the source system again.',
+        rec:'{"order_id":"A-1","amount_cents":"1299","currency":"usd"}\n{"order_id":"A-1","amount_cents":"1299","currency":"usd"}   ← delivered twice\n{"order_id":"A-2","amount_cents":null,"currency":"GBP"}     ← null + unlisted enum' },
+      { name:'Raw', life:'Permanent — append-only, never UPDATEd', colour:'var(--viz-green)',
+        holds:'The faithful archive of what actually arrived, partitioned by date, schema-on-read.',
+        path:'raw.order_events  (partitioned by ingestion date)',
+        reads:'The raw→curated transform. Nothing else — consumers reading here inherit an uncontracted schema.',
+        job:'Reprocessing insurance. Every transform you will ever write has a bug you have not found yet; raw is what makes the fix a re-run instead of a loss.',
+        rec:'{"order_id":"A-1","amount_cents":"1299","currency":"usd"}\n{"order_id":"A-1","amount_cents":"1299","currency":"usd"}   ← duplicate KEPT\n{"order_id":"A-2","amount_cents":null,"currency":"GBP"}     ← warts KEPT' },
+      { name:'Curated', life:'Rebuildable — regenerate it from Raw any time', colour:'var(--viz-violet)',
+        holds:'Deduplicated, typed, conformed, keys enforced, business logic applied.',
+        path:'curated.orders_daily',
+        reads:'Dashboards, ML feature jobs, your retriever’s document-build pipeline.',
+        job:'The only surface you promise stability on — which you can only promise because Raw absorbs the instability underneath it.',
+        rec:'order_id  amount_cents  currency\nA-1       1299          USD        ← deduped, typed, enum conformed\nA-2       —             —          ← quarantined: null amount, GBP not in contract' }
+    ];
+    var detail = document.getElementById('v2-detail');
+    var btns = [].slice.call(document.querySelectorAll('#v2-rungs .v2-rung'));
+
+    function show(i){
+      var z = ZONES[i];
+      btns.forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      detail.innerHTML =
+        '<dl>' +
+        '<dt>Lifetime</dt><dd><span class="v2-life" style="color:' + z.colour + ';border-color:' + z.colour + '">' + z.life + '</span></dd>' +
+        '<dt>Holds</dt><dd>' + z.holds + '</dd>' +
+        '<dt>Lives at</dt><dd><code>' + z.path + '</code></dd>' +
+        '<dt>Read by</dt><dd>' + z.reads + '</dd>' +
+        '<dt>Its job</dt><dd>' + z.job + '</dd>' +
+        '</dl><div class="v2-rec">' + z.rec + '</div>';
+    }
+    btns.forEach(function(b){ b.addEventListener('click', function(){ show(Number(b.dataset.z)); }); });
+    show(1);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Backfill Rescue</h2>
+  <p class="vz-lede">A transform bug started silently corrupting <code>click_position</code> on
+    <b>July 3</b>. Drag to the day you notice. The damage grows either way — what changes is whether
+    it is <em>reversible</em>. <b>Like a receipt drawer: keep it and any mistake is re-addable.</b></p>
+
+  <div class="vz-card">
+    <label for="v3-day" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      Bug discovered on <span id="v3-daylabel" style="color:var(--viz-accent)">July 25</span>
+      &mdash; <span id="v3-days">22</span> days of bad labels written
+    </label>
+    <input type="range" id="v3-day" min="4" max="31" value="25" step="1"
+           aria-label="Day in July the bug is discovered">
+
+    <div class="v3-rows">
+      <div class="v3-row" id="v3-with"></div>
+      <div class="v3-row" id="v3-without"></div>
+    </div>
+  </div>
+  <p class="vz-note">This is the whole argument for the Raw zone in one picture: with it, recovery
+    cost is <b>flat</b> — one backfill query, no matter how late you look. Without it, the cost is
+    the damage itself, and it grows every day you do not notice.</p>
+
+  <style>
+    .v3-rows{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v3-row{border:1.5px solid var(--viz-line);border-radius:10px;padding:11px;background:var(--viz-bg)}
+    .v3-row h4{margin:0 0 8px;font-size:13px;display:flex;align-items:center;gap:7px}
+    .v3-badge{font-size:10.5px;font-weight:800;letter-spacing:.05em;border-radius:999px;padding:2px 8px;border:1.5px solid}
+    .v3-bar{height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden;display:flex}
+    .v3-fill{height:100%;transition:width .12s linear}
+    .v3-fill.v3-fixed{background:repeating-linear-gradient(45deg,var(--viz-green),var(--viz-green) 5px,transparent 5px,transparent 10px);
+      border-right:2px solid var(--viz-green)}
+    .v3-fill.v3-lost{background:var(--viz-red)}
+    .v3-cost{font-size:12.5px;margin-top:8px;line-height:1.5}
+    .v3-cost b{font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var slider = document.getElementById('v3-day');
+    var lbl = document.getElementById('v3-daylabel');
+    var cnt = document.getElementById('v3-days');
+    var wWith = document.getElementById('v3-with');
+    var wOut  = document.getElementById('v3-without');
+    var START = 3, END = 31;
+
+    function render(){
+      var day = Number(slider.value);
+      var days = day - START;
+      var pct = Math.round((days / (END - START)) * 100);
+      lbl.textContent = 'July ' + day;
+      cnt.textContent = days;
+
+      wWith.innerHTML =
+        '<h4><span class="v3-badge" style="color:var(--viz-green);border-color:var(--viz-green)">RAW ZONE KEPT</span> Recoverable</h4>' +
+        '<div class="v3-bar"><div class="v3-fill v3-fixed" style="width:' + pct + '%"></div></div>' +
+        '<div class="v3-cost">Every original payload is still in <code>raw.search_events</code>. Fix the transform, rebuild the July ' +
+        START + '&ndash;' + day + ' partitions of curated.<br><b style="color:var(--viz-green)">Recovery cost: 1 backfill query.</b> ' +
+        'Same cost whether you noticed on day 1 or day ' + days + '.</div>';
+
+      wOut.innerHTML =
+        '<h4><span class="v3-badge" style="color:var(--viz-red);border-color:var(--viz-red)">NO RAW ZONE</span> Permanent</h4>' +
+        '<div class="v3-bar"><div class="v3-fill v3-lost" style="width:' + pct + '%"></div></div>' +
+        '<div class="v3-cost">The transform ran in flight; the original <code>click_position</code> values were never stored.<br>' +
+        '<b style="color:var(--viz-red)">Loss: ' + days + ' days of reranker training labels.</b> ' +
+        'Nothing to re-run against — the evidence was overwritten at load time.</div>';
+    }
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Contract Gate</h2>
+  <p class="vz-lede">A contract is machine-checked in the producer's CI, not written in a wiki. Send
+    each proposed change through the gate. One question decides every case:
+    <b>does every existing consumer keep working?</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <div class="v4-contract">contract: order_created <b>v3</b>
+order_id     string   required, unique
+event_time   timestamp required, tz UTC
+amount_cents int64    required, minor currency units
+currency     string   required, enum [USD, EUR, PHP]
+evolution:   additive-optional-only</div>
+  </div>
+
+  <div class="v4-list" id="v4-list"></div>
+  <div class="vz-card v4-verdict" id="v4-verdict">Pick a proposed change above.</div>
+
+  <style>
+    .v4-contract{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+    .v4-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-pr{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:13px;display:flex;
+      align-items:center;gap:9px;line-height:1.4}
+    .v4-pr[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-pr .v4-mark{flex:0 0 auto;font-weight:800;font-size:12px;width:16px}
+    .v4-verdict{font-size:13px;line-height:1.55}
+    .v4-stamp{display:block;font-weight:800;font-size:13.5px;letter-spacing:.02em;margin-bottom:5px}
+  </style>
+  <script>
+  (function(){
+    var PRS = [
+      { t:'Add optional discount_cents (nullable, defaulted)', ok:true,
+        why:'Additive and optional. Every consumer written against v3 never reads the field and is unaffected — this is the definition of backward compatible, and CI lets it through.' },
+      { t:'Rename amount_cents → amount', ok:false,
+        why:'A rename is a delete plus an add. The dangerous part is the silence: many loaders happily write the renamed column as all-null, so nothing fails — you just load garbage until someone notices the revenue chart flatlined.' },
+      { t:'Change amount_cents from int64 to string', ok:false,
+        why:'A retype breaks every consumer doing arithmetic on it. Note this is not caught by "the field is still there" checks — the contract has to pin the TYPE, which is exactly why schema lives in the contract rather than in prose.' },
+      { t:'Add "GBP" to the currency enum', ok:false,
+        why:'Widening an enum is breaking for anyone whose code switches exhaustively on the old vocabulary. Enum vocabulary is semantics, not schema — and the contract covers both.' },
+      { t:'Publish order_created.v4 alongside v3', ok:true,
+        why:'Versioned coexistence: dual-publish for a migration window, then retire v3 once consumers have moved. This is the standard way to ship a genuinely breaking change without a big-bang cutover.' }
+    ];
+    var list = document.getElementById('v4-list');
+    var out = document.getElementById('v4-verdict');
+
+    PRS.forEach(function(pr, i){
+      var b = document.createElement('button');
+      b.className = 'v4-pr';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-mark">PR</span><span>' + pr.t + '</span>';
+      b.addEventListener('click', function(){
+        [].slice.call(list.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        var mark = b.querySelector('.v4-mark');
+        [].slice.call(list.querySelectorAll('.v4-mark')).forEach(function(m){ m.textContent = 'PR'; m.style.color = ''; });
+        mark.textContent = pr.ok ? '✓' : '✕';
+        mark.style.color = pr.ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        out.innerHTML = '<span class="v4-stamp" style="color:' + (pr.ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">'
+          + (pr.ok ? '✓ CI PASSES — merge allowed' : '✕ CI FAILS — blocked with a diff against v3') + '</span>' + pr.why;
+      });
+      list.appendChild(b);
+    });
+  })();
+  </script>
+</section>
+
+</body>
+</html>

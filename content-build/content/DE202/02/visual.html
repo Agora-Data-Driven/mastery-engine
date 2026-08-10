@@ -1,0 +1,400 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, segmented controls. Nothing here reaches into
+   a panel by id, and the page declares no top-level behaviour — each visual
+   carries its own, which is what keeps them individually rewritable. */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px}
+.vz-seg button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:13.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Possible Versus Safe</button>
+  <button class="viz-tab" data-viz-tab="2">2. Run It Five Times</button>
+  <button class="viz-tab" data-viz-tab="3">3. Where Slices Land</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Scan Bill</button>
+  <button class="viz-tab" data-viz-tab="5">5. Watermark Leaks</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Possible Versus Safe</h2>
+  <p class="vz-lede">You already have the raw zone from <b>Pipeline Architecture</b>. That gave you
+    one half of replay. This lesson is the other half — and they fail in completely different ways.
+    Tap either side. <b>Like a spare key: having one lets you back in; it does not stop you
+    wrecking the room.</b></p>
+
+  <div class="v1-bridge">
+    <button class="v1-side" id="v1-a" aria-pressed="true">
+      <span class="v1-cap">ALREADY COVERED</span><b>Raw zone kept</b><span class="v1-sub">re-running is POSSIBLE</span>
+    </button>
+    <div class="v1-plus" aria-hidden="true">+</div>
+    <button class="v1-side" id="v1-b" aria-pressed="false">
+      <span class="v1-cap">THIS LESSON</span><b>Idempotent writes</b><span class="v1-sub">re-running is SAFE</span>
+    </button>
+  </div>
+
+  <div class="vz-card" id="v1-detail"></div>
+
+  <div class="vz-card v1-both">
+    <b style="font-size:13.5px">Both together = replayable</b>
+    <div class="vz-note" style="margin-top:5px;color:var(--viz-ink)">Re-running the job for input slice
+      X rewrites exactly the partitions X maps to, and touches nothing else. Every backfill, every
+      retry and every bug-fix rerun in the rest of this course depends on that one sentence.</div>
+  </div>
+
+  <style>
+    .v1-bridge{display:flex;align-items:stretch;gap:8px;margin-bottom:12px}
+    .v1-side{flex:1;min-height:88px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      border-radius:11px;padding:10px 9px;font:inherit;color:var(--viz-ink);display:flex;flex-direction:column;gap:3px;text-align:left}
+    .v1-side b{font-size:14px}
+    .v1-cap{font-size:9.5px;font-weight:800;letter-spacing:.09em;color:var(--viz-muted)}
+    .v1-sub{font-size:11.5px;color:var(--viz-muted);line-height:1.35}
+    .v1-side[aria-pressed="true"]{border-color:var(--viz-accent);box-shadow:inset 0 0 0 1px var(--viz-accent)}
+    .v1-side[aria-pressed="true"] .v1-cap{color:var(--viz-accent)}
+    .v1-plus{align-self:center;font-size:19px;font-weight:800;color:var(--viz-muted)}
+    .v1-both{margin-top:10px;border-color:var(--viz-accent)}
+    #v1-detail dt{font-size:11px;font-weight:800;letter-spacing:.05em;color:var(--viz-muted);text-transform:uppercase}
+    #v1-detail dd{margin:3px 0 11px;font-size:13px;line-height:1.5}
+    #v1-detail dd:last-child{margin-bottom:0}
+    #v1-detail dl{margin:0}
+  </style>
+  <script>
+  (function(){
+    var SIDES = {
+      a: { gives:'A permanent, append-only archive of exactly what arrived — so the inputs to any past run still exist.',
+           without:'Nothing to re-run <em>against</em>. A transform bug is permanent loss, not a fixable mistake.',
+           fails:'Silently, weeks later, when you go looking for the evidence and it was overwritten at load time.' },
+      b: { gives:'A write path whose effect depends on the data, not on how many times it executed — truncate a partition, MERGE on a key, stage-and-swap.',
+           without:'Every retry doubles rows. The nightly job that re-ran after an outage reports $214,882 where the truth is $107,441.',
+           fails:'Instantly and invisibly — nothing errors. The data is simply wrong, and appends give you no way to tell which copy is legitimate.' }
+    };
+    var a = document.getElementById('v1-a'), b = document.getElementById('v1-b');
+    var box = document.getElementById('v1-detail');
+    function show(k){
+      var s = SIDES[k];
+      a.setAttribute('aria-pressed', k === 'a' ? 'true' : 'false');
+      b.setAttribute('aria-pressed', k === 'b' ? 'true' : 'false');
+      box.innerHTML = '<dl><dt>What it gives you</dt><dd>' + s.gives + '</dd>'
+        + '<dt>Without it</dt><dd>' + s.without + '</dd>'
+        + '<dt>How it fails</dt><dd>' + s.fails + '</dd></dl>';
+    }
+    a.addEventListener('click', function(){ show('a'); });
+    b.addEventListener('click', function(){ show('b'); });
+    show('a');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Run It Five Times</h2>
+  <p class="vz-lede">The July 24 aggregate. The orchestrator retried because a commit
+    acknowledgment was lost — not because the write failed. Drag the run count and compare the two
+    write paths. <b>Like a light switch versus a tally counter: one has a state, the other only
+    counts presses.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Write mode">
+    <button id="v2-app" aria-pressed="true">INSERT … SELECT (append)</button>
+    <button id="v2-idem" aria-pressed="false">Partition WRITE_TRUNCATE</button>
+  </div>
+
+  <div class="vz-card">
+    <label for="v2-runs" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      The job ran <span id="v2-n" style="color:var(--viz-accent)">1</span>&times;</label>
+    <input type="range" id="v2-runs" min="1" max="5" step="1" value="1" aria-label="Number of times the job ran">
+    <div class="v2-sql vz-mono" id="v2-sql"></div>
+    <div class="v2-result" id="v2-result"></div>
+  </div>
+  <p class="vz-note" id="v2-moral"></p>
+
+  <style>
+    .v2-sql{margin-top:12px;padding:9px 10px;border-radius:8px;background:var(--viz-bg);
+      border:1px solid var(--viz-line);white-space:pre-wrap;word-break:break-word}
+    .v2-result{margin-top:12px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+    .v2-num{font-size:27px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+    .v2-truth{font-size:12px;color:var(--viz-muted)}
+    .v2-rows{margin-top:10px;display:flex;gap:4px;flex-wrap:wrap}
+    .v2-chip{font-size:10.5px;font-weight:700;border-radius:6px;padding:3px 7px;border:1.5px solid var(--viz-line);color:var(--viz-muted)}
+    .v2-chip.v2-dup{border-color:var(--viz-red);color:var(--viz-red)}
+  </style>
+  <script>
+  (function(){
+    var TRUTH = 107441;
+    var mode = 'append';
+    var slider = document.getElementById('v2-runs');
+    var nLbl = document.getElementById('v2-n');
+    var sql = document.getElementById('v2-sql');
+    var res = document.getElementById('v2-result');
+    var moral = document.getElementById('v2-moral');
+    var bA = document.getElementById('v2-app'), bI = document.getElementById('v2-idem');
+
+    function money(n){ return '$' + n.toLocaleString('en-US'); }
+
+    function render(){
+      var n = Number(slider.value);
+      nLbl.textContent = n;
+      bA.setAttribute('aria-pressed', mode === 'append' ? 'true' : 'false');
+      bI.setAttribute('aria-pressed', mode === 'append' ? 'false' : 'true');
+
+      if (mode === 'append') {
+        sql.textContent = 'INSERT INTO curated.revenue_daily\nSELECT day, SUM(amount_cents)/100 ...\nFROM raw.order_events WHERE day = \'2026-07-24\';';
+        var chips = '';
+        for (var i = 1; i <= n; i++) {
+          chips += '<span class="v2-chip' + (i > 1 ? ' v2-dup' : '') + '">' + (i > 1 ? 'copy ' + i : 'run 1') + '</span>';
+        }
+        res.innerHTML = '<span class="v2-num" style="color:' + (n > 1 ? 'var(--viz-red)' : 'var(--viz-ink)') + '">'
+          + money(TRUTH * n) + '</span><span class="v2-truth">truth is ' + money(TRUTH) + '</span>'
+          + '<div class="v2-rows" style="flex-basis:100%">' + chips + '</div>';
+        moral.textContent = n > 1
+          ? 'Nothing errored. There is no flag on any row saying which copy is legitimate — that is what makes append-on-retry so hard to detect and so hard to unwind.'
+          : 'The happy path looks fine. It always does — the bug only exists on the second run, and the second run is not optional.';
+      } else {
+        sql.textContent = 'LOAD curated.revenue_daily$20260724\n  WRITE_TRUNCATE\nAS SELECT day, SUM(amount_cents)/100 ...\nFROM raw.order_events WHERE day = \'2026-07-24\';';
+        res.innerHTML = '<span class="v2-num" style="color:var(--viz-green)">' + money(TRUTH) + '</span>'
+          + '<span class="v2-truth">truth is ' + money(TRUTH) + '</span>'
+          + '<div class="v2-rows" style="flex-basis:100%"><span class="v2-chip" style="border-color:var(--viz-green);color:var(--viz-green)">partition rewritten ' + n + '&times; — identical each time</span></div>';
+        moral.textContent = 'The retry recomputes the same aggregate and truncate-writes the same partition. State after one run and after five: byte-for-byte the same. f(f(x)) = f(x).';
+      }
+    }
+    slider.addEventListener('input', render);
+    bA.addEventListener('click', function(){ mode = 'append'; render(); });
+    bI.addEventListener('click', function(){ mode = 'idem'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Where Slices Land</h2>
+  <p class="vz-lede">Monday's load failed. You replay it on Wednesday. Press replay and watch where
+    the rows go under each partitioning scheme. <b>Like filing receipts by the date printed on them
+    versus the date you happened to open the envelope.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Partitioning scheme">
+    <button id="v3-evt" aria-pressed="true">DATE(event_time)</button>
+    <button id="v3-ing" aria-pressed="false">ingestion date</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-bins" id="v3-bins"></div>
+    <button class="v3-go" id="v3-go">▶ Replay Monday's failed load, on Wednesday</button>
+    <div class="v3-verdict" id="v3-verdict"></div>
+  </div>
+  <p class="vz-note">Deterministic means the partition is a pure function of the element's own data.
+    Ingestion date is a function of <em>when the job ran</em> — so the output changes depending on
+    when you run it, and the overwrite from visual 2 has no correct slice to truncate.</p>
+
+  <style>
+    .v3-bins{display:flex;gap:6px;margin-bottom:13px}
+    .v3-bin{flex:1;border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 6px;min-height:96px;
+      display:flex;flex-direction:column;gap:5px;background:var(--viz-bg)}
+    .v3-bin b{font-size:11.5px;letter-spacing:.02em}
+    .v3-bin.v3-hit{border-color:var(--viz-accent)}
+    .v3-bin.v3-bad{border-color:var(--viz-red)}
+    .v3-bin.v3-stale{border-color:var(--viz-amber);border-style:dashed}
+    .v3-row{font-size:10.5px;border-radius:5px;padding:2px 5px;border:1px solid var(--viz-line);color:var(--viz-muted)}
+    .v3-row.v3-new{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:700}
+    .v3-row.v3-wrong{border-color:var(--viz-red);color:var(--viz-red);font-weight:700}
+    .v3-go{width:100%;min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-surface);
+      color:var(--viz-accent);border-radius:10px;font:inherit;font-weight:700;font-size:13.5px}
+    .v3-verdict{font-size:13px;line-height:1.55;margin-top:11px}
+    .v3-verdict:empty{display:none}
+    .v3-verdict b{display:block;margin-bottom:3px}
+  </style>
+  <script>
+  (function(){
+    var scheme = 'event', replayed = false;
+    var bins = document.getElementById('v3-bins');
+    var verdict = document.getElementById('v3-verdict');
+    var bE = document.getElementById('v3-evt'), bI = document.getElementById('v3-ing');
+
+    function render(){
+      bE.setAttribute('aria-pressed', scheme === 'event' ? 'true' : 'false');
+      bI.setAttribute('aria-pressed', scheme === 'event' ? 'false' : 'true');
+      var days = [
+        { label: 'MON $20260720', base: [] },
+        { label: 'TUE $20260721', base: ['tue events'] },
+        { label: 'WED $20260722', base: ['wed events'] }
+      ];
+      var cls = ['', '', ''], extra = [null, null, null];
+      if (!replayed) {
+        cls[0] = 'v3-stale';
+        extra[0] = { t: 'empty — load failed', k: '' };
+      } else if (scheme === 'event') {
+        cls[0] = 'v3-hit';
+        extra[0] = { t: 'mon events ✓', k: 'v3-new' };
+      } else {
+        cls[0] = 'v3-stale';
+        extra[0] = { t: 'still empty ✕', k: '' };
+        cls[2] = 'v3-bad';
+        extra[2] = { t: 'mon events ✕ WRONG DAY', k: 'v3-wrong' };
+      }
+      bins.innerHTML = days.map(function(d, i){
+        var rows = d.base.map(function(r){ return '<span class="v3-row">' + r + '</span>'; }).join('');
+        if (extra[i]) rows += '<span class="v3-row ' + extra[i].k + '">' + extra[i].t + '</span>';
+        return '<div class="v3-bin ' + cls[i] + '"><b>' + d.label + '</b>' + rows + '</div>';
+      }).join('');
+
+      if (!replayed) { verdict.innerHTML = ''; return; }
+      verdict.innerHTML = scheme === 'event'
+        ? '<b style="color:var(--viz-green)">✓ Replayable</b>Monday\'s input maps to Monday\'s partition no matter which day the job executes. The backfill rewrites exactly <code>$20260720</code> and cannot touch Tuesday or Wednesday.'
+        : '<b style="color:var(--viz-red)">✕ Unreplayable</b>Monday\'s partition stays wrong AND Wednesday\'s is now polluted — one replay produced two broken days. There is no slice you can truncate to fix it, because the rows are filed under a date that is not in the data.';
+    }
+    bE.addEventListener('click', function(){ scheme = 'event'; render(); });
+    bI.addEventListener('click', function(){ scheme = 'ingest'; render(); });
+    document.getElementById('v3-go').addEventListener('click', function(){ replayed = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Scan Bill</h2>
+  <p class="vz-lede">2 TB of history, growing 5 GB/day. Drag the retention and watch what a
+    <em>daily</em> job scans over a year each way. <b>Like re-reading the whole book every night to
+    find out what changed on the last page.</b></p>
+
+  <div class="vz-card">
+    <label for="v4-hist" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      History in the table: <span id="v4-histl" style="color:var(--viz-accent)">2.0 TB</span></label>
+    <input type="range" id="v4-hist" min="1" max="40" step="1" value="20" aria-label="Terabytes of history, in tenths">
+
+    <div class="v4-bars">
+      <div class="v4-line"><span class="v4-lab">Full refresh</span>
+        <div class="v4-track"><div class="v4-fill v4-full" id="v4-ffill"></div></div>
+        <span class="v4-val" id="v4-fval"></span></div>
+      <div class="v4-line"><span class="v4-lab">Incremental</span>
+        <div class="v4-track"><div class="v4-fill v4-inc" id="v4-ifill"></div></div>
+        <span class="v4-val" id="v4-ival"></span></div>
+    </div>
+    <div class="v4-ratio" id="v4-ratio"></div>
+  </div>
+  <p class="vz-note">Incremental wins on cost and loses on safety: full refresh is <b>self-healing</b>
+    — whatever was wrong yesterday is rebuilt from scratch today. That is why the professional
+    default for a large, important table is <b>hybrid</b>: incremental daily, scheduled full
+    reconciliation as the audit.</p>
+
+  <style>
+    .v4-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v4-line{display:grid;grid-template-columns:82px 1fr 92px;align-items:center;gap:9px}
+    .v4-lab{font-size:12px;font-weight:700}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-fill{height:100%;transition:width .12s linear;min-width:2px}
+    .v4-full{background:var(--viz-red)}
+    .v4-inc{background:var(--viz-green)}
+    .v4-val{font-size:12px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+    .v4-ratio{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:13.5px;line-height:1.5}
+    .v4-ratio b{font-size:16px}
+  </style>
+  <script>
+  (function(){
+    var DAILY_GB = 5, DAYS = 365;
+    var s = document.getElementById('v4-hist');
+    var lab = document.getElementById('v4-histl');
+    var ff = document.getElementById('v4-ffill'), fv = document.getElementById('v4-fval');
+    var inf = document.getElementById('v4-ifill'), iv = document.getElementById('v4-ival');
+    var ratio = document.getElementById('v4-ratio');
+
+    function render(){
+      var tb = Number(s.value) / 10;                 // history in TB
+      lab.textContent = tb.toFixed(1) + ' TB';
+      var fullTB = tb * DAYS;                        // rescans everything, every day
+      var incTB = (DAILY_GB * DAYS) / 1000;          // only the day's delta
+      var max = 4.0 * DAYS;
+      ff.style.width = Math.max(1, (fullTB / max) * 100) + '%';
+      inf.style.width = Math.max(1, (incTB / max) * 100) + '%';
+      fv.textContent = Math.round(fullTB) + ' TB/yr';
+      iv.textContent = incTB.toFixed(2) + ' TB/yr';
+      var x = Math.round(fullTB / incTB);
+      ratio.innerHTML = 'Full refresh scans <b style="color:var(--viz-red)">' + x + '&times;</b> more data — '
+        + 'and that multiple <em>grows</em> as history grows, while the incremental bar stays flat. '
+        + 'At a few dollars per TB scanned this is the difference between a rounding error and a five-figure annual bill for one table.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Watermark Leaks</h2>
+  <p class="vz-lede">Incremental refresh is only as good as its high-water mark. Four rows below all
+    exist in the source. Tap each to see whether <code>WHERE updated_at &gt; @wm</code> will ever
+    select it. <b>Like a night watchman who only checks doors that reported themselves opened.</b></p>
+
+  <div class="v5-list" id="v5-list"></div>
+  <div class="vz-card v5-out" id="v5-out">Tap a row to test it against the watermark.</div>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-item{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v5-item[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-dot{flex:0 0 auto;width:17px;font-weight:800;font-size:12px;text-align:center}
+    .v5-out{font-size:13px;line-height:1.55}
+    .v5-stamp{display:block;font-weight:800;margin-bottom:4px}
+    .v5-fix{display:block;margin-top:7px;padding-top:7px;border-top:1px dashed var(--viz-line);color:var(--viz-muted);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var CASES = [
+      { t:'Normal edit — app writes the row and bumps updated_at', caught:true,
+        why:'The happy path. The watermark filter selects it on the next run and the MERGE folds it in.',
+        fix:'' },
+      { t:'Bulk fix — direct SQL updates rows without touching updated_at', caught:false,
+        why:'Invisible forever. No value of the watermark will ever select these rows, so the change is <b>permanently skipped</b> — not delayed, skipped.',
+        fix:'Fix: make updated_at a database-enforced trigger or generated column, so no write path can bypass it.' },
+      { t:'In-flight transaction — committed at 10:00:00, visible at 10:00:04', caught:false,
+        why:'The run already advanced the watermark past 10:00:00, so this row falls in the gap between "committed" and "visible". Classic clock-skew loss.',
+        fix:'Fix: a lookback window — each run reprocesses the trailing N hours below the watermark. Cheap, because the writes are idempotent, so overlap is harmless by construction.' },
+      { t:'Hard delete — the row simply stops appearing in the source', caught:false,
+        why:'A deleted row emits no signal at all. No updated_at filter can select something that is not there, so the target keeps a <b>ghost</b> row forever.',
+        fix:'Fix: soft deletes (a deleted_at column that also bumps the watermark column) or change data capture — which is lesson 5.' },
+      { t:'Six months of the above, compounding', caught:false,
+        why:'Missed rows, ghosts and logic changes accumulate. Nothing alerts, because every individual run succeeded.',
+        fix:'Fix: hybrid. Incremental daily for cost, plus a periodic full refresh or reconciliation diff that bounds how wrong the table can silently become.' }
+    ];
+    var list = document.getElementById('v5-list');
+    var out = document.getElementById('v5-out');
+
+    CASES.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v5-item';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-dot">?</span><span>' + c.t + '</span>';
+      b.addEventListener('click', function(){
+        [].slice.call(list.children).forEach(function(x, j){
+          x.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+          var d = x.querySelector('.v5-dot');
+          if (i !== j) { d.textContent = '?'; d.style.color = ''; }
+        });
+        var dot = b.querySelector('.v5-dot');
+        dot.textContent = c.caught ? '✓' : '✕';
+        dot.style.color = c.caught ? 'var(--viz-green)' : 'var(--viz-red)';
+        out.innerHTML = '<span class="v5-stamp" style="color:' + (c.caught ? 'var(--viz-green)' : 'var(--viz-red)') + '">'
+          + (c.caught ? '✓ Caught by the watermark' : '✕ Missed by the watermark') + '</span>' + c.why
+          + (c.fix ? '<span class="v5-fix">' + c.fix + '</span>' : '');
+      });
+      list.appendChild(b);
+    });
+  })();
+  </script>
+</section>
+
+</body>
+</html>

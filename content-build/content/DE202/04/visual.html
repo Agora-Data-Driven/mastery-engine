@@ -1,0 +1,382 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY. No page-level behaviour, and nothing here reaches into a
+   panel by id — each visual carries its own so each stays rewritable alone. */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px}
+.vz-seg button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:13px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two Clocks Running</button>
+  <button class="viz-tab" data-viz-tab="2">2. One Event, How Many</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Lateness Gate</button>
+  <button class="viz-tab" data-viz-tab="4">4. Panes And The Sink</button>
+  <button class="viz-tab" data-viz-tab="5">5. Where Once Breaks</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two Clocks Running</h2>
+  <p class="vz-lede">In lesson 2 you learned never to file a row by the date the job ran. Streaming
+    makes that split visible: every event carries <b>two</b> timestamps and they drift apart. Drag
+    the network delay. <b>Like a postmark versus the date written inside the letter.</b></p>
+
+  <div class="vz-card">
+    <label for="v1-lag" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      Network + client delay: <span id="v1-lagl" style="color:var(--viz-accent)">1 min</span></label>
+    <input type="range" id="v1-lag" min="0" max="18" step="1" value="1" aria-label="Delay in minutes between event time and arrival">
+
+    <div class="v1-clocks">
+      <div class="v1-clock"><span class="v1-cap">EVENT TIME &mdash; in the data</span>
+        <b id="v1-et">10:07</b><span class="v1-sub">when it happened. Immutable, travels with the record.</span></div>
+      <div class="v1-clock"><span class="v1-cap">PROCESSING TIME &mdash; the wall clock</span>
+        <b id="v1-pt">10:08</b><span class="v1-sub">when you saw it. Depends on the network, retries and your job's schedule.</span></div>
+    </div>
+
+    <div class="v1-verdict" id="v1-verdict"></div>
+  </div>
+  <p class="vz-note">This is the same rule as deterministic partitioning, one lesson on: the answer
+    must be a function of the element, not of when the machinery observed it. Windowing on
+    processing time is the streaming form of ingestion-date partitioning.</p>
+
+  <style>
+    .v1-clocks{display:flex;gap:8px;margin-top:15px}
+    .v1-clock{flex:1;border:1.5px solid var(--viz-line);border-radius:11px;padding:11px 10px;background:var(--viz-bg);
+      display:flex;flex-direction:column;gap:4px}
+    .v1-clock b{font-size:24px;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+    .v1-cap{font-size:9.5px;font-weight:800;letter-spacing:.08em;color:var(--viz-muted)}
+    .v1-sub{font-size:11.5px;color:var(--viz-muted);line-height:1.4}
+    .v1-verdict{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.55}
+    .v1-verdict b{display:block;margin-bottom:3px}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v1-lag');
+    var lag = document.getElementById('v1-lagl');
+    var et = document.getElementById('v1-et'), pt = document.getElementById('v1-pt');
+    var out = document.getElementById('v1-verdict');
+
+    function clock(mins){
+      var h = 10 + Math.floor((7 + mins) / 60), m = (7 + mins) % 60;
+      return h + ':' + (m < 10 ? '0' : '') + m;
+    }
+    function render(){
+      var d = Number(s.value);
+      lag.textContent = d + (d === 1 ? ' min' : ' mins');
+      et.textContent = '10:07';
+      pt.textContent = clock(d);
+      var sameBucket = (7 + d) < 10;   // fixed 5-minute windows: [10:05, 10:10)
+      out.innerHTML = sameBucket
+        ? '<b style="color:var(--viz-green)">Both clocks agree — and that is the trap</b>'
+          + 'With a small delay, event-time and processing-time windowing put this event in the same 5-minute bucket. '
+          + 'Every processing-time bug looks correct on the happy path; it only shows up when something is slow.'
+        : '<b style="color:var(--viz-red)">They disagree — now the choice matters</b>'
+          + 'Event time still says <b style="display:inline">[10:05, 10:10)</b> — that is where this event belongs and always will. '
+          + 'Processing time would file it under <b style="display:inline">' + clock(d) + '</b>, which is a fact about your network, not about the customer.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. One Event, How Many</h2>
+  <p class="vz-lede">The same event at <b>10:07</b>, under three window shapes. Notice how many
+    windows claim it — that number is your state and output multiplier.
+    <b>Like a shift rota: fixed shifts, overlapping handovers, or "however long the shop stayed busy".</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Window type">
+    <button id="v2-fx" aria-pressed="true">Fixed</button>
+    <button id="v2-sl" aria-pressed="false">Sliding</button>
+    <button id="v2-se" aria-pressed="false">Session</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-timeline" id="v2-timeline"></div>
+    <div class="v2-facts" id="v2-facts"></div>
+  </div>
+
+  <style>
+    .v2-timeline{position:relative;padding:26px 0 34px}
+    .v2-axis{position:relative;height:3px;background:var(--viz-line);border-radius:2px}
+    .v2-tick{position:absolute;top:6px;font-size:10px;color:var(--viz-muted);transform:translateX(-50%);white-space:nowrap}
+    .v2-win{position:absolute;height:20px;border-radius:5px;border:1.5px solid var(--viz-accent);
+      background:var(--viz-accent);opacity:.24}
+    .v2-win.v2-owns{opacity:.62}
+    .v2-ev{position:absolute;top:-19px;transform:translateX(-50%);font-size:11px;font-weight:800;color:var(--viz-red);white-space:nowrap}
+    .v2-ev::after{content:"";position:absolute;left:50%;top:15px;width:2px;height:26px;background:var(--viz-red)}
+    .v2-facts{margin-top:8px;font-size:13px;line-height:1.55}
+    .v2-count{font-size:15px;font-weight:800;display:block;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var kind = 'fixed';
+    var tl = document.getElementById('v2-timeline');
+    var facts = document.getElementById('v2-facts');
+    var B = { fx:document.getElementById('v2-fx'), sl:document.getElementById('v2-sl'), se:document.getElementById('v2-se') };
+    var T0 = 0, T1 = 30;                       // 10:00 .. 10:30 on the axis
+    var pos = function(m){ return ((m - T0) / (T1 - T0)) * 100; };
+
+    function render(){
+      B.fx.setAttribute('aria-pressed', kind === 'fixed' ? 'true' : 'false');
+      B.sl.setAttribute('aria-pressed', kind === 'sliding' ? 'true' : 'false');
+      B.se.setAttribute('aria-pressed', kind === 'session' ? 'true' : 'false');
+
+      var wins = [], note = '', count = 0;
+      if (kind === 'fixed') {
+        wins = [[0,5],[5,10],[10,15],[15,20],[20,25],[25,30]];
+        count = 1;
+        note = 'Non-overlapping intervals of equal length. 10:00 inclusive to 10:05 exclusive is one window; 10:05 starts the next. '
+             + 'Exactly one window can claim any event, so state is one entry per key per window. Calendar-hour billing wants this — aligned to a timezone.';
+      } else if (kind === 'sliding') {
+        wins = [[0,10],[5,15],[10,20],[15,25],[20,30]];
+        count = 2;
+        note = 'Size 10 minutes, period 5. Every event belongs to size ÷ period = <b>2</b> windows at once. '
+             + 'Rolling error rates want this — but membership is duplicated, so state and output multiply by the same factor. '
+             + 'One million keys across twelve overlapping windows is twelve times the keyed state of one fixed window.';
+      } else {
+        wins = [[3,9],[14,22]];
+        count = 1;
+        note = 'Grouped per key by inactivity gaps, not by the clock. Events at 10:00 and 10:20 share a session under a 30-minute gap; 11:00 starts a new one. '
+             + '<b>Sessions can merge</b>: a late event landing between two sessions bridges them into one, so the window identity changes after the fact and the sink must handle a revised key.';
+      }
+      var evM = 7;
+      var html = '<div class="v2-axis">';
+      wins.forEach(function(w, i){
+        var owns = evM >= w[0] && evM < w[1];
+        html += '<div class="v2-win' + (owns ? ' v2-owns' : '') + '" style="left:' + pos(w[0]) + '%;width:' + (pos(w[1]) - pos(w[0])) + '%;top:' + (kind === 'sliding' ? (i % 2 ? 8 : -22) : -8) + 'px"></div>';
+      });
+      html += '<div class="v2-ev" style="left:' + pos(evM) + '%">event 10:07</div>';
+      [0, 10, 20, 30].forEach(function(m){
+        html += '<div class="v2-tick" style="left:' + pos(m) + '%">10:' + (m < 10 ? '0' : '') + m + '</div>';
+      });
+      html += '</div>';
+      tl.innerHTML = html;
+      facts.innerHTML = '<span class="v2-count">Windows claiming this event: '
+        + '<span style="color:' + (count > 1 ? 'var(--viz-amber)' : 'var(--viz-green)') + '">' + count + '</span></span>' + note;
+    }
+    B.fx.addEventListener('click', function(){ kind = 'fixed'; render(); });
+    B.sl.addEventListener('click', function(){ kind = 'sliding'; render(); });
+    B.se.addEventListener('click', function(){ kind = 'session'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Lateness Gate</h2>
+  <p class="vz-lede">The window <code>[10:00, 11:00)</code> closed when the watermark passed 11:00.
+    Drag how late an event is, in <b>event time</b>. <b>Like a shop that accepts returns for 30 days
+    — after that, a different department handles it.</b></p>
+
+  <div class="vz-card">
+    <label for="v3-late" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      Event arrives <span id="v3-latel" style="color:var(--viz-accent)">20 min</span> after the watermark passed the window end
+      &nbsp;·&nbsp; allowed lateness = 1 hour</label>
+    <input type="range" id="v3-late" min="0" max="180" step="5" value="20" aria-label="Minutes late, in event time">
+
+    <div class="v3-track"><div class="v3-zone v3-ok"><span>ACCEPTED — window state still alive</span></div>
+      <div class="v3-zone v3-drop"><span>TOO LATE — dropped, quarantined or reconciled</span></div>
+      <div class="v3-marker" id="v3-marker"></div></div>
+
+    <div class="v3-out" id="v3-out"></div>
+  </div>
+  <p class="vz-note">A watermark is an <b>estimate</b> of event-time progress, never proof that
+    nothing earlier can arrive — which is exactly why a late-data policy is mandatory rather than
+    optional. And the pipeline watermark is limited by its slowest input: one idle partition can
+    hold every window open.</p>
+
+  <style>
+    .v3-track{position:relative;display:flex;margin-top:16px;height:44px;border-radius:9px;overflow:hidden;border:1.5px solid var(--viz-line)}
+    .v3-zone{display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;letter-spacing:.03em;text-align:center;padding:0 6px}
+    .v3-ok{flex:1;background:color-mix(in srgb, var(--viz-green) 18%, transparent);color:var(--viz-green)}
+    .v3-drop{flex:2;background:color-mix(in srgb, var(--viz-red) 14%, transparent);color:var(--viz-red)}
+    .v3-marker{position:absolute;top:0;bottom:0;width:3px;background:var(--viz-ink);transition:left .1s linear}
+    .v3-out{margin-top:14px;font-size:13px;line-height:1.55}
+    .v3-out b{display:block;margin-bottom:3px}
+    .v3-cost{display:block;margin-top:9px;padding-top:9px;border-top:1px dashed var(--viz-line);color:var(--viz-muted);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var LATENESS = 60;                       // allowed lateness, minutes
+    var s = document.getElementById('v3-late');
+    var lab = document.getElementById('v3-latel');
+    var marker = document.getElementById('v3-marker');
+    var out = document.getElementById('v3-out');
+
+    function render(){
+      var m = Number(s.value);
+      lab.textContent = m >= 60 ? (m / 60).toFixed(1).replace(/\.0$/, '') + ' hr' : m + ' min';
+      marker.style.left = Math.min(99.5, (m / 180) * 100) + '%';
+      out.innerHTML = m <= LATENESS
+        ? '<b style="color:var(--viz-green)">Accepted — the window updates</b>'
+          + 'Allowed lateness keeps this window\'s state alive for an hour of event-time progress past its end, so a late trigger fires and the result is revised.'
+          + '<span class="v3-cost">This is not free: every window you keep open is retained state, delayed cleanup and extra correction traffic downstream.</span>'
+        : '<b style="color:var(--viz-red)">Too late — the state is already gone</b>'
+          + 'The window was cleaned up. This event is dropped, quarantined, or handed to a correction pipeline — it cannot update the original result.'
+          + '<span class="v3-cost">Late is not the same as wrong: mobile clients reconnect, batch producers publish after reconciliation. If 99.9% of events land within ten minutes but financial corrections take days, the right design is a fast stream plus a separate reconciliation job — not days of retained window state.</span>';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Panes And The Sink</h2>
+  <p class="vz-lede">One window fires three times as events trickle in: <b>80</b>, then <b>100</b>,
+    then <b>103</b>. Choose what the pipeline emits and what the sink does with it.
+    <b>Like a running total on a receipt versus each item added separately.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Accumulation mode">
+    <button id="v4-acc" aria-pressed="true">Accumulating</button>
+    <button id="v4-dis" aria-pressed="false">Discarding</button>
+  </div>
+  <div class="vz-seg" role="group" aria-label="Sink behaviour">
+    <button id="v4-sum" aria-pressed="true">Sink appends &amp; sums</button>
+    <button id="v4-ups" aria-pressed="false">Sink upserts by (window, key)</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-panes" id="v4-panes"></div>
+    <div class="v4-total" id="v4-total"></div>
+  </div>
+  <p class="vz-note">Pane identity has to survive retries too: key it on business dimensions,
+    window start and end, and a result version. A worker attempt ID changes on retry and turns one
+    pane into several sink rows.</p>
+
+  <style>
+    .v4-panes{display:flex;flex-direction:column;gap:6px}
+    .v4-pane{display:grid;grid-template-columns:82px 1fr auto;gap:9px;align-items:center;
+      border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 11px;font-size:12.5px;background:var(--viz-bg)}
+    .v4-when{font-size:9.5px;font-weight:800;letter-spacing:.06em;color:var(--viz-muted)}
+    .v4-val{font-family:ui-monospace,Consolas,monospace;font-weight:700}
+    .v4-act{font-size:11.5px;color:var(--viz-muted);text-align:right}
+    .v4-total{margin-top:14px;padding-top:13px;border-top:1px dashed var(--viz-line);font-size:13px;line-height:1.55}
+    .v4-big{font-size:29px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;display:block;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var mode = 'acc', sink = 'sum';
+    var panes = document.getElementById('v4-panes');
+    var total = document.getElementById('v4-total');
+    var bAcc = document.getElementById('v4-acc'), bDis = document.getElementById('v4-dis');
+    var bSum = document.getElementById('v4-sum'), bUps = document.getElementById('v4-ups');
+
+    function render(){
+      bAcc.setAttribute('aria-pressed', mode === 'acc' ? 'true' : 'false');
+      bDis.setAttribute('aria-pressed', mode === 'dis' ? 'true' : 'false');
+      bSum.setAttribute('aria-pressed', sink === 'sum' ? 'true' : 'false');
+      bUps.setAttribute('aria-pressed', sink === 'ups' ? 'true' : 'false');
+
+      var emitted = mode === 'acc' ? [80, 100, 103] : [80, 20, 3];
+      var when = ['EARLY', 'ON-TIME', 'LATE'];
+      panes.innerHTML = emitted.map(function(v, i){
+        return '<div class="v4-pane"><span class="v4-when">' + when[i] + '</span>'
+          + '<span class="v4-val">emits ' + (mode === 'acc' ? v : '+' + v) + '</span>'
+          + '<span class="v4-act">' + (sink === 'sum' ? 'appended' : 'upserted') + '</span></div>';
+      }).join('');
+
+      var stored = sink === 'sum' ? emitted.reduce(function(a, b){ return a + b; }, 0) : emitted[emitted.length - 1];
+      // Discarding + upsert is the one combination that is wrong for a different
+      // reason: the last delta REPLACES instead of adding.
+      var right = (mode === 'acc' && sink === 'ups') || (mode === 'dis' && sink === 'sum');
+      var ok = right && stored === 103;
+      total.innerHTML = '<span class="v4-big" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">'
+        + 'sink holds ' + stored + '</span>'
+        + (ok
+          ? 'Correct — the true count is 103. ' + (mode === 'acc'
+              ? 'Accumulating panes are <b>replacements</b>, and the upsert overwrites the previous value for that window.'
+              : 'Discarding panes are <b>deltas</b>, and the sink adds them. But now every pane must arrive: lose one and the total is silently short, with nothing in the data to reveal it.')
+          : 'Wrong — the true count is 103. ' + (mode === 'acc'
+              ? 'Accumulating emits the full running total each time, so appending and summing counts the same events three times. Nothing errors; the dashboard is just wrong.'
+              : 'Discarding emits only what changed, so an upsert throws away the earlier contributions and keeps just the last delta.'));
+    }
+    bAcc.addEventListener('click', function(){ mode = 'acc'; render(); });
+    bDis.addEventListener('click', function(){ mode = 'dis'; render(); });
+    bSum.addEventListener('click', function(){ sink = 'sum'; render(); });
+    bUps.addEventListener('click', function(){ sink = 'ups'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Where Once Breaks</h2>
+  <p class="vz-lede">A message is redelivered — because an ack was lost, not because processing
+    failed. Follow it through four stages and see which ones the runner's guarantee actually covers.
+    <b>Like a signed-for parcel: the courier's guarantee ends at your door.</b></p>
+
+  <div class="v5-stages" id="v5-stages"></div>
+  <div class="vz-card" id="v5-detail"></div>
+
+  <style>
+    .v5-stages{display:flex;gap:5px;margin-bottom:12px}
+    .v5-stage{flex:1;min-height:76px;border:1.5px solid var(--viz-line);background:var(--viz-surface);color:var(--viz-ink);
+      border-radius:10px;padding:9px 7px;font:inherit;display:flex;flex-direction:column;gap:4px;text-align:left}
+    .v5-stage b{font-size:11.5px;line-height:1.25}
+    .v5-mark{font-size:9.5px;font-weight:800;letter-spacing:.05em}
+    .v5-stage[aria-pressed="true"]{border-color:var(--viz-accent)}
+    #v5-detail{font-size:13px;line-height:1.55}
+    #v5-detail b{display:block;margin-bottom:4px}
+    #v5-detail .v5-fix{display:block;margin-top:9px;padding-top:9px;border-top:1px dashed var(--viz-line);color:var(--viz-muted);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var ST = [
+      { n:'Source offsets', safe:true,
+        t:'Covered by the runner',
+        d:'The runner checkpoints which messages it consumed together with its internal state, so a restart resumes from a consistent position. This part of "exactly-once" is real.',
+        fix:'' },
+      { n:'Internal state', safe:true,
+        t:'Covered by the runner',
+        d:'Window contents and keyed state are checkpointed in the same transaction as the offsets. Reprocessing rebuilds identical state.',
+        fix:'' },
+      { n:'External HTTP call', safe:false,
+        t:'NOT covered — fires twice',
+        d:'A retried transform re-runs your code. The runner cannot roll back a payment API call, an email, or a webhook it knows nothing about. This is where "exactly-once" marketing stops being true about your business.',
+        fix:'Fix: keep non-transactional side effects out of retried transforms, or give each one an idempotency key and a deduplicating receiver.' },
+      { n:'Sink write', safe:false,
+        t:'Only if YOU make it so',
+        d:'A blind INSERT writes the row twice. Incrementing a counter per delivery double counts. The runner commits its own state consistently — it does not make your write idempotent.',
+        fix:'Fix: effectively-once. At-least-once execution + a stable event ID + an upsert or conditional insert keyed on it. Reprocessing then converges on the same final state — the same move as lesson 2, in streaming clothes.' }
+    ];
+    var wrap = document.getElementById('v5-stages');
+    var detail = document.getElementById('v5-detail');
+
+    ST.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v5-stage';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-mark" style="color:' + (s.safe ? 'var(--viz-green)' : 'var(--viz-red)') + '">'
+        + (s.safe ? '✓ SAFE' : '✕ AT RISK') + '</span><b>' + s.n + '</b>';
+      b.addEventListener('click', function(){
+        [].slice.call(wrap.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        detail.innerHTML = '<b style="color:' + (s.safe ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + s.t + '</b>'
+          + s.d + (s.fix ? '<span class="v5-fix">' + s.fix + '</span>' : '');
+      });
+      wrap.appendChild(b);
+    });
+    wrap.children[2].click();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -94,9 +94,56 @@ any assessment question. Each card:
 - "highway": true on the ~⅓ highest-impact foundational cards, false otherwise.
 - No em dashes in prose (the "—" formula sentinel is the one exception).
 
+## 4. guide.md + visual.html + visual.json — the learner-facing artifacts (optional)
+
+`doc.md` is the SOURCE. These three are the two artifacts a learner actually opens, and they are
+published by [`assemble-guides.js`](assemble-guides.js) (dry-run by default, `--apply` to write),
+not by `assemble.cjs`. Author them only when hand-made quality is worth it — the engine generates
+both from `doc.md` automatically otherwise, and does it well.
+
+**`guide.md`** — what the **Lesson** button shows. A distillation of `doc.md` for someone about to
+be quizzed, not a copy of it. Follow the shape the generator uses so hand-made and generated
+guides read alike: `**The big idea**` · `**Key concepts**` (each with mechanism, why, and a
+concrete micro-example carrying real numbers) · `**Rules to remember**` · `**Common pitfalls**` ·
+`**How to approach the questions**` · `**Where this leads**`. Open by connecting to the lesson's
+`alreadyTaughtInCourse` topics by name. 1,200–2,000 words.
+
+**`visual.html`** — what the **✨ Visuals** button frames. ONE self-contained page of 3–6 numbered,
+named, interactive visuals. Non-negotiables, because the app enforces every one of them:
+
+- `<nav class="viz-tabs">` of `<button class="viz-tab" data-viz-tab="N">N. Name</button>`, then one
+  `<section class="viz-panel" data-viz-panel="N">` per visual. Names are 2–4 concrete words — the
+  learner says them out loud to the assistant.
+- 🔴 **Each panel carries its own `<style>` and `<script>`, inside the section, script last**, with
+  every id and class prefixed `vN-`. Nothing outside a panel may reference anything inside one, or
+  `canSwapVisualPanel` refuses and that visual can no longer be rewritten on its own.
+- 🔴 **Never write the literal script tag name in a comment.** The panel scanner reads tags
+  textually and treats it as a real page-level script — which silently un-editables that panel.
+- No external resources and no storage APIs: the artifact runs in an opaque-origin sandbox where a
+  CDN script, web font, remote image, `fetch` or `localStorage` is blocked or throws.
+- Colours only from `--viz-bg --viz-surface --viz-ink --viz-muted --viz-line --viz-accent
+  --viz-green --viz-red --viz-amber --viz-violet`. Never hard-code a background or text colour, and
+  never let colour alone carry meaning.
+- Never declare a `display` value on `.viz-panel` — the app shows and hides panels.
+- Interactivity must TEACH: the learner changes an input and sees the consequence. Reads well at
+  390px, touch targets ≥44px. Maths as plain text or SVG (`x^2`, `sqrt(x)`) — no LaTeX renders here.
+- Where the lesson has prerequisites, make **visual 1 the bridge**: familiar ground on one side,
+  this section on the other, the connection drawn.
+
+**`visual.json`** — `{ "title": "…: Visual Guide", "outline": ["Title: …", "1. Name | what it shows
+| the takeaway", …] }`. The outline is the assistant's ONLY view of the page (the iframe is
+opaque-origin), so it needs one line per panel with matching numbers, or "teach me visual 3"
+resolves to nothing.
+
+Both artifacts are written with `locked: true`, so the app refuses to regenerate over them without
+an explicit confirm. Validate with `node content-build/assemble-guides.js --course=<CODE>` — it runs
+the server's own parsers and reports every problem before anything is written.
+
 ## Final self-check before you finish
 
 For every lesson: doc.md has one `## ` heading per spec topic (verbatim, all present);
 questions.json parses, has topics.length × 6 questions, 4 options each, valid answerIndex,
 difficulty mix per topic; cards.json parses with 8–14 cards, all topic fields verbatim-valid.
-Fix anything that fails BEFORE reporting. Your final message: the per-lesson summary lines only.
+If you authored guides/visuals, `assemble-guides.js --course=<CODE>` must report "validation:
+clean". Fix anything that fails BEFORE reporting. Your final message: the per-lesson summary lines
+only.

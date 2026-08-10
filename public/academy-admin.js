@@ -1957,7 +1957,7 @@
     const doL = $('gDoLessons').checked, doR = $('gDoReviews').checked;
     if (!doQ && !doC && !doL && !doR) { $('gStatus').innerHTML = '<span class="aa-err">Pick something to build.</span>'; return; }
     if ((doL || doR) && !$('gGrainTopic').checked && !$('gGrainLesson').checked) {
-      $('gStatus').innerHTML = '<span class="aa-err">For Lessons/Reviews, pick at least one grain (sub-lesson or lesson).</span>'; return;
+      $('gStatus').innerHTML = '<span class="aa-err">For Lessons, pick at least one grain (sub-lesson or lesson).</span>'; return;
     }
     const track = trackOf(course);
     const eng = engineChoice();
@@ -1996,23 +1996,28 @@
         show($('gStop'), false);
       }
       if (doL || doR) {
-        // Pre-build (cache) Lesson/Review study guides for the scope, in parallel.
-        const kindsLabel = [doL && 'Lessons', doR && 'Reviews'].filter(Boolean).join(' & ');
-        $('gStatus').textContent = `Pre-building ${kindsLabel} in parallel…`;
+        // Pre-build (cache) the study guides for the scope, in parallel. Review
+        // and Lesson merged into ONE guide per section (2026-08-10), so either
+        // checkbox now builds the same thing and ticking both is not double work.
+        $('gStatus').textContent = 'Pre-building Lessons in parallel…';
         const r = await api('/api/admin/study-guides/build', {
           method: 'POST',
           body: {
             program: state.program, track, course, ...(lesson ? { lesson } : {}), ...(topic ? { topic } : {}),
-            doLesson: doL, doReview: doR,
+            doLesson: true,
             grains: { topic: $('gGrainTopic').checked, lesson: $('gGrainLesson').checked },
             force: $('gForceGuides').checked,
           },
         });
         const parts = [];
         if (r.built) parts.push(`${r.built} built`);
+        // How many were written FROM the authored lesson document rather than
+        // inferred from the question bank. The single biggest quality split, and
+        // the only place it is visible.
+        if (r.grounded) parts.push(`${r.grounded} grounded on source docs`);
         if (r.skipped) parts.push(`${r.skipped} already cached`);
         if (r.failed) parts.push(`${r.failed} failed`);
-        $('gStatus').innerHTML = `<span class="aa-ok">${esc(kindsLabel)}: ${parts.join(', ') || 'nothing to do'} `
+        $('gStatus').innerHTML = `<span class="aa-ok">Lessons: ${parts.join(', ') || 'nothing to do'} `
           + `<span class="aa-note">(${r.targets} section${r.targets === 1 ? '' : 's'}, ${r.concurrency}-way parallel)</span></span>`;
       }
       await loadCatalog();

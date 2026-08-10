@@ -133,7 +133,7 @@ Guards: 🔓 public · 👤 `requireAuth` · 🛡 `requireAdmin` · ⏱ `rateLim
 ### Study guides & analysis
 | Method | Path | Guard | Purpose |
 |---|---|---|---|
-| POST | `/api/review` | 👤 | Section review guide (cached) |
+| POST | `/api/review` | 👤 | **Deprecated alias** for `/api/lesson` — same handler, same cache key (merged 2026-08-10) |
 | POST | `/api/lesson` `/lesson/context` | 👤 | Lesson guide (cached) |
 | POST | `/api/analyze` | 👤 | Progress analysis |
 | GET | `/api/graph` | 👤 | Knowledge map nodes + edges |

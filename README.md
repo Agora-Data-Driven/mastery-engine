@@ -254,19 +254,26 @@ model to match Gemini's reliability.
 
 ---
 
-## Visual guides ("Visualize this")
+## Visual guides ("✨ Visuals")
 
-Open any **Lesson** or **Review** study guide and there is a **✨ Visualize this** button under it.
-It hands that guide to whichever AI engine you have picked and gets back one interactive page:
-3–6 numbered, named visuals as tabs — a slider whose movement changes the curve, click-to-advance
-steps, a labelled diagram with tap-to-reveal parts. One idea per visual, simple ones first.
+Every section's **Learn** menu has a **✨ Visuals** button next to **Lesson** — press it and you go
+straight to the visuals, with no wall of prose to open first. (The same page is also reachable as
+**✨ Visualize this** from inside a Lesson.) You get one interactive page: 3–6 numbered, named
+visuals as tabs — a slider whose movement changes the curve, click-to-advance steps, a labelled
+diagram with tap-to-reveal parts. One idea per visual, simple ones first.
 
+- **It starts from what you already know.** Where a section has prerequisites on record, visual 1
+  is a bridge: familiar ground on one side, the new section on the other, the connection drawn.
 - **It is cached.** The first build runs a full generation (roughly 1–2 minutes). After that the
   button says **Open visuals** and it opens instantly, for free, for everyone.
-- **↻ Regenerate** sits next to it, on the visuals *and* on the written guide. The note box is
+- **↻ Regenerate** sits next to it, on the visuals *and* on the written lesson. The note box is
   optional: describe what was wrong and the same engine rewrites around it; leave it blank and it
   rebuilds on a **different model**. Both are tagged "Made by <engine>", so you always know what
   you are reading and a regenerate never silently repeats the same failure.
+- **Fix one visual, keep the rest.** Regenerate lists your visuals as checkboxes. Tick the one
+  that is wrong and only that one is rebuilt — the others are kept byte for byte, not re-rolled,
+  and it costs a fraction of a full rebuild. (Pages built before this shipped wire everything from
+  one shared script and can only be rebuilt whole; they say so and one rebuild fixes it.)
 - **Talk to it.** With the viewer open, the study assistant and the Coach can see the guide's
   title, every visual's name and what it shows, and which tab you are looking at. Hit
   **💬 Explain this to me**, or switch on Conversation mode and say *"teach me visual 2"*.

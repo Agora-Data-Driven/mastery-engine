@@ -46,7 +46,12 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 1. **Add an AI feature** — prompt lives HERE, in `gemini.js`: export a function that builds the
    prompt and returns `complete(prompt, { json, schema, ...ai })` (or `completeStream` +
    `onToken`). The route passes `aiChoice(req)` through as `...ai`. Never call a provider SDK
-   from `server.js`. Verify + deploy: step 6.
+   from `server.js`. Verify + deploy: step 8.
+1b. **Ground a prompt on what is already written** — before inventing an input, check whether the
+   scope already has an authoritative document. `generateLesson`'s `source` comes from
+   `getScopeTranscripts()` (lesson grain, equality-only filters, no composite index) via
+   `scopeSourceText` in server.js. Both study-guide prompts spent a year re-deriving lessons from
+   their own quiz questions while 934k chars of hand-authored `doc.md` sat unread — AGENTS.md §7.
 2. **Build a cached AI ARTIFACT (not prose)** — the visual guide is the pattern:
    `generateVisualGuide()` here emits a fenced index + a self-contained HTML page,
    `parseVisualGuide()` splits them tolerantly, `visualGuideLooksComplete()` refuses to let a
