@@ -272,6 +272,25 @@ picked engine (cookie `aiProvider`/`aiModel`):
 - **DeepSeek / Kimi** — optional, appear when their API keys are configured.
 - **Local (Ollama / LM Studio)** — only when running the app locally.
 
+## 11b. Visual guides ("Visualize this")
+
+Any Lesson or Review study guide has a **Visualize this** button. It sends that guide to the
+learner's chosen AI engine, which returns ONE self-contained interactive page: 3–6 numbered, named
+visuals as tabs ("1. The Leaky Bucket", "2. Compounding Curve"), each teaching a single idea with
+something the learner can actually move — a slider, click-to-advance steps, a labelled diagram.
+
+- **Cached per section and per kind.** A Lesson's visuals and a Review's visuals for the same
+  section are separate. The first build costs one generation; every later open is instant and free.
+- **Regenerate**, on the guide and on the visuals, takes an OPTIONAL note about what was wrong.
+  With a note, the same engine rewrites around it. Blank means "just better", which rebuilds on a
+  **different model**. Every version is tagged with the engine that made it, and the tag is shown.
+- **The assistant can see it.** While the viewer is open, the assistant/Coach is given the guide's
+  title, the full list of visuals with what each shows, and which tab is on screen — so
+  "teach me visual 2" works, out loud in voice mode included. It should teach FROM the visuals:
+  name them by number and name, and say what to move or click.
+- It runs sandboxed with no network access, so it holds no state between sessions and cannot read
+  anything about the learner.
+
 ## 12. Data & analytics
 
 **Firestore** is the operational store (`topics`, `questions`, `quizLog`, per-user subcollections).

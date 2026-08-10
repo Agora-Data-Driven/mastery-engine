@@ -33,9 +33,19 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    plain-text stream: read the fetch body incrementally and append. Typed SSE
    (`thinking`/`content`/`result`/`done`) is only for the admin planners in `academy-admin.js`.
    Server side of both: AGENTS.md §5 "Stream a response".
-4. **Edit the NUL line** (app.js:559) — Node script only (`fs.readFileSync` → `replace` →
+4. **Render model-authored HTML** — there is exactly one place this happens and it must stay
+   that way: `#vizModal`'s `<iframe id="vizFrame" sandbox="allow-scripts">` pointed at
+   `/api/visuals/:id/html`. NO `allow-same-origin`, no `srcdoc`, no `innerHTML`. The frame is
+   opaque-origin, so you cannot read into it — it postMessages its tab state up, and `app.js`
+   accepts that only when `e.source === vizFrame.contentWindow`. Everything else the model
+   writes still goes through `esc()`/`renderMarkdown()`. Rationale: [../AGENTS.md §7](../AGENTS.md).
+5. **Let the assistant see something new on screen** — add it to `assistantContext()` (app.js).
+   That single object is sent by BOTH assistant transports, so one edit covers typing, streaming,
+   voice and Sentinel's Coach FAB; the server renders it in `assistantContextBlock()`
+   ([../lib/gemini.js](../lib/gemini.js)), which is likewise shared by both.
+6. **Edit the NUL line** (app.js:559) — Node script only (`fs.readFileSync` → `replace` →
    `writeFileSync`); `Edit` cannot match it and the file must never be open-and-rewritten.
-5. **Change what the progress/roadmap trees score** — every ring, bar and % in both trees
+7. **Change what the progress/roadmap trees score** — every ring, bar and % in both trees
    resolves through four places, and all four must agree or the tree and its hero disagree
    with each other: `rollupNode()` (accumulates the per-topic sums), `nodeStats()` /
    `nodeProgress()` (pick the numerator for the active metric), `metricColor()` (each metric
@@ -43,7 +53,7 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    shelf red), and `overviewHtml()` (the hero, which relabels with the metric). The score
    itself is **not** computed here — the server ships `row.mastery` per catalog row, and the
    client only averages it. See AGENTS.md §3.
-6. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
+8. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
    as a script), reload locally (`npm run dev`), then
    `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed (AGENTS.md §6); then re-port

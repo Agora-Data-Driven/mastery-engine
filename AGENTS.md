@@ -97,7 +97,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
-| `_*_test.js` | The **five** Node unit tests (auth, graph, programs, progress credit, priority) — see §6. |
+| `_*_test.js` | The **six** Node unit tests (auth, graph, programs, progress credit, priority, visual) — see §6. |
 
 ### Finding a route fast
 
@@ -120,7 +120,8 @@ Rough zones in `server.js`:
 | 1451–2400 | Flashcards (**`cardScope` `:1630`** — §7 — deck build `buildDeckForRequest` `:1758` + its two transports `:1817` (§7), Speaker Mode `explain`, card chat, admin card repair, **Highway toggle**) |
 | 2332–2380 | Admin question repair: `fix-format` (AI) and **`/api/questions/set`** (manual, `:2332`) |
 | 2381–2725 | Study assistant (scope chat, conversations, blocking + SSE streaming) |
-| 2730–2970 | Review / Lesson study guides, progress analysis |
+| 2730–2970 | Review / Lesson study guides (+ regenerate w/ critique), progress analysis |
+| ~3280–3570 | **Visual guides**: the artifact shell (`renderVisualArtifact`), `availableProviders`/`nextEngine`, `/api/visualize`, `/api/guide/info`, `/api/visuals/:id/html` (§7) |
 | 2979–3340 | Knowledge graph, readiness, warm-ups, learn-next, topic sequencing |
 | 3343–3550 | Hint/explain + admin data repair (latexify, fix-formats, merge-math) |
 | 3556–4190 | Programs, enrollment, video lessons, internal SSO endpoints (`verifyInternalSig` `:3724`, `rollupPrograms` `:3767`, `team-progress` `:3842`), team + AI access, topic CRUD |
@@ -138,7 +139,7 @@ Rough zones in `server.js`:
 Collections are named in `COL` — [lib/firestore.js:33](lib/firestore.js#L33):
 
 ```
-topics  questions  quizLog  flashcards  studyGuides
+topics  questions  quizLog  flashcards  studyGuides  visualGuides
 graphLinks  programs  transcripts  genJobs  questionFlags  roadmaps
 ```
 
@@ -268,6 +269,23 @@ in `server.js`; only the fan-out differs.
 |---|---|---|---|
 | `GET /api/internal/enrollment-progress?email=` | `enrollment-progress` | one person's per-program rollup | the four Overview rings, the Professional tab |
 | `GET /api/internal/team-progress?emails=&days=` | `team-progress` | many people's rollup **+ each one's attempt window** | Sentinel's admin Team-progress table |
+| `GET /api/internal/learner-detail?email=` | `learner-detail` | one person's WHOLE catalogue, per topic: attempts, accuracy, `computeMastery`, `computePriority` | Sentinel's daily personal-context report |
+| `GET /api/internal/quiz-activity?email=&days=&wrongOnly=&limit=` | `quiz-activity` | attempt-by-attempt history; defaults to the MISSES only | the same report |
+
+> **Why `learner-detail` exists when two rollups already do (added 2026-08-10).** Both of those
+> answer at PROGRAM grain, which is right for a ring and useless for reasoning about a learner:
+> "Data Science 96%" supports no advice, "never attempted Bayesian inference" does. The in-app
+> assistant never needed an endpoint for this because it runs INSIDE the engine and reads the
+> catalogue directly — an outside reader has no such access. Measured on the live shelf: 1,227
+> topics, 595 attempted.
+>
+> 🔴 **Derived numbers come from `lib/priority.js`, never re-implemented.** `mastery` is the
+> depth-aware score and is deliberately unlike the coverage figure the rollups report (§3); a second
+> implementation would disagree with the learner's own progress tree.
+>
+> 🔴 **`quiz-activity` cannot say what was ANSWERED.** A quizLog row stores the question text and a
+> right/wrong bit — not the chosen option, not the correct one (`logResults`). Anything rendering it
+> may say "you missed this" and must not state what was picked.
 
 - **Batched for read cost, not latency.** `team-progress` reads the shared `topics` catalogue ONCE
   (`readTopicDocs`) and overlays each person's own stats onto it (`overlayStats`) — twelve staff
@@ -435,12 +453,13 @@ There is **no test runner and no linter configured**. `npm test` does not exist.
 node --check server.js
 Get-ChildItem lib\*.js | ForEach-Object { node --check $_.FullName }
 
-# 2. The five real unit tests (pure logic, no cloud needed — all print "PASS")
+# 2. The six real unit tests (pure logic, no cloud needed — all print "PASS")
 node lib\_auth_test.js
 node lib\_graph_test.js              # warm-up / readiness graph logic
 node lib\_programs_test.js
 node lib\_progress_credit_test.js
 node lib\_priority_test.js           # priority + the depth-mastery properties (§3)
+node lib\_visual_test.js             # visual-guide parsing + the truncation guard (§7)
 
 # 3. Boot it and hit a route
 npm run dev
@@ -472,9 +491,15 @@ file as binary.
 
 | File | Line | Content |
 |---|---|---|
-| [public/app.js](public/app.js) | 559 | `` lo(le, `${r.course}<NUL>${r.lesson}`, r.order); `` |
-| [server.js](server.js) | 3307 | `` const key = `${r.track}<NUL>${r.course}<NUL>${r.lesson}`; `` |
-| [lib/firestore.js](lib/firestore.js) | 1788, 1790 | `tupleKey()` — joins with `<NUL>` (the comment above it contains one too) |
+| [public/app.js](public/app.js) | 595 | `` lo(le, `${r.course}<NUL>${r.lesson}`, r.order); `` |
+| [server.js](server.js) | 4159 | `` const key = `${r.track}<NUL>${r.course}<NUL>${r.lesson}`; `` |
+| [lib/firestore.js](lib/firestore.js) | 2163, 2165 | `tupleKey()` — joins with `<NUL>` (the comment above it contains one too) |
+
+Line numbers here drift with every change — re-measure before trusting them:
+```js
+require('fs').readFileSync('server.js','utf8').split(/\r?\n/)
+  .forEach((l,i)=>{ if (l.includes('\0')) console.log(i+1); });
+```
 
 **Fix:** don't edit those lines with `Edit`. Use a Node script with explicit ` `:
 
@@ -671,6 +696,79 @@ silently, which renders un-loaded cards as loaded — the precise lie this desig
 it cannot move, assign, reschedule or close a card. Adding writes is an action-protocol change (with
 the host executor and the Approve card), never a widening of the digest.
 
+### 🔴 The Visualize button serves MODEL-AUTHORED HTML — never into this origin
+
+Added 2026-08-10. "Visualize this" turns the Lesson/Review guide on screen into ONE self-contained
+interactive page (`generateVisualGuide` in [lib/gemini.js](lib/gemini.js)), cached in
+`visualGuides` and framed by the learner. Four things are load-bearing:
+
+1. **It is served from its own route into a sandboxed iframe, never through `innerHTML`.**
+   `GET /api/visuals/:id/html` sends `CSP: sandbox allow-scripts; default-src 'none';
+   script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:` — the sandbox
+   *without* `allow-same-origin` puts the page in an OPAQUE ORIGIN: no cookies, no storage, no
+   credentialed `/api` calls, no reach into our DOM. `srcdoc` and `blob:` were both rejected
+   because they INHERIT the embedder's CSP, and this app's CSP is `frame-ancestors`-only — i.e.
+   it imposes nothing — which would leave the iframe's `sandbox=` attribute as the single point
+   of failure. **Never add `allow-same-origin`**, and never narrow that route's
+   `frame-ancestors` to `'self'`: the real chain is Sentinel → this app → the artifact, so it
+   must reuse `FRAME_ANCESTORS`.
+2. **The APP's own CSP now also sends `frame-src 'self'`** ([server.js](server.js), the middleware
+   under `FRAME_ANCESTORS`), and that is not decoration. **No policy a document sends can stop that
+   document navigating ITSELF** — not `default-src 'none'`, not `form-action`, not the sandbox. So a
+   poisoned page could `location.href` (or `<meta http-equiv=refresh>`) out to an attacker's page and
+   keep rendering inside our chrome, with the real address bar, still passing the parent's
+   `e.source` check. Only the EMBEDDER's `frame-src` governs a nested context's navigations, and it
+   covers redirects. Safe at `'self'` because the viewer is the only `<iframe>` in the frontend and
+   nothing creates one dynamically — video lessons are plain `target="_blank"` links. **If you ever
+   add a legitimate third-party embed, widen `frame-src`; do not delete it.**
+3. **The tab state is REPORTED UP, not read.** Being opaque-origin, nothing outside the frame can
+   look in. `renderVisualArtifact` injects a runtime that posts
+   `{type:'agora-viz-tab', index, name, tabs}` to the parent; `public/app.js` accepts it only when
+   `e.source === vizFrame.contentWindow` (origin is `"null"` and useless here). That, plus the
+   generator's own plain-text index, is the entire basis for the assistant knowing what is on
+   screen — which is what makes "teach me visual 2" work, including in voice mode.
+4. **The runtime toggles `[data-viz-hidden]`, never inline `display`.** Generated pages routinely
+   ship their own tab script too, and the common shape is `.viz-panel{display:none}` in their CSS
+   with `style.display='block'` from their JS. Clearing inline display resolved the ACTIVE panel
+   back to `none` and rendered a blank page. Observed on a real generation. A deferred
+   `getComputedStyle` check then forces `display:block` **only** if the panel is still hidden, so
+   a page whose own script threw is not a blank screen and a page that wanted flex is not flattened.
+5. **A truncated page is never cached.** `complete()` has no `maxOutputTokens` lever, so a long
+   artifact can stop mid-document — and that looks like a working page until you reach the tab
+   that isn't there. `visualGuideLooksComplete` rejects it and the route 502s with "try
+   Regenerate"; caching it would make the failure permanent.
+
+**A visual guide older than its source guide is a cache MISS.** Regenerating the WRITTEN guide
+silently invalidates its visuals — they teach the superseded text. `freshVisualGuide()` compares the
+two `updatedAt` strings on every read, so both `/api/visualize` and the "Open visuals" label in
+`/api/guide/info` agree, and the click rebuilds instead of serving a page that contradicts the guide
+on screen.
+
+**Regenerate** (on both the guide and the visuals) takes an OPTIONAL critique. With a note, the
+learner's own engine keeps the job — the note is the new input. Blank means "better, but I can't say
+why", which is best answered by a **different model**: `nextEngine()` rotates over
+`availableProviders(req)`, the same enumeration `/api/models` serves, so a rotation can never
+escape the per-user AI policy. Every artifact stores the **resolved** `provider`/`model` — see
+below — and the UI prints it.
+
+### 🔴 Record the RESOLVED engine, never `aiChoice(req)`
+
+Added 2026-08-10. `aiChoice(req)` is the REQUEST. `clampToPolicy()` ([lib/gemini.js](lib/gemini.js))
+can downgrade a provider the user's allowlist forbids, and when it does it clears `model` — so what
+actually ran is the adapter's own `DEFAULT_MODEL`, which the caller never sees. Pass a `meta`
+object through the `ai` bag instead:
+
+```js
+const meta = {};
+await generateVisualGuide(input, { ...aiChoice(req), meta });
+// meta.provider / meta.model are now the pair that RAN
+```
+
+`complete()` and `completeStream()` fill it synchronously right after the clamp (`fillEngineMeta`),
+so concurrent calls under `mapWithConcurrency`/`Promise.all` cannot cross-write — each gets its own
+object. Two older provenance writes (`lib/genjobs.js`, the roadmap save) still record the pre-clamp
+request and are wrong under a downgrade; use `meta` for anything new.
+
 ### 🟡 A new colour looks wrong in dark mode
 
 Added 2026-08-03. There is one palette and it lives in `public/styles.css`: `:root` (light) and
@@ -743,6 +841,8 @@ stops mid-sentence or mid-JSON.
 | Commit real secrets | Everything comes from Secret Manager via `--set-secrets`. |
 | Deploy without `node --check` | A syntax error crash-loops and silently keeps the old revision live. |
 | Edit lines with NUL bytes using `Edit` | It cannot match. Use a Node script. |
+| Put model-authored HTML through `innerHTML` | Opaque-origin iframe only — see §7. |
+| Record `aiChoice(req)` as an artifact's engine | That is the request, not the resolution. Use the `meta` out-param — §7. |
 
 ---
 
