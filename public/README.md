@@ -39,13 +39,20 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    opaque-origin, so you cannot read into it — it postMessages its tab state up, and `app.js`
    accepts that only when `e.source === vizFrame.contentWindow`. Everything else the model
    writes still goes through `esc()`/`renderMarkdown()`. Rationale: [../AGENTS.md §7](../AGENTS.md).
-5. **Let the assistant see something new on screen** — add it to `assistantContext()` (app.js).
+5. **Change how the assistant SPEAKS** — one entry point, `ttsSpeak()` / `ttsCancel()` in
+   `app.js`, shared by conversation mode, Speaker Mode's read-aloud and the settings preview.
+   Never call `speechSynthesis.speak()` directly again: the engine is a learner setting
+   (free browser voice by default, or a paid Google voice via `POST /api/tts`), and `ttsSeq` is
+   what stops an interrupted reply from talking a second after the barge-in. Adding a voice or
+   an engine is one edit in [../lib/tts.js](../lib/tts.js) — the picker is server-driven.
+   Rationale + the IAM landmine: [../AGENTS.md §7](../AGENTS.md).
+6. **Let the assistant see something new on screen** — add it to `assistantContext()` (app.js).
    That single object is sent by BOTH assistant transports, so one edit covers typing, streaming,
    voice and Sentinel's Coach FAB; the server renders it in `assistantContextBlock()`
    ([../lib/gemini.js](../lib/gemini.js)), which is likewise shared by both.
-6. **Edit the NUL line** (app.js:559) — Node script only (`fs.readFileSync` → `replace` →
+7. **Edit the NUL line** (app.js:559) — Node script only (`fs.readFileSync` → `replace` →
    `writeFileSync`); `Edit` cannot match it and the file must never be open-and-rewritten.
-7. **Change what the progress/roadmap trees score** — every ring, bar and % in both trees
+8. **Change what the progress/roadmap trees score** — every ring, bar and % in both trees
    resolves through four places, and all four must agree or the tree and its hero disagree
    with each other: `rollupNode()` (accumulates the per-topic sums), `nodeStats()` /
    `nodeProgress()` (pick the numerator for the active metric), `metricColor()` (each metric
@@ -53,7 +60,7 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    shelf red), and `overviewHtml()` (the hero, which relabels with the metric). The score
    itself is **not** computed here — the server ships `row.mastery` per catalog row, and the
    client only averages it. See AGENTS.md §3.
-8. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
+9. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
    as a script), reload locally (`npm run dev`), then
    `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed (AGENTS.md §6); then re-port
