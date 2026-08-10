@@ -28,7 +28,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 | [sentinel.js](sentinel.js) | Sentinel bridge, all HMAC (`SSO_SECRET`, `SENTINEL_URL`), all null-safe. People roster (admin enrollment UI) · `sentinelUserLookup` (the /api gate) · `holisticProfile` + `growthDetail` (development, small-to-big) · `mentorSearch` · **`workDigest` + `workDetail`** (their TASK BOARD, scoped by Sentinel to what the caller may see). | Purposes must match Sentinel's `internal.py` exactly; `workDetail` ids capped by `WORK_MAX_IDS` in server.js |
 | [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer). | — |
 | [watcher.js](watcher.js) | Atrium's Watcher archive, both ways. `listClients`/`listChannels`/`listVideos`/`getVideo` READ the shared bucket; `addSource`/`fetchBodies` ADD a source by calling Atrium's HMAC bridge (`SSO_SECRET`, `ATRIUM_URL`) — never a bucket write. Reads degrade to a message, writes throw. | — |
-| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` `_priority_test.js` `_visual_test.js` | The **six** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
+| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` `_priority_test.js` `_visual_test.js` `_deep_test.js` | The **seven** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
 
 ## Data contract — Firestore doc → lib accessor → app.js consumer
 
@@ -53,20 +53,27 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
    truncated page reach the cache, and `saveVisualGuide()` (firestore.js) rejects an oversized
    one instead of failing inside a fire-and-forget `.catch`. Record the engine with the `meta`
    out-param (`{ ...ai, meta }`), never `aiChoice(req)` — AGENTS.md §7.
-3. **Add a provider model** — extend the adapter's `listXModels()`; `/api/models`
+3. **Let the learner repair PART of an artifact** — the panel-edit path, also here:
+   `splitVisualPanels()` / `visualPanelIndex()` scan the cached page, `canSwapVisualPanel()`
+   decides whether one piece can be replaced at all (it refuses when a shared script reaches
+   into it), `generateVisualPanel()` regenerates just that piece with the CURRENT one in the
+   prompt, and `parseVisualPanel()` + `replaceVisualPanel()` + `replaceOutlineLine()` splice it
+   back. Everything not named stays byte-identical. All pure and covered by
+   [`_visual_test.js`](_visual_test.js) — AGENTS.md §7.
+4. **Add a provider model** — extend the adapter's `listXModels()`; `/api/models`
    (server.js:794) picks it up; `clampToPolicy()` (gemini.js:119) still gates who may use it.
-4. **Add a Firestore accessor** — in `firestore.js`, next to its collection's siblings. Per-user
+5. **Add a Firestore accessor** — in `firestore.js`, next to its collection's siblings. Per-user
    data goes through `statsCol()`/`logCol()`; never branch on `LEGACY_OWNER` yourself, never
    key anything by `slug(fields)` (use `buildTopicIdIndex()`).
-5. **Change the curriculum** — `runCurriculumEdits()` (server.js:4001) → `moveTopics()`
+6. **Change the curriculum** — `runCurriculumEdits()` (server.js:4001) → `moveTopics()`
    (firestore.js:227). Preserves doc ids, and therefore questions + learner stats. Never raw
    Firestore writes for moves/renames.
-6. **Edit a NUL line** (firestore.js:1788/:1790, `tupleKey`) — Node script only:
+7. **Edit a NUL line** (firestore.js:1788/:1790, `tupleKey`) — Node script only:
    `fs.readFileSync` → `s.replace('… …', '…')` → `fs.writeFileSync`. `Edit` cannot match
    these lines; never open-and-rewrite the file.
-7. **Verify → deploy → re-port** — `node --check` every edited file; run the five tests
+8. **Verify → deploy → re-port** — `node --check` every edited file; run the seven tests
    (`node lib\_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js`
-   `_priority_test.js` `_visual_test.js`);
+   `_priority_test.js` `_visual_test.js` `_deep_test.js`);
    then `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed
    (`gcloud run services describe mastery-engine --region us-central1

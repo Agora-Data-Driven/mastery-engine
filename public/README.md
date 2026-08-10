@@ -50,6 +50,20 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    That single object is sent by BOTH assistant transports, so one edit covers typing, streaming,
    voice and Sentinel's Coach FAB; the server renders it in `assistantContextBlock()`
    ([../lib/gemini.js](../lib/gemini.js)), which is likewise shared by both.
+   `scope` rides on **every** view (not just `setup`) because deep mode resolves the section to
+   load from it — see 6b.
+6b. **Add an assistant FLAG** (a new mode like `deep` / `coach` / `web`) — it goes in **three**
+   places, and missing one fails silently: the body of `streamAssistantAnswer` (typed), the body
+   of `sendAssistantBlocking` (voice), and the route pair in `server.js`. `coach`/`actions`/
+   `hostFrame` shipped for months on the streaming path only, so every spoken turn was
+   ungrounded (AGENTS.md §7). Grep `hostFrame:` — two call sites must come back.
+   The switch itself belongs in the header **chip row** (`toggleAsstChip` / `syncAsstChips`), not
+   in the ⚙ drawer: chips are for what you flip mid-conversation, the drawer is for what needs a
+   dropdown. That split is why coach mode was invisible for so long.
+6c. **Moving/resizing the panel** — `panelDragStart` / `panelResizeStart` persist to
+   `assistant.geo`, clamped so a saved box can never strand the panel off-screen. Every entry
+   point is guarded by `panelFloats()`: **never** in Sentinel's `?embed=assistant` frame (the
+   panel IS the document there) and never under 560px (the stylesheet goes edge-to-edge).
 7. **Edit the NUL line** (app.js:559) — Node script only (`fs.readFileSync` → `replace` →
    `writeFileSync`); `Edit` cannot match it and the file must never be open-and-rewritten.
 8. **Change what the progress/roadmap trees score** — every ring, bar and % in both trees

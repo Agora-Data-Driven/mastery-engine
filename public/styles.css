@@ -1031,6 +1031,22 @@ td { padding: 12px 14px; border-top: 1px solid var(--border); }
 .regen-actions .btn { margin: 0; flex: 1; padding: 10px 16px; font-size: 13.5px; }
 .regen-note { font-size: 12px; color: var(--muted); margin: 8px 0 0; line-height: 1.45; }
 
+/* Pick which visuals to rewrite. A locked row is not a disabled feature — it is
+   a page whose visuals share one script, so it can only change as a whole. */
+.viz-pick { margin-bottom: 10px; }
+.viz-pick:empty { display: none; }
+.viz-pick-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; }
+.viz-pick-row {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+  padding: 7px 11px 7px 9px; border: 1.5px solid var(--border-strong); border-radius: var(--pill);
+  background: var(--card); font-size: 12.5px; font-weight: 600; color: var(--ink-2);
+  max-width: 100%; min-height: 36px;
+}
+.viz-pick-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.viz-pick-row:has(input:checked) { border-color: var(--violet); color: var(--violet); }
+.viz-pick-row input { accent-color: var(--violet); width: 15px; height: 15px; margin: 0; flex: 0 0 auto; }
+.viz-pick-row.is-locked { opacity: .5; cursor: not-allowed; }
+
 /* The viewer. Nearly full-bleed on purpose: a visual guide is the content, not
    an aside, and the generated page is laid out for a narrow single column. */
 /* Selector carries .modal.modal-lg deliberately: those two classes are on the
@@ -1478,7 +1494,29 @@ code {
   box-shadow: var(--shadow-lg); padding: 18px; display: flex; flex-direction: column;
   animation: pop 0.22s cubic-bezier(.34,1.56,.64,1);
 }
-.assistant-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+/* The header is the drag handle (app.js panelDragStart), so it must not look like selectable text
+   — but the buttons inside it stay clickable, and the handler ignores pointerdowns on them. */
+.assistant-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px;
+  cursor: grab; user-select: none; touch-action: none;
+}
+.assistant-panel.is-dragging { animation: none; user-select: none; }
+.assistant-panel.is-dragging .assistant-head { cursor: grabbing; }
+/* Nothing inside the panel may swallow pointer events mid-drag (an iframe or a select would). */
+.assistant-panel.is-dragging * { pointer-events: none; }
+
+/* Resize grip: the bottom-right corner, two hairlines, out of the way until you look for it. */
+.assistant-resize {
+  position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px; z-index: 4;
+  cursor: nwse-resize; touch-action: none; border-radius: 0 0 var(--r-lg) 0;
+  background:
+    linear-gradient(135deg, transparent 46%, var(--border-strong) 46%, var(--border-strong) 54%, transparent 54%),
+    linear-gradient(135deg, transparent 70%, var(--border-strong) 70%, var(--border-strong) 78%, transparent 78%);
+}
+.assistant-resize:hover { background-color: var(--violet-soft); }
+/* Sentinel's Coach frame sizes the panel itself — see the html.assistant-only block below. */
+html.assistant-only .assistant-resize { display: none; }
+html.assistant-only .assistant-head { cursor: default; }
 .assistant-title { font-family: var(--display); font-weight: 700; font-size: 17px; color: var(--ink); }
 .assistant-hint { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
 .assistant-close {
@@ -1508,11 +1546,41 @@ code {
   font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
+/* ---- The per-turn chip row (Deep / Coach / Web / Voice) ------------------
+ * Four switches that used to be full-width rows inside the settings drawer, which meant flipping
+ * one cost two clicks and a scroll. As chips they are always visible and the drawer got shorter.
+ * The row scrolls sideways rather than wrapping: a second line would push the chat log down on
+ * exactly the narrow panels that can least afford it.
+ */
+.asst-chips {
+  display: flex; gap: 6px; margin-bottom: 10px; padding-bottom: 2px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.asst-chips::-webkit-scrollbar { display: none; }
+.asst-chip {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 27px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--bg); color: var(--muted);
+  font-family: var(--font); font-size: 12px; font-weight: 600; line-height: 1;
+  cursor: pointer; white-space: nowrap; transition: 0.15s ease;
+}
+.asst-chip:hover:not(:disabled) { border-color: var(--violet-line); color: var(--ink-2); }
+.asst-chip.on {
+  background: var(--violet-soft); color: var(--violet);
+  border-color: var(--violet); box-shadow: inset 0 0 0 1px var(--violet);
+}
+.asst-chip:disabled { opacity: .55; cursor: default; }
+.asst-chip:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--violet-soft); }
+
 /* ---- In-panel AI model + thinking controls (mirrors the home card) ------ */
 .assistant-settings {
   background: linear-gradient(180deg, var(--violet-surface), var(--violet-surface));
   border: 1px solid var(--violet-line); border-radius: var(--r);
   padding: 6px 16px 14px; margin-bottom: 12px;
+  /* Capped and scrollable. Unbounded, this grew with every setting added until it owned the whole
+     panel and pushed the chat log off-screen — the drawer must never cost more than half the
+     panel, and `flex: none` stops it stealing the log's share of the column. */
+  flex: none; max-height: min(46vh, 340px); overflow-y: auto; overscroll-behavior: contain;
 }
 .assistant-settings .asst-set-field .label { display: block; margin-bottom: 8px; }
 .assistant-settings .ai-thinking { font-size: 13px; }

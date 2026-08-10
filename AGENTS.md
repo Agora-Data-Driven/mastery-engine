@@ -98,7 +98,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
-| `_*_test.js` | The **six** Node unit tests (auth, graph, programs, progress credit, priority, visual) — see §6. |
+| `_*_test.js` | The **seven** Node unit tests (auth, graph, programs, progress credit, priority, visual, deep) — see §6. |
 
 ### Finding a route fast
 
@@ -455,13 +455,14 @@ There is **no test runner and no linter configured**. `npm test` does not exist.
 node --check server.js
 Get-ChildItem lib\*.js | ForEach-Object { node --check $_.FullName }
 
-# 2. The six real unit tests (pure logic, no cloud needed — all print "PASS")
+# 2. The seven real unit tests (pure logic, no cloud needed — all print "PASS")
 node lib\_auth_test.js
 node lib\_graph_test.js              # warm-up / readiness graph logic
 node lib\_programs_test.js
 node lib\_progress_credit_test.js
 node lib\_priority_test.js           # priority + the depth-mastery properties (§3)
 node lib\_visual_test.js             # visual-guide parsing + the truncation guard (§7)
+node lib\_deep_test.js               # deep mode's answer-key / declared-gap invariants (§7)
 
 # 3. Boot it and hit a route
 npm run dev
@@ -717,6 +718,51 @@ silently, which renders un-loaded cards as loaded — the precise lie this desig
 it cannot move, assign, reschedule or close a card. Adding writes is an action-protocol change (with
 the host executor and the Approve card), never a widening of the digest.
 
+### 🔴 DEEP MODE puts the ANSWER KEY in the prompt — and one rule has to survive it
+
+Added 2026-08-10. The 🔍 **Deep** chip is the opt-in grounding tier: armed, `deepGroundingFor`
+([server.js](server.js)) loads the section ON SCREEN in full and `deepBlock`
+([lib/gemini.js](lib/gemini.js)) renders it — the real question bank **with its answers**, the
+learner's per-topic accuracy/mastery/priority, and the cached study guide verbatim. Off by
+default, and **that default is the feature**: the ordinary turn is fast because it loads none of
+it. `deep:false` produces a byte-identical prompt to before.
+
+🔴 **The unanswered question on screen stays unspoiled, whatever the bank says.** The key is in
+the prompt precisely so the assistant can run an oral rehearsal and answer "am I ready?" — but
+`assistantContextBlock` may be printing a question from that same bank a few lines below, under
+the standing "do NOT reveal the correct option" rule. Those two instructions meet, so `deepBlock`
+states the exception explicitly and **is injected last**, after every other grounding block: a
+model reading top-to-bottom must meet the override *after* the permission it overrides.
+[`lib/_deep_test.js`](lib/_deep_test.js) asserts both the wording and the ordering — moving the
+block earlier in the prompt passes `node --check` and silently breaks this.
+
+Three more properties, each the same rule the growth journal and the task board already carry:
+
+1. **Scope comes from the SCREEN, most specific first** (`deepScopeFrom`): an open visual guide or
+   flashcard pins the section harder than the setup dropdowns, which can still read "Review All"
+   while a lesson's guide fills the screen. This is why `assistantContext()` now sends `scope` on
+   **every** view rather than only `setup` — it was decoration before and is load-bearing now.
+2. **A body is whole or absent.** A guide over `DEEP_GUIDE_CHARS` is declared as too long, never
+   sliced: a truncated guide reads exactly like a complete one and gets taught as the whole lesson.
+3. **Every cap is declared.** Questions past `DEEP_MAX_QUESTIONS` and topics past `DEEP_MAX_TOPICS`
+   are counted into `gaps` and printed. A silently trimmed bank reads as "that's all there is",
+   which is the one thing that must never happen to a readiness answer.
+
+Deep mode is **fail-soft**: every source degrades to a named gap, and the route catches
+`deepGroundingFor` wholesale. A deep turn that says "I couldn't open your notes" beats a 500.
+
+### 🔴 The VOICE path silently dropped coach mode, actions and deep mode
+
+Fixed 2026-08-10, and worth knowing because the shape recurs. There are two send paths in
+`public/app.js` — `streamAssistantAnswer` (typed) and `sendAssistantBlocking` (voice, and anything
+that needs the whole reply at once). The server's blocking route reads `coach`, `actions`,
+`hostFrame` and `deep` exactly like the streaming one, but the **client only ever sent them on the
+streaming path**. So every spoken turn ran ungrounded, and it hit Sentinel's Coach hardest, where
+`coachOn()` is unconditionally true and the spoken reply was the one ignoring it.
+
+**Adding a flag to the assistant means adding it in THREE places** — the two client send bodies and
+the server route pair. Grep for `hostFrame:` in `public/app.js`; both call sites must appear.
+
 ### 🔴 "Coach" and "the study assistant" are ONE widget — don't build a second one
 
 Reaffirmed 2026-08-10, after the question "do we need both?" was asked. Three things wear the name
@@ -804,6 +850,44 @@ why", which is best answered by a **different model**: `nextEngine()` rotates ov
 `availableProviders(req)`, the same enumeration `/api/models` serves, so a rotation can never
 escape the per-user AI policy. Every artifact stores the **resolved** `provider`/`model` — see
 below — and the UI prints it.
+
+### 🔴 Regenerate has TWO paths, and the cheap one edits the cached page in place
+
+Added 2026-08-10. `POST /api/visualize` with `regenerate:true` and a **`panels:[…]`** list runs
+`patchVisualGuide` instead of `buildVisualGuide`: it regenerates only those panels
+(`generateVisualPanel`) and splices each one into the stored document (`replaceVisualPanel`), so
+every visual the learner did NOT tick is byte-identical afterwards — not "probably preserved",
+untouched. Output drops from a ~90 KB document to a few KB, which is the whole point: fixing
+visual 3 used to re-roll the three that were fine. No `panels` = the original whole-page rebuild,
+and that stays the default. Five things are load-bearing:
+
+1. **A panel is only swappable if nothing outside it reaches in.** `canSwapVisualPanel` refuses
+   when a `<script>` outside the panels names an id inside the target, or selects it by number:
+   pulling the markup out from under a shared script makes it throw on the first missing element,
+   which kills the visuals it wired *after* that too. Checked before any model call, surfaced as
+   `editable:false` per row in `visualPayload`, so the UI greys the checkbox instead of failing
+   after the click. The whole-page generator now asks for per-panel `<style>`/`<script>` with
+   `v<N>-` prefixes, so a rebuild is what makes an old page editable — which is exactly what the
+   refusal tells the learner to do.
+2. **The patch path NEVER writes a study guide.** `visualSourceInputs` generates a missing one;
+   doing that here would stamp `studyGuides.updatedAt` newer than the page being patched, and
+   `freshVisualGuide` reads precisely that as stale — discarding the page, and the edit, on the
+   next open. No cached guide ⇒ 409 "rebuild the whole page". Same for a guide that moved on.
+3. **Balance is the completeness test.** `splitVisualPanels` only ever returns an element whose
+   closing tag it actually found (depth-counted — panels nest), and `parseVisualPanel` returns
+   null rather than an unbalanced fragment. Same posture as `visualGuideLooksComplete`, which
+   still runs on the spliced result: a truncated fragment would corrupt a page that was fine.
+4. **The panel number is OURS.** A fragment that comes back renumbered is re-stamped
+   (`forcePanelKey`), or the page ends up with two visual 3s and a tab pointing at neither. The
+   tab button is re-labelled with it (`setVisualTabLabel`) — the runtime reads button text and
+   posts it up, so a renamed visual with a stale tab has the assistant teaching a name that is
+   not on screen.
+5. **Caps are refused, not trimmed.** `MAX_PATCH_PANELS` (3) 400s rather than silently rewriting
+   3 of 4 ticked; past that a rebuild is cheaper and keeps the visuals reading as one lesson.
+   `patched` is written on EVERY save (empty on a rebuild) so the viewer's tag can say which
+   visuals the named engine actually wrote — after a patch the page has two authors.
+
+All the scanning/splicing is pure and lives in `lib/gemini.js`; `lib/_visual_test.js` covers it.
 
 ### 🔴 Record the RESOLVED engine, never `aiChoice(req)`
 
