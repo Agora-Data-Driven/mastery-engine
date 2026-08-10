@@ -6818,44 +6818,98 @@ const App = (() => {
     synth.speak(u);
   }
 
-  async function cloudSpeak(text, seq, { onStart, onEnd } = {}) {
+  // Split a reply into speakable chunks at SENTENCE boundaries. The first chunk is deliberately
+  // small so it starts playing almost immediately; the rest are bigger to keep the request count
+  // (and the joins between clips) down.
+  //
+  // 🔴 This is what stops time-to-first-word scaling with reply length. The spoken prompt asks for
+  // 1-to-3 sentences, but the model rightly overrides that when the learner asks it to zoom out and
+  // teach — and a 900-character answer synthesized as ONE clip is a wall of silence with the whole
+  // reply already on screen. It also stops a barge-in being billed in full: chunks the learner
+  // talked over are never synthesized at all.
+  //
+  // Never split mid-sentence. MP3 clips carry a little encoder padding, so every join is a small
+  // gap; at a sentence end that reads as a natural breath, mid-clause it reads as a stutter.
+  // Measured on prod (2026-08-10, /api/tts round trip): Chirp ~460ms fixed + ~11.5ms/char,
+  // Gemini ~2.6s fixed + ~28ms/char. So the first chunk is kept near one short sentence — past
+  // ~90 chars the per-character term starts to dominate and the silence becomes audible.
+  function speechChunks(text, first = 90, rest = 260) {
+    // Split only where a terminator is FOLLOWED by whitespace, so "1.5" and "0.3" stay whole —
+    // splitting a decimal makes the voice say "one point" … "five".
+    const sentences = String(text).trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+    const out = [];
+    let buf = '';
+    for (const s of sentences) {
+      const cap = out.length ? rest : first;
+      if (buf && (buf.length + 1 + s.length) > cap) { out.push(buf); buf = ''; }
+      buf = buf ? `${buf} ${s}` : s;
+    }
+    if (buf) out.push(buf);
+    return out.length ? out : [String(text).trim()];
+  }
+
+  // Fetch ONE chunk's audio. Resolves to a Blob, or rejects — callers decide what a failure means,
+  // because a failure on chunk 1 and a failure on chunk 4 want different recoveries.
+  async function fetchTtsChunk(text, seq) {
     const ctl = new AbortController();
     tts.abort = ctl;
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'same-origin',
-        signal: ctl.signal,
-        body: JSON.stringify({ text, engine: ttsEngine(), voice: ttsCloudVoice() }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `Voice request failed (${res.status})`);
-      }
-      const blob = await res.blob();
-      if (seq !== ttsSeq) return;                        // barged in while it was synthesizing
-      tts.abort = null;
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      signal: ctl.signal,
+      body: JSON.stringify({ text, engine: ttsEngine(), voice: ttsCloudVoice() }),
+    });
+    if (tts.abort === ctl) tts.abort = null;
+    if (seq !== ttsSeq) throw new Error('interrupted');
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Voice request failed (${res.status})`);
+    }
+    return res.blob();
+  }
+
+  // Play one blob to completion. Resolves when it ends (or fails) — never rejects, so the chunk
+  // loop always advances.
+  function playTtsBlob(blob, seq, onFirstAudio) {
+    return new Promise((resolve) => {
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       tts.audio = audio; tts.url = url;
-      const finish = () => { if (seq !== ttsSeq) return; releaseTtsAudio(); if (onEnd) onEnd(); };
-      audio.onplay = () => { if (seq === ttsSeq && onStart) onStart(); };
-      audio.onended = finish;
-      audio.onerror = finish;
-      await audio.play();                                // rejects if autoplay is blocked -> catch
-    } catch (e) {
-      if (seq !== ttsSeq) return;                        // a deliberate interruption, not a failure
-      tts.abort = null;
-      // Say it anyway with the free voice, and explain the downgrade ONCE per session — every
-      // turn would bury the conversation under the same apology.
-      if (!tts.warned) {
-        tts.warned = true;
-        const log = $('assistantLog');
-        if (log) appendBubble(log, 'assistant', `(Using the browser voice for now — ${e.message})`);
+      const done = () => { if (tts.audio === audio) releaseTtsAudio(); resolve(); };
+      audio.onplay = () => { if (seq === ttsSeq && onFirstAudio) onFirstAudio(); };
+      audio.onended = done;
+      audio.onerror = done;
+      audio.play().catch(done);        // autoplay blocked -> treat as finished, the loop bails on seq
+    });
+  }
+
+  async function cloudSpeak(text, seq, { onStart, onEnd } = {}) {
+    const chunks = speechChunks(text);
+    let started = false;
+    const first = () => { if (!started) { started = true; if (onStart) onStart(); } };
+    // Prime the pump, then keep exactly one chunk in flight AHEAD of the one playing: chunk n+1
+    // synthesizes while chunk n is in the speakers, so only the first wait is ever heard.
+    let pending = fetchTtsChunk(chunks[0], seq).catch((e) => e);
+    for (let i = 0; i < chunks.length; i++) {
+      const got = await pending;
+      if (seq !== ttsSeq) return;                        // barged in — stop, and stop spending
+      if (got instanceof Error) {
+        // Say what's LEFT with the free voice. Re-speaking `text` would repeat chunks the
+        // learner has already heard.
+        if (!tts.warned) {
+          tts.warned = true;
+          const log = $('assistantLog');
+          if (log) appendBubble(log, 'assistant', `(Using the browser voice for now — ${got.message})`);
+        }
+        browserSpeak(chunks.slice(i).join(' '), seq, { onStart: started ? undefined : onStart, onEnd });
+        return;
       }
-      browserSpeak(text, seq, { onStart, onEnd });
+      pending = i + 1 < chunks.length ? fetchTtsChunk(chunks[i + 1], seq).catch((e) => e) : null;
+      await playTtsBlob(got, seq, first);
+      if (seq !== ttsSeq) return;
     }
+    if (onEnd) onEnd();
   }
 
   // The engine/voice lists are SERVER-driven (GET /api/tts/voices) so adding a voice is one edit
@@ -7115,7 +7169,9 @@ const App = (() => {
     // actually starts — which is honest, and keeps the barge-in affordance on screen throughout.
     const done = () => {
       convo.spoken = '';
-      if (convo.phase === 'speaking') setPhase('listening');
+      // 'thinking' too: if audio never actually played (autoplay blocked, a dead output device)
+      // onStart never fired, and checking only for 'speaking' would strand the status label.
+      if (convo.phase === 'speaking' || convo.phase === 'thinking') setPhase('listening');
       if (convoActive()) ensureListening();
     };
     ttsSpeak(spoken, { onStart: () => setPhase('speaking'), onEnd: done });

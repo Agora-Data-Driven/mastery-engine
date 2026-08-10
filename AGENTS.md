@@ -901,6 +901,23 @@ Four things are load-bearing:
    still `'thinking'`, so aborting the generation alone would let a barged-over answer start
    talking a second later. Every speak and every cancel bumps the counter; a stale async
    continuation does nothing. This is also why `abortGeneration()` now calls `ttsCancel()`.
+2b. **Replies are spoken in CHUNKS, and that is not an optimisation — it is the feature.**
+   Synthesis latency is roughly linear in characters. Measured on prod 2026-08-10:
+
+   | Engine | 34 chars | 657 chars |
+   |---|---|---|
+   | Chirp 3 HD | 854 ms | **8.0 s** |
+   | Gemini Flash TTS | 3.6 s | **20.9 s** |
+
+   ≈ Chirp `460ms + 11.5ms/char`, Gemini `2.6s + 28ms/char`. Shipped as one clip, a long answer
+   was 8–21 seconds of silence with the full text already on screen — reported as "it's not
+   talking back". `speechChunks()` splits at SENTENCE boundaries (~90 chars for the first, ~260
+   after) and keeps exactly one chunk synthesizing ahead of the one playing, so only the first
+   wait is ever heard. **Never split mid-sentence** — every MP3 join carries encoder padding,
+   which reads as a breath at a full stop and a stutter mid-clause.
+
+   🔴 **Gemini Flash TTS has a ~2.6s fixed floor**, so it is the wrong engine for conversation
+   mode however cheap it is. Chirp is the conversational one. The picker notes say so.
 3. **The cost lever is the 1-to-3-sentence rule** in `styleRule` ([lib/gemini.js](lib/gemini.js)).
    A spoken reply is ~250 chars / ~15 seconds ≈ 0.75c (Chirp) or 0.4c (Gemini) per turn. Loosen
    that instruction and this bill scales with it. `MAX_TTS_CHARS` (5,000) is the backstop.
@@ -919,14 +936,11 @@ gcloud projects add-iam-policy-binding agora-data-driven `
 gcloud auth application-default set-quota-project agora-data-driven
 ```
 
-⚠️ **Unverified in production as of 2026-08-10.** The Cloud Run runtime SA
-(`585951669065-compute@developer.gserviceaccount.com`) carries a *pinned* role list — not
-`roles/editor` — and nothing in it obviously covers Text-to-Speech. A service account normally
-resolves its own project for quota and needs no `serviceUsageConsumer`, but that was not
-confirmed (this machine cannot impersonate the SA). **On the first deploy, pick a cloud voice
-and listen.** A 403 in the logs means the SA needs the same binding as above with
-`--member="serviceAccount:585951669065-compute@developer.gserviceaccount.com"`. The learner
-just hears the browser voice plus one explanatory line meanwhile, so this fails soft.
+✅ **Production needs no such grant** — verified on revision `mastery-engine-00210-q8w`
+(2026-08-10): all 8 voices × both engines returned `200 audio/mpeg`. The Cloud Run runtime SA
+(`585951669065-compute@developer.gserviceaccount.com`) resolves its own project for quota, so
+the `serviceUsageConsumer` requirement is a **local-user-credential problem only**. Don't go
+hunting for a missing role when local dev 403s — the deployed service is fine.
 
 ### 🟡 Microphone dead when embedded in Sentinel
 
