@@ -1,0 +1,560 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Collapse Or Attach</button>
+  <button class="viz-tab" data-viz-tab="2">2. Three Ways To Rank</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Frame Window</button>
+  <button class="viz-tab" data-viz-tab="4">4. ROWS vs RANGE</button>
+  <button class="viz-tab" data-viz-tab="5">5. Defining Previous</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Collapse Or Attach</h2>
+  <p class="vz-lede">Same partitioning idea, opposite effect on your rows. <b>GROUP BY Mechanics</b> buys a
+    per-group number by destroying the rows; <code>OVER (PARTITION BY …)</code> computes the same number and
+    hands it back to every row. Flip between them and watch the row count.
+    <b>Like a class average written on the board versus written on each student's paper.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which construct">
+    <button id="v1-grp" aria-pressed="false">GROUP BY query_id</button>
+    <button id="v1-win" aria-pressed="true">OVER (PARTITION BY query_id)</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v1-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v1-io" id="v1-io"></div>
+  </div>
+  <div class="vz-card" style="margin-top:10px">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Windows are evaluated <em>after</em> GROUP BY and HAVING and <em>before</em> the final
+    ORDER BY, so a window can sit on top of grouped output:
+    <code>SUM(COUNT(*)) OVER ()</code> beside <code>COUNT(*) … GROUP BY run_date</code> adds up the grouped
+    rows without collapsing them a second time. That position in the logical order is where every placement
+    rule in this lesson comes from.</p>
+
+  <style>
+    .v1-io{display:flex;flex-direction:column;gap:11px}
+    .v1-side h4{margin:0 0 7px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      display:flex;justify-content:space-between}
+    .v1-side h4 b{font-family:ui-monospace,Consolas,monospace;letter-spacing:0;font-size:12px;color:var(--viz-ink)}
+    .v1-io table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v1-io th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v1-io td{padding:6px 5px 6px 0;border-bottom:1px solid var(--viz-line)}
+    .v1-io td.v1-add{color:var(--viz-accent);font-weight:700}
+    .v1-io tr.v1-p1{box-shadow:inset 3px 0 0 var(--viz-violet)}
+    .v1-io tr.v1-p2{box-shadow:inset 3px 0 0 var(--viz-amber)}
+    .v1-gone{color:var(--viz-red);font-weight:700;font-size:11.5px;margin-top:8px;font-family:inherit}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SRC = [
+      { q:'q1', d:"'d1'", s:0.90 }, { q:'q1', d:"'d2'", s:0.70 },
+      { q:'q2', d:"'d3'", s:0.80 }, { q:'q2', d:"'d4'", s:0.60 }, { q:'q2', d:"'d5'", s:0.40 }
+    ];
+    var win = true;
+    var bG = document.getElementById('v1-grp'), bW = document.getElementById('v1-win');
+    var sqlB = document.getElementById('v1-sql'), ioB = document.getElementById('v1-io'), whyB = document.getElementById('v1-why');
+
+    function avgFor(q){
+      var rs = SRC.filter(function(r){ return r.q === q; });
+      return (rs.reduce(function(a,r){ return a + r.s; }, 0) / rs.length).toFixed(2);
+    }
+    function render(){
+      bG.setAttribute('aria-pressed', win ? 'false' : 'true');
+      bW.setAttribute('aria-pressed', win ? 'true' : 'false');
+      sqlB.innerHTML = win
+        ? 'SELECT query_id, document_id, score,\n       AVG(score) OVER (PARTITION BY query_id) AS query_avg\nFROM   ranked_results;'
+        : 'SELECT query_id, AVG(score) AS query_avg\nFROM   ranked_results\nGROUP  BY query_id;';
+
+      var input = '<div class="v1-side"><h4><span>input</span><b>5 rows</b></h4>' +
+        '<table><thead><tr><th>query_id</th><th>document_id</th><th>score</th></tr></thead><tbody>' +
+        SRC.map(function(r){
+          return '<tr class="' + (r.q === 'q1' ? 'v1-p1' : 'v1-p2') + '"><td>' + r.q + '</td><td>' + r.d + '</td><td>' + r.s.toFixed(2) + '</td></tr>';
+        }).join('') + '</tbody></table></div>';
+
+      var out;
+      if (win) {
+        out = '<div class="v1-side"><h4><span>output</span><b style="color:var(--viz-green)">5 rows — grain preserved</b></h4>' +
+          '<table><thead><tr><th>query_id</th><th>document_id</th><th>score</th><th>query_avg</th></tr></thead><tbody>' +
+          SRC.map(function(r){
+            return '<tr class="' + (r.q === 'q1' ? 'v1-p1' : 'v1-p2') + '"><td>' + r.q + '</td><td>' + r.d + '</td><td>' +
+              r.s.toFixed(2) + '</td><td class="v1-add">' + avgFor(r.q) + '</td></tr>';
+          }).join('') + '</tbody></table></div>';
+      } else {
+        out = '<div class="v1-side"><h4><span>output</span><b style="color:var(--viz-red)">2 rows — grain changed</b></h4>' +
+          '<table><thead><tr><th>query_id</th><th>query_avg</th></tr></thead><tbody>' +
+          ['q1','q2'].map(function(q){
+            return '<tr class="' + (q === 'q1' ? 'v1-p1' : 'v1-p2') + '"><td>' + q + '</td><td class="v1-add">' + avgFor(q) + '</td></tr>';
+          }).join('') + '</tbody></table>' +
+          '<div class="v1-gone">document_id and score are gone. You cannot select them — a group holds several of each.</div></div>';
+      }
+      ioB.innerHTML = input + out;
+
+      whyB.innerHTML = win
+        ? '<b>Same number, every row keeps its identity.</b>Both q1 rows carry 0.80 and every q2 row carries 0.60. ' +
+          'PARTITION BY divides rows into independent windows exactly as GROUP BY divides them into groups — it just does not change the grain. ' +
+          'Which is what finally makes "the document with the maximum score" answerable: the score and the document that produced it are still on the same row. ' +
+          '<br><br>Omit PARTITION BY entirely and the window is <b>everything</b> after FROM, joins and WHERE — every row gets the global value. Legal, sometimes right, ' +
+          'and a scalability trap: one logical partition holding all the state, with one total order imposed over it.'
+        : '<b>One row per group, and the detail is unrecoverable.</b>This is the collapse. It answers "what is each query’s average" perfectly and ' +
+          'cannot answer "which document scored highest" at all — asking for document_id here is the non-aggregated-column defect, and a permissive engine would ' +
+          'hand back a document unrelated to the score beside it. ' +
+          '<br><br>Note that the window version is not a replacement. If you genuinely want two rows, GROUP BY is the right tool and cheaper. Pick by the grain you need out.';
+    }
+    bG.addEventListener('click', function(){ win = false; render(); });
+    bW.addEventListener('click', function(){ win = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Three Ways To Rank</h2>
+  <p class="vz-lede">Four documents, two of them tied. The three ranking functions agree everywhere except
+    at that tie — and the disagreement is the whole reason there are three.
+    <b>Like a podium: do joint silvers push the next athlete to third or to fourth?</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Ranking function">
+    <button id="v2-rn" aria-pressed="true">ROW_NUMBER</button>
+    <button id="v2-rk" aria-pressed="false">RANK</button>
+    <button id="v2-dr" aria-pressed="false">DENSE_RANK</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-tb">
+      <button class="v2-tbtn" id="v2-tie" aria-pressed="false">ORDER BY score DESC</button>
+      <button class="v2-tbtn" id="v2-stable" aria-pressed="true">… , document_id</button>
+      <button class="v2-run" id="v2-run">↻ re-run</button>
+    </div>
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <div class="v2-use" id="v2-use"></div>
+  </div>
+  <p class="vz-note">Ranking order and display order are separate things. The <code>ORDER BY</code> inside
+    <code>OVER</code> decides the rank; the query's own final <code>ORDER BY</code> decides what the reader
+    sees. A result can rank by score and display by query id, and neither controls the other.</p>
+
+  <style>
+    .v2-tb{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+    .v2-tbtn{flex:1 1 108px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-tbtn[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);background:var(--viz-surface)}
+    .v2-run{flex:0 0 auto;min-height:44px;padding:0 14px;border:1.5px solid var(--viz-amber);background:var(--viz-surface);
+      color:var(--viz-amber);border-radius:10px;font:inherit;font-weight:700;font-size:12px}
+    .v2-rows{display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:10px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 11px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-r.is-tied{border-color:var(--viz-violet)}
+    .v2-n{font-weight:800;font-size:17px;min-width:26px;text-align:center;color:var(--viz-accent)}
+    .v2-gap{margin-left:auto;font-size:10.5px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-use{display:flex;flex-direction:column;gap:7px}
+    .v2-u{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v2-u b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var DOCS = [ {d:"'d4'", s:100}, {d:"'d1'", s:90}, {d:"'d7'", s:90}, {d:"'d2'", s:70} ];
+    var fn = 'rn', stable = true, coin = 0;
+    var B = { rn:document.getElementById('v2-rn'), rk:document.getElementById('v2-rk'), dr:document.getElementById('v2-dr') };
+    var bTie = document.getElementById('v2-tie'), bStable = document.getElementById('v2-stable');
+    var rowsB = document.getElementById('v2-rows'), whyB = document.getElementById('v2-why');
+
+    function ordered(){
+      var rs = DOCS.slice();
+      rs.sort(function(a, b){
+        if (b.s !== a.s) return b.s - a.s;
+        if (stable) return a.d < b.d ? -1 : 1;
+        return 0;
+      });
+      if (!stable && coin % 2 === 1) { var t = rs[1]; rs[1] = rs[2]; rs[2] = t; }
+      return rs;
+    }
+    function numbers(rs){
+      var out = [], rank = 0, dense = 0, prev = null;
+      rs.forEach(function(r, i){
+        if (r.s !== prev) { rank = i + 1; dense += 1; prev = r.s; }
+        out.push({ rn:i + 1, rk:rank, dr:dense });
+      });
+      return out;
+    }
+    var WHY = {
+      rn: ['ROW_NUMBER — 1, 2, 3, 4. Always unique, ties or not.',
+        'It numbers positions, not values, so the two 90s get different numbers and <b>something has to decide which</b>. That is why the tie-breaker toggle matters here and nowhere else: without <code>, document_id</code> in the ORDER BY, which 90 becomes 2 is nondeterministic — hit re-run and watch it move. The query does not fail, it drifts, which is far worse in a deduplication job that runs nightly.'],
+      rk: ['RANK — 1, 2, 2, 4. Ties share, then a gap opens.',
+        'Equal ordered values get the same rank, and the next rank is the count of rows that precede it: three rows come before d2, so d2 is 4th, not 3rd. This is competition semantics — two joint silvers and the next entrant is fourth. Adding an arbitrary tie-breaker here would be a mistake: it makes the ordered tuple distinct and <b>destroys the tie you chose RANK for</b>. Only include attributes that define a real tie.'],
+      dr: ['DENSE_RANK — 1, 2, 2, 3. Ties share, no gap.',
+        'It numbers <b>distinct values</b> rather than rows, so it is the tool for tiers: <code>DENSE_RANK() &lt;= 3</code> means "the first three distinct score tiers", and it may return more than three rows. If that surprises a downstream consumer, DENSE_RANK was the wrong choice and ROW_NUMBER was right.']
+    };
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === fn ? 'true' : 'false'); });
+      bTie.setAttribute('aria-pressed', stable ? 'false' : 'true');
+      bStable.setAttribute('aria-pressed', stable ? 'true' : 'false');
+
+      var rs = ordered(), ns = numbers(rs);
+      rowsB.innerHTML = rs.map(function(r, i){
+        var tied = rs.filter(function(x){ return x.s === r.s; }).length > 1;
+        var n = ns[i][fn];
+        var gapAfter = i > 0 && ns[i][fn] - ns[i - 1][fn] > 1;
+        return '<div class="v2-r' + (tied ? ' is-tied' : '') + '">' +
+          '<span class="v2-n">' + n + '</span>' +
+          '<span>' + r.d + ' &nbsp; score ' + r.s + '</span>' +
+          (tied ? '<span class="v2-gap" style="color:var(--viz-violet)">TIED</span>' : '') +
+          (gapAfter ? '<span class="v2-gap" style="color:var(--viz-amber)">RANK ' + (ns[i - 1][fn] + 1) + ' SKIPPED</span>' : '') +
+          '</div>';
+      }).join('');
+
+      var w = WHY[fn];
+      whyB.innerHTML = '<b>' + w[0] + '</b>' + w[1] +
+        (fn === 'rn' && !stable ? '<br><br><b style="color:var(--viz-red)">Tie-breaker is off — the two 90s can swap on any re-run.</b>' : '');
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ fn = k; render(); }); });
+    bTie.addEventListener('click', function(){ stable = false; render(); });
+    bStable.addEventListener('click', function(){ stable = true; render(); });
+    document.getElementById('v2-run').addEventListener('click', function(){ coin += 1; render(); });
+    render();
+
+    document.getElementById('v2-use').innerHTML = [
+      ['ROW_NUMBER — deduplication', 'QUALIFY ROW_NUMBER() OVER (PARTITION BY event_id ORDER BY updated_at DESC, ingest_id DESC) = 1 keeps exactly one row per event: latest timestamp, then largest stable ingestion id. Drop ingest_id and equal-timestamp duplicates become a coin flip; use RANK = 1 instead and every tied row survives, so it does not deduplicate at all.'],
+      ['RANK — competition position', 'Two entrants tied for second means the next is fourth. Use it when the gap is the point.'],
+      ['DENSE_RANK — tiers', 'The first three distinct score bands, however many rows that turns out to be.'],
+      ['Top-N per group', 'QUALIFY ROW_NUMBER() OVER (PARTITION BY query_id ORDER BY score DESC, document_id) &lt;= 10 keeps ten rows <b>per query</b>. A plain LIMIT 10 keeps ten rows in total — a different grain, and the most common wrong answer in this lesson. Where the dialect has no QUALIFY, wrap it in a subquery and filter outside.']
+    ].map(function(u){ return '<div class="v2-u"><b>' + u[0] + '</b>' + u[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Frame Window</h2>
+  <p class="vz-lede">Adding <code>ORDER BY</code> to an aggregate window makes it order-sensitive, and then
+    a <b>frame</b> decides which ordered rows feed each answer. Pick a frame, then tap any row to see the
+    rows it is actually reading. <b>Like a sliding window on a train: what you see depends on where the
+    frame starts and stops, not on how long the train is.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Frame">
+    <button id="v3-run" aria-pressed="true">UNBOUNDED PRECEDING → CURRENT</button>
+    <button id="v3-mov" aria-pressed="false">2 PRECEDING → CURRENT</button>
+    <button id="v3-ctr" aria-pressed="false">1 PRECEDING → 1 FOLLOWING</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v3-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">"Last 100 requests" is inherently a ROWS question. "The previous 24 hours" is not — a
+    fixed row count is wrong the moment the event rate varies, and needs a time RANGE, a join, or a
+    pre-bucketed time table. Frames never reduce cardinality, but a broad one costs state: a bounded
+    trailing frame streams with a small buffer, while unbounded or forward-looking frames make the engine
+    hold on to more.</p>
+
+  <style>
+    .v3-rows{display:flex;flex-direction:column;gap:4px}
+    .v3-r{width:100%;display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);color:var(--viz-ink);text-align:left;min-height:44px;
+      font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:400}
+    .v3-r.in-frame{border-color:var(--viz-accent);background:var(--viz-surface)}
+    .v3-r.is-cur{border-color:var(--viz-violet);border-width:2px}
+    .v3-r.out-frame{opacity:.4}
+    .v3-t{color:var(--viz-muted);font-size:11px;min-width:44px}
+    .v3-v{font-weight:700;min-width:46px}
+    .v3-out{margin-left:auto;font-weight:800;font-size:12.5px}
+    .v3-mark{font-size:10px;font-weight:800;letter-spacing:.04em;font-family:inherit;color:var(--viz-violet)}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DATA = [
+      { t:'09:00', v:10 }, { t:'09:05', v:20 }, { t:'09:10', v:30 }, { t:'09:15', v:80 },
+      { t:'09:20', v:40 }, { t:'09:25', v:20 }, { t:'09:30', v:60 }
+    ];
+    var FRAMES = {
+      run: { lo:null, hi:0, agg:'SUM', label:'ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW',
+        why:['Running total — every earlier row in the partition, plus this one.',
+          'The first row includes only itself, so the sequence never starts from a phantom zero. For costs 10, 20, 5 the totals are 10, 30, 35. This is the frame people mean when they say "cumulative", and the one worth writing out explicitly even though several engines would default close to it.'] },
+      mov: { lo:2, hi:0, agg:'AVG', label:'ROWS BETWEEN 2 PRECEDING AND CURRENT ROW',
+        why:['Three-row moving average — a fixed trailing buffer.',
+          'Watch the first two rows: the frame is simply smaller because fewer rows exist. SQL does <b>not</b> invent missing predecessors, and it does not pad with zeros — row 1 averages one value, row 2 averages two. For latencies 10, 20, 30, 80 the results are 10, 15, 20 and (20+30+80)/3 = 43.33. If you need a warm-up period excluded, you have to say so; the frame will not do it for you.'] },
+      ctr: { lo:1, hi:1, agg:'AVG', label:'ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING',
+        why:['Centred window — it reads into the future.',
+          'Perfectly legal, and it changes what the number means: this row’s answer depends on a row that had not arrived yet. Fine for a smoothing pass over a finished table; wrong for anything claiming to be computable in real time, and more expensive to stream because the engine must hold rows back before it can emit one.'] }
+    };
+    var frame = 'run', cur = 3;
+    var B = { run:document.getElementById('v3-run'), mov:document.getElementById('v3-mov'), ctr:document.getElementById('v3-ctr') };
+    var sqlB = document.getElementById('v3-sql'), rowsB = document.getElementById('v3-rows'), whyB = document.getElementById('v3-why');
+
+    function bounds(i){
+      var f = FRAMES[frame];
+      var lo = f.lo === null ? 0 : Math.max(0, i - f.lo);
+      var hi = Math.min(DATA.length - 1, i + f.hi);
+      return [lo, hi];
+    }
+    function value(i){
+      var b = bounds(i), slice = DATA.slice(b[0], b[1] + 1).map(function(r){ return r.v; });
+      var sum = slice.reduce(function(a, x){ return a + x; }, 0);
+      return FRAMES[frame].agg === 'SUM' ? sum : Math.round((sum / slice.length) * 100) / 100;
+    }
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === frame ? 'true' : 'false'); });
+      var f = FRAMES[frame];
+      sqlB.innerHTML = f.agg + '(latency_ms) OVER (\n  ORDER BY event_time, event_id\n  ' + f.label + '\n)';
+      var b = bounds(cur);
+      rowsB.innerHTML = DATA.map(function(r, i){
+        var inF = i >= b[0] && i <= b[1];
+        var cls = i === cur ? 'is-cur in-frame' : (inF ? 'in-frame' : 'out-frame');
+        return '<button class="v3-r ' + cls + '" data-i="' + i + '">' +
+          '<span class="v3-t">' + r.t + '</span>' +
+          '<span class="v3-v">' + r.v + ' ms</span>' +
+          (i === cur ? '<span class="v3-mark">CURRENT ROW</span>' : (inF ? '<span class="v3-mark" style="color:var(--viz-accent)">in frame</span>' : '')) +
+          '<span class="v3-out" style="color:' + (i === cur ? 'var(--viz-violet)' : 'var(--viz-muted)') + '">' + value(i) + '</span>' +
+          '</button>';
+      }).join('');
+      [].slice.call(rowsB.children).forEach(function(el){
+        el.addEventListener('click', function(){ cur = Number(el.dataset.i); render(); });
+      });
+      var n = b[1] - b[0] + 1;
+      whyB.innerHTML = '<b>' + f.why[0] + '</b>' +
+        'Row ' + (cur + 1) + ' reads <b>' + n + '</b> row' + (n === 1 ? '' : 's') + ' &rarr; ' + f.agg + ' = <b>' + value(cur) + '</b>. ' +
+        f.why[1] + '<br><br>The rightmost column shows every row’s own answer, so you can read the whole windowed column at once — and note that the row count never changed.';
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ frame = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. ROWS vs RANGE</h2>
+  <p class="vz-lede">Two events share a timestamp. That is all it takes for the same running total to give
+    two different answers — and if you did not write a frame, the engine already chose one for you.
+    <b>Like a queue where two people arrived at the same second: do you serve them one at a time, or treat
+    them as one arrival?</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Frame kind">
+    <button id="v4-rows" aria-pressed="true">ROWS</button>
+    <button id="v4-range" aria-pressed="false">RANGE (the usual default)</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v4-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v4-rows" id="v4-list"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Neither is wrong. <b>ROWS answers "through this physical event"; RANGE answers
+    "through this ordering value."</b> What is wrong is not saying which — because then the answer depends
+    on whether two rows happened to share a timestamp, which is a property of the data rather than of your
+    intent. State the frame explicitly, and add a stable tie-breaker whenever row sequence matters.</p>
+
+  <style>
+    .v4-rows{display:flex;flex-direction:column;gap:4px}
+    .v4-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 11px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-r.is-peer{border-color:var(--viz-violet)}
+    .v4-t{color:var(--viz-muted);font-size:11.5px;min-width:46px}
+    .v4-v{min-width:56px}
+    .v4-tot{margin-left:auto;font-weight:800;font-size:14px}
+    .v4-peer{font-size:10px;font-weight:800;letter-spacing:.04em;font-family:inherit;color:var(--viz-violet)}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var EV = [
+      { id:1, t:'09:00', v:10 }, { id:2, t:'09:00', v:20 },
+      { id:3, t:'10:00', v:5 },  { id:4, t:'10:00', v:15 }, { id:5, t:'11:00', v:8 }
+    ];
+    var rowsMode = true;
+    var bR = document.getElementById('v4-rows'), bG = document.getElementById('v4-range');
+    var sqlB = document.getElementById('v4-sql'), listB = document.getElementById('v4-list'), whyB = document.getElementById('v4-why');
+
+    function totals(){
+      if (rowsMode) {
+        var run = 0;
+        return EV.map(function(e){ run += e.v; return run; });
+      }
+      return EV.map(function(e){
+        return EV.filter(function(x){ return x.t <= e.t; }).reduce(function(a, x){ return a + x.v; }, 0);
+      });
+    }
+    function render(){
+      bR.setAttribute('aria-pressed', rowsMode ? 'true' : 'false');
+      bG.setAttribute('aria-pressed', rowsMode ? 'false' : 'true');
+      sqlB.innerHTML = 'SUM(amount) OVER (\n  ORDER BY event_time' + (rowsMode ? ', event_id' : '') + '\n  ' +
+        (rowsMode ? 'ROWS  BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW' : 'RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW') + '\n)' +
+        (rowsMode ? '' : '\n-- this is what many engines use when you write ORDER BY and no frame at all');
+
+      var ts = totals();
+      listB.innerHTML = EV.map(function(e, i){
+        var peers = EV.filter(function(x){ return x.t === e.t; }).length > 1;
+        return '<div class="v4-r' + (peers ? ' is-peer' : '') + '">' +
+          '<span class="v4-t">' + e.t + '</span>' +
+          '<span class="v4-v">#' + e.id + ' &nbsp;+' + e.v + '</span>' +
+          (peers ? '<span class="v4-peer">PEER</span>' : '') +
+          '<span class="v4-tot" style="color:' + (peers ? 'var(--viz-violet)' : 'var(--viz-ink)') + '">' + ts[i] + '</span></div>';
+      }).join('');
+
+      whyB.innerHTML = rowsMode
+        ? '<b>ROWS: 10, 30, 35, 50, 58. One row at a time.</b>' +
+          'ROWS counts <b>physical rows</b> relative to the current row, so event #1 sees only itself and event #2 sees both. ' +
+          'That requires the order to be deterministic, which is why <code>, event_id</code> is in the ORDER BY: without it, ' +
+          'which of the two 09:00 rows is "first" is arbitrary, and the intermediate total 10 versus 20 flips with it. ' +
+          'This is the right frame for "the total through this event", and the only sensible one for "the last 100 requests".'
+        : '<b>RANGE: 30, 30, 50, 50, 58. Peers move together.</b>' +
+          'RANGE groups <b>peers</b> — rows sharing the same ordering value — so both 09:00 rows have identical frames and identical totals. ' +
+          'Nothing is skipped and nothing is double counted; the sequence simply jumps in blocks. ' +
+          'The danger is that this is what most engines give you when you write ORDER BY and no frame at all, ' +
+          'so a query that looked fine in testing starts producing paired totals the day two events land on the same timestamp. ' +
+          'It reads exactly like a data bug and it is a specification gap.';
+    }
+    bR.addEventListener('click', function(){ rowsMode = true; render(); });
+    bG.addEventListener('click', function(){ rowsMode = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Defining Previous</h2>
+  <p class="vz-lede"><code>LAG</code> does not know about calendars. It hands you the previous <em>row</em>,
+    and if Tuesday never landed, Wednesday's "yesterday" is Monday. Toggle the calendar join and watch the
+    change column stop lying. <b>Like flipping back one page in a diary with a page torn out.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Data shape">
+    <button id="v5-raw" aria-pressed="true">raw table (Tue missing)</button>
+    <button id="v5-cal" aria-pressed="false">joined to a calendar</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v5-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v5-tbl" id="v5-tbl"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <div class="v5-more" id="v5-more"></div>
+  </div>
+  <p class="vz-note">Most wrong LAG results are not function errors — they are failures to define
+    "previous" with enough precision. Partition at the entity whose history is independent, order by the
+    true chronology <em>plus</em> a stable tie-breaker, decide whether gaps are skipped or materialised, and
+    keep the NULL when no predecessor exists.</p>
+
+  <style>
+    .v5-tbl table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v5-tbl th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v5-tbl td{padding:7px 5px 7px 0;border-bottom:1px solid var(--viz-line)}
+    .v5-tbl tr.is-bad td{color:var(--viz-red)}
+    .v5-tbl tr.is-made td{color:var(--viz-muted);font-style:italic}
+    .v5-null{color:var(--viz-amber);font-weight:800}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-more{display:flex;flex-direction:column;gap:7px}
+    .v5-m{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v5-m b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var RAW = [
+      { d:'Mon 03', r:0.02 }, { d:'Wed 05', r:0.03 }, { d:'Thu 06', r:0.01 }, { d:'Fri 07', r:0.015 }
+    ];
+    var CAL = [
+      { d:'Mon 03', r:0.02 }, { d:'Tue 04', r:null }, { d:'Wed 05', r:0.03 },
+      { d:'Thu 06', r:0.01 }, { d:'Fri 07', r:0.015 }
+    ];
+    var raw = true;
+    var bR = document.getElementById('v5-raw'), bC = document.getElementById('v5-cal');
+    var sqlB = document.getElementById('v5-sql'), tblB = document.getElementById('v5-tbl'), whyB = document.getElementById('v5-why');
+
+    function fmt(x){ return x === null ? '<span class="v5-null">NULL</span>' : x.toFixed(3); }
+    function render(){
+      bR.setAttribute('aria-pressed', raw ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', raw ? 'false' : 'true');
+      sqlB.innerHTML = raw
+        ? 'SELECT run_date, error_rate,\n       LAG(error_rate) OVER (\n         PARTITION BY service ORDER BY run_date\n       ) AS previous_rate\nFROM   daily_metrics;'
+        : 'SELECT c.run_date, m.error_rate,\n       LAG(m.error_rate) OVER (\n         PARTITION BY c.service ORDER BY c.run_date\n       ) AS previous_rate\nFROM   calendar c\nLEFT JOIN daily_metrics m ON m.run_date = c.run_date;';
+
+      var rows = raw ? RAW : CAL;
+      tblB.innerHTML = '<table><thead><tr><th>run_date</th><th>error_rate</th><th>previous_rate</th><th>change</th></tr></thead><tbody>' +
+        rows.map(function(r, i){
+          var prev = i === 0 ? null : rows[i - 1].r;
+          var change = (r.r === null || prev === null) ? null : Math.round((r.r - prev) * 1000) / 1000;
+          var bad = raw && r.d === 'Wed 05';
+          var made = r.r === null;
+          return '<tr class="' + (bad ? 'is-bad' : (made ? 'is-made' : '')) + '">' +
+            '<td>' + r.d + (bad ? ' ←' : '') + '</td><td>' + fmt(r.r) + '</td><td>' + fmt(prev) + '</td>' +
+            '<td>' + (change === null ? '<span class="v5-null">NULL</span>' :
+              '<span style="color:' + (change > 0 ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+              (change > 0 ? '+' : '') + change.toFixed(3) + '</span>') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+
+      whyB.innerHTML = raw
+        ? '<b>Wednesday’s "yesterday" is Monday.</b>' +
+          'Tuesday never landed, so the previous <em>row</em> is Monday and the query reports a one-day change that actually spans two days. ' +
+          'Nothing is NULL, nothing errors, and the number is confidently wrong — which is the failure mode that makes this worth a whole panel. ' +
+          '<code>LAG</code> compares rows, and only the data can make a row mean a day. ' +
+          '<br><br>Note also the first row: <code>previous_rate</code> is NULL because no predecessor exists. Supplying a default of 0 there would change the ' +
+          'claim from "no comparison exists" to "the previous rate was zero", which would render as a catastrophic jump. Do that only when zero is genuinely the baseline.'
+        : '<b>Materialise the missing day, and "previous" means what you meant.</b>' +
+          'Left-joining a calendar creates the Tuesday row with a NULL rate, so the sequence has one row per day whether or not data arrived. ' +
+          'Wednesday’s predecessor is now Tuesday, and its change is NULL — an honest "cannot be computed" rather than a wrong number. ' +
+          'The same repair handles the mirror problem: <b>duplicate</b> dates make the ordering ambiguous, so aggregate to one row per service-date first, ' +
+          'or add a tie-breaker that matches the real event sequence.';
+    }
+    bR.addEventListener('click', function(){ raw = true; render(); });
+    bC.addEventListener('click', function(){ raw = false; render(); });
+    render();
+
+    document.getElementById('v5-more').innerHTML = [
+      ['LAG(value, 7)', 'Seven <b>rows</b> earlier, not seven calendar days. If the requirement is "exactly one week ago", use a date-keyed self-join or a complete calendar unless the data guarantees one row per day.'],
+      ['LEAD(event_time) - event_time', 'Time until the next event. Its mirror, <code>event_time - LAG(event_time)</code>, is the gap since the previous one — and <code>PARTITION BY session_id</code> is what keeps one session’s last event from being compared with the next session’s first.'],
+      ['FIRST_VALUE(score) OVER (PARTITION BY query_id ORDER BY score DESC)', 'Attaches each query’s best score to every one of its rows, which turns absolute scores into relative ones: <code>score / FIRST_VALUE(score) OVER (…)</code> is within-query normalisation in a single expression.'],
+      ['LAST_VALUE — read the frame warning again', 'With the default frame it sees only rows up to the current one, so it returns "the value so far", which is usually just the current row. If you mean the partition’s final value, declare the full frame explicitly.']
+    ].map(function(m){ return '<div class="v5-m"><b>' + m[0] + '</b>' + m[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+</body>
+</html>

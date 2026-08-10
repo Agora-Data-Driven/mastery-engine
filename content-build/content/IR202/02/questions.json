@@ -1,24 +1,220 @@
 {
   "questions": [
-    {"topic":"Cross-Encoders: Joint Query-Document Attention","question":"What input does a cross-encoder score?","options":["A single concatenated query and document token sequence","A pair of independently computed vectors compared by cosine","A document vector compared against a query-side index","A query embedding averaged over the document logits"],"answerIndex":0,"difficulty":"core"},
-    {"topic":"Cross-Encoders: Joint Query-Document Attention","question":"Why can a cross-encoder not precompute document representations offline?","options":["Document embeddings expire after every index build","The scoring head has no document input layer","The pair encoding depends on both the query and the document","Precomputed logits overflow the approximate index"],"answerIndex":2,"difficulty":"core"},
-    {"topic":"Cross-Encoders: Joint Query-Document Attention","question":"A cross-encoder scores pairs in batches of 32 at about 18 ms per batch. Rescoring 100 candidates costs roughly how much model time?","options":["About 18 ms","About 36 ms","About 40 ms","About 72 ms"],"answerIndex":3,"difficulty":"balanced"},
-    {"topic":"Cross-Encoders: Joint Query-Document Attention","question":"A query asks for stretching routines that do not load the knee. Why does a cross-encoder handle this better than lexical or single-vector matching?","options":["It removes negation words before scoring the passage","It binds the negation to the constrained phrase through joint attention","It expands the query with synonyms for knee exercises","It indexes only documents that contain no negation"],"answerIndex":1,"difficulty":"balanced"},
-    {"topic":"Cross-Encoders: Joint Query-Document Attention","question":"A reranker truncates every document at 512 tokens. After the retrieval stage switches to focused passages, reranked quality rises. What is the most likely explanation?","options":["The decisive evidence now survives inside the scored token window","Passage retrieval reduces the size of the model vocabulary","Smaller inputs increase the attention batch dimension","Focused passages remove the need for joint attention"],"answerIndex":0,"difficulty":"challenge"},
-    {"topic":"Cross-Encoders: Joint Query-Document Attention","question":"A team blends raw cross-encoder logits with BM25 scores and the merged ordering becomes erratic. What is the underlying defect?","options":["BM25 scores cannot be computed for short passages","The reranker was trained with too few transformer layers","Uncalibrated logits and BM25 scores live on incomparable scales","Logits and term scores sort in opposite directions"],"answerIndex":2,"difficulty":"challenge"},
-
-    {"topic":"Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency","question":"What does a bi-encoder precompute for retrieval?","options":["A joint encoding of every likely query-document pair","One fixed-size vector per document, built offline","A full attention map between every token pair","One relevance logit per document per query class"],"answerIndex":1,"difficulty":"core"},
-    {"topic":"Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency","question":"Why is bi-encoder retrieval so cheap per query?","options":["It avoids tokenizing the documents entirely","It replaces the transformer with a linear model","It caches every possible query inside the index","Documents are encoded once, so online work is one encoding plus a vector search"],"answerIndex":3,"difficulty":"core"},
-    {"topic":"Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency","question":"Which query is most likely to expose a bi-encoder's weakness relative to a cross-encoder?","options":["Find the datasheet for part ZX-4817-Q rev 3","What are common treatments for lower back pain","How do I improve battery life on my phone","Show me recent articles about electric vehicles"],"answerIndex":0,"difficulty":"balanced"},
-    {"topic":"Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency","question":"A service searches 5 million passages at 300 queries per second with an 80 ms reranking budget. Which architecture fits?","options":["Cross-encoder scoring every passage per query","Cross-encoder scoring 5,000 candidates per query","Bi-encoder retrieval plus cross-encoder reranking of a shortlist","BM25 alone with no learned model anywhere"],"answerIndex":2,"difficulty":"balanced"},
-    {"topic":"Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency","question":"A team tries replacing its bi-encoder retriever with a cross-encoder over the full corpus and abandons the plan. What blocked them?","options":["Cross-encoders cannot process documents over 512 tokens","Per-pair forward passes make corpus-wide scoring too slow online","Cross-encoders require graded relevance labels to serve","Cross-encoders cannot share GPUs across model replicas"],"answerIndex":1,"difficulty":"challenge"},
-    {"topic":"Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency","question":"Which system can most reasonably skip the bi-encoder stage entirely?","options":["A public web engine over ten million pages","A news service handling five thousand queries per second","A multilingual archive with nightly index rebuilds","A 4,000-document internal policy search with modest traffic"],"answerIndex":3,"difficulty":"challenge"},
-
-    {"topic":"Rerank Depth: How Many Candidates to Rescore","question":"What does rerank depth mean?","options":["The number of layers in the reranking transformer","The embedding dimension of the reranker output","How many retrieval candidates the reranker rescores","The maximum token length of reranked passages"],"answerIndex":2,"difficulty":"core"},
-    {"topic":"Rerank Depth: How Many Candidates to Rescore","question":"What is the main risk of setting rerank depth too shallow?","options":["Relevant candidates below the cutoff are never rescued","The reranker forgets its training distribution","The retrieval index doubles in storage size","Candidate scores lose their relative order"],"answerIndex":0,"difficulty":"core"},
-    {"topic":"Rerank Depth: How Many Candidates to Rescore","question":"In a depth sweep, which property identifies the right operating point on the curve?","options":["The point where candidate recall reaches exactly 1.0","The point where overall system latency is minimized","The point where the reranker sees every retrieved candidate","The point where marginal quality gain flattens against latency"],"answerIndex":3,"difficulty":"balanced"},
-    {"topic":"Rerank Depth: How Many Candidates to Rescore","question":"At 200 queries per second and a rerank depth of 100, how many pair evaluations per second must the reranking fleet sustain?","options":["20,000 pairs per second","2,000 pairs per second","200,000 pairs per second","200 pairs per second"],"answerIndex":0,"difficulty":"balanced"},
-    {"topic":"Rerank Depth: How Many Candidates to Rescore","question":"After depth doubles from 100 to 200, offline quality rises slightly but production quality falls during traffic peaks. What most likely happened?","options":["The retriever stopped returning enough candidates","Batch timeouts forced fallback to unreranked retrieval order","The reranker lost access to its calibration labels","Deduplication removed all relevant documents"],"answerIndex":1,"difficulty":"challenge"},
-    {"topic":"Rerank Depth: How Many Candidates to Rescore","question":"A retriever upgrade moves relevant documents from rank 150 toward rank 40. What happens to the optimal rerank depth?","options":["It must increase to preserve candidate recall","It becomes independent of the latency budget","It can usually decrease with no quality loss","It must match the new embedding dimension"],"answerIndex":2,"difficulty":"challenge"}
+    {
+      "topic": "Cross-Encoders: Joint Query-Document Attention",
+      "question": "What input does a cross-encoder score?",
+      "options": [
+        "A pair of independently computed vectors compared by cosine",
+        "A pooled document vector paired with the query's BM25 score",
+        "A single sequence holding the query and the document together",
+        "A document vector compared against a query-side lexical index"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Cross-Encoders: Joint Query-Document Attention",
+      "question": "Why can a cross-encoder not precompute document representations offline?",
+      "options": [
+        "Its document embeddings expire whenever the index is rebuilt",
+        "Its document tokens are re-encoded while attending to the query",
+        "Its scoring head provides no document-side input layer at all",
+        "Its precomputed logits cannot be held in an approximate index"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Cross-Encoders: Joint Query-Document Attention",
+      "question": "A cross-encoder scores pairs in batches of 32 at about 18 ms per batch. Rescoring 100 candidates costs roughly how much model time?",
+      "options": [
+        "About 18 ms",
+        "About 36 ms",
+        "About 40 ms",
+        "About 72 ms"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Cross-Encoders: Joint Query-Document Attention",
+      "question": "A query asks for stretching routines that do not load the knee. Why does a cross-encoder handle this better than lexical or single-vector matching?",
+      "options": [
+        "It binds the negation to the constrained phrase in joint attention",
+        "It drops negation words before scoring so the phrase matches cleanly",
+        "It expands the query with synonyms for low-impact knee exercises",
+        "It scores only documents whose text contains no negation at all"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Cross-Encoders: Joint Query-Document Attention",
+      "question": "A reranker truncates every document at 512 tokens. After the retrieval stage switches to focused passages, reranked quality rises. What is the most likely explanation?",
+      "options": [
+        "Shorter inputs let the model attend over a wider batch dimension",
+        "Passage retrieval shrinks the vocabulary the encoder must cover",
+        "The decisive evidence now sits inside the scored token window",
+        "Shorter passages raise the term overlap the scorer can reward"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Cross-Encoders: Joint Query-Document Attention",
+      "question": "A team blends raw cross-encoder logits with BM25 scores and the merged ordering becomes erratic. What is the underlying defect?",
+      "options": [
+        "BM25 scores cannot be computed for passages shorter than a page",
+        "Uncalibrated logits and BM25 scores live on incomparable scales",
+        "The reranker was trained with too few transformer layers to blend",
+        "Logits and term scores sort in opposite directions by convention"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency",
+      "question": "What does a bi-encoder precompute for retrieval?",
+      "options": [
+        "One joint encoding for every likely query and document pair",
+        "A full attention map between every query and document token",
+        "One relevance logit per document for each class of query",
+        "One fixed-size vector per document, built offline at ingest"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency",
+      "question": "Why is bi-encoder retrieval so cheap per query?",
+      "options": [
+        "It avoids tokenizing the document text at any point in the pipeline",
+        "It swaps the transformer encoder for a much smaller linear model",
+        "Documents are encoded once, so only the query is encoded online",
+        "It caches the answer for every query the index has already seen"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency",
+      "question": "Which query is most likely to expose a bi-encoder's weakness relative to a cross-encoder?",
+      "options": [
+        "Find the datasheet for part ZX-4817-Q rev 3",
+        "What are common treatments for lower back pain",
+        "How do I improve battery life on my phone",
+        "Show me recent articles about electric vehicles"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency",
+      "question": "A service searches 5 million passages at 300 queries per second with an 80 ms reranking budget. Which architecture fits?",
+      "options": [
+        "Cross-encoder scoring of every passage in the corpus per query",
+        "Bi-encoder retrieval with a cross-encoder over a shortlist",
+        "Cross-encoder scoring of 5,000 candidates for each query served",
+        "BM25 alone, with no learned model anywhere in the serving path"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency",
+      "question": "A team tries replacing its bi-encoder retriever with a cross-encoder over the full corpus and abandons the plan. What blocked them?",
+      "options": [
+        "Cross-encoders cannot accept documents longer than 512 tokens",
+        "Cross-encoders need graded relevance labels at serving time",
+        "One forward pass per pair makes corpus-wide scoring far too slow",
+        "Cross-encoders cannot share one accelerator across replicas"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency",
+      "question": "Which system can most reasonably skip the bi-encoder stage entirely?",
+      "options": [
+        "A public web engine indexing ten million crawled pages",
+        "A news service answering five thousand queries per second",
+        "A multilingual archive rebuilt from scratch every night",
+        "A 4,000-document policy search with modest query traffic"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Rerank Depth: How Many Candidates to Rescore",
+      "question": "What does rerank depth mean?",
+      "options": [
+        "How many first-stage candidates the reranker actually rescores",
+        "How many transformer layers the reranking model stacks",
+        "How many tokens of each candidate passage the model reads",
+        "How many retrieval sources contribute to the fused list"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Rerank Depth: How Many Candidates to Rescore",
+      "question": "What is the main risk of setting rerank depth too shallow?",
+      "options": [
+        "The reranker drifts away from its training distribution",
+        "Relevant candidates below the cutoff are never rescued",
+        "The retrieval index doubles in storage as depth is trimmed",
+        "Candidate scores lose their order within the fused list"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Rerank Depth: How Many Candidates to Rescore",
+      "question": "In a depth sweep, which property identifies the right operating point on the curve?",
+      "options": [
+        "The point where candidate recall first reaches exactly 1.0",
+        "The point where total system latency reaches its minimum",
+        "The knee where added quality flattens against added latency",
+        "The point where the reranker sees every retrieved candidate"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Rerank Depth: How Many Candidates to Rescore",
+      "question": "At 200 queries per second and a rerank depth of 100, how many pair evaluations per second must the reranking fleet sustain?",
+      "options": [
+        "20,000 pairs per second",
+        "2,000 pairs per second",
+        "200,000 pairs per second",
+        "200 pairs per second"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Rerank Depth: How Many Candidates to Rescore",
+      "question": "After depth doubles from 100 to 200, offline quality rises slightly but production quality falls during traffic peaks. What most likely happened?",
+      "options": [
+        "The retriever stopped returning enough candidates to fill depth",
+        "The reranker lost access to the labels it calibrates against",
+        "Deduplication collapsed the relevant documents at peak volume",
+        "Batch timeouts fired and the fallback served retrieval order"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Rerank Depth: How Many Candidates to Rescore",
+      "question": "A retriever upgrade moves relevant documents from rank 150 toward rank 40. What happens to the optimal rerank depth?",
+      "options": [
+        "It must rise, because candidate recall now depends on depth",
+        "It can usually fall, since the same quality needs fewer pairs",
+        "It stops depending on the latency budget the service allows",
+        "It must be reset to match the new embedding dimension exactly"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    }
   ]
 }

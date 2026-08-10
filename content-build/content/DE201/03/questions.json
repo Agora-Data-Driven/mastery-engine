@@ -3,14 +3,24 @@
     {
       "topic": "Partitioning Strategy: Pruning What You Do Not Read",
       "question": "What is the main performance goal of partitioning?",
-      "options": ["Skip large regions of data that cannot match a query", "Compress every value with one dictionary", "Eliminate all table metadata", "Force every query to scan one file"],
+      "options": [
+        "Skip large regions of data that cannot possibly match a query's filter",
+        "Compress each partition with a dictionary shared across the table",
+        "Guarantee that every partition holds an identical number of rows",
+        "Replace row-group statistics so the footer stays cheap to parse"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Partitioning Strategy: Pruning What You Do Not Read",
       "question": "What makes a strong partition key?",
-      "options": ["It is unique for almost every row", "It aligns with frequent selective query predicates", "It never appears in a filter", "It changes on every ingestion retry"],
+      "options": [
+        "It holds a value distinct for almost every row in the table's history",
+        "It appears often in selective query filters and has moderate cardinality",
+        "It is derived from a hash of the row's full contents at write time",
+        "It changes value whenever an ingestion attempt is retried or replayed later"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
@@ -24,49 +34,84 @@
     {
       "topic": "Partitioning Strategy: Pruning What You Do Not Read",
       "question": "Why is direct partitioning by a nearly unique user ID risky?",
-      "options": ["It prevents user filters", "It forces all users into one file", "It removes metadata", "It can create millions of tiny partitions and high planning overhead"],
+      "options": [
+        "It blocks the optimizer from translating any user filter into partition pruning",
+        "It forces every user's rows into a single oversized partition directory",
+        "It strips minimum and maximum statistics from each partition's footer",
+        "It creates millions of tiny partitions whose planning cost exceeds the scan"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Partitioning Strategy: Pruning What You Do Not Read",
       "question": "What is a good alternative to one partition per high-cardinality key?",
-      "options": ["A fixed hash-bucket transform", "A random new directory per row", "No row identifiers", "A separate table per user"],
+      "options": [
+        "Bucketing the key by a hash into a fixed number of partitions",
+        "Creating one separate table per key value inside the same catalog",
+        "Storing the key as a nested field so partitioning applies per row",
+        "Raising the row group size so each partition holds a single group"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Partitioning Strategy: Pruning What You Do Not Read",
       "question": "How should engineers verify that partition pruning actually occurred?",
-      "options": ["Assume the table definition guarantees it", "Inspect the query plan and scanned partitions or bytes", "Count output columns only", "Check that every partition was opened"],
+      "options": [
+        "Confirm the table declaration lists a partition column for the filter",
+        "Read the query plan and compare partitions or bytes actually scanned",
+        "Count how many output columns the projection finally returned to the client",
+        "Check that the partition directories were listed at least once during planning"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "The Small-File Problem",
       "question": "What makes many small analytical files inefficient?",
-      "options": ["They cannot contain Parquet data", "They always lose rows", "Fixed per-file discovery, open, scheduling, and decoding costs dominate", "They cannot be stored in object stores"],
+      "options": [
+        "Small files cannot hold a valid Parquet footer or column statistics",
+        "Small files lose rows whenever the scheduler retries a failed task",
+        "Fixed per-file listing, open, scheduling and decode costs come to dominate",
+        "Small files force every engine to read them in strict sequential order"
+      ],
       "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "The Small-File Problem",
       "question": "Which workload commonly creates small files?",
-      "options": ["A single large batch with one writer", "A read-only dashboard", "A compacted cold partition", "Frequent micro-batches with many parallel writers"],
+      "options": [
+        "A nightly batch job that writes each partition with a single large writer",
+        "A dashboard that reads a compacted table without writing anything",
+        "A cold partition rewritten once a quarter into large sorted files",
+        "Streaming micro-batches flushed every minute by many parallel writers"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "The Small-File Problem",
       "question": "Why can ten 1-gigabyte files outperform ten thousand 1-megabyte files containing similar total bytes?",
-      "options": ["They amortize fixed object and task overhead over more useful data", "They contain fewer logical rows by definition", "They disable compression", "They require more scheduler tasks"],
+      "options": [
+        "Per-object and per-task overhead is amortized over far more useful bytes",
+        "Large files compress better because a codec sees the whole table at once",
+        "Large files reduce the number of row groups, which raises scan parallelism",
+        "Large files skip footer parsing entirely because their schema is inferred once"
+      ],
       "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "The Small-File Problem",
       "question": "How is file size different from Parquet row-group size?",
-      "options": ["Every file must have exactly one row group", "One file can contain several independently skippable row groups", "Row groups exist outside files", "File size controls table permissions only"],
+      "options": [
+        "Row groups are chosen by the reader, while file size is fixed at write time",
+        "One file can hold several row groups, each of which readers skip independently",
+        "Row group size is a catalog setting, while file size is a writer setting",
+        "Row groups live in the catalog, while files live in the storage bucket"
+      ],
       "answerIndex": 1,
       "difficulty": "balanced"
     },
@@ -80,21 +125,36 @@
     {
       "topic": "The Small-File Problem",
       "question": "Why is blindly concatenating Parquet object bytes not valid compaction?",
-      "options": ["Object stores prohibit large objects", "Parquet contains no metadata", "Compaction must delete the schema", "Each file has format structure and footers requiring a format-aware rewrite"],
+      "options": [
+        "Object stores refuse to serve any object assembled from more than one upload",
+        "Concatenation reorders rows, so the partition values no longer line up correctly",
+        "Concatenated bytes lose their compression codec and must be entirely re-encoded",
+        "Each file carries its own footer, so a format-aware rewrite is required"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "Compaction: Merging Files Without Breaking Readers",
       "question": "What does compaction normally do?",
-      "options": ["Rewrite many small immutable data files into fewer larger files", "Modify every source object byte in place", "Remove all table snapshots", "Change partition values randomly"],
+      "options": [
+        "Rewrites many small immutable files into fewer larger ones",
+        "Edits each source object in place to append the next batch",
+        "Deletes every retained snapshot once the newest one commits",
+        "Reassigns partition values so the data spreads more evenly"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Compaction: Merging Files Without Breaking Readers",
       "question": "What makes a compaction switch safe for concurrent readers?",
-      "options": ["Deleting inputs before writing outputs", "An atomic metadata commit from old file set to new file set", "Listing the object store repeatedly", "Using the same object names for outputs"],
+      "options": [
+        "Deleting the input files as soon as their replacements are written",
+        "An atomic metadata commit that swaps the whole old file set for the new",
+        "Reusing the input object names so readers need no metadata change",
+        "Listing the bucket after each write so readers observe the newest set"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
@@ -108,21 +168,36 @@
     {
       "topic": "Compaction: Merging Files Without Breaking Readers",
       "question": "Why must old input files survive beyond the commit?",
-      "options": ["The new snapshot always references them", "Outputs contain no rows", "Compaction cannot remove metadata", "Readers or retained snapshots may still reference the old generation"],
+      "options": [
+        "The new snapshot still lists them alongside the compacted outputs",
+        "Compaction outputs are written lazily and contain no rows until read",
+        "Table formats cannot remove a file reference once metadata has published it",
+        "Readers and retained snapshots may still resolve to the old generation"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Compaction: Merging Files Without Breaking Readers",
       "question": "A concurrent writer changes files selected by a compactor after planning. What should optimistic concurrency do?",
-      "options": ["Reject the conflicting commit and require retry or replanning", "Silently delete the new writer's files", "Commit both generations as duplicates", "Rewrite the object store listing"],
+      "options": [
+        "Reject the conflicting commit and force the compactor to retry or replan",
+        "Delete the other writer's newer files so the compaction snapshot stays valid",
+        "Commit both file sets and let readers deduplicate the overlapping rows",
+        "Rewrite the bucket listing so the newest objects appear to be inputs"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Compaction: Merging Files Without Breaking Readers",
       "question": "A compactor crashes after writing outputs but before metadata commit. How should those files be treated?",
-      "options": ["As immediately visible table data", "As unreferenced artifacts eligible for delayed orphan cleanup", "As replacements for every partition", "As proof that the commit succeeded"],
+      "options": [
+        "As table data that the next reader will discover through a prefix listing",
+        "As unreferenced orphans that a delayed cleanup job may safely remove",
+        "As the authoritative replacement for every file in that partition",
+        "As evidence that the compare-and-swap commit already succeeded once"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     }

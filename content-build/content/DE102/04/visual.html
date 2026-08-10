@@ -1,0 +1,557 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Four Grains, One Chain</button>
+  <button class="viz-tab" data-viz-tab="2">2. What A Chunk Costs</button>
+  <button class="viz-tab" data-viz-tab="3">3. Identity Under Change</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Hash Recipe</button>
+  <button class="viz-tab" data-viz-tab="5">5. Tracing A Citation</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Four Grains, One Chain</h2>
+  <p class="vz-lede"><b>Grain: What One Row Represents</b> and <b>Document Versioning as SCD Type 2</b> are
+    the whole toolkit; a corpus is four of them chained. Tap a layer to see what one of its rows means — then
+    fire an upgrade and watch which layers are invalidated. <b>Like a printing press: the manuscript, the
+    edition, the pages, the photographs of the pages.</b></p>
+
+  <div class="v1-chain" id="v1-chain"></div>
+
+  <div class="vz-card">
+    <div class="v1-detail" id="v1-detail"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v1-h">Fire an upgrade — watch what has to be rebuilt</h4>
+    <div class="v1-ev" id="v1-ev"></div>
+    <div class="v1-out" id="v1-out"></div>
+  </div>
+  <p class="vz-note">Processing runs deserve a grain of their own too: an ingestion run, parse attempt,
+    chunking run or embedding batch, each with status, configuration, errors and counts.
+    <code>processed = true</code> on the document cannot express a retry or a partial failure — and a
+    run-to-artifact relationship is what makes audit and idempotent recovery possible.</p>
+
+  <style>
+    .v1-chain{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v1-l{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:10px 12px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .v1-l[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-l.is-stale{border-color:var(--viz-red);background:var(--viz-bg)}
+    .v1-l.is-safe{border-color:var(--viz-green)}
+    .v1-nm{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:700}
+    .v1-card{margin-left:auto;font-size:10.5px;color:var(--viz-muted);text-align:right;line-height:1.35}
+    .v1-card b{display:block;font-size:11px;color:var(--viz-accent)}
+    .v1-detail{font-size:12.5px;line-height:1.6}
+    .v1-detail b{display:block;font-size:13px;margin-bottom:4px}
+    .v1-cols{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.7;color:var(--viz-muted);margin-top:9px}
+    .v1-h{margin:0 0 9px;font-size:13px}
+    .v1-ev{display:flex;flex-direction:column;gap:5px;margin-bottom:11px}
+    .v1-b{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-muted);
+      border-radius:10px;font:inherit;font-weight:700;font-size:12px;text-align:left;padding:8px 11px}
+    .v1-b[aria-pressed="true"]{border-color:var(--viz-amber);color:var(--viz-amber)}
+    .v1-out{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var LAYERS = [
+      { nm:'document', card:'one per source item', means:'stable source identity + ownership',
+        why:['One logical source item, forever.',
+          'It carries the durable identity and the ownership, and nothing that changes when the content does. A document row should survive every re-crawl, every reparse, and every model migration untouched.'],
+        cols:'document_id (business key)\nsource_system, source_key, namespace\nowner, created_at' },
+      { nm:'document_version', card:'many per document', means:'one immutable state of that item',
+        why:['One immutable state — this is SCD Type 2, same shape.',
+          'Content, source timestamps, parser version, permissions, and a validity interval. Each version is what the system believed the document to be during that interval, which is exactly what makes a June evaluation explainable in December.'],
+        cols:'version_id (immutable)\ndocument_id → document\ncontent_hash, source_modified_at, ingested_at\nparser_version, permissions_snapshot\neffective_from, effective_to' },
+      { nm:'chunk', card:'many per version', means:'one retrieval unit, under one chunker config',
+        why:['One retrieval unit derived from ONE version under ONE configuration.',
+          'Both halves matter. A chunk is not a child of the logical document — offsets and boundaries shift when content changes — and it is not a child of the version alone either, because a different chunker over the same version produces a different, equally valid set.'],
+        cols:'chunk_id\nversion_id → document_version\nchunker_config_hash\nordinal, start_offset, end_offset (exclusive)\ntext, text_hash' },
+      { nm:'embedding', card:'many per chunk', means:'one model-specific vector for one input',
+        why:['One vector, for one embeddable input, under one model version.',
+          'The cardinality is the useful part: <b>one chunk can have many embeddings</b> when several models, dimensionalities or preprocessing policies coexist. A uniqueness rule on <code>(chunk_id, embedding_model_version)</code> forbids duplicates while still permitting a migration where two model versions run side by side.' +
+          '<br><br>And embedding grain is not always chunk grain. A multimodal vector may combine text and an image region; a late-interaction model emits many token vectors per chunk; a document-level vector may drive broad candidate retrieval before chunk reranking. <b>Name the input unit explicitly</b> — if an embedding row sometimes means a chunk and sometimes a whole document with no type and no parent, neither its scores nor its lineage can be interpreted.'],
+        cols:'embedding_id\nchunk_id → chunk  (input_type, input_id)\nmodel_id, model_version, dimensions\nnormalization_policy, preprocessing_hash\nvector | vector_ref, created_at' }
+    ];
+    var EVENTS = [
+      { t:'Metadata correction — the title was wrong', stale:[false, true, false, false],
+        out:'A <b>new document version</b> is created and nothing below it moves. The normalised text did not change, so the chunks are still correct and their embeddings are still valid. ' +
+            'The version exists because permissions and metadata are tracked attributes too — the version trigger covers every tracked attribute, not content alone.' },
+      { t:'Parser upgrade — P3 → P4', stale:[false, true, true, true],
+        out:'New parsed content means a <b>new version, new chunks, new embeddings</b>. Everything downstream of the parse is genuinely different content and has to be rebuilt. ' +
+            'Note this is also the case lineage makes tractable: query for every chunk produced by P3, rebuild only those descendants, and reconcile the counts.' },
+      { t:'Embedding model upgrade — v2 → v3', stale:[false, false, false, true],
+        out:'<b>Only the embeddings.</b> The source did not change and the chunks did not change, so an embedding-model upgrade must <b>not invent new source documents or new versions</b> — and it will, if the vector lives on the document row. ' +
+            'This is precisely what independent identities buy you: invalidate the affected descendants and nothing else.' },
+      { t:'A permission is revoked', stale:[false, true, false, false],
+        out:'A new version carrying the new permission snapshot — and then the <b>revocation must propagate</b> into the vector index and every cache. ' +
+            'Access control follows the source version into the serving artifacts: a chunk retrievable without its document’s current permission context is a content leak, not a stale cache.' }
+    ];
+    var sel = 0, ev = -1;
+    var chain = document.getElementById('v1-chain'), detail = document.getElementById('v1-detail');
+    var evB = document.getElementById('v1-ev'), out = document.getElementById('v1-out');
+
+    function render(){
+      chain.innerHTML = LAYERS.map(function(l, i){
+        var cls = 'v1-l';
+        if (ev > -1) cls += EVENTS[ev].stale[i] ? ' is-stale' : ' is-safe';
+        return '<button class="' + cls + '" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '"' +
+          ' style="margin-left:' + (i * 10) + 'px">' +
+          '<span class="v1-nm">' + l.nm + '</span>' +
+          '<span class="v1-card">' + l.card + '<b>' + (ev > -1 ? (EVENTS[ev].stale[i] ? 'REBUILD' : 'untouched') : l.means) + '</b></span></button>';
+      }).join('');
+      [].slice.call(chain.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var l = LAYERS[sel];
+      detail.innerHTML = '<b>' + l.why[0] + '</b>' + l.why[1] + '<div class="v1-cols">' + l.cols + '</div>';
+      [].slice.call(evB.children).forEach(function(b, j){ b.setAttribute('aria-pressed', ev === j ? 'true' : 'false'); });
+      out.innerHTML = ev > -1 ? EVENTS[ev].out : '<span style="color:var(--viz-muted)">Pick an event above. The chain re-colours: red is rebuilt, green is untouched.</span>';
+    }
+    EVENTS.forEach(function(e, i){
+      var b = document.createElement('button');
+      b.className = 'v1-b';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = e.t;
+      b.addEventListener('click', function(){ ev = i; render(); });
+      evB.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. What A Chunk Costs</h2>
+  <p class="vz-lede">Chunking chooses what one retrieval row <em>means</em>, so it sets recall, citation
+    precision, vector count and token cost all at once. Drag the window and the stride over a
+    6,000-token policy document. <b>Like choosing how finely to slice bread: too thin and it falls
+    apart, too thick and you cannot taste the filling.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-w">Window: <span id="v2-wl">400</span> tokens</label>
+    <input type="range" id="v2-w" min="50" max="2000" value="400" step="50" aria-label="Chunk window size in tokens">
+    <label class="v2-lab" for="v2-s" style="margin-top:12px">Stride: <span id="v2-sl">300</span> tokens
+      &nbsp;·&nbsp; overlap <span id="v2-ol">100</span></label>
+    <input type="range" id="v2-s" min="50" max="2000" value="300" step="50" aria-label="Chunk stride in tokens">
+
+    <div class="v2-strip" id="v2-strip"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Changing chunk grain is a <b>schema migration</b>, not a config tweak: build the new
+    chunk set under a new version, embed it, validate coverage, switch the serving alias, keep rollback.
+    Updating rows in place leaves a live index mixing incompatible boundaries and ids, which returns
+    overlapping and missing passages at the same time and reads as a relevance problem.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-strip{position:relative;height:76px;margin-top:16px;border:1.5px solid var(--viz-line);
+      border-radius:8px;background:var(--viz-bg);overflow:hidden}
+    .v2-ch{position:absolute;height:13px;border-radius:3px;background:var(--viz-accent);opacity:.75}
+    .v2-fact{position:absolute;top:0;bottom:0;width:2px;background:var(--viz-violet)}
+    .v2-fact span{position:absolute;top:2px;left:4px;font-size:9px;font-weight:800;color:var(--viz-violet);white-space:nowrap}
+    .v2-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var L = 6000, FACT = 2380;   // a clause that decides the answer, at token 2380
+    var w = document.getElementById('v2-w'), s = document.getElementById('v2-s');
+    var wl = document.getElementById('v2-wl'), sl = document.getElementById('v2-sl'), ol = document.getElementById('v2-ol');
+    var strip = document.getElementById('v2-strip'), stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+
+    function render(){
+      var W = Number(w.value), S = Math.min(Number(s.value), Number(w.value));
+      s.value = S;
+      var overlap = W - S;
+      wl.textContent = W; sl.textContent = S; ol.textContent = overlap;
+
+      var n = Math.max(1, Math.ceil((L - W) / S) + 1);
+      var html = '';
+      var shown = Math.min(n, 26);
+      var covering = 0;
+      for (var i = 0; i < n; i++) {
+        var start = i * S, end = Math.min(start + W, L);
+        if (FACT >= start && FACT < end) covering += 1;
+        if (i < shown) {
+          html += '<div class="v2-ch" style="left:' + (start / L * 100) + '%;width:' + ((end - start) / L * 100) +
+            '%;top:' + (8 + (i % 4) * 16) + 'px"></div>';
+        }
+      }
+      html += '<div class="v2-fact" style="left:' + (FACT / L * 100) + '%"><span>the deciding clause</span></div>';
+      strip.innerHTML = html;
+
+      var tokensPerHit = W;
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + n + ' chunks</span>' +
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + n + ' vectors</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + tokensPerHit + ' tokens per hit</span>' +
+        '<span class="v2-pill" style="color:' + (covering > 1 ? 'var(--viz-amber)' : 'var(--viz-green)') + ';border-color:' +
+        (covering > 1 ? 'var(--viz-amber)' : 'var(--viz-green)') + '">clause appears in ' + covering + ' chunk' + (covering === 1 ? '' : 's') + '</span>';
+
+      var parts = [];
+      if (W <= 150) parts.push('<b style="color:var(--viz-red)">Too small: focused matches, precise citations, and the condition that changes the answer is probably in a different chunk.</b>' +
+        'Small chunks match tightly and cite exactly, and they lose the surrounding definitions. A 50-token fragment can omit the very clause that makes the answer conditional — and it will still score well, because it contains the query terms.');
+      else if (W >= 1200) parts.push('<b style="color:var(--viz-red)">Too large: the key term is diluted and you are paying for a chapter to answer a sentence.</b>' +
+        'Large chunks preserve context and dilute the terms that made them match, consume far more model tokens per hit, and mix unrelated sections — a 2,000-token policy chapter contains the answer plus a dozen distracting clauses.');
+      else parts.push('<b style="color:var(--viz-green)">A workable middle — but the number is not the decision.</b>' +
+        'Evaluate by <b>document type and question shape</b>: code, tables, contracts and prose want different policies. Measure retrieval recall, answer grounding, citation correctness, duplicate-result rate, token cost and latency. ' +
+        'A policy that raises vector recall while producing incomplete citations is unsuitable for the product, whatever the recall number says.');
+
+      if (overlap > 0) parts.push('<br><br><b>Overlap ' + overlap + ' tokens: ceil((' + L + ' − ' + W + ') / ' + S + ') + 1 = ' + n + ' chunks.</b>' +
+        'A statement spanning a boundary now appears intact in at least one chunk, and the clause above is covered by ' + covering + '. The cost is duplication: more vectors to store and search, and overlapping passages crowding the result list, ' +
+        'which is its own failure — three near-identical hits push a genuinely different source out of the top-k.');
+      else parts.push('<br><br><b style="color:var(--viz-amber)">No overlap.</b> Every boundary is a cliff: a sentence spanning one is split across two chunks and may be retrievable from neither. This is what overlap exists to buy, and why a stride below the window is the usual default.');
+
+      parts.push('<br><br><b>And structure beats arithmetic.</b> Structure-aware chunking respects headings, paragraphs, sentences, code blocks and table rows, assembling neighbouring units until a token budget is reached. ' +
+        'A hard maximum is still required, because one malformed paragraph or minified file will exceed the embedding model’s context limit. ' +
+        'Hierarchical chunking goes further: small children for precise retrieval, parent sections loaded for context once a child is ranked — deterministic only if parent-child ids and ordered adjacency are stored.');
+
+      why.innerHTML = parts.join('');
+    }
+    w.addEventListener('input', render); s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Identity Under Change</h2>
+  <p class="vz-lede">Someone inserts one sentence into the introduction. What happens next depends entirely
+    on what your chunk ids were derived from. <b>Like numbering the pages of a book versus naming each
+    chapter: insert a page and one of those survives.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Identity recipe">
+    <button id="v3-ord" aria-pressed="true">id = ordinal</button>
+    <button id="v3-cont" aria-pressed="false">id = hash(version, config, offsets, content)</button>
+  </div>
+
+  <div class="vz-card">
+    <button class="v3-edit" id="v3-edit">✏️ Insert one sentence at the top of the document</button>
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The exact recipe depends on whether identity should represent <b>occurrence</b> (this
+    span, in this version) or <b>content</b> (this text, wherever it appears) — or both. What is never
+    defensible is deriving it from a position that any edit can shift.</p>
+
+  <style>
+    .v3-edit{width:100%;min-height:44px;border:1.5px solid var(--viz-amber);background:var(--viz-surface);
+      color:var(--viz-amber);border-radius:10px;font:inherit;font-weight:700;font-size:13px;margin-bottom:13px}
+    .v3-rows table{width:100%;border-collapse:collapse;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v3-rows th{text-align:left;font-size:9.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 6px 5px 0;font-family:inherit}
+    .v3-rows td{padding:7px 6px 7px 0;border-bottom:1px solid var(--viz-line)}
+    .v3-rows td.v3-new{color:var(--viz-red);font-weight:700}
+    .v3-rows td.v3-same{color:var(--viz-green)}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ordinal = true, edited = false;
+    var bO = document.getElementById('v3-ord'), bC = document.getElementById('v3-cont');
+    var rows = document.getElementById('v3-rows'), why = document.getElementById('v3-why');
+
+    var TEXT = ['Scope and definitions.', 'Eligibility requires 12 months tenure.',
+                'Claims must be filed within 30 days.', 'Appeals go to the review board.'];
+    function render(){
+      bO.setAttribute('aria-pressed', ordinal ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', ordinal ? 'false' : 'true');
+      var shift = edited ? 34 : 0;
+      var out = TEXT.map(function(t, i){
+        var start = 0;
+        for (var k = 0; k < i; k++) start += TEXT[k].length + 1;
+        start += shift;
+        var id, changed;
+        if (ordinal) { id = 'chunk_' + (edited ? i + 2 : i + 1); changed = edited; }
+        else {
+          var h = 0; for (var c = 0; c < t.length; c++) h = (h * 31 + t.charCodeAt(c)) >>> 0;
+          id = 'ck_' + h.toString(16).slice(0, 8);
+          changed = false;
+        }
+        return { id:id, t:t, start:start, changed:changed };
+      });
+      if (edited) {
+        var nt = 'A note about the 2026 revision.';
+        var nid = ordinal ? 'chunk_1' : 'ck_' + (function(){ var h = 0; for (var c = 0; c < nt.length; c++) h = (h * 31 + nt.charCodeAt(c)) >>> 0; return h.toString(16).slice(0, 8); })();
+        out.unshift({ id:nid, t:nt, start:0, changed:true, isNew:true });
+      }
+      rows.innerHTML = '<table><thead><tr><th>chunk id</th><th>start</th><th>text</th><th>vs before</th></tr></thead><tbody>' +
+        out.map(function(r){
+          return '<tr><td class="' + (r.changed ? 'v3-new' : 'v3-same') + '">' + r.id + '</td><td>' + r.start + '</td><td>' + r.t + '</td>' +
+            '<td class="' + (r.changed ? 'v3-new' : 'v3-same') + '">' + (r.isNew ? 'genuinely new' : (r.changed ? 'id CHANGED' : 'id stable')) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+
+      if (!edited) {
+        why.innerHTML = '<b>Before the edit, both recipes look identical.</b>' +
+          'Four chunks, four ids, everything embedded and cached. Press the button and insert one sentence at the top.';
+        return;
+      }
+      why.innerHTML = ordinal
+        ? '<b style="color:var(--viz-red)">Every ordinal shifted, so every chunk looks changed.</b>' +
+          'One sentence was added and <b>five</b> chunks now have ids that did not exist before. The pipeline re-embeds text nobody touched, the cache misses on every one, and every stored citation pointing at <code>chunk_3</code> now resolves to different words. ' +
+          '<br><br>Nothing errored, and the cost scales with the document rather than with the edit. This is why "chunk_7 means the seventh chunk" is not an identity scheme — it is a position, and any edit above it is a rename.'
+        : '<b style="color:var(--viz-green)">Four ids unchanged, one genuinely new.</b>' +
+          'Identity derives from <b>document version, chunker version, boundaries and normalised content</b> — so unchanged text keeps its identity, its cached embedding, and every citation that pointed at it. Only the new sentence produces a new id, and only it needs embedding. ' +
+          '<br><br>The offsets did move, and that is correct: this chunk genuinely sits at a new position in a new version. What did not move is the answer to "is this the same content?" ' +
+          '<br><br>Note what this also buys: an <b>idempotent upsert</b>. Re-run the whole ingestion and every id comes back identical, so a retry after a partial failure repairs exactly the gap and rewrites nothing else.';
+    }
+    bO.addEventListener('click', function(){ ordinal = true; render(); });
+    bC.addEventListener('click', function(){ ordinal = false; render(); });
+    document.getElementById('v3-edit').addEventListener('click', function(){ edited = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Hash Recipe</h2>
+  <p class="vz-lede">A content hash is evidence of equality <em>under a canonicalisation rule</em>. Change
+    the rule and you change which documents count as the same. Toggle each ingredient and watch two inputs
+    collide or separate. <b>Like deciding whether "St." and "Street" are the same address.</b></p>
+
+  <div class="v4-toggles" id="v4-toggles"></div>
+
+  <div class="vz-card">
+    <div class="v4-pair" id="v4-pair"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">Domain separation — why a bare hash(content) is the wrong answer</h4>
+    <div class="vz-mono" id="v4-dom">embedding_id = hash("embedding-v1", chunk_id, model_id, preprocessing_hash)
+chunk_id     = hash("chunk-v2", version_id, chunker_config_hash, start, end, text_hash)
+text_hash    = hash("canon-v3", canonicalized_bytes)</div>
+    <div class="v4-dw" id="v4-dw"></div>
+  </div>
+  <p class="vz-note">Mutable pointers still have a job. A serving alias points from logical document to
+    current version, or from model family to active index. The immutable ids preserve history; the pointer
+    carries current behaviour — and <b>updating a pointer is far safer than rewriting every artifact's
+    identity.</b></p>
+
+  <style>
+    .v4-toggles{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-t{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v4-t[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-sw{flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.05em;border-radius:999px;
+      padding:2px 9px;border:1.5px solid;min-width:38px;text-align:center}
+    .v4-pair{display:flex;flex-direction:column;gap:7px}
+    .v4-in{border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6}
+    .v4-in b{color:var(--viz-accent)}
+    .v4-hash{margin-top:6px;font-size:11px;color:var(--viz-muted)}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-dw{margin-top:11px;font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var RULES = [
+      { k:'crlf', t:'Normalize line endings (CRLF → LF)', on:true,
+        good:'Prevents meaningless version churn when a Windows editor touches the file. Almost always right.' },
+      { k:'ws', t:'Collapse all whitespace runs to one space', on:false,
+        good:'Prevents churn from reformatting — and <b>destroys meaning in code and tables</b>, where indentation and column alignment are the content.' },
+      { k:'lower', t:'Lowercase everything', on:false,
+        good:'Merges "Policy" and "policy" — and also merges <code>userID</code> with <code>userid</code>, which are different identifiers in most languages.' }
+    ];
+    var A = 'def load(x):\r\n    return  Parse(x)';
+    var B = 'def load(x):\n    return Parse(x)';
+    var togB = document.getElementById('v4-toggles'), pair = document.getElementById('v4-pair'), why = document.getElementById('v4-why');
+
+    function canon(s){
+      var out = s;
+      if (RULES[0].on) out = out.replace(/\r\n/g, '\n');
+      if (RULES[1].on) out = out.replace(/\s+/g, ' ').trim();
+      if (RULES[2].on) out = out.toLowerCase();
+      return out;
+    }
+    function h(s){ var x = 2166136261; for (var i = 0; i < s.length; i++) { x ^= s.charCodeAt(i); x = (x * 16777619) >>> 0; } return x.toString(16).padStart(8, '0'); }
+    function esc(s){ return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\r/g, '␍').replace(/\n/g, '␊\n'); }
+
+    function render(){
+      [].slice.call(togB.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', RULES[i].on ? 'true' : 'false');
+        var s = b.querySelector('.v4-sw');
+        s.textContent = RULES[i].on ? 'ON' : 'off';
+        s.style.color = RULES[i].on ? 'var(--viz-accent)' : 'var(--viz-muted)';
+        s.style.borderColor = RULES[i].on ? 'var(--viz-accent)' : 'var(--viz-line)';
+      });
+      var ca = canon(A), cb = canon(B), ha = h(ca), hb = h(cb);
+      var same = ha === hb;
+      pair.innerHTML =
+        '<div class="v4-in"><b>version A (from a Windows editor)</b><br>' + esc(A) + '<div class="v4-hash">canonical hash: ' + ha + '</div></div>' +
+        '<div class="v4-in"><b>version B (reformatted, double space removed)</b><br>' + esc(B) + '<div class="v4-hash">canonical hash: ' + hb + '</div></div>' +
+        '<div class="v4-in" style="border-color:' + (same ? 'var(--viz-amber)' : 'var(--viz-green)') + ';color:' + (same ? 'var(--viz-amber)' : 'var(--viz-green)') + ';font-weight:700">' +
+        (same ? '⚠ SAME hash — no new version is created' : '✓ DIFFERENT hashes — a new version is created') + '</div>';
+
+      var msg = '';
+      if (RULES[1].on) msg = '<b style="color:var(--viz-amber)">Whitespace collapsing merged two genuinely different pieces of code.</b>' +
+        '<code>return  Parse(x)</code> and <code>return Parse(x)</code> are equivalent Python, but the same rule applied to a Markdown table or an indented block destroys structure that <em>is</em> the content. ' +
+        'The rule is not wrong in general — it is wrong for this document type, and a corpus containing both prose and code needs the canonicalisation recorded per artifact rather than assumed globally.';
+      else if (!RULES[0].on) msg = '<b style="color:var(--viz-red)">With line endings unnormalised, a Windows checkout creates a new version of every file.</b>' +
+        'Nothing about the document changed, and every downstream chunk and embedding is rebuilt. This is the churn that content addressing is supposed to prevent, and it is the cheapest rule to get right.';
+      else msg = '<b style="color:var(--viz-green)">Line endings normalised, whitespace preserved. Correct for code.</b>' +
+        'The hash is stable when a Windows editor touches the file and changes when the code changes. That is exactly the equality rule you wanted — <b>and it is a rule, so it has a version.</b>';
+
+      if (RULES[2].on) msg += '<br><br><b style="color:var(--viz-red)">Lowercasing is on.</b> <code>Parse</code> and <code>parse</code> now hash identically, which is fine for prose search and wrong for any case-sensitive identifier.';
+
+      msg += '<br><br><b>Record the canonicalisation version inside the hash domain</b> (the <code>"canon-v3"</code> tag below). Without it, changing the recipe later means old and new hashes are silently in the same namespace — ' +
+        'so two semantically different recipes can produce a collision, and nothing in the data says which recipe made which hash.';
+      why.innerHTML = msg;
+    }
+    RULES.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.className = 'v4-t';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-sw">off</span><span>' + r.t + '</span>';
+      b.addEventListener('click', function(){ RULES[i].on = !RULES[i].on; render(); });
+      togB.appendChild(b);
+    });
+    render();
+
+    document.getElementById('v4-dw').innerHTML =
+      'Every derived id hashes a <b>structured input</b> with a type tag first. That tag is the domain separator: it guarantees a chunk id and an embedding id can never collide even if their remaining inputs coincide. ' +
+      'Length-prefixed fields or a canonical structured serialisation prevent the other failure — <code>hash("ab" + "c")</code> and <code>hash("a" + "bc")</code> being the same input. ' +
+      '<br><br>The payoff is <b>idempotency</b>: re-running the same work yields the same id, so an upsert is safe to retry. Changing the model or the preprocessing yields a <em>different</em> id, so both generations coexist during a migration instead of overwriting each other. ' +
+      '<br><br>Two cautions. A hash does not remove the need for verification — use a modern hash with sufficient output length, keep the original metadata, and compare bytes when an equality decision has high consequence. ' +
+      'And <b>never expose a raw hash of a low-entropy input</b>: if the input space is guessable, an attacker enumerates candidates and compares, and the hash is not a secret at all.';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Tracing A Citation</h2>
+  <p class="vz-lede">A retrieved chunk becomes a trustworthy citation only if you can walk back from the
+    vector to a real span in a real source. Follow the path — then break a link and see what the citation
+    becomes. <b>Like a footnote that names the edition and the page, not just the book.</b></p>
+
+  <div class="v5-path" id="v5-path"></div>
+
+  <div class="vz-card">
+    <div class="v5-detail" id="v5-detail"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v5-h">Break something</h4>
+    <div class="v5-breaks" id="v5-breaks"></div>
+    <div class="v5-out" id="v5-out"></div>
+  </div>
+  <p class="vz-note">Lineage is an <b>explanation boundary</b>, not a truth claim. It can prove which source
+    and which transformation produced an artifact. It cannot prove the source is true or the answer correct
+    — that needs relevance evaluation, source-quality policy and runtime grounding checks alongside it. A
+    trustworthy corpus makes origin verifiable and uncertainty visible.</p>
+
+  <style>
+    .v5-path{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v5-n{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v5-n[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-n.is-cut{border-color:var(--viz-red);opacity:.55}
+    .v5-ar{color:var(--viz-muted);font-weight:800;flex:0 0 auto}
+    .v5-detail{font-size:12.5px;line-height:1.6}
+    .v5-detail b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-h{margin:0 0 9px;font-size:13px}
+    .v5-breaks{display:flex;flex-direction:column;gap:5px;margin-bottom:11px}
+    .v5-b{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-muted);
+      border-radius:10px;font:inherit;font-weight:700;font-size:12px;text-align:left;padding:8px 11px}
+    .v5-b[aria-pressed="true"]{border-color:var(--viz-red);color:var(--viz-red)}
+    .v5-out{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var NODES = [
+      { t:'embedding  emb_9f2c1a  ·  model text-embed-v3', d:['The vector that matched the query.',
+        'On its own it is a number and a score. Everything that makes it citable is on the edges leading away from it — which is why an embedding row with no typed parent cannot be interpreted at all.'] },
+      { t:'chunk  ck_4a17b8  ·  offsets [2380, 2774)  ·  chunker-v2', d:['One retrieval unit, with an exclusive end offset.',
+        '<b>Offsets need a declared coordinate system.</b> Character offsets are intuitive and depend on Unicode representation; byte offsets are exact and awkward to display; token offsets depend on a tokenizer. Most systems store normalised-text character offsets plus source-mapping metadata — and always state whether the end is exclusive, as this one does.' +
+        '<br><br>A coverage test belongs here: chunk boundaries must lie inside the recorded normalised text, and the chunk’s content hash must match the stored slice.'] },
+      { t:'document_version  v7  ·  parser P3  ·  effective [2026-05-01, 2026-07-01)', d:['The exact state of the document this text came from.',
+        'This is what makes the citation survive an update. Version 8 arrived in July with different wording; the answer was built from v7 and still says so. Cite the <em>logical document</em> instead and the link resolves to text that no longer contains the evidence — a plausible citation that is simply wrong.'] },
+      { t:'document  doc_policy_leave  ·  source URI  ·  page 14, block #b21', d:['Stable identity, plus what a human needs to find the passage.',
+        'When normalised text differs from the source HTML or PDF, a character offset cannot locate the original at all. The parser has to have retained page numbers, block ids, bounding boxes or DOM paths.' +
+        '<br><br><b>Which means citation requirements shape parser outputs, and they have to do so before chunking begins.</b> Discovering at product-review time that you need page numbers is discovering you need to reparse the corpus.'] }
+    ];
+    var BREAKS = [
+      { t:'chunk id was reused across versions', cut:2,
+        out:'The chunk resolves, and it resolves to <b>the wrong text</b>. The embedding cache returns a vector for content that is no longer at that offset, the citation points at a span now occupied by something else, and any evaluation label attached to it is now labelling different content. ' +
+            '<b>Three failures, one cause, none of them raising an error</b> — and all three are invisible until somebody reads a citation carefully.' },
+      { t:'the fact stores only the logical document', cut:2,
+        out:'The link works and points at <b>today’s</b> version. If v8 rewrote that clause, the quoted sentence is nowhere in the document the reader opens. This is the difference between a citation and a plausible-looking hyperlink, and users find it before your tests do.' },
+      { t:'parser P3 turns out to have a bug', cut:-1,
+        out:'With lineage this is routine: query every chunk produced by <b>P3</b>, rebuild only those descendants under P4, reconcile the counts before and after. Without it there is no query that finds them — a plain text blob with no parent supports no targeted repair, so the only option is rebuilding everything and hoping.' },
+      { t:'the source document is deleted', cut:-1,
+        out:'Traverse descendants: chunks, embeddings, vector index entries, caches, exports. <b>Every active embedding should resolve to an active chunk and a permitted source version, and the orphan count should be zero</b> — those are referential-integrity tests you can actually run. ' +
+            'Deletion that stops at the primary table leaves the content reachable through the index, which means it was not deleted from the product.' }
+    ];
+    var sel = 0, brk = -1;
+    var path = document.getElementById('v5-path'), detail = document.getElementById('v5-detail');
+    var breaks = document.getElementById('v5-breaks'), out = document.getElementById('v5-out');
+
+    function render(){
+      path.innerHTML = NODES.map(function(n, i){
+        var cut = brk > -1 && BREAKS[brk].cut === i;
+        return '<button class="v5-n' + (cut ? ' is-cut' : '') + '" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v5-ar">' + (i ? '└→' : '●') + '</span><span>' + n.t + '</span></button>';
+      }).join('');
+      [].slice.call(path.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      detail.innerHTML = '<b>' + NODES[sel].d[0] + '</b>' + NODES[sel].d[1];
+      [].slice.call(breaks.children).forEach(function(b, j){ b.setAttribute('aria-pressed', brk === j ? 'true' : 'false'); });
+      out.innerHTML = brk > -1 ? BREAKS[brk].out :
+        '<span style="color:var(--viz-muted)">With the full path intact, the application can hand the reader a source URI, a title, a version, a page or section and an exact span — and verify that the quoted text actually occurs in the recorded artifact.</span>';
+    }
+    BREAKS.forEach(function(b, i){
+      var el = document.createElement('button');
+      el.className = 'v5-b';
+      el.setAttribute('aria-pressed', 'false');
+      el.textContent = b.t;
+      el.addEventListener('click', function(){ brk = i; render(); });
+      breaks.appendChild(el);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,500 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Overwrite Or Version</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Boundary Instant</button>
+  <button class="viz-tab" data-viz-tab="3">3. Early Or Late Binding</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Same Shape, Twice</button>
+  <button class="viz-tab" data-viz-tab="5">5. Sufficient History</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Overwrite Or Version</h2>
+  <p class="vz-lede"><b>Star Schema vs Snowflake</b> ended on a failure both shapes share: update a
+    dimension row in place and last year's report changes with it. Drag the report date and watch what each
+    strategy says about February. <b>Like correcting an old diary entry instead of writing a new one.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Strategy">
+    <button id="v1-t1" aria-pressed="false">Type 1 — overwrite</button>
+    <button id="v1-t2" aria-pressed="true">Type 2 — new row per change</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-dim" id="v1-dim"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <label class="v1-lab" for="v1-day">Sale date: <span id="v1-dl">Feb 10</span>
+      &nbsp;·&nbsp; C42 moved North → South on Mar 15</label>
+    <input type="range" id="v1-day" min="1" max="120" value="41" step="1" aria-label="Day of the year the sale happened">
+    <div class="v1-res" id="v1-res"></div>
+  </div>
+  <p class="vz-note">Not every attribute deserves Type 2. Classify them: <b>Type 1 overwrite</b> for values
+    whose old form should never be reported (a misspelled name), <b>Type 2 version</b> for historically
+    meaningful changes (contractual tier, sales territory), and <b>fixed</b> for attributes that should not
+    change at all without someone opening an incident.</p>
+
+  <style>
+    .v1-dim table{width:100%;border-collapse:collapse;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v1-dim th{text-align:left;font-size:9.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 6px 5px 0;font-family:inherit}
+    .v1-dim td{padding:7px 6px 7px 0;border-bottom:1px solid var(--viz-line)}
+    .v1-dim tr.is-hit td{color:var(--viz-accent);font-weight:700}
+    .v1-dim tr.is-gone td{opacity:.4;text-decoration:line-through}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-res{margin-top:12px;font-size:12.5px;line-height:1.6}
+    .v1-res b{display:block;font-size:13px;margin-bottom:4px}
+    .v1-badge{display:inline-block;font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;
+      border:1.5px solid;margin-bottom:8px;font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var t2 = true;
+    var CHANGE = 74;   // Mar 15 as a day-of-year
+    var bT1 = document.getElementById('v1-t1'), bT2 = document.getElementById('v1-t2');
+    var dim = document.getElementById('v1-dim'), res = document.getElementById('v1-res');
+    var slider = document.getElementById('v1-day'), dl = document.getElementById('v1-dl');
+
+    function label(d){
+      var M = [['Jan',31],['Feb',28],['Mar',31],['Apr',30]];
+      var r = d;
+      for (var i = 0; i < M.length; i++) { if (r <= M[i][1]) return M[i][0] + ' ' + r; r -= M[i][1]; }
+      return 'day ' + d;
+    }
+    function render(){
+      bT1.setAttribute('aria-pressed', t2 ? 'false' : 'true');
+      bT2.setAttribute('aria-pressed', t2 ? 'true' : 'false');
+      var d = Number(slider.value);
+      dl.textContent = label(d);
+      var hitsNew = d >= CHANGE;
+
+      if (t2) {
+        dim.innerHTML = '<table><thead><tr><th>surrogate</th><th>business key</th><th>region</th><th>effective_from</th><th>effective_to</th><th>current</th></tr></thead><tbody>' +
+          '<tr class="' + (hitsNew ? '' : 'is-hit') + '"><td>90121</td><td>C42</td><td>North</td><td>2026-01-01</td><td>2026-03-15</td><td>false</td></tr>' +
+          '<tr class="' + (hitsNew ? 'is-hit' : '') + '"><td>90144</td><td>C42</td><td>South</td><td>2026-03-15</td><td>9999-12-31</td><td>true</td></tr>' +
+          '</tbody></table>';
+      } else {
+        dim.innerHTML = '<table><thead><tr><th>surrogate</th><th>business key</th><th>region</th><th>effective_from</th><th>effective_to</th><th>current</th></tr></thead><tbody>' +
+          '<tr class="is-gone"><td>90121</td><td>C42</td><td>North</td><td>—</td><td>—</td><td>—</td></tr>' +
+          '<tr class="is-hit"><td>90121</td><td>C42</td><td>South</td><td>—</td><td>—</td><td>true</td></tr>' +
+          '</tbody></table>';
+      }
+
+      if (t2) {
+        var reg = hitsNew ? 'South' : 'North';
+        res.innerHTML = '<span class="v1-badge" style="color:var(--viz-green);border-color:var(--viz-green)">a sale on ' + label(d) + ' reports region ' + reg + '</span>' +
+          '<b>Faithful to the classification at sale time.</b>' +
+          'The old row did not go anywhere — it was closed, not deleted. February revenue stays under North forever, and April revenue is South, and both are true. ' +
+          'Each version keeps its own <b>surrogate key</b> while sharing the <b>business key</b> C42, which is exactly what the surrogate key was for: one business identity, several warehouse rows.';
+      } else {
+        res.innerHTML = '<span class="v1-badge" style="color:var(--viz-red);border-color:var(--viz-red)">a sale on ' + label(d) + ' reports region South</span>' +
+          '<b style="color:var(--viz-red)">Every sale ever made now belongs to South.</b>' +
+          'The February sale has not moved and the customer was genuinely in North when it happened — but the only row that ever said so has been overwritten. ' +
+          'Last quarter’s regional report has silently changed, no error was raised, and there is nothing left in the warehouse that disagrees. ' +
+          '<br><br>This is the right strategy for a misspelled name, and a disaster for a sales territory. <b>The strategy is a per-attribute decision, not a per-table one.</b>';
+      }
+    }
+    bT1.addEventListener('click', function(){ t2 = false; render(); });
+    bT2.addEventListener('click', function(){ t2 = true; render(); });
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Boundary Instant</h2>
+  <p class="vz-lede">Two versions meet at one instant. Whether an event at exactly that instant matches
+    once, twice, or not at all is decided by a single convention — and the bug only ever shows up on
+    boundary days. <b>Like a shift handover: if both shifts claim 14:00, everything at 14:00 gets logged
+    twice.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Interval convention">
+    <button id="v2-half" aria-pressed="true">from &le; t &lt; to</button>
+    <button id="v2-incl" aria-pressed="false">from &le; t &le; to</button>
+    <button id="v2-gap" aria-pressed="false">accidental gap</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-line" id="v2-line"></div>
+    <div class="v2-tests" id="v2-tests"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v2-h">Four invariants, per business key — all four are tests</h4>
+    <div class="v2-inv" id="v2-inv"></div>
+  </div>
+  <p class="vz-note">Applying a change is <b>close-then-insert inside one transaction</b>: set the old row's
+    end to T and the new row's start to T. The transaction is what prevents a moment with two current rows
+    or none. Append-oriented warehouses do the same thing by rebuilding the affected keys in a staged model
+    and atomically replacing a partition.</p>
+
+  <style>
+    .v2-line{display:flex;flex-direction:column;gap:6px}
+    .v2-v{border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+    .v2-v.is-match{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:700}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.04em;font-family:inherit}
+    .v2-tests{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-tests b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-h{margin:0 0 9px;font-size:13px}
+    .v2-inv{display:flex;flex-direction:column;gap:7px}
+    .v2-i{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v2-i b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var mode = 'half';
+    var B = { half:document.getElementById('v2-half'), incl:document.getElementById('v2-incl'), gap:document.getElementById('v2-gap') };
+    var lineB = document.getElementById('v2-line'), testsB = document.getElementById('v2-tests');
+
+    var DEFS = {
+      half: { rows:[['[2026-01-01, 2026-03-15)', 'North', true], ['[2026-03-15, 9999-12-31)', 'South', true]],
+        matchAt: [false, true],
+        why:['Exactly one version matches an event at 2026-03-15. Correct.',
+          'The end is <b>exclusive</b>, so the two intervals meet at one instant and only the later one claims it. Every instant on the timeline belongs to exactly one version, which is what makes the join deterministic — and what lets you assert it with a test rather than hope for it.'] },
+      incl: { rows:[['[2026-01-01, 2026-03-15]', 'North', true], ['[2026-03-15, 9999-12-31]', 'South', true]],
+        matchAt: [true, true],
+        why:['Two versions match. Every fact on 2026-03-15 is counted twice.',
+          'Both intervals claim the boundary instant, so the range join emits two rows for a sale that happened once. Revenue for that day is doubled, split across two regions, and every other day in the year is fine. ' +
+          '<b>That is what makes this bug so durable:</b> it is invisible unless a test samples exactly at a boundary timestamp, which is why "sample as-of queries around boundaries" is a specific instruction and not general advice.'] },
+      gap: { rows:[['[2026-01-01, 2026-03-14)', 'North', true], ['[2026-03-15, 9999-12-31)', 'South', true]],
+        matchAt: [false, false],
+        why:['No version matches. The fact has no dimension at all.',
+          'A one-day gap between the intervals, usually from a date-only source or an off-by-one in the close-then-insert step. A sale on the 14th resolves to nothing, so it either vanishes from a report or lands in an Unknown bucket. ' +
+          'Whether gaps are permitted is a source-semantics decision — sometimes an entity genuinely does not exist for a while — but an <b>unintended</b> gap and a permitted one look identical in the data, which is why the invariant has to be declared.'] }
+    };
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var d = DEFS[mode];
+      lineB.innerHTML = d.rows.map(function(r, i){
+        var hit = d.matchAt[i];
+        return '<div class="v2-v' + (hit ? ' is-match' : '') + '"><span>' + r[0] + '</span><span>' + r[1] + '</span>' +
+          '<span class="v2-tag" style="color:' + (hit ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' +
+          (hit ? 'MATCHES the event' : 'does not match') + '</span></div>';
+      }).join('') +
+      '<div class="v2-v" style="border-style:dashed;border-color:var(--viz-violet)"><span style="color:var(--viz-violet)">event at 2026-03-15 00:00</span>' +
+      '<span class="v2-tag" style="color:var(--viz-violet)">' + d.matchAt.filter(Boolean).length + ' MATCH' + (d.matchAt.filter(Boolean).length === 1 ? '' : 'ES') + '</span></div>';
+      testsB.innerHTML = '<b style="color:' + (mode === 'half' ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + d.why[0] + '</b>' + d.why[1];
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+
+    document.getElementById('v2-inv').innerHTML = [
+      ['at most one current row', 'Two current rows for one business key is the most common Type 2 defect in production, and every downstream query silently picks one of them. A count of current rows per business key is a one-line test.'],
+      ['no overlapping intervals', 'Compare each row’s effective_to against the <b>next</b> row’s effective_from with a window function — LAG and LEAD were built for exactly this shape.'],
+      ['positive duration', 'A zero-length or reversed interval can never match a valid event, so it fails silently rather than loudly. It almost always means bad ordering or a timestamp normalisation problem upstream.'],
+      ['deterministic version order', 'Two changes on the same day from a date-only source cannot be ordered. Preserve the source timestamp, normalise the comparison instant, and define an explicit tie-break rule — a local timestamp with no offset is genuinely ambiguous at a daylight-saving transition.']
+    ].map(function(i){ return '<div class="v2-i"><b>' + i[0] + '</b>' + i[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Early Or Late Binding</h2>
+  <p class="vz-lede">How a fact connects to a versioned dimension decides what happens when history is
+    corrected. On April 1 you learn the region actually changed on March 15 — after March facts have
+    already loaded. <b>Like stamping the address on every envelope versus looking it up when you post
+    it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Binding">
+    <button id="v3-early" aria-pressed="true">early binding</button>
+    <button id="v3-late" aria-pressed="false">late binding</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v3-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <button class="v3-ev" id="v3-fire">📨 April 1: a late-arriving change says the move happened Mar 15</button>
+    <div class="v3-tbl" id="v3-tbl"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Neither is the right answer on its own — some systems keep both, using early-bound keys
+    for fast serving and late-bound resolution for audit and controlled restatement. What matters is that
+    the design <b>explicitly states whether history is corrected retroactively</b>, because the two produce
+    different numbers for the same month and both look correct in isolation.</p>
+
+  <style>
+    .v3-ev{width:100%;min-height:44px;border:1.5px solid var(--viz-amber);background:var(--viz-surface);
+      color:var(--viz-amber);border-radius:10px;font:inherit;font-weight:700;font-size:13px;margin-bottom:13px}
+    .v3-tbl table{width:100%;border-collapse:collapse;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v3-tbl th{text-align:left;font-size:9.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 6px 5px 0;font-family:inherit}
+    .v3-tbl td{padding:7px 6px 7px 0;border-bottom:1px solid var(--viz-line)}
+    .v3-tbl td.v3-wrong{color:var(--viz-red);font-weight:700}
+    .v3-tbl td.v3-right{color:var(--viz-green);font-weight:700}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var early = true, fired = false;
+    var bE = document.getElementById('v3-early'), bL = document.getElementById('v3-late');
+    var sql = document.getElementById('v3-sql'), tbl = document.getElementById('v3-tbl'), why = document.getElementById('v3-why');
+
+    var FACTS = [
+      { id:'S-101', d:'2026-02-10', amt:120 },
+      { id:'S-118', d:'2026-03-20', amt: 80 },
+      { id:'S-140', d:'2026-04-02', amt: 60 }
+    ];
+    function render(){
+      bE.setAttribute('aria-pressed', early ? 'true' : 'false');
+      bL.setAttribute('aria-pressed', early ? 'false' : 'true');
+      sql.innerHTML = early
+        ? '-- the loader resolved the version and STORED its surrogate key\nfact_sales(sale_id, sale_date, amount, customer_key)\n\nSELECT d.region, SUM(f.amount)\nFROM   fact_sales f\nJOIN   dim_customer d ON d.customer_key = f.customer_key\nGROUP  BY d.region;'
+        : '-- the fact keeps the BUSINESS key and the event time\nfact_sales(sale_id, sale_date, amount, customer_id)\n\nSELECT d.region, SUM(f.amount)\nFROM   fact_sales f\nJOIN   dim_customer d\n  ON   d.customer_id = f.customer_id\n  AND  f.sale_date &gt;= d.effective_from\n  AND  f.sale_date &lt;  d.effective_to      -- a RANGE join\nGROUP  BY d.region;';
+
+      tbl.innerHTML = '<table><thead><tr><th>sale</th><th>date</th><th>amount</th><th>region reported</th></tr></thead><tbody>' +
+        FACTS.map(function(f){
+          var truth = f.d >= '2026-03-15' ? 'South' : 'North';
+          var shown;
+          if (!fired) shown = f.d >= '2026-04-01' ? 'South' : 'North';
+          else if (early) shown = f.d >= '2026-04-01' ? 'South' : 'North';   // stored keys are stale
+          else shown = truth;
+          var right = shown === truth;
+          return '<tr><td>' + f.id + '</td><td>' + f.d + '</td><td>' + f.amt + '</td>' +
+            '<td class="' + (fired ? (right ? 'v3-right' : 'v3-wrong') : '') + '">' + shown + (fired && !right ? '  ← stale' : '') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+
+      if (!fired) {
+        why.innerHTML = '<b>Before the correction, both designs agree.</b>' +
+          'The warehouse believes the move happened on April 1, so every design reports March as North. Press the button above to deliver the truth late and watch them diverge.';
+        return;
+      }
+      why.innerHTML = early
+        ? '<b style="color:var(--viz-red)">Early binding: S-118 is still filed under North, and always will be.</b>' +
+          'The loader resolved the version <em>at load time</em> and wrote surrogate key 90121 onto the fact row. That key is now stale, and no change to the dimension can reach it — ' +
+          'the correction added a new interval that the fact never consults. <b>Affected facts need restatement</b>: find every fact in the window, re-resolve it, rewrite the key. ' +
+          '<br><br>What you bought for that is a plain equality join and very fast queries, which is a real benefit and the reason this design is common. The cost is that a retroactive correction is a data migration.'
+        : '<b style="color:var(--viz-green)">Late binding: S-118 resolves to South the moment the interval exists.</b>' +
+          'The fact stored the business key and the event time, so the region is computed at query or build time from whatever the dimension currently says was true then. ' +
+          'The new interval fixed March everywhere at once, with no fact rewritten. ' +
+          '<br><br>The cost is in the SQL above: every query carries a <b>range join</b> rather than an equality join, which is more expensive and more ways to get wrong. ' +
+          'You are trading query simplicity for revisable history — deliberately.';
+    }
+    bE.addEventListener('click', function(){ early = true; render(); });
+    bL.addEventListener('click', function(){ early = false; render(); });
+    document.getElementById('v3-fire').addEventListener('click', function(){ fired = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Same Shape, Twice</h2>
+  <p class="vz-lede">A document is a business identity with versions and validity intervals. That is not an
+    analogy to SCD Type 2 — it is the same design with different column names. Tap a row to see both sides.
+    <b>Like a contract: one agreement, numbered amendments, each valid between two dates.</b></p>
+
+  <div class="v4-map" id="v4-map"></div>
+
+  <div class="vz-card">
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">Three questions a single "latest version" helper cannot answer</h4>
+    <div class="v4-q" id="v4-q"></div>
+  </div>
+  <p class="vz-note">A parser defect is <b>not</b> source history. If V7 was wrong because your pipeline was
+    wrong rather than because the document said that, create a new derived artifact under a new parser
+    version and preserve the source version — otherwise content history and processing history become
+    conflated and nobody can say which one changed.</p>
+
+  <style>
+    .v4-map{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v4-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-a{flex:1 1 0;min-width:0}
+    .v4-eq{flex:0 0 auto;color:var(--viz-muted);font-weight:800}
+    .v4-b{flex:1 1 0;min-width:0;color:var(--viz-violet)}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-q{display:flex;flex-direction:column;gap:7px}
+    .v4-qq{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v4-qq b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { a:'business key', b:'document_id',
+        why:['One stable identity across every change.',
+          'Treating every crawl as a new unrelated document destroys continuity — you can no longer say "this policy page", only "these 340 pages". <code>document_id</code> is the business key, and it never changes.'] },
+      { a:'surrogate key per version', b:'version_id',
+        why:['An immutable identity for one state of the document.',
+          'Just as a Type 2 dimension gives each version its own surrogate key while sharing the business key, each document version gets an id that never refers to any other bytes. That immutability is what makes an evaluation run explainable six months later.'] },
+      { a:'effective_from / effective_to', b:'effective_from / effective_to',
+        why:['Identical columns, identical half-open convention.',
+          'Each version records what the system believed the document to be during a validity interval. The same boundary rule applies, and so do the same four invariants from visual 2.'] },
+      { a:'tracked attribute changed', b:'content hash changed — OR metadata, OR permissions',
+        why:['The version trigger must cover every tracked attribute, not content alone.',
+          'A content-addressed hash prevents <b>false versions</b>: a crawler downloading identical normalised bytes hourly produces a stable hash, so nothing new is created. ' +
+          'But metadata or permission changes may deserve a version even when the body is byte-identical — the document the system serves genuinely became a different thing. ' +
+          '<br><br>Two versions can also reference the <b>same blob</b> while differing in permissions or interval. Deduplicate storage by content hash all you like; do not discard version identity because bytes are shared.'] },
+      { a:'facts point at a version', b:'chunks belong to a document VERSION',
+        why:['Chunks are children of a version, not of the logical document.',
+          'When content changes, offsets and boundaries shift even where most of the text is unchanged. So a chunk identifier must include or derive from the <b>version and the chunking configuration</b>.' +
+          '<br><br><b>Reusing an old chunk id for new text breaks three things at once, silently:</b> the embedding cache returns the vector for text that is no longer there, citations point at an offset that now contains something else, and evaluation labels attach to the wrong content. ' +
+          'None of those raises an error, and all three are invisible until someone reads a citation carefully.'] },
+      { a:'load time vs event time', b:'ingestion time vs source-effective time',
+        why:['Two independent axes — and audits need both.',
+          'A policy takes effect on July 1 and is ingested on July 3. <b>Effective time</b> answers which policy governed an event; <b>ingestion time</b> answers what the retrieval system could possibly have known. ' +
+          'A <b>bitemporal</b> design keeps both, which is what lets you reconstruct knowledge as observed alongside truth as later corrected — and they genuinely disagree about the 1st and 2nd of July.'] }
+    ];
+    var map = document.getElementById('v4-map'), why = document.getElementById('v4-why');
+    function show(i){
+      [].slice.call(map.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      why.innerHTML = '<b>' + ROWS[i].why[0] + '</b>' + ROWS[i].why[1];
+    }
+    ROWS.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.className = 'v4-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-a">' + r.a + '</span><span class="v4-eq">≡</span><span class="v4-b">' + r.b + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      map.appendChild(b);
+    });
+    show(0);
+
+    document.getElementById('v4-q').innerHTML = [
+      ['"Show the current policy"', 'Selects the open, current version. This is the only one a naive <code>latest version</code> helper gets right — which is why it quietly answers this for all three.'],
+      ['"Which policy applied to a claim on May 4?"', 'Uses <b>effective time</b>: the version whose validity interval contains May 4. May be a version that has since been superseded, and that is the correct answer.'],
+      ['"What answer did the system have on May 4?"', 'Uses <b>ingestion or index-snapshot time</b>: whatever was actually indexed then, which may lag the effective policy by days. This is the question an incident review asks, and the one most systems cannot answer at all.']
+    ].map(function(q){ return '<div class="v4-qq"><b>' + q[0] + '</b>' + q[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Sufficient History</h2>
+  <p class="vz-lede">More history is not automatically safer. Every version you keep is storage, query
+    complexity, breach exposure and legal-discovery scope. Pick an attribute and decide what it actually
+    owes you. <b>Like keeping receipts: some for seven years, some until the warranty ends, most not at
+    all.</b></p>
+
+  <div class="v5-list" id="v5-list"></div>
+
+  <div class="vz-card">
+    <div class="v5-verdict" id="v5-verdict"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v5-h">The rule people forget</h4>
+    <div class="v5-copies" id="v5-copies"></div>
+  </div>
+  <p class="vz-note">Ownership is what stops a Type 2 table becoming an unbounded archive nobody trusts:
+    source teams define when a change is <em>effective</em>, data teams implement capture and intervals,
+    governance defines retention and erasure, consumers define which historical questions must be
+    answerable. The sound decision is not maximum history — it is <b>sufficient, governed</b> history.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-a{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v5-a[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-t{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;border-radius:999px;
+      padding:2px 9px;border:1.5px solid;white-space:nowrap}
+    .v5-verdict{font-size:12.5px;line-height:1.6}
+    .v5-verdict b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-h{margin:0 0 9px;font-size:13px}
+    .v5-copies{font-size:12.5px;line-height:1.6}
+    .v5-chain{display:flex;flex-wrap:wrap;gap:5px;margin:10px 0}
+    .v5-c{font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:700;border:1.5px solid var(--viz-red);
+      color:var(--viz-red);border-radius:8px;padding:4px 9px}
+  </style>
+  <script>
+  (function(){
+    var ITEMS = [
+      { t:'Contractual pricing tier', k:'KEEP EVERY VERSION', c:'var(--viz-green)',
+        why:['Every version, at event granularity.',
+          'It supports a concrete obligation: financial restatement and compliance audit. When a customer disputes an invoice from March, the tier that applied in March has to be recoverable, and "we overwrite it" is not an answer anyone will accept. ' +
+          'This is the case Type 2 was designed for.'] },
+      { t:'Permission / access-control policy', k:'KEEP, WITH OBSERVATION TIME', c:'var(--viz-green)',
+        why:['Every version, at seconds precision, and bitemporally.',
+          'An incident review asks two different questions: what the policy <em>was</em> at 14:32, and what the system <em>believed</em> it was at 14:32. Daily granularity cannot answer either. ' +
+          '<b>Match precision to decision risk</b> — if billing uses status at midnight, daily grain is enough; access control is not that kind of decision.'] },
+      { t:'Customer name spelling correction', k:'OVERWRITE', c:'var(--viz-red)',
+        why:['Type 1. Keep nothing.',
+          'The old form has no legitimate use, so a version of it is pure cost: storage, catalog volume, one more row every query has to reason about, and a historical "version" recording an event that never happened in the business. ' +
+          '<b>Overwrite noise.</b> That is a decision, not laziness.'] },
+      { t:'Crawler response headers', k:'OVERWRITE', c:'var(--viz-red)',
+        why:['Transient. No obligation, no decision, no version.',
+          'List the questions first, then choose the granularity. If no question needs it and no decision depends on it, keeping it forever only grows storage, query complexity, breach exposure and legal-discovery scope.'] },
+      { t:'Device battery level, sampled every minute', k:'WRONG SHAPE ENTIRELY', c:'var(--viz-amber)',
+        why:['This is an event fact or a periodic snapshot, not a dimension.',
+          'A rapidly changing attribute modelled as Type 2 produces <b>millions of tiny intervals</b> — a change log wearing a dimension’s clothes, with all the interval bookkeeping and none of the benefit. ' +
+          'The tell is that nobody ever asks "which battery level applied to this order"; they ask for a time series.'] },
+      { t:'Source text of a document used in an evaluation', k:'KEEP THE EVIDENCE, NOT ALWAYS THE TEXT', c:'var(--viz-violet)',
+        why:['Reproducibility sometimes needs artifacts rather than raw personal data.',
+          'The obligation is "explain the June 1 evaluation", and that may be satisfiable with aggregate metrics, configuration hashes, the version manifest, and anonymised judgments — while the sensitive source text expires on policy. ' +
+          '<br><br>Decide what evidence is <em>sufficient</em> to reproduce or audit the conclusion without retaining unnecessary identity. Tiered retention is the mechanism: recent versions in the warehouse for interactive analysis, older required versions in cheap immutable storage, ' +
+          'aggregates beyond that — plus a manifest and a restoration procedure, because <b>archived data nobody can locate or interpret is not history.</b>'] }
+    ];
+    var list = document.getElementById('v5-list'), verdict = document.getElementById('v5-verdict');
+    function show(i){
+      var it = ITEMS[i];
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+        var t = b.querySelector('.v5-t');
+        if (i === j) { t.textContent = it.k; t.style.color = it.c; t.style.borderColor = it.c; }
+        else { t.textContent = 'decide'; t.style.color = ''; t.style.borderColor = ''; }
+      });
+      verdict.innerHTML = '<b style="color:' + it.c + '">' + it.why[0] + '</b>' + it.why[1];
+    }
+    ITEMS.forEach(function(it, i){
+      var b = document.createElement('button');
+      b.className = 'v5-a';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + it.t + '</span><span class="v5-t">decide</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+
+    document.getElementById('v5-copies').innerHTML =
+      'A retention policy has to record data class, owner, legal basis, duration, archive rule, deletion rule and exceptions — and then it has to be applied to <b>every derived copy</b>, not only the primary table:' +
+      '<div class="v5-chain">' +
+      ['chunks','embeddings','vector index','caches','exports','BI extracts','backups'].map(function(c){ return '<span class="v5-c">' + c + '</span>'; }).join('') +
+      '</div>' +
+      '<b style="color:var(--viz-red)">A deleted document that is still reachable through an embedding has not been deleted from the product.</b> ' +
+      'The obligation follows the data, and every one of those boxes is a place the data went. Test deletion propagation the same way you test the interval invariants — ' +
+      'and reconcile counts before and after any restatement, because that is when copies quietly fall out of step.';
+  })();
+  </script>
+</section>
+
+</body>
+</html>

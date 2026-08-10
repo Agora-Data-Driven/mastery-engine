@@ -3,84 +3,144 @@
     {
       "topic": "Object Stores vs File Systems: Immutability and Listing",
       "question": "How does an object-store key differ from a file-system path?",
-      "options": ["Its slashes usually form a prefix convention rather than real parent directories", "It cannot contain text characters", "It always points to a mutable byte stream", "It provides a transactional directory automatically"],
+      "options": [
+        "Its slashes are a prefix convention rather than real parent directories",
+        "Its characters are restricted to a fixed alphabet chosen by the bucket",
+        "It addresses a mutable byte stream that writers can extend in place",
+        "It carries a directory entry that a rename updates atomically in one step"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Object Stores vs File Systems: Immutability and Listing",
       "question": "What is the normal way to change the contents of an object?",
-      "options": ["Edit arbitrary bytes in place", "Write a complete new object or version", "Append directly to its footer", "Rename its containing directory atomically"],
+      "options": [
+        "Open the object and edit the bytes at a chosen offset in place",
+        "Write a complete new object, usually under a new versioned key name",
+        "Append the changed rows directly to the end of its Parquet footer",
+        "Rename the containing prefix so the old key resolves elsewhere"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Object Stores vs File Systems: Immutability and Listing",
       "question": "Why is object-store rename often expensive and non-atomic?",
-      "options": ["Keys cannot change", "Objects contain no checksums", "It is commonly implemented as copy followed by delete", "Listing always returns no results"],
+      "options": [
+        "Keys are immutable once written, so a rename must fail on every attempt",
+        "Objects carry no checksum, so a rename cannot verify the copied bytes",
+        "It is usually a full copy to the new key followed by deleting the old",
+        "Listing lags behind writes, so the renamed key stays invisible for hours"
+      ],
       "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Object Stores vs File Systems: Immutability and Listing",
       "question": "Why is a manifest better than inferring a table from a prefix listing?",
-      "options": ["A manifest compresses every data column", "A manifest eliminates object permissions", "A manifest makes objects mutable", "It defines exact committed membership and associated metadata"],
+      "options": [
+        "A manifest compresses the data columns it references into one object",
+        "A manifest replaces per-object permissions with a single bucket policy",
+        "A manifest makes the referenced data objects mutable and appendable",
+        "A manifest names the exact committed files with their sizes and stats"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Object Stores vs File Systems: Immutability and Listing",
       "question": "A batch eventually writes 1000 objects and a reader lists during execution. What can the reader legitimately observe?",
-      "options": ["Only the objects committed so far, such as 400, rather than one atomic batch", "Exactly 1000 before the writer starts", "A partially written byte sequence inside every completed object", "No objects until a directory rename"],
+      "options": [
+        "Only the objects written so far, such as 400 of the eventual 1000",
+        "All 1000 keys immediately, because listing waits for the batch to end",
+        "A half-written byte range inside one of the already completed objects",
+        "No keys at all until the writer renames the staging prefix into place"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Object Stores vs File Systems: Immutability and Listing",
       "question": "Why are immutable segments plus later compaction preferable to repeatedly appending one object?",
-      "options": ["Object stores cannot read ranges", "Whole-object replacement amplifies writes and creates concurrency hazards", "Immutable objects cannot be cached", "Compaction requires local file systems"],
+      "options": [
+        "Object stores cannot serve byte ranges, so segments must stay small",
+        "Replacing a growing object amplifies writes and races other writers",
+        "Immutable objects cannot be cached, so segments keep caches correct",
+        "Compaction runs only on a mounted file system with real directories"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Consistency and Atomicity Limits of Object Storage",
       "question": "What does single-object atomic publication guarantee?",
-      "options": ["A whole table transaction", "A consistent prefix listing forever", "Readers do not see a half-completed committed object", "All related deletes happen simultaneously"],
+      "options": [
+        "That a group of puts and deletes becomes visible as one transaction",
+        "That a prefix listing returns the same key set to every later reader",
+        "That a reader never observes a half-written version of that whole object",
+        "That deletes of related objects all take effect at the same instant"
+      ],
       "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Consistency and Atomicity Limits of Object Storage",
       "question": "Why does strong per-key consistency not provide a table transaction?",
-      "options": ["Objects cannot contain data", "Reads never see new keys", "Writes are always eventually consistent", "Many puts and deletes can still become visible at different times"],
+      "options": [
+        "Because reads of a newly written key can still return the previous bytes",
+        "Because objects hold only bytes and cannot carry any table schema",
+        "Because every write to a bucket is eventually consistent by design",
+        "Because many puts and deletes still become visible at different times"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Consistency and Atomicity Limits of Object Storage",
       "question": "What prevents two writers from silently overwriting the same snapshot pointer?",
-      "options": ["A conditional compare-and-swap using the expected pointer version", "A larger data object", "A deeper prefix hierarchy", "A list request after every row"],
+      "options": [
+        "A conditional write that succeeds only if the pointer still matches",
+        "A larger pointer object, so a partial overwrite becomes easier to detect",
+        "A deeper prefix hierarchy that isolates each writer's pointer copy",
+        "A list request issued after every row so writers can see each other"
+      ],
       "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Consistency and Atomicity Limits of Object Storage",
       "question": "How should files A and B be replaced by C without exposing missing or duplicate rows?",
-      "options": ["Delete A and B before writing C", "Write C, then atomically publish metadata replacing A and B with C", "Overwrite A's bytes with C and leave B", "Use a prefix list as the commit"],
+      "options": [
+        "Delete A and B first, then upload C into the same partition prefix",
+        "Write C first, then commit metadata that drops both A and B and adds C",
+        "Overwrite A's bytes with C's contents and leave B in place unchanged",
+        "Publish a prefix listing taken after C lands as the new commit record"
+      ],
       "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Consistency and Atomicity Limits of Object Storage",
       "question": "A client times out during a conditional pointer update. What should it do before retrying?",
-      "options": ["Delete every newly written object", "Assume the update failed", "Read the authoritative pointer to determine whether the commit succeeded", "Overwrite the pointer unconditionally"],
+      "options": [
+        "Delete every object it wrote so the retry starts from a clean prefix",
+        "Assume the commit failed, since a timeout is reported before any write",
+        "Read the pointer to learn whether the commit actually took effect",
+        "Overwrite the pointer unconditionally to make the outcome deterministic"
+      ],
       "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Consistency and Atomicity Limits of Object Storage",
       "question": "Why should garbage collection traverse retained manifests instead of trusting the latest prefix contents?",
-      "options": ["Manifests never reference objects", "Prefixes contain only current data", "Listing proves transaction order", "Older snapshots and failed-job orphans can share prefixes with current files"],
+      "options": [
+        "Because manifests list only metadata objects and never any data objects",
+        "Because a prefix always holds exactly the files of the newest commit",
+        "Because listing order proves the sequence in which commits were made",
+        "Because retained snapshots and orphans share prefixes with live files"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     }

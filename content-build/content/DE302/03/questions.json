@@ -3,211 +3,361 @@
     {
       "topic": "Materialized Views and BI Engine",
       "question": "What does a materialized view store?",
-      "options": ["Precomputed results of a supported query", "Only SQL text with no data", "One BI Engine worker", "Every source object byte"],
-      "answerIndex": 0,
+      "options": [
+        "The SQL text of the query, recomputed in full on every request that reads it",
+        "The precomputed results of a supported query, refreshed as base data changes",
+        "A copy of the base table's rows, kept byte-identical and refreshed on a schedule",
+        "An in-memory cache of the query's result, discarded when the reservation restarts"
+      ],
+      "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Materialized Views and BI Engine",
       "question": "What is BigQuery smart tuning?",
-      "options": ["Manual slot assignment", "Optimizer rewriting of compatible base-table queries to use a materialized view", "Automatic schema deletion", "Embedding quantization"],
-      "answerIndex": 1,
+      "options": [
+        "Automatic assignment of extra slots to any query that reads a materialized view",
+        "Background reordering of a base table's rows so the view's filters prune blocks",
+        "Automatic creation of a materialized view for any query the optimizer sees repeated",
+        "Optimizer rewriting of a base-table query to use a compatible materialized view"
+      ],
+      "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Materialized Views and BI Engine",
       "question": "Why align a materialized view partition with its base table?",
-      "options": ["It disables refresh", "It forces every partition to scan", "Affected partitions can be maintained independently where supported", "It makes the view logical only"],
-      "answerIndex": 2,
+      "options": [
+        "Only the affected partitions need refreshing rather than the whole cached result",
+        "Alignment is what allows the optimizer to consider the view for smart tuning at all",
+        "Alignment removes the staleness window, so the view always reflects the newest rows",
+        "Alignment lets the view be stored in BI Engine memory instead of on Colossus"
+      ],
+      "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Materialized Views and BI Engine",
       "question": "What does BI Engine primarily provide?",
-      "options": ["A transactional row database", "A PDF parser", "A vector embedding endpoint", "In-memory caching and vectorized acceleration for supported query stages"],
-      "answerIndex": 3,
+      "options": [
+        "A separate slot pool that runs dashboard queries ahead of the ETL reservation",
+        "A columnar rewrite of base tables on disk so every scan reads fewer stored bytes",
+        "In-memory caching and vectorized execution for the query stages a reservation supports",
+        "A managed cache of query results keyed by SQL text, reused for identical queries"
+      ],
+      "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Materialized Views and BI Engine",
       "question": "How should an engineer verify that smart tuning used a materialized view?",
-      "options": ["Inspect query plan and materialized-view statistics", "Assume any matching column name proves it", "Check only result row count", "Increase max staleness"],
-      "answerIndex": 0,
+      "options": [
+        "Compare the query's runtime against the same query run before the view existed",
+        "Confirm that the view's columns are a superset of the ones the query selects",
+        "Read the job's query plan and the materialized-view statistics it reports",
+        "Check that the query's result row count matches the view's stored row count"
+      ],
+      "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Materialized Views and BI Engine",
       "question": "Why can a query remain slow even with BI Engine enabled?",
-      "options": ["BI Engine changes query results", "Only supported subqueries are accelerated and reservation pressure can remain", "BI Engine removes partitioning", "Every query scans object tables"],
-      "answerIndex": 1,
+      "options": [
+        "Only supported stages are accelerated, and the reservation can be under pressure",
+        "BI Engine only accelerates queries that already read a materialized view",
+        "BI Engine caches results but re-validates every cached row against the base table",
+        "BI Engine acceleration only applies after a query has run at least a hundred times"
+      ],
+      "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Troubleshooting Poor-Performing Queries",
       "question": "What should query troubleshooting examine first?",
-      "options": ["Dashboard font", "Table name length", "Job and execution-plan evidence", "Model training accuracy"],
-      "answerIndex": 2,
+      "options": [
+        "The total wall-clock time of the job, which identifies which stage was the bottleneck",
+        "The job details and execution graph, with stage timing, bytes, and slot time",
+        "The table's schema and column types, which determine how the planner orders stages",
+        "The reservation's baseline setting, which fixes how many slots each stage receives"
+      ],
+      "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Troubleshooting Poor-Performing Queries",
       "question": "Does LIMIT alone guarantee fewer bytes scanned?",
-      "options": ["Yes, always", "Only for joins", "Only for materialized views", "No, the engine may still scan the required input"],
-      "answerIndex": 3,
+      "options": [
+        "No, because the scan that feeds the limit still reads every byte of required input",
+        "Yes, the engine stops reading storage as soon as the row count is satisfied",
+        "Yes, but only when the limit is smaller than one partition's worth of rows",
+        "No, but only for clustered tables, where block pruning happens after the limit"
+      ],
+      "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Troubleshooting Poor-Performing Queries",
       "question": "Which change most directly reduces scan bytes?",
-      "options": ["Select needed columns and use pruneable partition filters", "Add SELECT star", "Move LIMIT to a comment", "Increase output rows"],
-      "answerIndex": 0,
+      "options": [
+        "Raising the reservation's max so more slots read the same bytes in parallel",
+        "Adding a LIMIT clause so the engine stops after enough rows have been produced",
+        "Ordering the results by the partition column so the planner can skip later blocks",
+        "Selecting only needed columns and filtering on a pruneable partition column"
+      ],
+      "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Troubleshooting Poor-Performing Queries",
       "question": "What does a hot join key usually cause?",
-      "options": ["Perfectly balanced stages", "Skew and a long-running straggler", "No shuffle", "Automatic deduplication"],
+      "options": [
+        "A broadcast join, since the planner copies the hot key's rows to every worker",
+        "Skew in the shuffle, with one straggler worker holding most of that key's rows",
+        "A full table scan, since the planner abandons partition pruning once a key dominates",
+        "An automatic re-cluster of the table, which pauses the query until sorting finishes"
+      ],
       "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Troubleshooting Poor-Performing Queries",
       "question": "A query spends most wall time waiting before execution while slots are saturated. What is the likely issue?",
-      "options": ["A parser defect", "An embedding dimension mismatch", "Capacity contention or reservation queuing", "A source-language error"],
+      "options": [
+        "Shuffle skew, since one straggler partition holds the job open after its stage begins",
+        "Missing partition pruning, since the planner reads metadata for every partition first",
+        "Capacity contention, with the job queued behind other work on the same reservation",
+        "A cold BI Engine cache, which must be repopulated before any stage is scheduled"
+      ],
       "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Troubleshooting Poor-Performing Queries",
       "question": "Why can breaking one huge SQL statement into staged results help?",
-      "options": ["Stages always use zero storage", "It guarantees lower cost", "It removes correctness tests", "It can reduce plan complexity, improve reuse, and localize diagnosis"],
+      "options": [
+        "It removes the shuffle tier entirely, since each stage writes its output to storage",
+        "It guarantees lower total cost, because intermediate tables are never scanned twice",
+        "It removes the need for a dry run, since each staged table reports its own size",
+        "It lowers plan complexity, allows reuse, and localizes which stage went wrong"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "BigQuery ML at Awareness Level",
       "question": "What is BigQuery ML's main value?",
-      "options": ["Create, evaluate, and use supported models with SQL near warehouse data", "Replace all feature engineering", "Guarantee unbiased models", "Provide a general-purpose web server"],
+      "options": [
+        "Creating, evaluating, and using supported models in SQL, right where the data lives",
+        "Removing the need for train and test splits, since SQL evaluates the whole table",
+        "Exporting warehouse tables into Vertex AI so custom training frameworks can run",
+        "Serving models at single-digit millisecond latency for online prediction traffic"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "BigQuery ML at Awareness Level",
       "question": "Which task still requires careful design with BigQuery ML?",
-      "options": ["None because SQL prevents leakage", "Temporal splits and point-in-time features", "Only choosing a dataset name", "Only setting query priority"],
-      "answerIndex": 1,
+      "options": [
+        "Writing the gradient-descent loop, since SQL cannot express iterative training",
+        "Sizing the slot reservation, since a CREATE MODEL statement cannot use autoscaling",
+        "Temporal splitting and point-in-time features that avoid leaking the future",
+        "Hand-encoding categorical columns, since BigQuery ML rejects any non-numeric input"
+      ],
+      "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "BigQuery ML at Awareness Level",
       "question": "When is BigQuery ML a strong baseline choice?",
-      "options": ["When data is unavailable", "When models require custom hardware kernels only", "When SQL-accessible data and supported models fit the problem", "When no evaluation labels exist"],
-      "answerIndex": 2,
+      "options": [
+        "When the model needs custom layers and a hand-written training loop running on GPUs",
+        "When the data is already SQL-accessible and a supported family fits the problem",
+        "When labels are unavailable and the goal is to discover them during training",
+        "When predictions must be served to a mobile app within a few milliseconds"
+      ],
+      "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "BigQuery ML at Awareness Level",
       "question": "What should a reproducible BigQuery ML run record?",
-      "options": ["Only the model name", "Only final accuracy", "Only current date", "Dataset snapshot, training query, options, preprocessing, and evaluation split"],
-      "answerIndex": 3,
+      "options": [
+        "The dataset snapshot, training query, options, preprocessing, and eval split",
+        "The model name, its creation timestamp, and the final aggregate accuracy figure",
+        "The slot reservation used, the job ID, and the total bytes the training job read",
+        "The region, the connection ID, and the IAM roles granted on prediction outputs"
+      ],
+      "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "BigQuery ML at Awareness Level",
       "question": "Why can random row splits produce misleading evaluation?",
-      "options": ["Related entities or future examples can cross train and test", "Random splits always have no labels", "BigQuery cannot randomize rows", "Every dataset is stationary"],
-      "answerIndex": 0,
+      "options": [
+        "Random assignment leaves the classes unbalanced, so accuracy is no longer defined",
+        "Random splits force a full table scan, so the metrics get computed twice over",
+        "Random sampling drops rows with null features, shrinking the evaluation set",
+        "Future rows and rows from the same entity can land on both sides of the split"
+      ],
+      "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "BigQuery ML at Awareness Level",
       "question": "What is the best response to one strong aggregate evaluation metric?",
-      "options": ["Deploy immediately", "Inspect relevant slices, leakage risks, and deployment compatibility", "Delete the evaluation set", "Train only on current data"],
+      "options": [
+        "Retrain on the combined train and test rows so the deployed model sees everything",
+        "Break the metric down by relevant slice and check for leakage before trusting it",
+        "Raise the decision threshold until the minority class reaches the same score",
+        "Publish the model and monitor only the aggregate metric on live traffic"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "ML.GENERATE_EMBEDDING and Native VECTOR_SEARCH",
       "question": "What does ML.GENERATE_EMBEDDING return for compatible input?",
-      "options": ["A materialized view", "A BI Engine reservation", "An embedding vector plus associated result or status fields", "A Pub/Sub subscription"],
-      "answerIndex": 2,
+      "options": [
+        "An embedding array for each input row, together with status fields that must be checked",
+        "A single embedding for the whole query result, computed after rows are aggregated",
+        "A distance score between each row's text and the model's nearest training example",
+        "A vector index over the source column, built in place and refreshed as rows change"
+      ],
+      "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "ML.GENERATE_EMBEDDING and Native VECTOR_SEARCH",
       "question": "What does VECTOR_SEARCH do?",
-      "options": ["Trains a tokenizer", "Parses PDFs", "Changes table schema", "Finds nearest base-table embeddings to query vectors"],
-      "answerIndex": 3,
+      "options": [
+        "Rewrites a text predicate into a keyword search over the base table's search index",
+        "Builds the ANN structure that later queries use to avoid scanning every vector",
+        "Returns the nearest embeddings in a base table to a query vector, with distances",
+        "Normalizes a table's embedding column so that all compared vectors share one metric"
+      ],
+      "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "ML.GENERATE_EMBEDDING and Native VECTOR_SEARCH",
       "question": "Why must row-level remote inference status be checked?",
-      "options": ["A query job can complete while some rows have endpoint or input errors", "Every row always succeeds", "Status determines vector distance", "BigQuery jobs have no errors"],
-      "answerIndex": 0,
+      "options": [
+        "The status field carries the distance metric that a later vector search applies",
+        "A job can finish successfully while individual rows failed on quota or input",
+        "Rows that lack a status field are silently dropped from the destination table",
+        "The status field records which model revision produced each embedding row"
+      ],
+      "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "ML.GENERATE_EMBEDDING and Native VECTOR_SEARCH",
       "question": "What changes when VECTOR_SEARCH uses a vector index?",
-      "options": ["Results become keyword-only", "Search can use ANN, trading some recall for performance", "Every query becomes exact", "Embeddings are deleted"],
-      "answerIndex": 1,
+      "options": [
+        "Search becomes approximate, trading some recall for a much lower scan cost per query",
+        "Search becomes exact, since the index stores every pairwise distance in advance",
+        "Search results are restricted to rows whose metadata filter is evaluated first",
+        "Search switches to the query result cache, so repeated queries return instantly"
+      ],
+      "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "ML.GENERATE_EMBEDDING and Native VECTOR_SEARCH",
       "question": "How should approximate vector-index quality be measured?",
-      "options": ["Compare only index row count", "Use one hand-picked query", "Compare ANN top-k with brute-force exact search across representative queries", "Assume index presence guarantees recall"],
-      "answerIndex": 2,
+      "options": [
+        "Count the rows the index covers and confirm the number matches the base table",
+        "Compare the index's top-k against brute-force results on sampled queries",
+        "Measure the latency drop against the same query run before the index existed",
+        "Check that the distance values returned fall inside the metric's expected range"
+      ],
+      "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "ML.GENERATE_EMBEDDING and Native VECTOR_SEARCH",
       "question": "Why must model revision and output dimensionality be part of embedding lineage?",
-      "options": ["They determine table partition date", "They are display metadata only", "Every model shares one space", "Changed models or dimensions produce incompatible vector spaces"],
-      "answerIndex": 3,
+      "options": [
+        "They set the partition column the embedding table uses for its daily refresh",
+        "They determine which BI Engine reservation the vector search draws memory from",
+        "Vectors from a different model or dimension no longer share a comparable space",
+        "They control how many candidates the approximate search returns per query row"
+      ],
+      "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Preparing Unstructured Data for Embeddings and RAG",
       "question": "What does a BigQuery object table primarily represent?",
-      "options": ["Read-only metadata over objects in Cloud Storage", "A parsed text corpus automatically", "A mutable vector index", "An online feature store"],
-      "answerIndex": 0,
+      "options": [
+        "A managed copy of each object's bytes, loaded into BigQuery's columnar storage",
+        "An external table whose rows are the parsed text extracted from each document",
+        "A staging table that Dataflow writes chunk records into before embeddings run",
+        "A read-only metadata index over Cloud Storage objects, with no parsed text"
+      ],
+      "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Preparing Unstructured Data for Embeddings and RAG",
       "question": "What must parsing preserve for grounded citations?",
-      "options": ["Only total word count", "Source version plus page, block, or span mapping", "Only language label", "Only embedding norm"],
-      "answerIndex": 1,
+      "options": [
+        "The source version plus the page, block, or character span each chunk came from",
+        "The original file's storage class and the timestamp of its last lifecycle move",
+        "The token count of every chunk so the prompt builder can enforce its budget",
+        "The embedding model's revision, so the citation names which model retrieved it"
+      ],
+      "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Preparing Unstructured Data for Embeddings and RAG",
       "question": "Which identity should an embedding row carry?",
-      "options": ["Only request time", "Only dataset name", "Stable chunk and source-version IDs plus model version", "Only vector dimension"],
-      "answerIndex": 2,
+      "options": [
+        "The request timestamp and the job ID of the query that generated the embedding",
+        "A stable chunk ID, its source-version ID, and the model version that made it",
+        "The dataset and table names, which together identify where the vector is stored",
+        "The distance metric the vector index uses, so later searches stay consistent"
+      ],
+      "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Preparing Unstructured Data for Embeddings and RAG",
       "question": "Why deduplicate overlapping retrieved chunks before prompt construction?",
-      "options": ["To remove all source lineage", "To change embedding model", "To disable citations", "To avoid wasting token budget and overweighting repeated evidence"],
-      "answerIndex": 3,
+      "options": [
+        "Duplicate chunks break the citation format, since two spans cannot share a source",
+        "Overlapping chunks are always the result of a chunker bug that must be fixed first",
+        "Repeated text burns through the token budget and overweights a single piece of evidence",
+        "Duplicates inflate the vector index, so the approximate search loses recall on them"
+      ],
+      "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Preparing Unstructured Data for Embeddings and RAG",
       "question": "Which layered evaluation best diagnoses a weak RAG answer?",
-      "options": ["Check parsing, chunking, embedding success, retrieval, citations, and grounded generation separately", "Inspect only final response length", "Measure only vector dimension", "Use only one latency number"],
-      "answerIndex": 0,
+      "options": [
+        "Score the final answer against a human rating and tune the prompt until it rises",
+        "Score retrieval recall alone, since generation quality follows from good candidates",
+        "Score the embedding model on a public benchmark and swap it if it ranks poorly",
+        "Score parsing, chunking, embedding, retrieval, citation, and grounding separately"
+      ],
+      "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "Preparing Unstructured Data for Embeddings and RAG",
       "question": "When might external processing remain appropriate despite warehouse-native features?",
-      "options": ["Never", "When complex parsing, low-latency serving, or specialized ANN behavior requires it", "Only when data is structured", "Only for materialized views"],
-      "answerIndex": 1,
+      "options": [
+        "When the corpus is small enough that a vector index would not be populated at all",
+        "When governance requires the data and its lineage to stay inside one product",
+        "When the source documents already live in Cloud Storage rather than in tables",
+        "When parsing is complex, serving must be fast, or ANN behavior must be tuned"
+      ],
+      "answerIndex": 3,
       "difficulty": "challenge"
     }
   ]

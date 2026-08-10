@@ -5,8 +5,8 @@
       "question": "In BigQuery's architecture, what is a slot?",
       "options": [
         "A reserved partition of Colossus storage dedicated to one project's table data",
-        "A unit of compute capacity, roughly a virtual CPU with memory, rented to a query for its duration",
-        "A network channel between the storage plane and compute plane assigned per table",
+        "A unit of compute capacity, roughly one virtual CPU with memory, rented per job",
+        "A dedicated network channel between the storage plane and compute plane, assigned per table",
         "A scheduling window during which a project is permitted to submit query jobs"
       ],
       "answerIndex": 1,
@@ -18,8 +18,8 @@
       "options": [
         "Because the engine caches previously queried columns and serves repeats from memory",
         "Because the planner samples a subset of rows first and extrapolates the full result",
-        "Because unselected columns are stored compressed and are skipped only after decompression",
-        "Because columnar storage keeps each column's values contiguous, so only referenced columns are read"
+        "Because unselected columns are stored compressed and are skipped only after a decompression pass",
+        "Because columnar storage keeps each column contiguous, so only referenced columns are read"
       ],
       "answerIndex": 3,
       "difficulty": "core"
@@ -28,7 +28,7 @@
       "topic": "Storage-Compute Separation and the Columnar Engine",
       "question": "A nightly ETL pipeline and an analyst's exploratory queries hit the same BigQuery tables at the same time. What property of the architecture prevents them from corrupting or blocking each other's data access?",
       "options": [
-        "Storage and compute are separate planes, so both workloads read shared storage with independent compute",
+        "Storage and compute are separate planes, so each workload gets independent compute",
         "Each table keeps one writer lock, so the pipeline and the analyst take turns executing",
         "The analyst's queries run on read replicas that are refreshed after the pipeline commits",
         "The engine copies each queried table into per-user scratch space before execution begins"
@@ -52,10 +52,10 @@
       "topic": "Storage-Compute Separation and the Columnar Engine",
       "question": "A team plans to use BigQuery as the backend for an app that updates individual user rows hundreds of times per second. Why is this architecturally wrong?",
       "options": [
-        "BigQuery tables become read-only once they exceed their first billion rows",
-        "BigQuery cannot express UPDATE statements, so rows can never be modified",
-        "Each DML statement runs as a distributed job rather than an indexed row write, so frequent single-row updates are slow and costly",
-        "Each update triggers a full table re-cluster, locking out reads until it completes"
+        "BigQuery tables switch to read-only mode once they exceed their first billion rows",
+        "BigQuery cannot express UPDATE statements, so individual rows can never be modified",
+        "Each DML statement runs as a distributed job rather than an indexed single-row write",
+        "Each update triggers a full table re-cluster, which locks out reads until it completes"
       ],
       "answerIndex": 2,
       "difficulty": "challenge"
@@ -64,9 +64,9 @@
       "topic": "Storage-Compute Separation and the Columnar Engine",
       "question": "Which consequence follows directly from BigQuery separating storage from compute?",
       "options": [
-        "Petabytes can sit in storage costing nothing for compute until they are actually queried",
+        "Petabytes can sit in storage costing nothing for compute until they are queried",
         "Data must be reloaded into compute nodes whenever a new reservation is created",
-        "Storage throughput drops whenever many slots are active, since they share machines",
+        "Storage throughput drops whenever many slots are active, since they share the same machines",
         "Tables must be pre-sized for compute capacity before any data can be loaded"
       ],
       "answerIndex": 0,
@@ -90,7 +90,7 @@
       "options": [
         "By compressing cluster columns with a dictionary shared across the whole table",
         "By sorting data into blocks whose min/max metadata lets non-matching blocks be skipped",
-        "By storing cluster columns in a separate index table consulted before the scan",
+        "By storing the cluster columns in a separate index table that is consulted before each scan",
         "By caching the most frequently filtered column values in the shuffle tier"
       ],
       "answerIndex": 1,
@@ -125,9 +125,9 @@
       "question": "A query filters a date-partitioned table with `WHERE partition_date = other_table.max_date` via a join, yet scans the entire table. Why did pruning fail?",
       "options": [
         "The filter value is not resolvable at planning time, and pruning happens before execution",
-        "The partition column was compared with equality, and pruning requires range predicates",
+        "The partition column was compared with equality, though pruning only accepts range predicates",
         "The table also has clustering columns, which override partition pruning when present",
-        "The join forced a shuffle, and shuffled tables always bypass the pruning step"
+        "The join forced a shuffle, and shuffled tables always bypass the planner's pruning step"
       ],
       "answerIndex": 0,
       "difficulty": "challenge"
@@ -148,10 +148,10 @@
       "topic": "Editions, Reservations, and Slot Autoscaling",
       "question": "What is a reservation in BigQuery's capacity model?",
       "options": [
-        "A prepaid discount contract covering a fixed number of on-demand queries",
+        "A prepaid discount contract covering a fixed number of on-demand query jobs",
         "A quota on the maximum bytes a project may scan in one billing month",
-        "A scheduled maintenance window during which slots are upgraded per project",
-        "A named pool of slots created centrally and assigned to projects, folders, or an org"
+        "A scheduled maintenance window during which a project's slots are upgraded in place",
+        "A named pool of slots created centrally and assigned to projects or folders"
       ],
       "answerIndex": 3,
       "difficulty": "core"
@@ -160,10 +160,10 @@
       "topic": "Editions, Reservations, and Slot Autoscaling",
       "question": "In an autoscaling reservation, what does the baseline represent?",
       "options": [
-        "The minimum queue depth required before any autoscaled slots are added",
-        "The slots that are always allocated and billed, with autoscaling adding more up to the max",
-        "The average slot usage measured over the previous month of workloads",
-        "The number of slots shared out to other reservations while the owner is idle"
+        "The minimum queue depth that must build up before any autoscaled slots are added",
+        "The slots always allocated and billed, with autoscaling adding more up to the max",
+        "The average slot usage measured across the previous month of query workloads",
+        "The number of slots shared out to other reservations for as long as the owner is idle"
       ],
       "answerIndex": 1,
       "difficulty": "core"
@@ -184,8 +184,8 @@
       "topic": "Editions, Reservations, and Slot Autoscaling",
       "question": "A team sets baseline 0 and max 400 on their reservation. What behavior should they expect?",
       "options": [
-        "Zero cost at idle, with slots scaling up on demand and billed per second while provisioned",
-        "Zero cost at idle, but queries fail until an administrator manually allocates slots",
+        "Zero cost at idle, with slots added on demand and billed per second while provisioned",
+        "Zero cost at idle, but every query fails until an administrator manually allocates slots",
         "Constant billing for 400 slots, since the max determines the reservation's charge",
         "Constant billing for 200 slots, since billing uses the midpoint of baseline and max"
       ],
@@ -198,7 +198,7 @@
       "options": [
         "Standard, since disaster recovery is included in every Edition tier",
         "Enterprise Plus, since it adds the compliance and cross-region DR ceiling",
-        "Enterprise, since it is the designated production tier for all workloads",
+        "Enterprise, since it is the designated production tier for every workload type",
         "Any tier, provided a three-year slot commitment is attached to it"
       ],
       "answerIndex": 1,
@@ -256,8 +256,8 @@
       "topic": "On-Demand vs Capacity Pricing: Estimating Cost",
       "question": "A query selects 4 of 40 equal-width columns from a 2 TB table, filtered to 30 of 365 daily partitions. Roughly what does it process on-demand?",
       "options": [
-        "About 200 GB, since column selection reduces the scan but date filters do not",
-        "About 16 GB, since bytes scale by the column fraction times the partition fraction",
+        "About 200 GB, since column selection reduces the scan but the date filter does not",
+        "About 16 GB, since bytes scale by the column fraction times the day fraction",
         "About 2 TB, since on-demand billing always charges the full size of the table",
         "About 160 GB, since partition pruning applies but column pruning does not"
       ],
@@ -269,7 +269,7 @@
       "question": "A finance team demands a hard guarantee that no single ad-hoc query can produce a surprise multi-thousand-dollar charge under on-demand pricing. Which control delivers that guarantee?",
       "options": [
         "Setting `maximum_bytes_billed` so any query exceeding the cap fails instead of billing",
-        "Enabling clustering on all large tables so estimates become strict upper bounds",
+        "Enabling clustering on all the large tables so every estimate becomes a strict upper bound",
         "Reviewing `INFORMATION_SCHEMA.JOBS` weekly so expensive queries are flagged early",
         "Granting analysts read access only to views so base tables cannot be scanned"
       ],
@@ -282,7 +282,7 @@
       "options": [
         "Capacity for the first org and on-demand for the second, since spiky loads need reserved headroom",
         "On-demand for both orgs, since per-byte billing is always cheaper than slot billing",
-        "On-demand for the first org and capacity for the second, since sustained heavy volume favors slots",
+        "On-demand for the first org and capacity for the second, since sustained volume favors slots",
         "Capacity for both orgs, since reservations are required once monthly scans pass one TiB"
       ],
       "answerIndex": 2,

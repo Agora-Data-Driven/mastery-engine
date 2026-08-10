@@ -29,7 +29,7 @@
       "question": "A 20 GB table has 50 columns of roughly equal width. A query filters and aggregates using only 2 of them. Roughly how much raw data must each layout read?",
       "options": [
         "About 0.8 GB with a columnar layout versus about 20 GB with a row layout",
-        "About 10 GB with a columnar layout versus about 20 GB with a row layout",
+        "About 10 GB with a columnar layout versus the full 20 GB with a row layout",
         "About 0.8 GB with a columnar layout versus about 2 GB with a row layout",
         "About 2 GB with either layout, since the filter bounds what gets read"
       ],
@@ -52,10 +52,10 @@
       "topic": "Row vs Columnar Layout: Which Workload Wins",
       "question": "An analyst runs `SELECT *` on a 200-column columnar table to fetch the single row for one order ID, and it is far slower than the same lookup in a row store. Why?",
       "options": [
-        "Because the filter on the order ID cannot be evaluated until every row group is fully decompressed",
-        "Because columnar files store keys separately from values, forcing two passes over the table",
-        "Because the record must be reassembled from 200 separate column locations instead of one contiguous read",
-        "Because `SELECT *` disables the query planner and forces an unindexed full-table sort"
+        "Because the order ID filter cannot be evaluated until every row group has been decompressed",
+        "Because columnar readers decode a footer once per column, so 200 footers are parsed",
+        "Because the record must be rebuilt from 200 separate column locations, not one contiguous read",
+        "Because `SELECT *` bypasses the footer, so the reader scans pages to recover the schema"
       ],
       "answerIndex": 2,
       "difficulty": "challenge"
@@ -64,10 +64,10 @@
       "topic": "Row vs Columnar Layout: Which Workload Wins",
       "question": "A pipeline writes a few hundred events to a columnar file every few seconds, and analysts complain scans are slow. Which property of columnar formats is being violated?",
       "options": [
-        "Columnar formats require rows to arrive pre-sorted by their primary key",
-        "Columnar formats are batch-oriented and need many rows laid out together for their I/O and compression benefits",
-        "Columnar formats only support append operations from a single writer at a time",
-        "Columnar formats require every column to have the same fixed byte width"
+        "Columnar formats require rows to arrive already sorted by the table's primary key",
+        "Columnar formats are batch-oriented and need large row groups to pay off",
+        "Columnar formats accept appends from only one writer at a time per file",
+        "Columnar formats require every column to use one fixed byte width per value"
       ],
       "answerIndex": 1,
       "difficulty": "challenge"
@@ -76,7 +76,7 @@
       "topic": "Parquet Row Groups and Column Chunks",
       "question": "In a Parquet file, what is a row group?",
       "options": [
-        "A set of rows that share identical values in the partition column",
+        "A set of consecutive rows that share identical values in the partition column",
         "A compressed page of values belonging to exactly one column",
         "An index structure mapping each row's key to its byte offset",
         "A horizontal slice of the table containing one column chunk per column"
@@ -88,8 +88,8 @@
       "topic": "Parquet Row Groups and Column Chunks",
       "question": "Where does a Parquet reader find the schema and the byte offsets of every column chunk?",
       "options": [
-        "In the footer metadata at the end of the file, which it reads first",
-        "In a header block at the start of the file, before any row groups",
+        "In the footer metadata at the end of the file, which the reader loads first",
+        "In a header block at the start of the file, written before any row groups",
         "In a separate sidecar index file written alongside the data file",
         "In the first page of each column chunk, decoded during the scan"
       ],
@@ -139,7 +139,7 @@
         "Larger row groups force the writer to keep multiple copies of the footer in memory",
         "Larger row groups require the reader's schema to be revalidated on every flush",
         "Larger row groups multiply the number of pages that must be tracked per column",
-        "The writer buffers an entire row group in memory before it can flush to storage"
+        "Larger row groups must be buffered whole in memory before the writer flushes"
       ],
       "answerIndex": 3,
       "difficulty": "challenge"
@@ -151,7 +151,7 @@
         "A histogram of value frequencies and the top ten most common values",
         "The mean, variance, and standard deviation of the chunk's values",
         "A sorted list of every distinct value that appears in the chunk",
-        "The minimum value, maximum value, and count of nulls in the chunk"
+        "The minimum value, the maximum value, and the count of nulls in the chunk"
       ],
       "answerIndex": 3,
       "difficulty": "core"
@@ -172,10 +172,10 @@
       "topic": "Column Statistics and Predicate Pushdown",
       "question": "A filter `WHERE user_id = 'u-93f2'` on a randomly shuffled UUID column skips zero row groups even though statistics are present and correct. Why?",
       "options": [
-        "Because equality predicates can never be evaluated against min/max statistics",
-        "Because UUID columns are stored as binary, and binary chunks carry no statistics",
-        "Because every row group's min and max span nearly the whole value range, so no group can be proven empty of matches",
-        "Because pushdown only applies to numeric columns and silently ignores strings"
+        "Because equality predicates can never be checked against min and max statistics",
+        "Because UUID values are stored as binary, and binary column chunks record no stats",
+        "Because every group's min and max span nearly the whole range, so none can be excluded",
+        "Because pushdown applies only to numeric columns and silently ignores string ones"
       ],
       "answerIndex": 2,
       "difficulty": "balanced"
@@ -184,10 +184,10 @@
       "topic": "Column Statistics and Predicate Pushdown",
       "question": "After sorting a table by `event_ts` before writing, a timestamp-range dashboard query gets roughly 20x cheaper with no query changes. What changed?",
       "options": [
-        "Each row group now covers a narrow, nearly disjoint time range, so most groups fail the min/max overlap test and are skipped",
-        "Sorting shrank the file so much that the entire table now fits in the scan cache",
-        "Sorted data lets the engine binary-search inside pages instead of scanning them",
-        "The sort rewrote the footer so that statistics are now stored per page instead of per chunk"
+        "Each row group now spans a narrow time range, so most fail the overlap test",
+        "Sorting shrank the file enough that the whole table now fits inside the scan cache",
+        "Sorted pages let the engine binary-search for matching rows instead of scanning",
+        "The sort rewrote the footer so statistics are kept per page rather than per chunk"
       ],
       "answerIndex": 0,
       "difficulty": "balanced"
@@ -196,10 +196,10 @@
       "topic": "Column Statistics and Predicate Pushdown",
       "question": "A row group passes the min/max check for `WHERE amount = 500` but turns out to contain no row with amount 500. What happens?",
       "options": [
-        "The engine returns a wrong result unless a checksum catches the mismatch",
-        "The group is read and the filter drops every row; stats prove absence, never presence, so this is wasted I/O but a correct answer",
-        "The engine marks the file's statistics as corrupt and disables pruning for the table",
-        "The scan falls back to a full-table read because the statistics contradicted the data"
+        "The engine returns a wrong result unless a checksum catches the mismatch later",
+        "The group is read, the filter drops every row, and the answer stays correct",
+        "The engine marks the chunk's statistics corrupt and disables pruning for the table",
+        "The scan falls back to a full-table read because the statistics contradict the data"
       ],
       "answerIndex": 1,
       "difficulty": "challenge"

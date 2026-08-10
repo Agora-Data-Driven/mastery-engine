@@ -1,0 +1,459 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Not A File System</button>
+  <button class="viz-tab" data-viz-tab="2">2. Listing Is Not Membership</button>
+  <button class="viz-tab" data-viz-tab="3">3. One Key, Many Keys</button>
+  <button class="viz-tab" data-viz-tab="4">4. Moving A Pointer Safely</button>
+  <button class="viz-tab" data-viz-tab="5">5. Five Places To Crash</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Not A File System</h2>
+  <p class="vz-lede"><b>Compaction: Merging Files Without Breaking Readers</b> assumed something could swap
+    a pointer atomically. First, what the storage underneath actually offers. Tap an operation and compare
+    what each system does. <b>Like a post office box versus a filing cabinet: same-looking labels, very
+    different rules about what you can reach inside.</b></p>
+
+  <div class="v1-ops" id="v1-ops"></div>
+
+  <div class="vz-card">
+    <div class="v1-sides" id="v1-sides"></div>
+  </div>
+  <p class="vz-note">The reliable mental model is an <b>immutable key-value namespace with whole-object
+    operations and prefix enumeration</b>. Libraries may expose a familiar file API on top, and engineering
+    decisions still have to account for copy-based renames, paginated listings, request costs and explicit
+    dataset metadata.</p>
+
+  <style>
+    .v1-ops{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-o{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v1-o[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-sides{display:flex;flex-direction:column;gap:9px}
+    .v1-s{border:1.5px solid var(--viz-line);border-radius:11px;padding:11px;background:var(--viz-bg)}
+    .v1-s h4{margin:0 0 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-stamp{font-weight:800;font-size:13px;display:block;margin-bottom:4px}
+    .v1-b{font-size:12.5px;line-height:1.5}
+  </style>
+  <script>
+  (function(){
+    var OPS = [
+      { t:'modify bytes at an offset',
+        fs:[true, 'Open, seek, write. The file keeps its identity and only the changed bytes move.'],
+        os:[false, 'Not the normal model. Changing a Parquet file means <b>writing a whole new object</b>, not editing its footer in place — which is exactly why immutability is not a discipline you impose here, it is the shape of the store.'] },
+      { t:'rename / move',
+        fs:[true, 'A constant-time namespace update. This is what makes write-to-<code>.tmp</code>-then-rename a safe publication trick.'],
+        os:[false, 'Usually <b>copy to the new key, then delete the old one</b>. For a 500 GB object that transfers or internally copies the data, creates a window where both keys exist, and can fail between the two steps. <b>Any algorithm built on atomic rename needs a different publication mechanism here.</b>'] },
+      { t:'append to an existing file',
+        fs:[true, 'Cheap and common. A log file grows in place.'],
+        os:[false, 'Repeatedly replacing a growing object causes rewrite amplification and concurrency hazards. Object-store pipelines write <b>immutable segments</b> and compact them later, so a log’s logical append is a metadata addition of a new segment rather than a byte append.'] },
+      { t:'list a directory',
+        fs:[true, 'Read the directory entry. It is a real structure with a real snapshot.'],
+        os:[false, 'There are no directories — the slashes in <code>events/date=2026-01-01/part-0001.parquet</code> are characters interpreted as a <b>prefix</b>. Listing is a paginated enumeration whose cost scales with object count, and a prefix holding ten million objects is expensive to walk even when the query needs ten files.'] },
+      { t:'read a byte range',
+        fs:[true, 'Seek and read.'],
+        os:[true, '<b>Fully supported, and it is what makes columnar formats practical here.</b> An engine fetches the footer, inspects row-group metadata and requests selected ranges without downloading the object. Thousands of tiny objects destroy the advantage, because opening each one dominates.'] },
+      { t:'inherit permissions from the parent folder',
+        fs:[true, 'Directory permissions apply down the tree.'],
+        os:[false, 'Policy may apply at bucket, prefix, key or external-catalog level, and <b>prefix-shaped policy is not directory inheritance</b>. Copying data to another prefix may change its effective policy — and encryption keys, object tags, retention locks and legal holds are object-level concerns a path abstraction hides completely.'] }
+    ];
+    var ops = document.getElementById('v1-ops'), sides = document.getElementById('v1-sides');
+    function side(title, pair){
+      var c = pair[0] ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v1-s" style="border-color:' + c + '"><h4>' + title + '</h4>' +
+        '<span class="v1-stamp" style="color:' + c + '">' + (pair[0] ? '✓ yes, as you expect' : '✕ not like that') + '</span>' +
+        '<div class="v1-b">' + pair[1] + '</div></div>';
+    }
+    function show(i){
+      [].slice.call(ops.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      sides.innerHTML = side('file system', OPS[i].fs) + side('object store', OPS[i].os);
+    }
+    OPS.forEach(function(o, i){
+      var b = document.createElement('button');
+      b.className = 'v1-o';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span style="color:var(--viz-muted);font-weight:800">›</span><span>' + o.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      ops.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Listing Is Not Membership</h2>
+  <p class="vz-lede">A batch is writing 1,000 objects. Drag the moment a reader lists the prefix and watch
+    what it decides the table contains — then switch to a manifest. <b>Like counting people arriving at a
+    party to decide who was invited.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="How the reader decides membership">
+    <button id="v2-list" aria-pressed="true">list the prefix</button>
+    <button id="v2-succ" aria-pressed="false">list + _SUCCESS marker</button>
+    <button id="v2-man" aria-pressed="false">read the manifest</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-t">Reader lists at t = <span id="v2-tl">40%</span> through the batch</label>
+    <input type="range" id="v2-t" min="0" max="100" value="40" step="1" aria-label="When the reader lists">
+    <div class="v2-strip" id="v2-strip"></div>
+    <div class="v2-verdict" id="v2-verdict"></div>
+  </div>
+  <p class="vz-note">Costs are part of the semantics in practice. Object stores charge or throttle
+    <b>requests</b>, retrieval, egress, and sometimes early deletion from archive tiers — so an algorithm
+    issuing millions of HEAD or LIST calls can be expensive while reading almost no bytes. Measure request
+    count alongside bytes scanned.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-strip{margin-top:14px;display:flex;flex-wrap:wrap;gap:2px}
+    .v2-o{width:9px;height:9px;border-radius:2px;background:var(--viz-line)}
+    .v2-o.is-up{background:var(--viz-accent)}
+    .v2-o.is-seen{background:var(--viz-green)}
+    .v2-verdict{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-verdict b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-pill{display:inline-block;font-size:11.5px;font-weight:800;border-radius:999px;padding:3px 10px;
+      border:1.5px solid;margin:0 6px 8px 0;font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var N = 100;   // 1,000 objects shown as 100 squares
+    var mode = 'list';
+    var B = { list:document.getElementById('v2-list'), succ:document.getElementById('v2-succ'), man:document.getElementById('v2-man') };
+    var s = document.getElementById('v2-t'), tl = document.getElementById('v2-tl');
+    var strip = document.getElementById('v2-strip'), verdict = document.getElementById('v2-verdict');
+
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var pct = Number(s.value);
+      tl.textContent = pct + '%';
+      var up = Math.round(N * pct / 100);
+      var seen = mode === 'man' ? (pct >= 100 ? N : 0) : (mode === 'succ' ? (pct >= 100 ? N : 0) : up);
+
+      strip.innerHTML = Array.from({ length: N }, function(_, i){
+        var cls = i < seen ? 'is-seen' : (i < up ? 'is-up' : '');
+        return '<span class="v2-o ' + cls + '"></span>';
+      }).join('');
+
+      var files = seen * 10, uploaded = up * 10;
+      var right = seen === 0 || seen === N;
+      verdict.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + uploaded + ' of 1000 uploaded</span>' +
+        '<span class="v2-pill" style="color:' + (right ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (right ? 'var(--viz-green)' : 'var(--viz-red)') + '">reader uses ' + files + ' files</span><br>' +
+        (mode === 'list'
+          ? '<b style="color:var(--viz-red)">The reader queries a partial table and gets a wrong answer, silently.</b>' +
+            'Even under <b>strong list consistency</b> this happens, and that is the point worth holding on to: each object was published atomically and correctly, and the <em>logical batch</em> is simply incomplete. ' +
+            'Drag the slider and the answer changes on every position — 400 files, 900 files, all 1,000 — with nothing to distinguish a partial read from a complete one.'
+          : mode === 'succ'
+            ? '<b style="color:var(--viz-amber)">Better: the reader waits. But a marker answers only one question.</b>' +
+              '<code>_SUCCESS</code> signals that <em>a</em> job finished. It does not say <b>which</b> 1,000 files belong to the batch, it does not verify them, and it does not coordinate concurrent batches — ' +
+              'so a second job writing into the same prefix, or orphans left by a failed earlier attempt, are indistinguishable from the batch you want. ' +
+              'The reader is still inferring table state from whatever objects happen to share a prefix.'
+            : '<b style="color:var(--viz-green)">The manifest names the exact file set of one committed version.</b>' +
+              'Until the commit exists the reader sees the previous version; afterwards it sees all 1,000 and nothing else. No intermediate state is reachable, because <b>membership is data, not an observation</b>. ' +
+              '<br><br>A manifest carries the exact data objects, checksums, partitions, statistics and often row counts — so the reader loads one small authoritative structure instead of enumerating a prefix, ' +
+              'which also removes the listing cost entirely for a table with millions of objects.');
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. One Key, Many Keys</h2>
+  <p class="vz-lede">The whole lesson in one sentence: <b>strong consistency for individual keys does not
+    imply atomicity across a dataset.</b> Watch a compactor replace A and B with C three different ways.
+    <b>Like swapping a two-page document for a one-page one while someone is reading it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Order of operations">
+    <button id="v3-del" aria-pressed="true">delete A, delete B, put C</button>
+    <button id="v3-put" aria-pressed="false">put C, delete A, delete B</button>
+    <button id="v3-snap" aria-pressed="false">snapshot commit</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-tl" id="v3-tl"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Multi-object atomicity needs a <b>metadata layer</b>. A table snapshot records the
+    exact file set and the commit atomically changes one authoritative reference, while the large data
+    objects stay immutable. That is the foundation of open table formats: object storage holds the files;
+    table metadata supplies transactions, conflict detection, snapshots and garbage-collection
+    reachability.</p>
+
+  <style>
+    .v3-tl{display:flex;flex-direction:column;gap:5px}
+    .v3-step{border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;background:var(--viz-bg);
+      display:flex;align-items:center;gap:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.4}
+    .v3-step.is-bad{border-color:var(--viz-red)}
+    .v3-step.is-ok{border-color:var(--viz-green)}
+    .v3-sees{margin-left:auto;font-size:10.5px;font-weight:800;letter-spacing:.03em;font-family:inherit;text-align:right}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MODES = {
+      del: { steps:[
+          ['initial state', 'reader sees {A, B}', 'ok'],
+          ['DELETE A', 'reader sees {B} — ROWS MISSING', 'bad'],
+          ['DELETE B', 'reader sees {} — TABLE EMPTY', 'bad'],
+          ['PUT C', 'reader sees {C}', 'ok']],
+        why:['Delete-first exposes states with missing rows.',
+          'Between the operations a reader gets a <b>correct-looking answer computed over half the table</b>. No error, no retry, no signal — just a smaller number. ' +
+          'And note that every individual operation here was strongly consistent and completed successfully. The store did nothing wrong; the protocol did.'] },
+      put: { steps:[
+          ['initial state', 'reader sees {A, B}', 'ok'],
+          ['PUT C', 'reader sees {A, B, C} — ROWS DUPLICATED', 'bad'],
+          ['DELETE A', 'reader sees {B, C} — still duplicated', 'bad'],
+          ['DELETE B', 'reader sees {C}', 'ok']],
+        why:['Put-first exposes duplicate rows instead.',
+          'C already contains everything in A and B, so any reader listing the prefix during the window counts those rows twice. This is the shape that produces a total which is <b>1.6× correct</b> and different on every run depending on timing. ' +
+          '<br><br>Neither ordering is salvageable, because the problem is not the order — it is that <b>a group of puts and deletes is not one operation</b>, however strongly consistent each one is.'] },
+      snap: { steps:[
+          ['initial state · snapshot S1 = {A, B}', 'reader sees {A, B}', 'ok'],
+          ['PUT C  (unreferenced by any snapshot)', 'reader still sees {A, B}', 'ok'],
+          ['validate C: row count, checksum, schema', 'reader still sees {A, B}', 'ok'],
+          ['conditional commit: S2 = {C}, if current == S1', 'reader sees {A, B} or {C} — never both', 'ok'],
+          ['expire A and B after retention + safety', 'old snapshots become unreadable, on purpose', 'ok']],
+        why:['One atomic reference change. There is no intermediate state to observe.',
+          'C is created <b>privately</b> — it exists as an object but no snapshot references it, so no reader can reach it. The commit then publishes metadata whose active set removes A and B and adds C, in one conditional write. ' +
+          'A reader holding S1 finishes on S1; a reader arriving after the commit gets S2. <b>Either {A,B} or {C}, never a mixture.</b>' +
+          '<br><br>The last step is the one people skip: A and B cannot be deleted at commit time, because queries planned a moment ago are still reading them and time travel may need them for days.'] }
+    };
+    var mode = 'del';
+    var B = { del:document.getElementById('v3-del'), put:document.getElementById('v3-put'), snap:document.getElementById('v3-snap') };
+    var tl = document.getElementById('v3-tl'), why = document.getElementById('v3-why');
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var m = MODES[mode];
+      tl.innerHTML = m.steps.map(function(st){
+        var c = st[2] === 'bad' ? 'var(--viz-red)' : 'var(--viz-green)';
+        return '<div class="v3-step is-' + st[2] + '"><span>' + st[0] + '</span>' +
+          '<span class="v3-sees" style="color:' + c + '">' + st[1] + '</span></div>';
+      }).join('');
+      why.innerHTML = '<b style="color:' + (mode === 'snap' ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + m.why[0] + '</b>' + m.why[1];
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Moving A Pointer Safely</h2>
+  <p class="vz-lede">Two writers, one <code>current.json</code>. With an unconditional overwrite the store
+    behaves perfectly and one writer's work vanishes. Press run. <b>Like two people editing the same shared
+    note: whoever saves last is the only one who did anything.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Write mode">
+    <button id="v4-plain" aria-pressed="true">PUT current.json</button>
+    <button id="v4-cas" aria-pressed="false">conditional PUT (if-match etag)</button>
+  </div>
+
+  <div class="vz-card">
+    <button class="v4-run" id="v4-run">▶ run both writers</button>
+    <div class="v4-lanes" id="v4-lanes"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">Two things that look like solutions and are not</h4>
+    <div class="v4-anti" id="v4-anti"></div>
+  </div>
+  <p class="vz-note">Checksums guard a different boundary from consistency. A reader can
+    <em>consistently</em> retrieve the wrong artifact because the metadata references an incorrect key —
+    so validate object length and checksum against the manifest before accepting critical data, and
+    <b>quarantine mismatches</b> rather than retrying forever against a bad reference.</p>
+
+  <style>
+    .v4-run{width:100%;min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-surface);
+      color:var(--viz-accent);border-radius:10px;font:inherit;font-weight:700;font-size:13.5px;margin-bottom:13px}
+    .v4-lanes{display:flex;flex-direction:column;gap:5px}
+    .v4-l{border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;background:var(--viz-bg);
+      display:flex;align-items:center;gap:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-l.is-lost{border-color:var(--viz-red)}
+    .v4-l.is-retry{border-color:var(--viz-amber)}
+    .v4-l.is-ok{border-color:var(--viz-green)}
+    .v4-who{flex:0 0 62px;color:var(--viz-muted);font-weight:700}
+    .v4-out{margin-left:auto;font-size:10.5px;font-weight:800;font-family:inherit;letter-spacing:.03em}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-anti{display:flex;flex-direction:column;gap:7px}
+    .v4-a{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v4-a b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-red)}
+  </style>
+  <script>
+  (function(){
+    var cas = false, ran = false;
+    var bP = document.getElementById('v4-plain'), bC = document.getElementById('v4-cas');
+    var lanes = document.getElementById('v4-lanes'), why = document.getElementById('v4-why');
+
+    function render(){
+      bP.setAttribute('aria-pressed', cas ? 'false' : 'true');
+      bC.setAttribute('aria-pressed', cas ? 'true' : 'false');
+      if (!ran) {
+        lanes.innerHTML = '<div class="v4-l"><span class="v4-who">state</span><span>current.json = V1  (etag "a17f")</span></div>';
+        why.innerHTML = '<span style="color:var(--viz-muted)">Both writers have read V1 and each has built a new snapshot from it. Press run.</span>';
+        return;
+      }
+      var steps = cas
+        ? [['writer 1', 'reads current.json → V1, etag "a17f"', '', ''],
+           ['writer 2', 'reads current.json → V1, etag "a17f"', '', ''],
+           ['writer 1', 'PUT V2  if-match "a17f"', '✓ committed, etag now "b204"', 'ok'],
+           ['writer 2', 'PUT V3  if-match "a17f"', '✕ precondition failed', 'retry'],
+           ['writer 2', 'reads V2, replans, PUT V4 if-match "b204"', '✓ committed', 'ok'],
+           ['state', 'current.json = V4, containing BOTH changes', '', 'ok']]
+        : [['writer 1', 'reads current.json → V1', '', ''],
+           ['writer 2', 'reads current.json → V1', '', ''],
+           ['writer 1', 'PUT V2', '✓ 200 OK', 'ok'],
+           ['writer 2', 'PUT V3', '✓ 200 OK', 'ok'],
+           ['state', 'current.json = V3 — writer 1’s change is GONE', '', 'lost']];
+      lanes.innerHTML = steps.map(function(s){
+        var c = s[3] === 'lost' ? 'var(--viz-red)' : (s[3] === 'retry' ? 'var(--viz-amber)' : (s[3] === 'ok' ? 'var(--viz-green)' : 'var(--viz-muted)'));
+        return '<div class="v4-l' + (s[3] ? ' is-' + s[3] : '') + '"><span class="v4-who">' + s[0] + '</span><span>' + s[1] + '</span>' +
+          (s[2] ? '<span class="v4-out" style="color:' + c + '">' + s[2] + '</span>' : '') + '</div>';
+      }).join('');
+      why.innerHTML = cas
+        ? '<b style="color:var(--viz-green)">Compare-and-swap: publish only if the pointer is still what you planned against.</b>' +
+          'A conditional write on an <b>entity tag or generation</b> turns "overwrite" into "overwrite <em>if unchanged</em>". Writer 2’s attempt fails cleanly, it re-reads, replans and commits on top — and both changes survive. ' +
+          '<br><br>This is the same optimistic-concurrency shape as the compaction commit, and it is why the pointer is deliberately <b>small</b>: the expensive immutable data objects were already written and validated before anyone raced for it.'
+        : '<b style="color:var(--viz-red)">Last writer wins, and the store behaved perfectly.</b>' +
+          'Both PUTs returned 200. Both objects were published atomically. Strong consistency held throughout. And writer 1’s snapshot is unreachable forever, with no error anywhere in the system. ' +
+          '<br><br>This is the crispest illustration of the lesson: <b>per-key guarantees say nothing about coordination between writers</b>, and a shared mutable key is coordination.';
+    }
+    bP.addEventListener('click', function(){ cas = false; render(); });
+    bC.addEventListener('click', function(){ cas = true; render(); });
+    document.getElementById('v4-run').addEventListener('click', function(){ ran = true; render(); });
+    render();
+
+    document.getElementById('v4-anti').innerHTML = [
+      ['a lock stored as an ordinary object', 'A client can pause beyond its lease, another client acquires the lock, and the first resumes believing it still owns it — then writes. <b>Fencing tokens</b> fix this by letting downstream commits reject a stale holder. Optimistic compare-and-swap usually avoids global locks altogether, though overlapping data changes still need conflict rules.'],
+      ['ordering commits by wall-clock time', 'Machines skew and two commits can share a timestamp, so a timestamp-ordered history can be silently wrong about which change came first. Use <b>metadata sequence numbers, unique snapshot IDs, or conditional parent references</b>. Timestamps stay useful as descriptive fields and must never be the concurrency guard.']
+    ].map(function(a){ return '<div class="v4-a"><b>' + a[0] + '</b>' + a[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Five Places To Crash</h2>
+  <p class="vz-lede">Consistency claims are only trustworthy when the multi-step protocol has been tested at
+    every window. Pick a crash point and check three things: what readers see, whether recovery is
+    idempotent, and whether cleanup could eat live data. <b>Like fire drills: the point is the doors you
+    have not tried.</b></p>
+
+  <div class="v5-points" id="v5-points"></div>
+
+  <div class="vz-card">
+    <div class="v5-checks" id="v5-checks"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Local development conceals all of this: an emulator or mounted adapter answers
+    listings cheaply and makes rename appear native. <b>Integration tests should run against the real API
+    behaviour</b> — pagination, conditional requests, multipart completion, credentials and realistic
+    object counts. Performance and correctness assumptions belong in those tests.</p>
+
+  <style>
+    .v5-points{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v5-p{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.4}
+    .v5-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v5-checks{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-c{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;line-height:1.45}
+    .v5-c span:first-child{flex:0 0 auto;font-weight:800;width:16px}
+    .v5-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var POINTS = [
+      { t:'crash after SOME uploads',
+        checks:[[true,'Readers see the previous snapshot, whole.'],[true,'Recovery is idempotent: re-upload to the same deterministic keys.'],[true,'Cleanup is safe after the delay.']],
+        why:['Nothing committed, so nothing changed.',
+          'The uploaded objects are unreferenced. Retrying against the <b>same deterministic key</b> lets the job verify the checksum and reuse what is already there instead of re-transferring it — which is the practical payoff of content-derived names. ' +
+          'Whatever is genuinely abandoned becomes an orphan for later cleanup.'] },
+      { t:'crash after ALL uploads, before the pointer commit',
+        checks:[[true,'Readers see the previous snapshot, whole.'],[true,'Recovery can resume straight at the commit.'],[true,'Cleanup safe — but only after the safety delay.']],
+        why:['The most recoverable window, and the one that traps garbage collection.',
+          'Every data object exists and is valid; only the commit is missing. Recovery is cheap. ' +
+          '<br><br>The trap is on the cleanup side: these objects look exactly like orphans to a prefix scan, and they belong to a job that is about to commit. ' +
+          '<b>That is why GC needs a safety delay and must start from retained manifests</b> rather than from "everything absent from the latest file list".'] },
+      { t:'crash DURING the conditional commit',
+        checks:[[true,'Readers see old or new, never a mixture.'],[false,'Recovery must NOT blindly retry.'],[true,'Cleanup safe after the delay.']],
+        why:['Genuinely ambiguous — and the ambiguity is the design problem.',
+          'The conditional write may have landed before the connection dropped. <b>The client must read the pointer to learn whether the commit succeeded</b> before attempting another change. ' +
+          'A blind retry can create a duplicate snapshot or overwrite newer state that another writer committed in between. ' +
+          '<br><br>Same shape as a lost transaction acknowledgement: <b>failure is not proof of rollback.</b>'] },
+      { t:'commit succeeded, acknowledgement lost',
+        checks:[[true,'Readers already see the new snapshot.'],[false,'A naive retry corrupts newer state.'],[true,'Cleanup safe after the delay.']],
+        why:['The table is already correct. The job is the only confused party.',
+          'Readers are being served from the new snapshot right now. If the job retries as though its inputs were still active it will operate on a picture that is no longer true — and in a compaction that means treating live outputs as inputs. ' +
+          '<br><br>Recovery is a <b>read</b>, not a write: query the table metadata by attempt id or output ids to establish state first.'] },
+      { t:'commit fine, but a reader still sees the old data',
+        checks:[[true,'The store is consistent.'],[true,'Nothing to recover.'],[true,'Cleanup unaffected.']],
+        why:['Look at the read path before blaming the store.',
+          'A service can strongly publish a new object while a <b>CDN, a query-engine metadata cache or an application cache</b> still holds the old pointer. Versioned immutable URLs remove content ambiguity, and pointer caches need bounded lifetimes or explicit invalidation. ' +
+          '<br><br>Cross-region replication is the same class of problem with a different cause: a transaction committed in the primary may reference data files that have not arrived in a replica yet. ' +
+          'Disaster-recovery design must ensure <b>metadata never advances beyond the available replicated objects</b>, or publish region-specific readiness pointers.'] }
+    ];
+    var sel = 0;
+    var pts = document.getElementById('v5-points'), checks = document.getElementById('v5-checks'), why = document.getElementById('v5-why');
+    var LABELS = ['readers see a complete snapshot', 'recovery is idempotent', 'orphan cleanup cannot delete retained data'];
+    function render(){
+      pts.innerHTML = POINTS.map(function(p, i){
+        return '<button class="v5-p" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v5-n">' + (i + 1) + '</span><span>' + p.t + '</span></button>';
+      }).join('');
+      [].slice.call(pts.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var p = POINTS[sel];
+      checks.innerHTML = p.checks.map(function(c, i){
+        var col = c[0] ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v5-c"><span style="color:' + col + '">' + (c[0] ? '✓' : '✕') + '</span>' +
+          '<span><b>' + LABELS[i] + '</b> — ' + c[1] + '</span></div>';
+      }).join('');
+      why.innerHTML = '<b>' + p.why[0] + '</b>' + p.why[1];
+    }
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

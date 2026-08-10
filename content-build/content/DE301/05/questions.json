@@ -3,126 +3,216 @@
     {
       "topic": "Chunk-and-Embed as an Idempotent Batch Job",
       "question": "What should determine an embedding artifact's identity?",
-      "options": ["Chunk identity plus model revision and preprocessing version", "Only the current date", "Only the logical document ID", "A random retry number"],
-      "answerIndex": 0,
+      "options": [
+        "The logical document ID alone, since one document maps to one stored vector",
+        "The date on which the batch job that produced the vector was first started",
+        "The chunk identity together with the model revision and the preprocessing version",
+        "The attempt number of the retry that finally succeeded in producing the vector"
+      ],
+      "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Chunk-and-Embed as an Idempotent Batch Job",
       "question": "What does idempotent embedding output mean?",
-      "options": ["Every retry appends a new vector", "The same logical inputs converge to the same committed vector records", "Failures are never retried", "Every document has one vector"],
-      "answerIndex": 1,
+      "options": [
+        "The same logical inputs converge on the same committed vector records",
+        "Each retry appends a fresh vector so no earlier attempt is ever overwritten",
+        "Failed batches are never retried, so the corpus can contain missing vectors",
+        "Every source document ends up with exactly one vector regardless of length"
+      ],
+      "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Chunk-and-Embed as an Idempotent Batch Job",
       "question": "Why should batches be packed by tokens instead of only chunk count?",
-      "options": ["Chunks never differ in length", "Tokenizers are irrelevant", "Model request limits are based on token volume and chunks vary in size", "Token packing removes rate limits"],
-      "answerIndex": 2,
+      "options": [
+        "Because the tokenizer has no bearing on how the endpoint bills a request",
+        "Because request limits are expressed in tokens and chunk sizes vary widely",
+        "Because chunks produced by one chunker never differ in length from each other",
+        "Because token-aware packing removes the endpoint's per-minute rate limiting"
+      ],
+      "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Chunk-and-Embed as an Idempotent Batch Job",
       "question": "Which output validation is essential?",
-      "options": ["Every vector has a different dimension", "The response uses current wall time", "The model name is friendly", "Count, item mapping, dimension, finite values, and norm checks pass"],
+      "options": [
+        "That every returned vector carries a dimension unlike that of its neighbors",
+        "That the response timestamp matches the current wall clock of the batch job",
+        "That the model name in the response is a friendly and human-readable string",
+        "That the count, ordering, dimension, finite values, and norms all check out"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Chunk-and-Embed as an Idempotent Batch Job",
       "question": "An embedding request times out after the server may have processed it. What makes retry safe?",
-      "options": ["Upsert using deterministic embedding IDs", "Append results under an attempt ID", "Change the preprocessing version", "Delete the chunk"],
-      "answerIndex": 0,
+      "options": [
+        "Appending each result under a fresh attempt ID so nothing is ever overwritten",
+        "Deleting the chunk so the next scan treats it as newly arrived source content",
+        "Upserting under deterministic embedding IDs so that a repeat converges on one record",
+        "Bumping the preprocessing version so the retry cannot collide with the first try"
+      ],
+      "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Chunk-and-Embed as an Idempotent Batch Job",
       "question": "Why is a cache keyed only by chunk text unsafe?",
-      "options": ["Text cannot be hashed", "It can reuse a vector from an incompatible model or preprocessing version", "Caches cannot store vectors", "Every model produces the same space"],
-      "answerIndex": 1,
+      "options": [
+        "Because it can reuse a vector built from an incompatible model or preprocessing version",
+        "Because the chunk text cannot be hashed into a stable key without a fixed tokenizer",
+        "Because a cache layer is unable to store float arrays alongside their metadata",
+        "Because every embedding model maps identical text into the very same space"
+      ],
+      "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Storing Vectors Beside Metadata",
       "question": "Why must vector records include metadata?",
-      "options": ["Vectors cannot be scored", "Metadata changes vector dimension", "Filtering, citation, invalidation, and lineage require it", "Metadata eliminates source documents"],
-      "answerIndex": 2,
+      "options": [
+        "Because a vector's raw values cannot be scored without an accompanying label",
+        "Because filtering, citation, invalidation, and lineage all depend on it",
+        "Because metadata fields set the dimension the index will allocate",
+        "Because metadata makes the original source documents safe to delete entirely"
+      ],
+      "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Storing Vectors Beside Metadata",
       "question": "Which metadata is fundamental to vector interpretation?",
-      "options": ["Dashboard color", "Query count only", "User's browser version", "Model version, dimension, normalization, metric, and chunk identity"],
+      "options": [
+        "The average cosine score the vector has reached across recent search traffic",
+        "The number of queries that have retrieved the vector since it was written",
+        "The replica identifier of the index shard on which the vector currently sits",
+        "The model version, dimension, normalization, metric, and the chunk identity"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Storing Vectors Beside Metadata",
       "question": "Why keep a normalized corpus catalog even if the vector index repeats fields?",
-      "options": ["It remains authoritative for complete lineage and reconstructable serving state", "Vector stores never support metadata", "Catalogs compute ANN search directly", "Repeated fields cannot be filtered"],
-      "answerIndex": 0,
+      "options": [
+        "Because a vector index is unable to store any metadata beside the vector itself",
+        "Because only a relational catalog can execute nearest-neighbor search efficiently",
+        "Because it stays authoritative for the lineage and reconstructable serving state",
+        "Because fields repeated inside an index cannot be used as filters during a search"
+      ],
+      "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Storing Vectors Beside Metadata",
       "question": "What should happen after a document permission revocation?",
-      "options": ["Wait for the next model upgrade", "Propagate the change promptly to every retrievable vector or trusted authorization layer", "Change only the document title", "Leave cached vector results indefinitely"],
-      "answerIndex": 1,
+      "options": [
+        "Propagate it promptly to every retrievable vector or to a trusted authorization layer",
+        "Wait for the next model upgrade so the change rides along with a re-embed",
+        "Update the document's title so downstream consumers notice the change",
+        "Leave cached result sets in place, since they contain scores rather than text"
+      ],
+      "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Storing Vectors Beside Metadata",
       "question": "Why should 768-dimensional cosine vectors and 1536-dimensional inner-product vectors use typed namespaces?",
-      "options": ["They always have identical semantics", "Namespace names determine relevance", "Their dimensions, normalization, and distance contracts are incompatible", "Vector stores support only one record"],
-      "answerIndex": 2,
+      "options": [
+        "Because the namespace name is what the ranker reads to decide relevance",
+        "Because their dimension, normalization, and metric contracts are incompatible",
+        "Because a vector store can hold only one record per namespace at any one moment",
+        "Because the two sets carry identical semantics and so must be stored separately"
+      ],
+      "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Storing Vectors Beside Metadata",
       "question": "What does an orphan-vector reconciliation check?",
-      "options": ["Whether every query has a click", "Whether all vector values are positive", "Whether every source has one chunk", "Whether each active vector resolves to an active, permitted source artifact"],
+      "options": [
+        "Whether every query issued against the index eventually produced a click",
+        "Whether every source document has been split into exactly one stored chunk",
+        "Whether all of a vector's stored component values are positive after scaling",
+        "Whether each active vector still resolves to an active, permitted source"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "Pre-Filter vs Post-Filter in ANN Search",
       "question": "What is pre-filtering in ANN search?",
-      "options": ["Restrict eligibility before or during nearest-neighbor search", "Remove results only after returning them to the user", "Filter training examples", "Sort vectors by ID"],
-      "answerIndex": 0,
+      "options": [
+        "Removing ineligible results only after they have been shown to the user",
+        "Filtering the source text of documents before any embedding is computed",
+        "Restricting eligibility before or during the nearest-neighbor search",
+        "Sorting the stored vectors by identifier so ineligible ranges can be skipped"
+      ],
+      "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Pre-Filter vs Post-Filter in ANN Search",
       "question": "What is post-filtering?",
-      "options": ["Building one index per tenant", "Retrieve broader ANN candidates, then discard ineligible results", "Changing vector dimension", "Filtering source text before embedding"],
+      "options": [
+        "Building a separate index per tenant so every search is already eligible",
+        "Retrieving a broader candidate set, then discarding the ineligible results",
+        "Reducing each vector's dimension before the eligibility predicate is applied",
+        "Screening the source documents so ineligible text is never embedded at all"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Pre-Filter vs Post-Filter in ANN Search",
       "question": "Eligible fraction is 5 percent and k is 20. What rough post-filter candidate count does k divided by p suggest?",
-      "options": ["20", "100", "400", "2000"],
+      "options": [
+        "20",
+        "100",
+        "400",
+        "2000"
+      ],
       "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Pre-Filter vs Post-Filter in ANN Search",
       "question": "When can exact filtered search be preferable to ANN?",
-      "options": ["When every vector is eligible", "When vectors have no metadata", "When latency has no limit", "When the eligible subset is very small"],
+      "options": [
+        "When every vector in the shared index satisfies the request's predicate",
+        "When the stored vectors carry no metadata that a predicate could read",
+        "When latency has no budget at all and recall is therefore irrelevant",
+        "When the eligible subset is small enough that scanning it is cheap"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Pre-Filter vs Post-Filter in ANN Search",
       "question": "Why is k divided by eligible fraction only a rough oversampling guide?",
-      "options": ["Eligibility and similarity can be skewed and ANN itself can miss candidates", "Eligible fraction is always one", "Post-filtering guarantees k results", "Distance scores are binary"],
+      "options": [
+        "Because eligibility can correlate with similarity and ANN itself also misses items",
+        "Because the eligible fraction is always one once a pre-filter has been applied",
+        "Because post-filtering already guarantees exactly k results on every request",
+        "Because distance scores are binary, so oversampling cannot change the ranking"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Pre-Filter vs Post-Filter in ANN Search",
       "question": "What is required for secure post-filtering?",
-      "options": ["Unauthorized candidates may be logged freely", "Filtering occurs inside a trusted boundary before any prohibited disclosure", "The reranker receives all private text", "Metadata freshness is optional"],
+      "options": [
+        "That unauthorized candidates may be written to logs but not to responses",
+        "That removal happens inside a trusted boundary before any disclosure",
+        "That the reranker receives the full private text of every candidate first",
+        "That authorization metadata freshness is treated as an optional concern"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     }

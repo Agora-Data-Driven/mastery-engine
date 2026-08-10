@@ -1,0 +1,455 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Events To Inputs</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Sliding Window</button>
+  <button class="viz-tab" data-viz-tab="3">3. Which Clock</button>
+  <button class="viz-tab" data-viz-tab="4">4. Two Projections</button>
+  <button class="viz-tab" data-viz-tab="5">5. When The Run Is Missed</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Events To Inputs</h2>
+  <p class="vz-lede">You already run this pipeline — BM25 statistics and document embeddings are values a
+    job computed from raw documents and logs. Here is the general shape, with a contract at every stage.
+    Tap one. <b>Like a kitchen: deliveries, inspection, prep, cooking, plating — and only one of those
+    stages can ruin the whole service.</b></p>
+
+  <div class="v1-stages" id="v1-stages"></div>
+
+  <div class="vz-card">
+    <div class="v1-io vz-mono" id="v1-io"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">A model input is just a fixed-order vector of feature values for one entity at one
+    as-of time — the design-matrix rows you already know from training linear and logistic models. Nothing
+    about the destination is exotic; all the difficulty is in getting honest values into it.</p>
+
+  <style>
+    .v1-stages{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v1-s{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.4}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-s.is-risk[aria-pressed="true"]{border-color:var(--viz-red)}
+    .v1-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v1-tag{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;white-space:nowrap}
+    .v1-io{margin-bottom:12px}
+    .v1-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { t:'Ingestion', tag:'STATELESS', risk:false,
+        io:'producer → durable partitioned storage\n\n{"user_id":"u42","event":"click","doc_id":"d9","ts":"2026-07-01T08:14:03Z"}\n\nlanded at:  events/arrival_date=2026-07-01/part-*.parquet',
+        why:['Land the facts, unchanged, keyed by arrival date.',
+          'A raw event is an <b>immutable, append-only record</b>: something happened, to some entity, at some time. Events are never updated in place — a wrongly logged click gets a <b>correction event appended</b>. ' +
+          '<br><br>That immutability is not tidiness. It is the property that makes everything downstream <b>recomputable</b>: any derived value can be rebuilt for any point in the past, as many times as you need.'] },
+      { t:'Validation', tag:'QUARANTINE, NOT DROP', risk:false,
+        io:'schema + sanity ranges\n\n  ✓ required keys present\n  ✓ timestamp parseable and NOT in the future\n  ✓ enumeration legal\n  ✓ numeric within plausible bounds\n\n  ✕ → dead_letter/  (with the reason attached)',
+        why:['Failures go to quarantine with a reason, and the rate is monitored.',
+          '<b>Quarantining beats silently dropping</b> because you can inspect, fix and replay. <b>It beats letting bad rows through</b> because one malformed producer deploy otherwise poisons every aggregate computed after it — and aggregates are exactly where you will not notice. ' +
+          '<br><br>The monitored quantity is the <em>rate</em>: a steady 0.2% failure is a known cost, and 4% this morning is an incident.'] },
+      { t:'Transformation', tag:'STATELESS', risk:false,
+        io:'per-event cleaning, output row depends ONLY on its input row\n\n  ts → UTC\n  "US" | "usa" | "United States" → "US"\n  cast types, derive simple per-event fields',
+        why:['Stateless means trivially parallel and trivially re-runnable.',
+          'Each output row depends only on its input row, so this stage can be sharded arbitrarily and re-run without coordination. Everything difficult about pipelines lives in the stage that is <em>not</em> like this.'] },
+      { t:'Aggregation', tag:'WHERE THE RISK LIVES', risk:true,
+        io:'windowed reductions, grouped by entity key\n\n  user_ctr_7d   = clicks / impressions over 7 days\n  spend_30d     = SUM(amount) over 30 days\n  last_seen_at  = MAX(ts)\n\n  → (entity, feature, value, as_of)',
+        why:['Stateful across events — and the source of almost every subtle bug in this course.',
+          'Counts, sums, rates, distinct counts and most-recent values over 1-day, 7-day and 30-day windows. Unlike the three stages above it, this one depends on <b>which events were in scope</b>, which means it depends on a window, a clock and a lateness policy. ' +
+          '<br><br>Visuals 2 and 3 are entirely about this one stage.'] },
+      { t:'Materialization', tag:'TWO DESTINATIONS', risk:false,
+        io:'ONE computation → TWO projections\n\n  offline:  full dated history, columnar, partitioned by as_of\n  online:   latest values only, key-value, TTL',
+        why:['Two projections of one computation, never two computations.',
+          'The full dated history goes to the offline store for training and backfills; the latest values go to the online store for serving. Visual 4 is about why those two need different physical layouts — and why they must come from the same code path.'] }
+    ];
+    var stages = document.getElementById('v1-stages'), io = document.getElementById('v1-io'), why = document.getElementById('v1-why');
+    var sel = 0;
+    function render(){
+      stages.innerHTML = STAGES.map(function(s, i){
+        return '<button class="v1-s' + (s.risk ? ' is-risk' : '') + '" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v1-n">' + (i + 1) + '</span><span>' + s.t + '</span>' +
+          '<span class="v1-tag" style="color:' + (s.risk ? 'var(--viz-red)' : 'var(--viz-muted)') + '">' + s.tag + '</span></button>';
+      }).join('');
+      [].slice.call(stages.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      io.innerHTML = STAGES[sel].io;
+      why.innerHTML = '<b>' + STAGES[sel].why[0] + '</b>' + STAGES[sel].why[1];
+    }
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Sliding Window</h2>
+  <p class="vz-lede">A feature is three things: an entity, a value, and an <b>as-of timestamp</b>. Drag the
+    as-of date and watch the same feature name take a different value — which is exactly why the third part
+    is not decoration. <b>Like a bank balance: meaningless without saying when.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-d">user_ctr_7d(u42, as_of = <span id="v2-dl">2026-07-08</span>)</label>
+    <input type="range" id="v2-d" min="0" max="6" value="0" step="1" aria-label="As-of date">
+    <div class="v2-tl" id="v2-tl"></div>
+    <div class="v2-calc" id="v2-calc"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v2-h">Re-run the same job. What should happen?</h4>
+    <div class="v2-tog">
+      <button class="v2-t" id="v2-over" aria-pressed="true">overwrite the partition</button>
+      <button class="v2-t" id="v2-app" aria-pressed="false">append the results</button>
+    </div>
+    <div class="v2-idem" id="v2-idem"></div>
+  </div>
+  <p class="vz-note">History accumulates one row per entity per day, and every row is kept. That is what
+    lets a training job ask for the value <em>as it was</em> on any past date — the mechanism the next
+    lesson is built on.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;font-family:ui-monospace,Consolas,monospace}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-tl{position:relative;height:64px;margin-top:16px;border-radius:8px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);overflow:hidden}
+    .v2-win{position:absolute;top:0;bottom:0;background:var(--viz-accent);opacity:.14}
+    .v2-ev{position:absolute;width:9px;height:9px;border-radius:50%;transform:translate(-50%,-50%)}
+    .v2-ev.imp{background:var(--viz-muted)}
+    .v2-ev.clk{background:var(--viz-violet)}
+    .v2-axis{position:absolute;left:0;right:0;bottom:5px;font-size:9px;color:var(--viz-muted);
+      display:flex;justify-content:space-between;padding:0 4px}
+    .v2-calc{margin-top:13px;font-size:12.5px;line-height:1.6}
+    .v2-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-h{margin:0 0 9px;font-size:13px}
+    .v2-tog{display:flex;gap:6px;margin-bottom:11px}
+    .v2-t{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-muted);
+      border-radius:10px;font:inherit;font-weight:700;font-size:12px}
+    .v2-t[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);background:var(--viz-surface)}
+    .v2-idem{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    // day index 0 = 2026-06-28 … 20 = 2026-07-18 ; events at fractional days
+    var IMP = [1.2,1.8,2.4,3.1,3.6,4.2,4.9,5.3,5.9,6.4,7.1,7.6,8.2,8.8,9.3,9.9,10.4,11.1,11.7,12.3,13.0];
+    var CLK = [2.1,4.4,6.8,8.5,11.2,12.9];
+    var DAYS = ['2026-07-08','2026-07-09','2026-07-10','2026-07-11','2026-07-12','2026-07-13','2026-07-14'];
+    var s = document.getElementById('v2-d'), dl = document.getElementById('v2-dl');
+    var tl = document.getElementById('v2-tl'), calc = document.getElementById('v2-calc');
+
+    function render(){
+      var i = Number(s.value);
+      dl.textContent = DAYS[i];
+      var asOf = 10 + i;          // day index of the as-of boundary
+      var lo = asOf - 7, hi = asOf;
+      var span = 21;
+      var imps = IMP.filter(function(x){ return x >= lo && x < hi; }).length;
+      var clks = CLK.filter(function(x){ return x >= lo && x < hi; }).length;
+      var ctr = imps ? clks / imps : 0;
+
+      tl.innerHTML =
+        '<div class="v2-win" style="left:' + (lo / span * 100) + '%;width:' + (7 / span * 100) + '%"></div>' +
+        IMP.map(function(x){ return '<div class="v2-ev imp" style="left:' + (x / span * 100) + '%;top:22px"></div>'; }).join('') +
+        CLK.map(function(x){ return '<div class="v2-ev clk" style="left:' + (x / span * 100) + '%;top:38px"></div>'; }).join('') +
+        '<div class="v2-axis"><span>Jun 28</span><span>Jul 8</span><span>Jul 18</span></div>';
+
+      calc.innerHTML =
+        '<div class="v2-pills">' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + imps + ' impressions</span>' +
+        '<span class="v2-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + clks + ' clicks</span>' +
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">value ' + ctr.toFixed(3) + '</span>' +
+        '</div>' +
+        'Window: <code>' + DAYS[i].replace(/\d\d$/, function(d){ return String(Number(d) - 7).padStart(2, '0'); }) + ' &lt;= ts &lt; ' + DAYS[i] + '</code>. ' +
+        'The output row is <code>(entity=u42, feature=user_ctr_7d, value=' + ctr.toFixed(3) + ', as_of=' + DAYS[i] + ')</code>. ' +
+        '<br><br>Drag the slider and the window slides: events fall out of the left edge and enter at the right, so <b>the same feature name takes a different value on a different day</b>. ' +
+        'That is why a feature without an as-of timestamp is a latent bug — a consumer that cannot say <em>which</em> day it wants will eventually get the wrong one.';
+    }
+    s.addEventListener('input', render);
+    render();
+
+    var over = true;
+    var bO = document.getElementById('v2-over'), bA = document.getElementById('v2-app');
+    var idem = document.getElementById('v2-idem');
+    function idemRender(){
+      bO.setAttribute('aria-pressed', over ? 'true' : 'false');
+      bA.setAttribute('aria-pressed', over ? 'false' : 'true');
+      idem.innerHTML = over
+        ? '<b style="color:var(--viz-green)">Byte-identical state, every time.</b>' +
+          'The run <b>owns</b> a deterministic output partition — <code>feature=user_ctr_7d/as_of=2026-07-08</code> — and overwrites it. Crash halfway, retry, re-run after a bugfix, run it twice by accident: the result is the same. ' +
+          '<br><br>Jobs crash, schedulers retry, and humans re-run things. This is the design rule that survives all three, and <b>it is cheap to design in and brutal to retrofit.</b>'
+        : '<b style="color:var(--viz-red)">The first crash-and-retry doubles every count.</b>' +
+          'A mid-job crash leaves some rows written; the retry appends them again. <code>user_ctr_7d</code> for u42 is now computed from 28 impressions instead of 14, and nothing errored. ' +
+          '<br><br>Worse, the corruption <b>propagates to every downstream consumer before anyone notices</b> — the model retrains on it, the dashboard reports it, and the only signal is that a number looks slightly off weeks later.';
+    }
+    bO.addEventListener('click', function(){ over = true; idemRender(); });
+    bA.addEventListener('click', function(){ over = false; idemRender(); });
+    idemRender();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Which Clock</h2>
+  <p class="vz-lede">Events arrive late — mobile clients batch uploads, queues back up, regions fail over.
+    Which timestamp you window on decides whether a re-run reproduces the original answer.
+    <b>Like postmarks versus the day the postman happened to deliver.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which clock the window uses">
+    <button id="v3-proc" aria-pressed="false">window on PROCESSING time</button>
+    <button id="v3-ev" aria-pressed="true">window on EVENT time</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-rows" id="v3-rows"></div>
+    <button class="v3-run" id="v3-rerun">↻ re-run the job three days later</button>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Batch or streaming is the other half of this decision, and the rule is the same shape:
+    <b>choose the slowest freshness the model measurably needs.</b> Most teams run batch for everything and
+    move individual features to streaming only when staleness is shown to cost accuracy — a 10-minute
+    transaction count in fraud detection is the canonical exception, not the template.</p>
+
+  <style>
+    .v3-rows{display:flex;flex-direction:column;gap:4px;margin-bottom:13px}
+    .v3-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-r.is-moved{border-color:var(--viz-red)}
+    .v3-r.is-stable{border-color:var(--viz-green)}
+    .v3-late{color:var(--viz-amber);font-weight:700}
+    .v3-win{margin-left:auto;font-size:10.5px;font-weight:800;font-family:inherit;letter-spacing:.03em}
+    .v3-run{width:100%;min-height:44px;border:1.5px solid var(--viz-amber);background:var(--viz-surface);
+      color:var(--viz-amber);border-radius:10px;font:inherit;font-weight:700;font-size:13px}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var byEvent = true, rerun = false;
+    var EVENTS = [
+      { id:'e1', ev:'Jul 06', proc:'Jul 06', late:false },
+      { id:'e2', ev:'Jul 07', proc:'Jul 07', late:false },
+      { id:'e3', ev:'Jul 07', proc:'Jul 10', late:true },
+      { id:'e4', ev:'Jul 08', proc:'Jul 11', late:true },
+      { id:'e5', ev:'Jul 09', proc:'Jul 09', late:false }
+    ];
+    var bP = document.getElementById('v3-proc'), bE = document.getElementById('v3-ev');
+    var rows = document.getElementById('v3-rows'), why = document.getElementById('v3-why');
+
+    function render(){
+      bP.setAttribute('aria-pressed', byEvent ? 'false' : 'true');
+      bE.setAttribute('aria-pressed', byEvent ? 'true' : 'false');
+      rows.innerHTML = EVENTS.map(function(e){
+        var origin = byEvent ? e.ev : (rerun ? e.proc : (e.late ? '— not yet seen' : e.proc));
+        var win = byEvent ? ('week of ' + e.ev) : (rerun ? ('week of ' + e.proc) : (e.late ? 'absent from the run' : 'week of ' + e.proc));
+        var moved = !byEvent && rerun && e.late;
+        var cls = byEvent ? 'is-stable' : (moved ? 'is-moved' : '');
+        return '<div class="v3-r ' + cls + '"><span>' + e.id + '</span>' +
+          '<span>event ' + e.ev + '</span>' +
+          '<span class="' + (e.late ? 'v3-late' : '') + '">processed ' + e.proc + (e.late ? '  (late)' : '') + '</span>' +
+          '<span class="v3-win" style="color:' + (moved ? 'var(--viz-red)' : (byEvent ? 'var(--viz-green)' : 'var(--viz-muted)')) + '">' + win + '</span></div>';
+      }).join('');
+
+      why.innerHTML = byEvent
+        ? '<b style="color:var(--viz-green)">Stable by construction: every event lands in the window where it actually happened.</b>' +
+          'e3 happened on Jul 07 and arrived on Jul 10; it belongs to the week of Jul 07 in the original run and in every re-run afterwards. ' +
+          '<br><br>The remaining design decision is the <b>lateness horizon</b>: wait a declared period — say 48 hours — then <b>close the window and treat its partition as immutable</b>. ' +
+          'Events arriving after the horizon go to a correction process or are consciously dropped, but <b>the closed partition never silently changes</b>. ' +
+          'That is what makes a training set from three months ago mean the same thing today as it did then.'
+        : (rerun
+          ? '<b style="color:var(--viz-red)">The re-run assigned e3 and e4 to different windows than the original run.</b>' +
+            'They were absent the first time (they had not arrived) and are now bucketed by when the <em>pipeline</em> saw them — Jul 10 and Jul 11 — not by when they happened. ' +
+            '<b>The same job, the same code and the same source data produced different features</b>, and no diff exists to explain it. ' +
+            '<br><br>This is unstable by construction rather than by accident: the output depends on when you ran it, so reproducibility was never available.'
+          : '<b style="color:var(--viz-amber)">Looks fine right now — the late events simply have not arrived.</b>' +
+            'Every event present is bucketed by when the pipeline saw it, and the numbers are perfectly plausible. Press re-run and watch what a bugfix, a retry, or a backfill does to them.');
+    }
+    bP.addEventListener('click', function(){ byEvent = false; render(); });
+    bE.addEventListener('click', function(){ byEvent = true; render(); });
+    document.getElementById('v3-rerun').addEventListener('click', function(){ rerun = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Two Projections</h2>
+  <p class="vz-lede">One computation, two consumers with opposite access patterns. Switch consumer and
+    watch which layout survives the requirement. <b>Like a library that needs both a reading room and a
+    vending machine.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Consumer">
+    <button id="v4-train" aria-pressed="true">training: 90 days × 1M users</button>
+    <button id="v4-serve" aria-pressed="false">serving: one user, 20 ms</button>
+  </div>
+
+  <div class="v4-sides" id="v4-sides"></div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <div class="vz-mono" id="v4-arch">        ONE pipeline computes user_ctr_7d
+                    │
+        ┌───────────┴───────────┐
+        ▼                       ▼
+   OFFLINE STORE           ONLINE STORE
+   full dated history      latest values only
+   columnar, by as_of      key-value, TTL
+   training · backfills    serving reads</div>
+    <div class="v4-reg" id="v4-reg"></div>
+  </div>
+  <p class="vz-note">And you may not need one at all. If all scoring is a nightly batch — score 200k
+    customers, write results to a table an app reads — there is no online read path, so compute features
+    and scores in the same job. At small scale a document per user refreshed by one scheduled job <em>is</em>
+    a perfectly good minimal online store: <b>the pattern matters, not the product.</b></p>
+
+  <style>
+    .v4-sides{display:flex;flex-direction:column;gap:9px}
+    .v4-s{border:1.5px solid var(--viz-line);border-radius:11px;padding:11px;background:var(--viz-bg)}
+    .v4-s h4{margin:0 0 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v4-stamp{font-weight:800;font-size:13px;display:block;margin-bottom:4px}
+    .v4-b{font-size:12.5px;line-height:1.5}
+    .v4-num{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted);margin-top:6px;display:block}
+    .v4-reg{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var train = true;
+    var bT = document.getElementById('v4-train'), bS = document.getElementById('v4-serve');
+    var sides = document.getElementById('v4-sides');
+
+    var DATA = {
+      train: {
+        off:[true, 'Right layout.', 'A bulk scan over months of history: reading one feature column across a billion rows is <b>sequential I/O</b> on columnar, compressed, date-partitioned files. Latency of seconds to minutes is fine here; storage and per-scan compute are the costs that matter.',
+          '~90M rows scanned · minutes · costs cents'],
+        on:[false, 'Wrong layout — and wrong data.', 'The online store holds <b>only the latest values</b>, with no history at all. Training from it means joining today’s features to last month’s labels — a temporal mismatch with a name, a whole lesson, and a model that cannot work in production.',
+          'no as-of history exists to join against'] },
+      serve: {
+        off:[false, 'Wrong layout.', 'Each request would run aggregation queries taking hundreds of milliseconds to seconds. <b>The latency budget dies immediately</b>, and it dies worse under load, because every concurrent request repeats the scan.',
+          '~300 ms–2 s per request'],
+        on:[true, 'Right layout.', 'One point read returns every feature for this entity, because <b>all 40 live under one key</b>. Assemble the vector in code, call the model, and stay comfortably inside the budget.',
+          'GET features:u42 → ~3 ms p99 · 40 features · 20 ms budget'] }
+    };
+    function side(title, d){
+      var c = d[0] ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v4-s" style="border-color:' + c + '"><h4>' + title + '</h4>' +
+        '<span class="v4-stamp" style="color:' + c + '">' + (d[0] ? '✓ ' : '✕ ') + d[1] + '</span>' +
+        '<div class="v4-b">' + d[2] + '<span class="v4-num">' + d[3] + '</span></div></div>';
+    }
+    function render(){
+      bT.setAttribute('aria-pressed', train ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', train ? 'false' : 'true');
+      var d = train ? DATA.train : DATA.serve;
+      sides.innerHTML = side('offline store — columnar history', d.off) + side('online store — key-value latest', d.on);
+    }
+    bT.addEventListener('click', function(){ train = true; render(); });
+    bS.addEventListener('click', function(){ train = false; render(); });
+    render();
+
+    document.getElementById('v4-reg').innerHTML =
+      '<b style="display:block;font-size:13px;margin-bottom:4px">Two projections of one computation, never two computations.</b>' +
+      'That sentence is the entire point of the architecture. The moment training reads values produced by one code path and serving reads values produced by another, <b>the definitions drift and the model silently degrades</b> — ' +
+      'and both sides keep passing their own tests. ' +
+      '<br><br>The <b>registry</b> is what makes it enforceable: each feature’s definition as code plus its name, entity type, source events, transformation, refresh schedule, TTL and owner. ' +
+      'It also gives you discovery and reuse across models, and somewhere to hang lineage and monitoring.';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. When The Run Is Missed</h2>
+  <p class="vz-lede">The nightly job fails. Values expire, serving reads come back empty, and whatever your
+    code substitutes becomes a model input. Choose the default and read what the model concludes.
+    <b>Like a form where a blank box gets filled in for you by someone who was not there.</b></p>
+
+  <div class="v5-list" id="v5-list"></div>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v5-req"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Monitor the online store's <b>null-read rate</b> as a first-class alert. A missed
+    pipeline run is not visible in serving latency, error rates or model accuracy on the day it happens —
+    the request succeeds, the model returns a confident score, and the only trace is a rate of empty reads
+    that nobody is watching.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-d{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v5-d[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-code{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted);min-width:96px}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var OPTS = [
+      { code:'?? 0', t:'default to zero', ok:false,
+        req:'GET features:u42\n  → (empty — TTL expired, pipeline missed its 02:10 run)\n\nfeature vector sent to the model:\n  user_ctr_7d = 0.0\n  spend_30d   = 0.0\n  tenure_days = 0.0',
+        why:['The model is told this is a brand-new customer who never spends.',
+          '<b>Zero is a legitimate value for almost every feature</b>, so the model has no way to distinguish "no data" from "no spend". A ten-year customer is scored as a first-time visitor, confidently, in a request that returned 200 OK in 3 milliseconds. ' +
+          '<br><br>This is the failure worth remembering from the whole lesson: <b>the serving code’s default policy is a model input</b>, chosen by whoever wrote the null-handling, usually without knowing it.'] },
+      { code:'?? null', t:'pass through as missing, model handles it', ok:true,
+        req:'GET features:u42\n  → (empty — TTL expired)\n\nfeature vector sent to the model:\n  user_ctr_7d = NULL   ← declared missing\n  spend_30d   = NULL\n  tenure_days = NULL',
+        why:['Honest, and only useful if the model was trained to expect it.',
+          'Passing missingness through preserves the distinction — but a model that never saw NULLs in training has no learned behaviour for them. <b>The decision has to be made at training time and enforced at serving time</b>, which is the same one-definition discipline as everything else here.'] },
+      { code:'?? last_known', t:'serve the last known values, stale', ok:true,
+        req:'GET features:u42\n  → (empty — TTL expired)\n\nfall back to yesterday’s snapshot:\n  user_ctr_7d = 0.214   (as_of 2026-07-07, 1 day stale)\n  spend_30d   = 112.50\n  tenure_days = 1204',
+        why:['Usually the best answer, and it needs the staleness to be visible.',
+          'A one-day-old value is far closer to the truth than zero, and for most features the day-over-day change is small. The requirement is that the <b>staleness is measured and bounded</b>: serve stale values, and alert when the age exceeds what the model can tolerate. ' +
+          '<br><br>Note this is a different decision from setting the TTL. A TTL near the refresh interval says "expire promptly"; a fallback says "what to do when it has".'] },
+      { code:'fail fast', t:'reject the request', ok:false,
+        req:'GET features:u42\n  → (empty — TTL expired)\n\nHTTP 503 — feature store unavailable',
+        why:['Correct in a narrow set of cases, and usually too blunt.',
+          'It is the right call where a wrong score is more expensive than no score — a credit decision, a fraud block. Everywhere else it converts a <b>slightly stale recommendation</b> into an <b>outage</b>, which is a much larger failure than the one you were avoiding. ' +
+          '<br><br>The general rule: the default policy should be chosen per feature, from what a wrong value costs, and written down next to the feature definition.'] }
+    ];
+    var sel = 0;
+    var list = document.getElementById('v5-list'), req = document.getElementById('v5-req'), why = document.getElementById('v5-why');
+    function render(){
+      list.innerHTML = OPTS.map(function(o, i){
+        return '<button class="v5-d" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v5-code">' + o.code + '</span><span>' + o.t + '</span></button>';
+      }).join('');
+      [].slice.call(list.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var o = OPTS[sel];
+      req.innerHTML = o.req;
+      why.innerHTML = '<b style="color:' + (o.ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + o.why[0] + '</b>' + o.why[1];
+    }
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

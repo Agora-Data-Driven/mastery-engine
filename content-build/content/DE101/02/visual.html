@@ -1,0 +1,585 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 68px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Product Grid</button>
+  <button class="viz-tab" data-viz-tab="2">2. Four Ways To Keep</button>
+  <button class="viz-tab" data-viz-tab="3">3. Where The LEFT Dies</button>
+  <button class="viz-tab" data-viz-tab="4">4. Grain Keeper</button>
+  <button class="viz-tab" data-viz-tab="5">5. Fan-out Multiplier</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Product Grid</h2>
+  <p class="vz-lede">A join is two things you already know, stacked. Pair every row with every row
+    (<b>Tables, Rows and Keys</b>), then keep the pairs whose predicate is TRUE — and only TRUE
+    (<b>NULL Semantics and Three-Valued Logic</b>). Tap any cell to see the comparison it ran.
+    <b>Like a seating chart: every guest against every table, then cross out the pairs that do not work.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v1-toggle">
+      <button id="v1-clean" aria-pressed="true">order 12 · user_id = 3</button>
+      <button id="v1-null" aria-pressed="false">order 12 · user_id = NULL</button>
+    </div>
+    <p class="v1-hint">Flip order 12's foreign key and watch its whole row of the grid change verdict.</p>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-grid" id="v1-grid"></div>
+    <div class="v1-read" id="v1-read"></div>
+  </div>
+  <p class="vz-note">No engine literally builds this grid — it hashes one side, or walks an index. But
+    the <em>meaning</em> of every join is exactly this, and reasoning from it never lies: a left row with
+    no TRUE cell in its row disappears, and a left row with three TRUE cells comes back three times.</p>
+
+  <style>
+    .v1-toggle{display:flex;gap:6px}
+    .v1-toggle button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-toggle button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v1-hint{font-size:12px;color:var(--viz-muted);margin:9px 0 0;line-height:1.45}
+    .v1-grid{display:grid;grid-template-columns:auto repeat(3, 1fr);gap:5px}
+    .v1-hdr{font-size:10.5px;font-weight:800;letter-spacing:.03em;color:var(--viz-muted);
+      display:flex;align-items:center;justify-content:center;text-align:center;padding:4px 2px;line-height:1.25}
+    .v1-hdr.v1-side{justify-content:flex-start;text-align:left;padding-right:7px}
+    .v1-cell{min-height:52px;border:1.5px solid var(--viz-line);border-radius:9px;background:var(--viz-bg);
+      color:var(--viz-muted);font:inherit;font-weight:800;font-size:11px;padding:4px 2px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+    .v1-cell small{font-weight:700;font-size:9px;opacity:.8;font-family:ui-monospace,Consolas,monospace}
+    .v1-cell.is-true{border-color:var(--viz-green);color:var(--viz-green)}
+    .v1-cell.is-unknown{border-color:var(--viz-amber);color:var(--viz-amber);border-style:dashed}
+    .v1-cell[aria-pressed="true"]{background:var(--viz-surface);box-shadow:inset 0 0 0 1.5px currentColor}
+    .v1-read{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.55}
+    .v1-read b{display:block;margin-bottom:4px;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var USERS = [ {id:1, c:"'PH'"}, {id:2, c:"'SG'"}, {id:3, c:"'PH'"} ];
+    var nullKey = false;
+    function orders(){
+      return [ {id:10, uid:1, amt:40}, {id:11, uid:1, amt:250},
+               {id:12, uid:(nullKey ? null : 3), amt:120} ];
+    }
+    var grid = document.getElementById('v1-grid');
+    var read = document.getElementById('v1-read');
+    var bC = document.getElementById('v1-clean'), bN = document.getElementById('v1-null');
+
+    function verdict(u, o){
+      if (o.uid === null) return 'UNKNOWN';
+      return o.uid === u.id ? 'TRUE' : 'FALSE';
+    }
+    function explain(u, o){
+      var v = verdict(u, o);
+      var lhs = o.uid === null ? 'NULL' : o.uid;
+      if (v === 'UNKNOWN') {
+        return ['UNKNOWN — this pair is not kept, and never will be.',
+          'The comparison is <code>NULL = ' + u.id + '</code>. An unknown value cannot be asserted equal to anything, so the predicate is UNKNOWN, and a join keeps only TRUE. ' +
+          'Order 12 therefore matches <b>no user at all</b> — not even a user whose id were also NULL, because <code>NULL = NULL</code> is UNKNOWN too. ' +
+          'That is lesson 01 arriving in a new place: a row with a NULL join key is invisible to every join type.'];
+      }
+      if (v === 'TRUE') {
+        return ['TRUE — this pair survives.',
+          'The comparison is <code>' + lhs + ' = ' + u.id + '</code>. Order ' + o.id + ' is emitted attached to user ' + u.id +
+          ', carrying amount ' + o.amt + '. Every TRUE cell in the grid becomes exactly one output row.'];
+      }
+      return ['FALSE — this pair is discarded.',
+        'The comparison is <code>' + lhs + ' = ' + u.id + '</code>. Order ' + o.id + ' belongs to user ' + o.uid +
+        ', so pairing it with user ' + u.id + ' is a definite no. Note the difference from UNKNOWN: this is a known mismatch, and an outer join treats the two identically only because neither is TRUE.'];
+    }
+    function summary(){
+      var os = orders();
+      var hits = 0;
+      USERS.forEach(function(u){ os.forEach(function(o){ if (verdict(u, o) === 'TRUE') hits++; }); });
+      var unmatchedUsers = USERS.filter(function(u){
+        return !os.some(function(o){ return verdict(u, o) === 'TRUE'; });
+      }).map(function(u){ return u.id; });
+      return ['9 pairs considered · ' + hits + ' TRUE · inner join returns ' + hits + ' rows',
+        'Users with no TRUE cell anywhere in their row: <b>' + (unmatchedUsers.length ? unmatchedUsers.join(', ') : 'none') +
+        '</b> — they vanish from an inner join. User 1 has two TRUE cells, so user 1 comes back <b>twice</b>. ' +
+        'An inner join’s output size is the number of matching pairs, which can be smaller or larger than either input.'];
+    }
+    function render(sel){
+      var os = orders();
+      bC.setAttribute('aria-pressed', nullKey ? 'false' : 'true');
+      bN.setAttribute('aria-pressed', nullKey ? 'true' : 'false');
+      var h = '<div class="v1-hdr v1-side"></div>';
+      os.forEach(function(o){
+        h += '<div class="v1-hdr">order ' + o.id + '<br>user_id ' + (o.uid === null ? 'NULL' : o.uid) + '</div>';
+      });
+      USERS.forEach(function(u, ui){
+        h += '<div class="v1-hdr v1-side">user ' + u.id + '<br>' + u.c + '</div>';
+        os.forEach(function(o, oi){
+          var v = verdict(u, o);
+          var cls = v === 'TRUE' ? 'is-true' : (v === 'UNKNOWN' ? 'is-unknown' : '');
+          var on = sel && sel[0] === ui && sel[1] === oi;
+          h += '<button class="v1-cell ' + cls + '" data-u="' + ui + '" data-o="' + oi + '" aria-pressed="' + (on ? 'true' : 'false') + '">' +
+            (v === 'TRUE' ? '✓' : (v === 'UNKNOWN' ? '?' : '✕')) + '<small>' + v + '</small></button>';
+        });
+      });
+      grid.innerHTML = h;
+      [].slice.call(grid.querySelectorAll('.v1-cell')).forEach(function(b){
+        b.addEventListener('click', function(){
+          var ui = Number(b.dataset.u), oi = Number(b.dataset.o);
+          render([ui, oi]);
+          var r = explain(USERS[ui], orders()[oi]);
+          read.innerHTML = '<b>' + r[0] + '</b>' + r[1];
+        });
+      });
+      if (!sel) { var s = summary(); read.innerHTML = '<b>' + s[0] + '</b>' + s[1]; }
+    }
+    bC.addEventListener('click', function(){ nullKey = false; render(null); });
+    bN.addEventListener('click', function(){ nullKey = true; render(null); });
+    render(null);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Four Ways To Keep</h2>
+  <p class="vz-lede">Same two tables, same ON condition. The only question each join type answers
+    differently is <em>which unmatched rows do we keep, padded with NULL?</em>
+    <b>Like a class photo: everyone, only the pairs, or one side plus whoever they came with.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Join type">
+    <button id="v2-inner" aria-pressed="true">INNER</button>
+    <button id="v2-left" aria-pressed="false">LEFT</button>
+    <button id="v2-right" aria-pressed="false">RIGHT</button>
+    <button id="v2-full" aria-pressed="false">FULL</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v2-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v2-out" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">RIGHT JOIN is legal and almost never written: <code>a RIGHT JOIN b</code> is
+    <code>b LEFT JOIN a</code> with the tables swapped, and a pipeline reads better when the table you
+    are preserving comes first. FULL JOIN earns its keep in one place — reconciliation. Full-join
+    yesterday's export to today's on the key, and the NULL-on-one-side rows are exactly the adds and
+    the deletes.</p>
+
+  <style>
+    .v2-out table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v2-out th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v2-out td{padding:6px 5px 6px 0;border-bottom:1px solid var(--viz-line)}
+    .v2-pad{color:var(--viz-amber);font-weight:800}
+    .v2-out tr.is-pad{background:linear-gradient(to right, transparent, transparent)}
+    .v2-tagcell{font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v2-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.55}
+    .v2-why b{display:block;margin-bottom:4px;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var USERS  = [ {id:1, c:"'PH'"}, {id:2, c:"'SG'"}, {id:3, c:"'PH'"} ];
+    var ORDERS = [ {id:10, uid:1, amt:40}, {id:11, uid:1, amt:250},
+                   {id:12, uid:3, amt:120}, {id:13, uid:8, amt:70} ];
+    var MODES = {
+      inner: { kw:'JOIN', why:['3 rows — matched pairs only.',
+        'User 2 has no order and vanishes. Order 13 belongs to user 8, who is not in this table, and vanishes too. User 1 appears twice, once per matching order. Nothing here is padded, because nothing unmatched survived.'] },
+      left:  { kw:'LEFT JOIN', why:['4 rows — every user survives.',
+        'User 2 is preserved with every orders column NULL. That padded row is what makes <code>WHERE o.order_id IS NULL</code> the standard "childless parents" idiom — and what a predicate on o.amount in WHERE would silently destroy. Order 13 is still gone: LEFT preserves the left table only.'] },
+      right: { kw:'RIGHT JOIN', why:['4 rows — every order survives.',
+        'Order 13 is preserved with every users column NULL, which is how you find orphaned children. User 2 is gone. This is identical to writing <code>orders o LEFT JOIN users u</code>, which is what almost everyone writes instead.'] },
+      full:  { kw:'FULL JOIN', why:['5 rows — nothing is dropped from either side.',
+        'Both padded rows appear: user 2 with no order, order 13 with no user. This is the reconciliation shape. Run it over two snapshots of the same table and the NULL-on-the-left rows are the inserts, the NULL-on-the-right rows are the deletes, and the rest are candidates for an update check.'] }
+    };
+    var mode = 'inner';
+    var sql = document.getElementById('v2-sql');
+    var out = document.getElementById('v2-out');
+    var why = document.getElementById('v2-why');
+    var btns = { inner:document.getElementById('v2-inner'), left:document.getElementById('v2-left'),
+                 right:document.getElementById('v2-right'), full:document.getElementById('v2-full') };
+
+    function rows(){
+      var r = [];
+      USERS.forEach(function(u){
+        var ms = ORDERS.filter(function(o){ return o.uid === u.id; });
+        if (ms.length) ms.forEach(function(o){ r.push({ u:u, o:o, pad:'' }); });
+        else if (mode === 'left' || mode === 'full') r.push({ u:u, o:null, pad:'right' });
+      });
+      if (mode === 'right' || mode === 'full') {
+        ORDERS.forEach(function(o){
+          if (!USERS.some(function(u){ return u.id === o.uid; })) r.push({ u:null, o:o, pad:'left' });
+        });
+      }
+      return r;
+    }
+    function cell(v, padded){ return padded ? '<span class="v2-pad">NULL</span>' : v; }
+    function render(){
+      Object.keys(btns).forEach(function(k){ btns[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      sql.innerHTML = 'SELECT u.user_id, u.country, o.order_id, o.amount\nFROM   users u\n' +
+        MODES[mode].kw + '   orders o ON o.user_id = u.user_id;';
+      var rs = rows();
+      out.innerHTML = '<table><thead><tr><th>user_id</th><th>country</th><th>order_id</th><th>amount</th><th></th></tr></thead><tbody>' +
+        rs.map(function(r){
+          var lp = r.pad === 'left', rp = r.pad === 'right';
+          var tag = r.pad ? '<span class="v2-tagcell" style="color:var(--viz-amber)">padded</span>' : '';
+          return '<tr class="' + (r.pad ? 'is-pad' : '') + '">' +
+            '<td>' + cell(r.u ? r.u.id : '', lp) + '</td>' +
+            '<td>' + cell(r.u ? r.u.c : '', lp) + '</td>' +
+            '<td>' + cell(r.o ? r.o.id : '', rp) + '</td>' +
+            '<td>' + cell(r.o ? r.o.amt : '', rp) + '</td>' +
+            '<td>' + tag + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      var w = MODES[mode].why;
+      why.innerHTML = '<b>' + w[0] + '</b>' + w[1];
+    }
+    Object.keys(btns).forEach(function(k){
+      btns[k].addEventListener('click', function(){ mode = k; render(); });
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Where The LEFT Dies</h2>
+  <p class="vz-lede">One predicate, <code>o.amount &gt; 100</code>, and three places to put it. Move it
+    and watch user 2 — the user with no orders — live or die. <b>Like a guest list versus a bouncer: one
+    decides who counts as your plus-one, the other throws people out after they are already inside.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Where the predicate goes">
+    <button id="v3-on" aria-pressed="false">in ON</button>
+    <button id="v3-where" aria-pressed="true">in WHERE</button>
+    <button id="v3-or" aria-pressed="false">in WHERE, with OR IS NULL</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v3-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v3-flow" id="v3-flow"></div>
+    <div class="v3-out" id="v3-out"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">For an <b>inner</b> join these three would be interchangeable, and that is exactly why
+    the habit of putting join keys in ON and business filters in WHERE is worth keeping: it is free until
+    the day you write LEFT, and then it is the whole difference between preserved and deleted.</p>
+
+  <style>
+    .v3-flow{display:flex;flex-direction:column;gap:7px;margin-bottom:13px}
+    .v3-stage{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12px;line-height:1.45}
+    .v3-stage b{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);display:block;margin-bottom:3px}
+    .v3-stage.is-hit{border-color:var(--viz-red)}
+    .v3-out table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v3-out th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v3-out td{padding:6px 5px 6px 0;border-bottom:1px solid var(--viz-line)}
+    .v3-out tr.is-gone td{opacity:.35;text-decoration:line-through}
+    .v3-badge{font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v3-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.55}
+    .v3-why b{display:block;margin-bottom:4px;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var USERS  = [ {id:1, c:"'PH'"}, {id:2, c:"'SG'"}, {id:3, c:"'PH'"} ];
+    var ORDERS = [ {id:10, uid:1, amt:40}, {id:11, uid:1, amt:250}, {id:12, uid:3, amt:120} ];
+    var mode = 'where';
+    var sqlBox = document.getElementById('v3-sql');
+    var flow = document.getElementById('v3-flow');
+    var out = document.getElementById('v3-out');
+    var why = document.getElementById('v3-why');
+    var B = { on:document.getElementById('v3-on'), where:document.getElementById('v3-where'), or:document.getElementById('v3-or') };
+
+    var SQL = {
+      on:    'SELECT u.user_id, o.order_id, o.amount\nFROM   users u\nLEFT JOIN orders o\n  ON   o.user_id = u.user_id\n  AND  o.amount &gt; 100;',
+      where: 'SELECT u.user_id, o.order_id, o.amount\nFROM   users u\nLEFT JOIN orders o\n  ON   o.user_id = u.user_id\nWHERE  o.amount &gt; 100;',
+      or:    'SELECT u.user_id, o.order_id, o.amount\nFROM   users u\nLEFT JOIN orders o\n  ON   o.user_id = u.user_id\nWHERE  o.amount &gt; 100\n   OR  o.order_id IS NULL;'
+    };
+    var WHY = {
+      on: ['3 rows. Every user survives — the LEFT did its job.',
+        'The predicate is part of <b>what counts as a match</b>. Order 10 (amount 40) simply fails to qualify, so user 1 keeps only order 11. User 2 was never going to match anything and is preserved padded, as before. Read it as: "all users, joined to their big orders."'],
+      where: ['2 rows. User 2 is gone, and so is the point of writing LEFT.',
+        'The join produced user 2’s padded row correctly — and then WHERE evaluated <code>NULL &gt; 100</code> on it. That is UNKNOWN, and WHERE keeps only TRUE, so the row is deleted <b>after</b> the join preserved it. Every unmatched left row dies exactly this way, which makes this query an inner join written in four extra characters. Nothing warns you.'],
+      or: ['3 rows. The padding is let through on purpose.',
+        'A defensible middle: filter the joined result, but state explicitly that unmatched rows are wanted too. Test <code>o.order_id</code> — the right side’s primary key, which is NOT NULL in the base table, so a NULL there can only mean "no match". Testing a naturally nullable column instead cannot tell "no match" apart from "matched, and that field happens to be NULL".']
+    };
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      sqlBox.innerHTML = SQL[mode];
+
+      var joined = [];
+      USERS.forEach(function(u){
+        var ms = ORDERS.filter(function(o){
+          return o.uid === u.id && (mode === 'on' ? o.amt > 100 : true);
+        });
+        if (ms.length) ms.forEach(function(o){ joined.push({ u:u, o:o }); });
+        else joined.push({ u:u, o:null });
+      });
+      var kept = joined.map(function(r){
+        if (mode === 'on') return { r:r, keep:true, note:'' };
+        var amt = r.o ? r.o.amt : null;
+        if (amt === null) {
+          if (mode === 'or') return { r:r, keep:true, note:'kept by OR o.order_id IS NULL' };
+          return { r:r, keep:false, note:'NULL &gt; 100 → UNKNOWN → dropped' };
+        }
+        return { r:r, keep: amt > 100, note: amt > 100 ? '' : (amt + ' &gt; 100 → FALSE → dropped') };
+      });
+
+      flow.innerHTML =
+        '<div class="v3-stage"><b>1 · FROM + LEFT JOIN</b>Builds ' + joined.length +
+        ' rows, including user 2 padded with NULL' + (mode === 'on' ? ' — and order 10 never qualified as a match' : '') + '.</div>' +
+        '<div class="v3-stage' + (mode === 'where' ? ' is-hit' : '') + '"><b>2 · WHERE</b>' +
+        (mode === 'on' ? 'No WHERE clause. Nothing is filtered after the join.'
+          : 'Filters the joined result, row by row, keeping only TRUE.') + '</div>';
+
+      out.innerHTML = '<table><thead><tr><th>user_id</th><th>order_id</th><th>amount</th><th>after WHERE</th></tr></thead><tbody>' +
+        kept.map(function(k){
+          var r = k.r, pad = !r.o;
+          return '<tr class="' + (k.keep ? '' : 'is-gone') + '">' +
+            '<td>' + r.u.id + '</td>' +
+            '<td>' + (pad ? '<span style="color:var(--viz-amber);font-weight:800">NULL</span>' : r.o.id) + '</td>' +
+            '<td>' + (pad ? '<span style="color:var(--viz-amber);font-weight:800">NULL</span>' : r.o.amt) + '</td>' +
+            '<td><span class="v3-badge" style="color:' + (k.keep ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+            (k.keep ? '✓ returned' : '✕ ' + k.note) + '</span></td></tr>';
+        }).join('') + '</tbody></table>';
+
+      var w = WHY[mode];
+      why.innerHTML = '<b>' + w[0] + '</b>' + w[1];
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Grain Keeper</h2>
+  <p class="vz-lede">Two questions that need no columns from the other table — only whether a match
+    exists. Five ways to ask, and they do not agree. Watch the <b>row count</b> and the
+    <b>output grain</b>, not just the ids. <b>Like asking "does this student have any library books?" —
+    you want a yes, not a stack of books.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v4-tog">
+      <button id="v4-clean" aria-pressed="true">orders.user_id has no NULLs</button>
+      <button id="v4-dirty" aria-pressed="false">one order has user_id = NULL</button>
+    </div>
+  </div>
+
+  <div class="v4-list" id="v4-list"></div>
+  <div class="vz-card">
+    <div class="v4-sql vz-mono" id="v4-sql"></div>
+    <div class="v4-res" id="v4-res"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Pick the form by the grain you want out. Need columns from the other side, or one
+    row per match? Join. Need each left row at most once, filtered by existence? EXISTS / NOT EXISTS. A
+    DISTINCT that "fixed" a count is not a fix — it is a flag that the grain went wrong upstream, and it
+    can just as easily be hiding a second duplication you have not found yet.</p>
+
+  <style>
+    .v4-tog{display:flex;gap:6px}
+    .v4-tog button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:5px 6px}
+    .v4-tog button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v4-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-q{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v4-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-kind{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;color:var(--viz-muted);
+      border:1.5px solid var(--viz-line);border-radius:999px;padding:2px 7px;min-width:64px;text-align:center}
+    .v4-sql{margin-bottom:11px}
+    .v4-res{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid}
+    .v4-rows{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--viz-muted)}
+    .v4-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.55}
+    .v4-why b{display:block;margin-bottom:4px;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var dirty = false;
+    var FORMS = [
+      { kind:'join', label:'Which users have at least one order?',
+        sql:'SELECT u.user_id\nFROM   users u\nJOIN   orders o ON o.user_id = u.user_id;',
+        rows:function(){ return ['1', '1', '3']; }, grain:'one row per ORDER',
+        ok:false,
+        why:['Right ids, wrong grain.', 'User 1 comes back twice because they have two orders — the join answered "list the matching pairs", which is not the question. Anything counting this result now counts orders while believing it counts users.'] },
+      { kind:'join', label:'… patched with DISTINCT',
+        sql:'SELECT DISTINCT u.user_id\nFROM   users u\nJOIN   orders o ON o.user_id = u.user_id;',
+        rows:function(){ return ['1', '3']; }, grain:'one row per USER',
+        ok:false,
+        why:['Correct answer, and still the wrong tool.', 'DISTINCT removes duplication it should never have created, at the cost of a sort or a hash over every matched pair. Worse, it is indiscriminate: if a <b>second</b> join in the same query were also fanning out, this DISTINCT would quietly hide that too.'] },
+      { kind:'semi', label:'… as a semi-join',
+        sql:'SELECT u.user_id\nFROM   users u\nWHERE  EXISTS (SELECT 1 FROM orders o\n               WHERE o.user_id = u.user_id);',
+        rows:function(){ return ['1', '3']; }, grain:'one row per USER',
+        ok:true,
+        why:['The relational operation the question actually describes.', 'For each user, probe orders for at least one qualifying row and stop at the first hit. The <code>SELECT 1</code> is never read — only whether a row came back. Output grain is exactly the grain of users, so no DISTINCT is possible or needed, and the early stop is a real win when a user has thousands of orders.'] },
+      { kind:'anti', label:'Which users have NO orders? — LEFT + IS NULL',
+        sql:'SELECT u.user_id\nFROM   users u\nLEFT JOIN orders o ON o.user_id = u.user_id\nWHERE  o.order_id IS NULL;',
+        rows:function(){ return ['2']; }, grain:'one row per USER',
+        ok:true,
+        why:['The classic idiom, and it is correct.', 'Join, then keep only the rows the join had to pad. Test the right side’s PRIMARY KEY: it is NOT NULL in the base table, so a NULL there can only mean "no match". A nullable column would confuse "no match" with "matched, and that field is NULL".'] },
+      { kind:'anti', label:'… as NOT EXISTS',
+        sql:'SELECT u.user_id\nFROM   users u\nWHERE  NOT EXISTS (SELECT 1 FROM orders o\n                   WHERE o.user_id = u.user_id);',
+        rows:function(){ return ['2']; }, grain:'one row per USER',
+        ok:true,
+        why:['Same answer, stated directly.', 'Optimisers usually execute this and the LEFT+IS NULL form identically, so the choice is about saying what you mean. It also has no NULL failure mode: a probe comparison that comes out UNKNOWN simply means that probe row is not a match, which is the truth.'] },
+      { kind:'trap', label:'… as NOT IN',
+        sql:'SELECT u.user_id\nFROM   users u\nWHERE  u.user_id NOT IN (SELECT user_id FROM orders);',
+        rows:function(){ return dirty ? [] : ['2']; }, grain:'one row per USER',
+        ok:false,
+        why:['Correct until the day it is not, and then it returns nothing.',
+          'With no NULLs in <code>orders.user_id</code> this looks equivalent. Add a single order whose user_id is NULL and the expansion gains a <code>u.user_id &lt;&gt; NULL</code> conjunct, which is UNKNOWN for <b>every</b> row — so <code>TRUE AND UNKNOWN</code> is UNKNOWN and the query returns <b>zero rows</b>. No error, no warning, and the column only has to be nullable in principle. Rule of practice: IN is tolerable, NOT IN against anything nullable is a defect.'] }
+    ];
+    var list = document.getElementById('v4-list');
+    var sqlB = document.getElementById('v4-sql');
+    var res = document.getElementById('v4-res');
+    var why = document.getElementById('v4-why');
+    var bC = document.getElementById('v4-clean'), bD = document.getElementById('v4-dirty');
+    var cur = 0;
+
+    function show(i){
+      cur = i;
+      var f = FORMS[i], rs = f.rows();
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      sqlB.innerHTML = f.sql;
+      var trapNow = f.kind === 'trap' && dirty;
+      var good = f.ok && !trapNow;
+      var c = trapNow ? 'var(--viz-red)' : (good ? 'var(--viz-green)' : 'var(--viz-amber)');
+      res.innerHTML =
+        '<span class="v4-pill" style="color:' + c + ';border-color:' + c + '">' + rs.length + ' row' + (rs.length === 1 ? '' : 's') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + f.grain + '</span>' +
+        '<span class="v4-rows">' + (rs.length ? 'user_id: ' + rs.join(', ') : '(empty result)') + '</span>';
+      var w = f.why;
+      why.innerHTML = '<b style="color:' + c + '">' + w[0] + '</b>' + w[1] +
+        (trapNow ? '<br><br><b style="color:var(--viz-red)">That is what just happened above: 1 row became 0 because one unrelated order has a NULL user_id.</b>' : '');
+    }
+    FORMS.forEach(function(f, i){
+      var b = document.createElement('button');
+      b.className = 'v4-q';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-kind">' + f.kind + '</span><span>' + f.label + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    bC.addEventListener('click', function(){ dirty = false; bC.setAttribute('aria-pressed','true'); bD.setAttribute('aria-pressed','false'); show(cur); });
+    bD.addEventListener('click', function(){ dirty = true; bD.setAttribute('aria-pressed','true'); bC.setAttribute('aria-pressed','false'); show(cur); });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Fan-out Multiplier</h2>
+  <p class="vz-lede">One user, joined to two one-to-many tables in the same query. Drag each side and
+    watch the row count — and the revenue total — go somewhere nobody asked for.
+    <b>Like multiplying two guest lists together instead of adding them.</b></p>
+
+  <div class="vz-card">
+    <label for="v5-o" class="v5-lab">Ada has <span id="v5-ol">3</span> orders (2,400 total)</label>
+    <input type="range" id="v5-o" min="1" max="8" value="3" step="1" aria-label="Number of orders">
+    <label for="v5-l" class="v5-lab" style="margin-top:12px">and <span id="v5-ll">4</span> logins</label>
+    <input type="range" id="v5-l" min="1" max="8" value="4" step="1" aria-label="Number of logins">
+
+    <div class="v5-eq" id="v5-eq"></div>
+    <div class="v5-bars" id="v5-bars"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <div class="v5-fix" id="v5-fix"></div>
+  </div>
+  <p class="vz-note">Read every join in a query with one question: <b>what can this multiply?</b>
+    One-to-one multiplies nothing. One-to-many multiplies the one side. Many-to-many multiplies both, and
+    the query almost certainly needs restructuring. Making that question reflexive is most of what being
+    good at joins means in practice.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-eq{margin-top:16px;font-family:ui-monospace,Consolas,monospace;font-size:13px;text-align:center;
+      font-weight:700;line-height:1.7}
+    .v5-eq em{font-style:normal;color:var(--viz-muted);font-weight:400;font-size:11.5px}
+    .v5-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v5-row h5{margin:0 0 5px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      display:flex;justify-content:space-between;gap:8px}
+    .v5-row h5 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;letter-spacing:0;text-transform:none}
+    .v5-bar{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-bar i{display:block;height:100%;transition:width .12s linear}
+    .v5-fix{font-size:12.5px;line-height:1.6}
+    .v5-fix b{display:block;font-size:13px;margin-bottom:5px}
+    .v5-fix code{font-size:11.5px}
+    .v5-warn{border-left:3px solid var(--viz-red);padding-left:10px;margin-top:10px}
+  </style>
+  <script>
+  (function(){
+    var TRUE_REVENUE = 2400;
+    var so = document.getElementById('v5-o'), sl = document.getElementById('v5-l');
+    var ol = document.getElementById('v5-ol'), ll = document.getElementById('v5-ll');
+    var eq = document.getElementById('v5-eq'), bars = document.getElementById('v5-bars');
+    var fix = document.getElementById('v5-fix');
+
+    function bar(title, val, max, colour, note){
+      var pct = Math.max(2, Math.round((val / max) * 100));
+      return '<div class="v5-row"><h5><span>' + title + '</span><b style="color:' + colour + '">' + note + '</b></h5>' +
+        '<div class="v5-bar"><i style="width:' + pct + '%;background:' + colour + '"></i></div></div>';
+    }
+    function render(){
+      var m = Number(so.value), n = Number(sl.value);
+      var rows = m * n;
+      ol.textContent = m; ll.textContent = n;
+      eq.innerHTML = m + ' orders &times; ' + n + ' logins = <span style="color:' +
+        (rows > m ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + rows + ' rows</span> for one user<br>' +
+        '<em>every order repeated ' + n + '&times;, every login repeated ' + m + '&times;</em>';
+
+      var inflated = TRUE_REVENUE * n;
+      bars.innerHTML =
+        bar('Rows you expected (one per user)', 1, rows, 'var(--viz-green)', '1') +
+        bar('Rows the join emits', rows, rows, rows > 1 ? 'var(--viz-red)' : 'var(--viz-green)', String(rows)) +
+        bar('SUM(amount) reported', inflated, TRUE_REVENUE * 8, 'var(--viz-red)', inflated.toLocaleString()) +
+        bar('SUM(amount) that is true', TRUE_REVENUE, TRUE_REVENUE * 8, 'var(--viz-green)', TRUE_REVENUE.toLocaleString());
+
+      fix.innerHTML =
+        '<b>Why this is so hard to spot</b>' +
+        'Nothing errored. The query is valid, the join keys are right, and the result answers a question nobody asked: ' +
+        'it is one row per <em>order-login pair</em>, not one row per user. Revenue is overstated ' + n + '&times; for Ada — ' +
+        'and by a <b>different</b> factor for every user, because each has their own login count. ' +
+        'That is the cruel part: no single scale factor explains the total, so the number looks merely wrong rather than systematically wrong.' +
+        '<div class="v5-warn"><b>The cure: reduce before you join.</b>' +
+        'Aggregate each side to one row per user <em>first</em>, then join those two one-row-per-user results:<br><br>' +
+        '<code>orders_per_user</code> → one row per user, SUM(amount)<br>' +
+        '<code>logins_per_user</code> → one row per user, COUNT(*)<br>' +
+        '<code>users LEFT JOIN orders_per_user LEFT JOIN logins_per_user</code> → still one row per user.<br><br>' +
+        'And assert it: if the result should be one row per user, check that <code>COUNT(*)</code> equals the user count ' +
+        'right after the query. Row-count assertions are the join world’s unit tests — the same discipline as checking your ' +
+        'evaluation set has exactly one judgment per query-document pair before computing recall, because a duplicated label ' +
+        'inflates a metric the same way a fanned-out join inflates revenue.</div>';
+    }
+    so.addEventListener('input', render);
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

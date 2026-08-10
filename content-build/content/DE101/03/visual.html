@@ -1,0 +1,654 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 76px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Grain Changer</button>
+  <button class="viz-tab" data-viz-tab="2">2. Aggregates Meet NULL</button>
+  <button class="viz-tab" data-viz-tab="3">3. Before Or After</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Set Problem</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Arbitrary Column</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Grain Changer</h2>
+  <p class="vz-lede">Grouping is the opposite move to a join. <b>Join Fan-out</b> multiplied rows;
+    <code>GROUP BY</code> collapses them. Pick the grouping keys and watch eight rows become the grain you
+    asked for — including the one place <b>NULL Semantics</b> behaves differently here than in a join.
+    <b>Like sorting laundry into piles: you choose the piles, and then each pile answers as one.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Grouping keys">
+    <button id="v1-none" aria-pressed="false">no GROUP BY</button>
+    <button id="v1-cls" aria-pressed="true">query_class</button>
+    <button id="v1-ver" aria-pressed="false">model_version</button>
+    <button id="v1-both" aria-pressed="false">both</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v1-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v1-groups" id="v1-groups"></div>
+  </div>
+  <div class="vz-card" style="margin-top:10px">
+    <div class="v1-out" id="v1-out"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Grain is a decision, not a detail. "One row per document" and "one row per
+    document-chunk" differ by one column in <code>GROUP BY</code>, and the second one has not collapsed
+    anything. Say the grain in words before you write the clause.</p>
+
+  <style>
+    .v1-groups{display:flex;flex-direction:column;gap:9px}
+    .v1-g{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg)}
+    .v1-g.is-null{border-style:dashed;border-color:var(--viz-amber)}
+    .v1-gh{font-size:11px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted);
+      display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}
+    .v1-gh b{font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:0;color:var(--viz-ink)}
+    .v1-chips{display:flex;flex-wrap:wrap;gap:5px}
+    .v1-chip{font-family:ui-monospace,Consolas,monospace;font-size:11px;border:1px solid var(--viz-line);
+      border-radius:7px;padding:3px 7px;background:var(--viz-surface)}
+    .v1-out table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v1-out th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v1-out td{padding:6px 5px 6px 0;border-bottom:1px solid var(--viz-line)}
+    .v1-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.55}
+    .v1-why b{display:block;margin-bottom:4px;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var RUNS = [
+      { id:1, cls:'factoid',  ver:"'v3'", lat:120 },
+      { id:2, cls:'factoid',  ver:"'v3'", lat:180 },
+      { id:3, cls:'research', ver:"'v3'", lat:900 },
+      { id:4, cls:'factoid',  ver:"'v4'", lat:null },
+      { id:5, cls:'research', ver:"'v4'", lat:600 },
+      { id:6, cls:'factoid',  ver:null,   lat:200 },
+      { id:7, cls:'research', ver:null,   lat:400 },
+      { id:8, cls:'factoid',  ver:"'v4'", lat:160 }
+    ];
+    var MODES = {
+      none: { keys:[], label:'—', why:['One implicit group over the whole input.',
+        'With no GROUP BY, the entire filtered input is a single group, so the query emits exactly one row — and it still emits one row when the table is empty. That is worth knowing: a COUNT over nothing is 0, not no rows.'] },
+      cls:  { keys:['cls'], label:'query_class', why:['One row per query class.',
+        'The eight input rows partition into two piles by their class value, and each pile answers as one. This is the collapse in its simplest form: input grain is a request, output grain is a class.'] },
+      ver:  { keys:['ver'], label:'model_version', why:['One row per model version — including a NULL bucket.',
+        'Rows 6 and 7 have an unknown model_version, and they form <b>one group together</b>. That is deliberate, and it is the opposite of a join: <code>NULL = NULL</code> is still UNKNOWN, so those rows would match nothing in an equality join. Grouping makes an exception so unknown-keyed rows are counted rather than lost.'] },
+      both: { keys:['cls','ver'], label:'query_class, model_version', why:['One row per class-version PAIR.',
+        'With several grouping columns the grain is their combination, and the group count grows fast. Note what just happened: adding one column changed the answer from a class summary into something much finer. Adding a column to silence an error does exactly this — it makes the query legal by making it answer a different question.'] }
+    };
+    var mode = 'cls';
+    var B = { none:document.getElementById('v1-none'), cls:document.getElementById('v1-cls'),
+              ver:document.getElementById('v1-ver'), both:document.getElementById('v1-both') };
+    var sqlB = document.getElementById('v1-sql');
+    var groupsB = document.getElementById('v1-groups');
+    var outB = document.getElementById('v1-out');
+    var whyB = document.getElementById('v1-why');
+
+    function keyOf(r, keys){
+      if (!keys.length) return 'ALL ROWS';
+      return keys.map(function(k){ return r[k] === null ? 'NULL' : r[k]; }).join('  ·  ');
+    }
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var m = MODES[mode];
+      sqlB.innerHTML = 'SELECT ' + (m.keys.length ? m.label + ',\n       ' : '') +
+        'COUNT(*) AS requests,\n       AVG(latency_ms) AS avg_ms\nFROM   retrieval_runs' +
+        (m.keys.length ? '\nGROUP  BY ' + m.label + ';' : ';');
+
+      var order = [], buckets = {};
+      RUNS.forEach(function(r){
+        var k = keyOf(r, m.keys);
+        if (!buckets[k]) { buckets[k] = []; order.push(k); }
+        buckets[k].push(r);
+      });
+      groupsB.innerHTML = order.map(function(k){
+        var rows = buckets[k];
+        return '<div class="v1-g' + (k.indexOf('NULL') > -1 ? ' is-null' : '') + '">' +
+          '<div class="v1-gh"><b>' + k + '</b><span>' + rows.length + ' row' + (rows.length === 1 ? '' : 's') + ' in this group</span></div>' +
+          '<div class="v1-chips">' + rows.map(function(r){
+            return '<span class="v1-chip">#' + r.id + ' lat ' + (r.lat === null ? 'NULL' : r.lat) + '</span>';
+          }).join('') + '</div></div>';
+      }).join('');
+
+      outB.innerHTML = '<table><thead><tr>' +
+        (m.keys.length ? '<th>' + m.label.split(', ').join('</th><th>') + '</th>' : '<th>(no key)</th>') +
+        '<th>requests</th><th>avg_ms</th></tr></thead><tbody>' +
+        order.map(function(k){
+          var rows = buckets[k];
+          var vals = rows.map(function(r){ return r.lat; }).filter(function(v){ return v !== null; });
+          var avg = vals.length ? Math.round(vals.reduce(function(a, b){ return a + b; }, 0) / vals.length) : 'NULL';
+          var cells = m.keys.length ? k.split('  ·  ').map(function(x){ return '<td>' + x + '</td>'; }).join('') : '<td>—</td>';
+          return '<tr>' + cells + '<td>' + rows.length + '</td><td>' + avg + '</td></tr>';
+        }).join('') + '</tbody></table>';
+
+      whyB.innerHTML = '<b>' + m.why[0] + '</b>' + m.why[1] +
+        '<br><br>8 input rows &rarr; <b>' + order.length + ' output row' + (order.length === 1 ? '' : 's') + '</b>.';
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Aggregates Meet NULL</h2>
+  <p class="vz-lede">One group, four requests, one of them never measured. Six aggregates walk over the
+    same four rows and disagree about that missing value. Tap each and watch which rows it actually reads.
+    <b>Like a class register versus a test-score average: absent students are counted in one and not the
+    other.</b></p>
+
+  <div class="v2-list" id="v2-list"></div>
+
+  <div class="vz-card">
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-calc" id="v2-calc"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <label class="v2-lab" for="v2-null">Now make <span id="v2-nl">1</span> of the 4 latencies NULL</label>
+    <input type="range" id="v2-null" min="0" max="4" value="1" step="1" aria-label="How many latencies are NULL">
+    <div class="v2-edge" id="v2-edge"></div>
+  </div>
+  <p class="vz-note">Deciding what a missing value <em>means</em> is a modelling choice, not a formatting
+    one. <code>COALESCE(latency_ms, 0)</code> turns "never measured" into a very fast request and drags the
+    average down. AVG's default — exclude the unknown — is usually the honest answer, and it is the one
+    you get for free.</p>
+
+  <style>
+    .v2-list{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+    .v2-a{flex:1 1 104px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;
+      font-family:ui-monospace,Consolas,monospace;padding:6px 5px}
+    .v2-a[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+    .v2-rows{display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v2-r.is-in{border-color:var(--viz-green)}
+    .v2-r.is-out{opacity:.45}
+    .v2-mk{font-weight:800;width:16px;text-align:center}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.04em;font-family:inherit}
+    .v2-calc{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-calc b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-big{font-family:ui-monospace,Consolas,monospace;font-size:15px;font-weight:800;color:var(--viz-accent)}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-edge{margin-top:10px;font-size:12.5px;line-height:1.6}
+    .v2-edge table{width:100%;border-collapse:collapse;font-size:12px;
+      font-family:ui-monospace,Consolas,monospace;margin-top:8px}
+    .v2-edge td{padding:5px 6px 5px 0;border-bottom:1px solid var(--viz-line)}
+    .v2-edge td:first-child{color:var(--viz-muted)}
+  </style>
+  <script>
+  (function(){
+    var BASE = [120, 180, null, 300];
+    var AGGS = [
+      { name:'COUNT(*)', uses:function(){ return true; },
+        calc:function(v){ return v.length; },
+        why:'Counts <b>rows</b>, not values. The unmeasured request is still a request that happened, so it is counted. This is the only aggregate here that reads a NULL row at all.' },
+      { name:'COUNT(latency_ms)', uses:function(x){ return x !== null; },
+        calc:function(v){ return v.filter(function(x){ return x !== null; }).length; },
+        why:'Counts rows where the expression is non-NULL. The gap between this and COUNT(*) <em>is</em> your missing-data rate, which makes the pair worth selecting together on any monitoring query.' },
+      { name:'SUM(latency_ms)', uses:function(x){ return x !== null; },
+        calc:function(v){ var k = v.filter(function(x){ return x !== null; }); return k.length ? k.reduce(function(a,b){ return a+b; },0) : 'NULL'; },
+        why:'Skips NULLs entirely. Note it does not treat them as zero — it does not see them, which matters the moment the group is <em>all</em> NULL.' },
+      { name:'AVG(latency_ms)', uses:function(x){ return x !== null; },
+        calc:function(v){ var k = v.filter(function(x){ return x !== null; }); return k.length ? Math.round(k.reduce(function(a,b){ return a+b; },0)/k.length) : 'NULL'; },
+        why:'The one to internalise: <b>AVG(x) = SUM(x) / COUNT(x)</b>, not SUM(x) / COUNT(*). The unknown row is excluded from the denominator too, so the average describes only the requests you actually measured.' },
+      { name:'MIN(latency_ms)', uses:function(x){ return x !== null; },
+        calc:function(v){ var k = v.filter(function(x){ return x !== null; }); return k.length ? Math.min.apply(null, k) : 'NULL'; },
+        why:'Skips NULLs. A NULL is not treated as negative infinity or as zero — it is simply not a candidate.' },
+      { name:'MAX(latency_ms)', uses:function(x){ return x !== null; },
+        calc:function(v){ var k = v.filter(function(x){ return x !== null; }); return k.length ? Math.max.apply(null, k) : 'NULL'; },
+        why:'Skips NULLs, same as MIN. Remember for later: MAX picks a <em>value</em>, and it carries nothing else from the row it came from.' }
+    ];
+    var list = document.getElementById('v2-list');
+    var rowsB = document.getElementById('v2-rows');
+    var calcB = document.getElementById('v2-calc');
+    var cur = 3;
+
+    function show(i){
+      cur = i;
+      var a = AGGS[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      rowsB.innerHTML = BASE.map(function(v, k){
+        var used = a.uses(v);
+        return '<div class="v2-r ' + (used ? 'is-in' : 'is-out') + '">' +
+          '<span class="v2-mk" style="color:' + (used ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (used ? '✓' : '✕') + '</span>' +
+          '<span>request #' + (k + 1) + ' · latency_ms = ' + (v === null ? '<b style="color:var(--viz-amber)">NULL</b>' : v) + '</span>' +
+          '<span class="v2-tag" style="color:' + (used ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (used ? 'read' : 'skipped') + '</span></div>';
+      }).join('');
+      var kept = BASE.filter(function(x){ return a.uses(x); });
+      calcB.innerHTML = '<b>' + a.name + ' reads ' + kept.length + ' of 4 rows &rarr; <span class="v2-big">' +
+        a.calc(BASE) + '</span></b>' + a.why;
+    }
+    AGGS.forEach(function(a, i){
+      var b = document.createElement('button');
+      b.className = 'v2-a';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = a.name;
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+
+    var slider = document.getElementById('v2-null');
+    var nl = document.getElementById('v2-nl');
+    var edge = document.getElementById('v2-edge');
+    function edges(){
+      var n = Number(slider.value);
+      var vals = [120, 180, 300, 240].map(function(v, i){ return i < n ? null : v; });
+      var known = vals.filter(function(x){ return x !== null; });
+      var sum = known.length ? known.reduce(function(a,b){ return a+b; },0) : 'NULL';
+      var avg = known.length ? Math.round(known.reduce(function(a,b){ return a+b; },0)/known.length) : 'NULL';
+      nl.textContent = n;
+      var allNull = n === 4;
+      edge.innerHTML =
+        '<table><tbody>' +
+        '<tr><td>COUNT(*)</td><td><b>4</b></td></tr>' +
+        '<tr><td>COUNT(latency_ms)</td><td><b>' + known.length + '</b></td></tr>' +
+        '<tr><td>SUM(latency_ms)</td><td><b style="color:' + (sum === 'NULL' ? 'var(--viz-amber)' : 'var(--viz-ink)') + '">' + sum + '</b></td></tr>' +
+        '<tr><td>AVG(latency_ms)</td><td><b style="color:' + (avg === 'NULL' ? 'var(--viz-amber)' : 'var(--viz-ink)') + '">' + avg + '</b></td></tr>' +
+        '</tbody></table>' +
+        (allNull
+          ? '<br><b style="color:var(--viz-amber)">The all-NULL group: counts return 0, value aggregates return NULL.</b> ' +
+            'Not zero — NULL. A dashboard that renders that cell as 0 ms is claiming an instant response for a group where nothing was measured at all. ' +
+            'Note COUNT(*) is still 4: the requests happened, and that is exactly the number that keeps the row honest.'
+          : '<br>Slide to 4 to reach the edge case that catches people: a group where <em>every</em> value is NULL.');
+    }
+    slider.addEventListener('input', edges);
+    show(3); edges();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Before Or After</h2>
+  <p class="vz-lede">Two predicates, one collapse between them. Put each one on the wrong side and the
+    query either breaks or — much worse — quietly measures a different population.
+    <b>Like weighing ingredients before you bake versus judging the cake afterwards: you cannot swap
+    those two.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v3-place">
+      <div class="v3-pl">
+        <h5>status = 'success'</h5>
+        <div class="v3-bs">
+          <button class="v3-b" id="v3-s-w" aria-pressed="true">in WHERE</button>
+          <button class="v3-b" id="v3-s-h" aria-pressed="false">in HAVING</button>
+        </div>
+      </div>
+      <div class="v3-pl">
+        <h5>AVG(latency_ms) &gt; 500</h5>
+        <div class="v3-bs">
+          <button class="v3-b" id="v3-a-w" aria-pressed="false">in WHERE</button>
+          <button class="v3-b" id="v3-a-h" aria-pressed="true">in HAVING</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vz-card vz-mono" id="v3-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v3-pipe" id="v3-pipe"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">A predicate on a <em>grouping key</em> is the one that may legally sit in either
+    clause — and it still belongs in WHERE, because discarding rows before grouping means less shuffle and
+    less aggregate state. Optimisers often push it down for you. Clear SQL should not depend on that.</p>
+
+  <style>
+    .v3-place{display:flex;gap:9px}
+    .v3-pl{flex:1}
+    .v3-pl h5{margin:0 0 6px;font-size:11px;font-family:ui-monospace,Consolas,monospace;color:var(--viz-ink);
+      font-weight:700;line-height:1.3}
+    .v3-bs{display:flex;flex-direction:column;gap:5px}
+    .v3-b{min-height:40px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-muted);
+      border-radius:9px;font:inherit;font-weight:700;font-size:11.5px}
+    .v3-b[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);background:var(--viz-surface)}
+    .v3-pipe{display:flex;flex-direction:column;gap:7px}
+    .v3-st{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);font-size:12px;line-height:1.45}
+    .v3-st b{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);display:block;margin-bottom:4px}
+    .v3-st.is-err{border-color:var(--viz-red);color:var(--viz-red)}
+    .v3-st.is-act{border-color:var(--viz-accent)}
+    .v3-nums{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;margin-top:5px;line-height:1.6}
+    .v3-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.55}
+    .v3-why b{display:block;margin-bottom:4px;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { v:'A', st:'success', lat:100 }, { v:'A', st:'success', lat:300 }, { v:'A', st:'failure', lat:2000 },
+      { v:'B', st:'success', lat:700 }, { v:'B', st:'success', lat:900 }
+    ];
+    var statusWhere = true, avgHaving = true;
+    var Bs = { sw:document.getElementById('v3-s-w'), sh:document.getElementById('v3-s-h'),
+               aw:document.getElementById('v3-a-w'), ah:document.getElementById('v3-a-h') };
+    var sqlB = document.getElementById('v3-sql');
+    var pipe = document.getElementById('v3-pipe');
+    var why = document.getElementById('v3-why');
+
+    function avgOf(rows){
+      if (!rows.length) return null;
+      return Math.round(rows.reduce(function(a,r){ return a + r.lat; }, 0) / rows.length);
+    }
+    function render(){
+      Bs.sw.setAttribute('aria-pressed', statusWhere ? 'true' : 'false');
+      Bs.sh.setAttribute('aria-pressed', statusWhere ? 'false' : 'true');
+      Bs.aw.setAttribute('aria-pressed', avgHaving ? 'false' : 'true');
+      Bs.ah.setAttribute('aria-pressed', avgHaving ? 'true' : 'false');
+
+      var whereParts = [], havingParts = [];
+      if (statusWhere) whereParts.push("status = 'success'"); else havingParts.push("status = 'success'");
+      if (avgHaving) havingParts.push('AVG(latency_ms) &gt; 500'); else whereParts.push('AVG(latency_ms) &gt; 500');
+      sqlB.innerHTML = 'SELECT model_version, AVG(latency_ms) AS avg_latency\nFROM   retrieval_runs\n' +
+        (whereParts.length ? 'WHERE  ' + whereParts.join('\n   AND ') + '\n' : '') +
+        'GROUP  BY model_version' +
+        (havingParts.length ? '\nHAVING ' + havingParts.join('\n   AND ') : '') + ';';
+
+      if (!avgHaving) {
+        pipe.innerHTML = '<div class="v3-st is-err"><b>2 · WHERE</b>ERROR: aggregate functions are not allowed in WHERE</div>';
+        why.innerHTML = '<b>Impossible, not merely discouraged.</b>WHERE runs <em>before</em> GROUP BY, so at that moment no group exists and no average has been computed. ' +
+          'There is nothing for the predicate to read. This is the clean half of the lesson: the engine stops you.';
+        return;
+      }
+      if (!statusWhere) {
+        pipe.innerHTML = '<div class="v3-st is-err"><b>4 · HAVING</b>ERROR: column "status" must appear in the GROUP BY clause or be used in an aggregate function</div>';
+        why.innerHTML = '<b>Also refused — and for the mirror reason.</b>By HAVING time the rows are gone; a group holds many status values, so "status = \'success\'" has no single value to test. ' +
+          'Version A’s group contains two successes and one failure. Which status is <em>the</em> status? ' +
+          'Only a grouping key or an aggregate survives the collapse with one value per group.';
+        return;
+      }
+
+      var kept = ROWS.filter(function(r){ return r.st === 'success'; });
+      var dropped = ROWS.length - kept.length;
+      var groups = {};
+      kept.forEach(function(r){ (groups[r.v] = groups[r.v] || []).push(r); });
+      var all = {};
+      ROWS.forEach(function(r){ (all[r.v] = all[r.v] || []).push(r); });
+
+      var nums = Object.keys(groups).map(function(v){
+        var a = avgOf(groups[v]);
+        var pass = a > 500;
+        return '<div>version ' + v + ' &nbsp; AVG = ' + a + ' ms &nbsp; ' +
+          '<span style="color:' + (pass ? 'var(--viz-green)' : 'var(--viz-red)') + ';font-weight:800">' +
+          (pass ? '✓ kept by HAVING' : '✕ dropped by HAVING') + '</span></div>';
+      }).join('');
+
+      pipe.innerHTML =
+        '<div class="v3-st is-act"><b>1 · FROM</b>5 rows.</div>' +
+        '<div class="v3-st is-act"><b>2 · WHERE status = \'success\'</b>Removes ' + dropped +
+        ' failure row (A’s 2,000 ms). ' + kept.length + ' rows go forward — this line is what defines the population the metric describes.</div>' +
+        '<div class="v3-st is-act"><b>3 · GROUP BY + aggregates</b>2 groups, averages computed over the survivors only.' +
+        '<div class="v3-nums">' + nums + '</div></div>' +
+        '<div class="v3-st is-act"><b>4 · HAVING AVG(latency_ms) &gt; 500</b>Tests the computed value, group by group.</div>';
+
+      var aAll = avgOf(all.A), bAll = avgOf(all.B);
+      why.innerHTML = '<b>Result: version B only.</b>' +
+        'A averages ' + avgOf(groups.A) + ' ms over its successes; B averages ' + avgOf(groups.B) + ' ms. ' +
+        'Now imagine the failure had been left in the population: A would average ' + aAll + ' ms (B unchanged at ' + bAll + ') and would <b>qualify</b> — ' +
+        'a healthy version reported as slow, because one timed-out request was allowed into an average that was supposed to describe successes. ' +
+        'No error, no NULL, just a different question silently answered. Say the population and the group test in words before you place a clause: ' +
+        '"customers with 2026 revenue above $1,000" is <code>WHERE order_year = 2026</code> then <code>HAVING SUM(amount) &gt; 1000</code> — ' +
+        'filtering individual orders by amount instead would answer something else entirely.';
+    }
+    Bs.sw.addEventListener('click', function(){ statusWhere = true; render(); });
+    Bs.sh.addEventListener('click', function(){ statusWhere = false; render(); });
+    Bs.aw.addEventListener('click', function(){ avgHaving = false; render(); });
+    Bs.ah.addEventListener('click', function(){ avgHaving = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Set Problem</h2>
+  <p class="vz-lede">Three counts over the same four rows give three different numbers — and only one of
+    them changes what the engine has to <em>hold in memory</em>. Then the trap that ships in real
+    dashboards: distinct counts do not add up. <b>Like counting tickets sold versus counting the people
+    who came: the second one needs you to remember every face.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which count">
+    <button id="v4-star" aria-pressed="false">COUNT(*)</button>
+    <button id="v4-col" aria-pressed="false">COUNT(document_id)</button>
+    <button id="v4-dist" aria-pressed="true">COUNT(DISTINCT document_id)</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-state" id="v4-state"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">Distinct counts do not add up</h4>
+    <label class="v4-lab" for="v4-ret">Of 100k daily users, <span id="v4-rl">60</span>% come back the next day</label>
+    <input type="range" id="v4-ret" min="0" max="100" value="60" step="5" aria-label="Percent of users returning the next day">
+    <div class="v4-add" id="v4-add"></div>
+  </div>
+  <p class="vz-note">Before reaching for DISTINCT, diagnose <em>why</em> the duplicates exist. If a join
+    fanned each judgment out across several logs, <code>COUNT(DISTINCT query_id)</code> will look right
+    while <code>SUM(cost)</code> beside it stays wrong — the DISTINCT hid the row multiplication instead of
+    repairing it. When the duplication is real (a user with many events), distinct is the intended
+    statistic.</p>
+
+  <style>
+    .v4-rows{display:flex;flex-direction:column;gap:5px}
+    .v4-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v4-r.is-count{border-color:var(--viz-green)}
+    .v4-r.is-skip{opacity:.42}
+    .v4-mk{font-weight:800;width:16px;text-align:center}
+    .v4-note{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v4-state{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-state b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-add{margin-top:11px;font-size:12.5px;line-height:1.6}
+    .v4-bars{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+    .v4-bar h6{margin:0 0 4px;font-size:11px;font-weight:700;color:var(--viz-muted);
+      display:flex;justify-content:space-between}
+    .v4-bar h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--viz-ink)}
+    .v4-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { q:'q1', d:"'d7'" }, { q:'q1', d:"'d7'" }, { q:'q1', d:"'d9'" }, { q:'q1', d:'NULL' }
+    ];
+    var MODES = {
+      star: { val:4, uses:function(){ return 'count'; },
+        state:['COUNT(*) = 4 — one integer counter.',
+          'It counts <b>rows</b>. The duplicate d7 counts twice and the NULL row counts too, because a row is a row. The engine needs one accumulator per partial aggregate and nothing else, which is why this scales to any table size without thinking about it.'] },
+      col: { val:3, uses:function(r){ return r.d === 'NULL' ? 'skip' : 'count'; },
+        state:['COUNT(document_id) = 3 — still one counter.',
+          'Counts rows where the expression is non-NULL. The duplicate still counts twice; only the NULL is skipped. Cheap for the same reason as COUNT(*): nothing has to be remembered between rows.'] },
+      dist: { val:2, uses:function(r, seen){ return r.d === 'NULL' ? 'skip' : (seen ? 'dupe' : 'count'); },
+        state:['COUNT(DISTINCT document_id) = 2 — and now the engine needs a SET.',
+          'Unique non-NULL values only: d7 contributes once however often it appears, and NULL contributes nothing. To know that the second d7 is a repeat, the engine must have <b>remembered the first one</b> — so it maintains a hash set (expected linear work, memory proportional to distinct cardinality) or sorts and removes adjacent duplicates (n log n comparisons, but it spills and merges predictably). In a distributed warehouse, rows sharing a key must usually be shuffled to the same worker, and that network movement becomes the dominant cost.<br><br>' +
+          'Scale it: one billion events with 200 million unique user IDs. COUNT(*) needs a counter. Exact COUNT(DISTINCT user_id) needs state representing 200 million IDs plus a repartition and a merge. <b>One word of SQL changed the physical problem from scalar accumulation to large-set construction.</b><br><br>' +
+          'Which is why HyperLogLog exists — a compact sketch that estimates cardinality with known relative error. Right for dashboards and capacity trends; wrong for billing, uniqueness enforcement, or an exact evaluation denominator.'] }
+    };
+    var mode = 'dist';
+    var B = { star:document.getElementById('v4-star'), col:document.getElementById('v4-col'), dist:document.getElementById('v4-dist') };
+    var rowsB = document.getElementById('v4-rows');
+    var stateB = document.getElementById('v4-state');
+
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var m = MODES[mode], seen = {};
+      rowsB.innerHTML = ROWS.map(function(r, i){
+        var already = !!seen[r.d];
+        var how = m.uses(r, already);
+        if (r.d !== 'NULL') seen[r.d] = true;
+        var cls = how === 'count' ? 'is-count' : 'is-skip';
+        var mark = how === 'count' ? '✓' : '✕';
+        var colour = how === 'count' ? 'var(--viz-green)' : (how === 'dupe' ? 'var(--viz-amber)' : 'var(--viz-red)');
+        var note = how === 'count' ? 'counted' : (how === 'dupe' ? 'already seen' : 'NULL, skipped');
+        return '<div class="v4-r ' + cls + '" style="' + (how === 'dupe' ? 'border-color:var(--viz-amber)' : '') + '">' +
+          '<span class="v4-mk" style="color:' + colour + '">' + mark + '</span>' +
+          '<span>row ' + (i + 1) + ' · ' + r.q + ' · document_id = ' + r.d + '</span>' +
+          '<span class="v4-note" style="color:' + colour + '">' + note + '</span></div>';
+      }).join('');
+      stateB.innerHTML = '<b>' + m.state[0] + '</b>' + m.state[1];
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+
+    var ret = document.getElementById('v4-ret');
+    var rl = document.getElementById('v4-rl');
+    var addB = document.getElementById('v4-add');
+    function additivity(){
+      var pct = Number(ret.value), daily = 100000, days = 30;
+      var summed = daily * days;
+      var returning = Math.round(daily * pct / 100);
+      var fresh = daily - returning;
+      var truth = daily + fresh * (days - 1);
+      var over = Math.round((summed / truth) * 10) / 10;
+      rl.textContent = pct;
+      function bar(t, v, max, c){
+        return '<div class="v4-bar"><h6><span>' + t + '</span><b style="color:' + c + '">' + v.toLocaleString() + '</b></h6>' +
+          '<div class="v4-track"><i style="width:' + Math.max(2, Math.round(v / max * 100)) + '%;background:' + c + '"></i></div></div>';
+      }
+      addB.innerHTML =
+        '<div class="v4-bars">' +
+        bar('SUM of 30 daily COUNT(DISTINCT user_id)', summed, summed, 'var(--viz-red)') +
+        bar('True monthly COUNT(DISTINCT user_id)', truth, summed, 'var(--viz-green)') +
+        '</div>' +
+        'A person active on three days is counted <b>three times</b> by the sum. At ' + pct + '% next-day return the ' +
+        'monthly figure is overstated <b style="color:var(--viz-red)">' + over + '&times;</b> — and the error is invisible in the SQL, ' +
+        'because every daily number in it is correct. <b>Distinct counts are non-additive across overlapping groups.</b> ' +
+        'The monthly count has to deduplicate at month grain. Pre-aggregation helps with the cost — deduplicate ' +
+        '<code>(day, user_id)</code> near ingestion and count a much smaller table — but the result still cannot be summed across months.';
+    }
+    ret.addEventListener('input', additivity);
+    additivity();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Arbitrary Column</h2>
+  <p class="vz-lede">A group holds many rows. Ask it for a column that has not been collapsed and you are
+    asking a question with no answer — so the engine either refuses or invents one.
+    <b>Like asking a committee for "their" phone number.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="vz-mono" id="v5-sql">SELECT query_id, document_id, MAX(score)
+FROM   ranked_results
+GROUP  BY query_id;</div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Engine behaviour">
+    <button id="v5-strict" aria-pressed="true">strict engine</button>
+    <button id="v5-loose" aria-pressed="false">permissive mode</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-src" id="v5-src"></div>
+    <div class="v5-res" id="v5-res"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v5-h">Four repairs, by intent</h4>
+    <div class="v5-fix" id="v5-fix"></div>
+  </div>
+  <p class="vz-note">The rule that covers every case: every selected column must have a
+    <b>one-value-per-output-group explanation</b>. A key constraint, an explicit aggregate, or membership in
+    the GROUP BY. "It happens to look constant" is not one — and a functional dependency you were relying on
+    can be destroyed by a dimension join that duplicates the supposedly unique key.</p>
+
+  <style>
+    .v5-src table, .v5-res table{width:100%;border-collapse:collapse;font-size:12px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-src th, .v5-res th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;
+      color:var(--viz-muted);border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v5-src td, .v5-res td{padding:6px 5px 6px 0;border-bottom:1px solid var(--viz-line)}
+    .v5-res{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.55}
+    .v5-res b.v5-hd{display:block;font-size:13px;margin-bottom:6px}
+    .v5-ghost{color:var(--viz-red);font-weight:800}
+    .v5-h{margin:0 0 9px;font-size:13px}
+    .v5-fix{display:flex;flex-direction:column;gap:7px}
+    .v5-f{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v5-f b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+    .v5-err{border:1.5px solid var(--viz-red);border-radius:10px;padding:11px;font-size:12.5px;
+      line-height:1.5;color:var(--viz-red);font-weight:600}
+  </style>
+  <script>
+  (function(){
+    var SRC = [
+      { q:'q1', d:"'d1'", s:0.90 }, { q:'q1', d:"'d2'", s:0.70 },
+      { q:'q2', d:"'d5'", s:0.55 }, { q:'q2', d:"'d8'", s:0.81 }
+    ];
+    var strict = true;
+    var bS = document.getElementById('v5-strict'), bL = document.getElementById('v5-loose');
+    var srcB = document.getElementById('v5-src');
+    var resB = document.getElementById('v5-res');
+
+    srcB.innerHTML = '<table><thead><tr><th>query_id</th><th>document_id</th><th>score</th></tr></thead><tbody>' +
+      SRC.map(function(r){ return '<tr><td>' + r.q + '</td><td>' + r.d + '</td><td>' + r.s.toFixed(2) + '</td></tr>'; }).join('') +
+      '</tbody></table>';
+
+    function render(){
+      bS.setAttribute('aria-pressed', strict ? 'true' : 'false');
+      bL.setAttribute('aria-pressed', strict ? 'false' : 'true');
+      if (strict) {
+        resB.innerHTML = '<div class="v5-err">ERROR: column "document_id" must appear in the GROUP BY clause or be used in an aggregate function</div>' +
+          '<br>The engine is right to refuse. Group <code>q1</code> contains <b>two</b> document_id values, d1 and d2, and the query asks for one. ' +
+          'There is no correct answer to give, so the only honest response is to stop.';
+      } else {
+        resB.innerHTML = '<b class="v5-hd">It runs. Look closely at row 1.</b>' +
+          '<table><thead><tr><th>query_id</th><th>document_id</th><th>max_score</th></tr></thead><tbody>' +
+          '<tr><td>q1</td><td><span class="v5-ghost">\'d2\'</span></td><td>0.90</td></tr>' +
+          '<tr><td>q2</td><td><span class="v5-ghost">\'d5\'</span></td><td>0.81</td></tr>' +
+          '</tbody></table>' +
+          '<br><b>Neither of those pairs exists in the source table.</b> MAX(score) picked 0.90 from d1’s row; ' +
+          'document_id was picked independently, and the plan happened to hand back d2. The output is a combination that never ' +
+          'happened — the top score of one document attached to the name of another. ' +
+          '<br><br>Aggregates operate <b>independently</b> unless a function explicitly preserves the row association. ' +
+          'And the value is not documented, it is whatever this plan produced: change the storage order, the parallelism, ' +
+          'or the engine version and tomorrow it is d1, with nothing in the query having changed.';
+      }
+    }
+    bS.addEventListener('click', function(){ strict = true; render(); });
+    bL.addEventListener('click', function(){ strict = false; render(); });
+    render();
+
+    document.getElementById('v5-fix').innerHTML = [
+      ['You do not need the column', 'Omit it. <code>SELECT query_id, MAX(score) GROUP BY query_id</code> is a clean per-query summary, and most of the time this is the honest fix.'],
+      ['You need the row at the extreme', 'This is the real question — "which document scored highest" — and no plain aggregate answers it. It needs a ranking over rows, which is the next lesson. Some dialects also offer a value-at-extreme aggregate for exactly this.'],
+      ['Any representative genuinely suffices', 'Write <code>ANY_VALUE(document_id)</code> where supported, and document the nondeterminism. Saying "arbitrary on purpose" in the SQL is very different from inheriting it by accident.'],
+      ['It should be unique anyway', 'Then enforce it with a constraint rather than hoping. And beware: a functional dependency on a primary key can be broken by a join that duplicates the key — the robust pattern is to aggregate facts at key grain first, then join the one-row-per-key dimension.']
+    ].map(function(f){ return '<div class="v5-f"><b>' + f[0] + '</b>' + f[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+</body>
+</html>

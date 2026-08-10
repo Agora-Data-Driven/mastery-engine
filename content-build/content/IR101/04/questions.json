@@ -5,9 +5,9 @@
       "question": "What is the first physical unit produced by blocked index construction?",
       "options": [
         "A sorted immutable run built within a memory budget",
-        "One globally mutable postings file updated randomly",
+        "One globally mutable postings file edited in place",
         "A dense term-document matrix for the full corpus",
-        "A query-specific ranking generated before tokenization"
+        "A merged dictionary covering every input block"
       ],
       "answerIndex": 0,
       "difficulty": "core"
@@ -16,10 +16,10 @@
       "topic": "Blocked Index Construction: Build Runs, Merge Runs",
       "question": "In what order are occurrence records sorted?",
       "options": [
-        "Worker, arrival time, random key",
+        "Document ID, term, position",
         "Term, document ID, position",
-        "Position, document length, filename",
-        "Score, query ID, model version"
+        "Term, position, document ID",
+        "Position, term, document ID"
       ],
       "answerIndex": 1,
       "difficulty": "core"
@@ -31,7 +31,7 @@
         "cloud->[1]",
         "cloud->[4,8]",
         "cloud->[1,4,8]",
-        "cloud->[13]"
+        "cloud->[8,4,1]"
       ],
       "answerIndex": 2,
       "difficulty": "balanced"
@@ -40,10 +40,10 @@
       "topic": "Blocked Index Construction: Build Runs, Merge Runs",
       "question": "Why should workers use deterministic document IDs?",
       "options": [
-        "Local counters always coordinate globally without communication",
-        "Document IDs are removed before postings are merged",
-        "Different IDs improve detection of the same source document",
-        "Independent counters can collide or make replays produce different postings"
+        "Local counters coordinate globally without any communication",
+        "Document IDs are stripped out before the postings are merged",
+        "Differing IDs improve detection of duplicate source documents",
+        "Independent counters can collide or make replays differ"
       ],
       "answerIndex": 3,
       "difficulty": "balanced"
@@ -53,9 +53,9 @@
       "question": "What makes an immutable run useful for failure recovery?",
       "options": [
         "A committed checksum-validated run can be reused by a retry",
-        "Readers can consume it safely while its bytes are still changing",
-        "It eliminates the need to record input scope or analyzer version",
-        "A partial write is automatically equivalent to a complete run"
+        "Readers consume it safely while its bytes are still changing",
+        "It removes the need to record input scope or analyzer version",
+        "A partial write counts as equivalent to a complete run"
       ],
       "answerIndex": 0,
       "difficulty": "challenge"
@@ -65,7 +65,7 @@
       "question": "Why should final validation reconcile source and index counts?",
       "options": [
         "A readable dictionary proves every input block was included",
-        "A structurally valid index can still omit a completed source scope",
+        "A structurally valid index can still omit a whole source block",
         "Postings counts are unrelated to construction completeness",
         "Checksums guarantee that rejected documents were indexed"
       ],
@@ -76,10 +76,10 @@
       "topic": "Merge-Based Dynamic Index Updates (Logarithmic Merge)",
       "question": "What triggers a logarithmic merge to the next level?",
       "options": [
-        "A query contains more than one term",
-        "A document receives a new relevance score",
-        "A new segment collides with an occupied segment at its size level",
-        "A reader opens the current manifest"
+        "A query arrives containing more than one search term",
+        "A document is rescored after its content changes",
+        "A new segment collides with an occupied size level",
+        "A reader opens the manifest of the current index"
       ],
       "answerIndex": 2,
       "difficulty": "core"
@@ -100,10 +100,10 @@
       "topic": "Merge-Based Dynamic Index Updates (Logarithmic Merge)",
       "question": "Base batch size is 1,000. What happens when the fourth batch arrives after two batches already formed level 1 and batch three occupies level 0?",
       "options": [
-        "Level 0 merges to level 1, then carries into a 4,000-document level 2",
-        "All four batches remain independent at level 0 forever",
-        "The first three batches are deleted and only batch four remains",
-        "Every source document is rebuilt under a new analyzer"
+        "Level 0 merges up and carries into a 4,000-document level 2",
+        "All four batches stay independent at level 0 indefinitely",
+        "The first three batches are deleted, leaving only batch four",
+        "Every source document is reindexed under the new analyzer"
       ],
       "answerIndex": 0,
       "difficulty": "balanced"
@@ -114,8 +114,8 @@
       "options": [
         "As negative document frequencies in every dictionary",
         "As tombstones that suppress older document versions",
-        "As random changes to compressed document-ID gaps",
-        "As query terms added to every live document"
+        "As holes punched into the compressed postings bytes",
+        "As gaps rewritten into every surviving postings list"
       ],
       "answerIndex": 1,
       "difficulty": "balanced"
@@ -124,9 +124,9 @@
       "topic": "Merge-Based Dynamic Index Updates (Logarithmic Merge)",
       "question": "Why must a merge commit use a generation-aware manifest?",
       "options": [
-        "To block every new document until all readers terminate",
-        "To overwrite newer segments that arrived after the merge snapshot",
-        "To replace merged inputs while preserving segments created concurrently",
+        "To block new documents until every reader has terminated",
+        "To overwrite newer segments created after the snapshot",
+        "To replace merged inputs while keeping concurrent segments",
         "To expose the new segment before its output is durable"
       ],
       "answerIndex": 2,
@@ -137,9 +137,9 @@
       "question": "What is the main cost of delaying background merges too long?",
       "options": [
         "Source documents become impossible to tokenize",
-        "Stable document IDs change on every query",
-        "All index writes become globally transactional",
-        "Segment fan-out, stale bytes, and query work accumulate"
+        "Stable document IDs change on every incoming query",
+        "Every index write becomes globally transactional",
+        "Segment fan-out and stale bytes accumulate"
       ],
       "answerIndex": 3,
       "difficulty": "challenge"
@@ -161,9 +161,9 @@
       "question": "What is a major benefit of incremental merging?",
       "options": [
         "It removes all segment and version-management complexity",
-        "It incorporates small changes without rewriting the complete corpus",
-        "It guarantees old analyzer generations remain compatible",
-        "It makes periodic reconciliation unnecessary"
+        "It absorbs small changes without rewriting the whole corpus",
+        "It guarantees that old analyzer generations stay usable",
+        "It makes periodic source reconciliation unnecessary"
       ],
       "answerIndex": 1,
       "difficulty": "core"
@@ -172,10 +172,10 @@
       "topic": "Rebuild vs Merge: Index Update Strategy Tradeoffs",
       "question": "A 50,000-document policy corpus changes weekly and rebuilds in four minutes. Which choice is strongest?",
       "options": [
-        "Permanent complex merge machinery regardless of operational cost",
-        "One mutable postings file edited randomly during serving",
-        "Simple versioned full replacement with validation",
-        "Never updating the index because the corpus is small"
+        "Permanent merge machinery regardless of operational cost",
+        "One mutable postings file edited in place during serving",
+        "Simple versioned full replacement with shadow validation",
+        "Weekly tombstones with no reconciliation against source"
       ],
       "answerIndex": 2,
       "difficulty": "balanced"
@@ -184,10 +184,10 @@
       "topic": "Rebuild vs Merge: Index Update Strategy Tradeoffs",
       "question": "Why does a new tokenizer generally require a complete new index version?",
       "options": [
-        "Tokenization changes only display text after retrieval",
-        "Old postings can infer every new token boundary without source text",
-        "Mixed analyzers guarantee identical term statistics",
-        "The analyzer changes keys, postings, positions, and ranking statistics"
+        "Tokenization changes only the display text after retrieval",
+        "Old postings can infer new token boundaries without the source",
+        "Mixed analyzer generations guarantee identical statistics",
+        "The analyzer changes keys, postings, positions, and statistics"
       ],
       "answerIndex": 3,
       "difficulty": "balanced"
@@ -196,10 +196,10 @@
       "topic": "Rebuild vs Merge: Index Update Strategy Tradeoffs",
       "question": "When can a large deletion wave favor rebuilding?",
       "options": [
-        "When emitting only live data is cheaper than carrying many tombstones through merges",
-        "When no source-of-truth record identifies which documents remain live",
-        "When deletion must keep all obsolete postings query-visible",
-        "When rebuild output cannot be versioned or atomically published"
+        "When emitting live data beats carrying tombstones through merges",
+        "When no source record identifies which documents remain live",
+        "When deleted documents must stay visible to every live query",
+        "When the rebuild output cannot be versioned or published atomically"
       ],
       "answerIndex": 0,
       "difficulty": "challenge"
@@ -208,8 +208,8 @@
       "topic": "Rebuild vs Merge: Index Update Strategy Tradeoffs",
       "question": "What hybrid policy balances freshness and drift control?",
       "options": [
-        "Full rebuild after every document and no incremental segments",
-        "Incremental segments and merges plus periodic reconciliation or rebuild",
+        "Full rebuild after every document, with no incremental segments",
+        "Incremental segments and merges plus periodic reconciliation",
         "Unlimited segments with no compaction or source comparison",
         "In-place file mutation without manifests or rollback versions"
       ],

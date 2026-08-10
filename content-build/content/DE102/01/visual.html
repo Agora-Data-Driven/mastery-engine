@@ -1,0 +1,488 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Dependency Map</button>
+  <button class="viz-tab" data-viz-tab="2">2. Key, Whole Key, Nothing But</button>
+  <button class="viz-tab" data-viz-tab="3">3. Three Anomalies</button>
+  <button class="viz-tab" data-viz-tab="4">4. Paying Storage For Reads</button>
+  <button class="viz-tab" data-viz-tab="5">5. Three Shapes</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Dependency Map</h2>
+  <p class="vz-lede">From <b>Tables, Rows and Keys</b> you know a key uniquely identifies a row. A
+    <em>functional dependency</em> is the same idea with the key requirement removed: X determines Y. Tap
+    each dependency and watch where redundancy appears — it is always the same place.
+    <b>Like a form where one answer forces another: postcode determines city, so writing the city on every
+    line adds nothing but the chance of typing it differently.</b></p>
+
+  <div class="vz-card vz-mono" style="margin-bottom:11px">order_lines  PRIMARY KEY (order_id, line_no)
+order_id · line_no · customer_id · customer_email · product_sku · product_name · qty · unit_price</div>
+
+  <div class="v1-list" id="v1-list"></div>
+
+  <div class="vz-card">
+    <div class="v1-tbl" id="v1-tbl"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">One sentence predicts every normal-form violation you will ever find:
+    <b>redundancy appears exactly where a dependency's left side is not a key.</b> Everything after this
+    panel is that rule applied in three specific shapes.</p>
+
+  <style>
+    .v1-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-fd{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v1-fd[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-mk{flex:0 0 auto;font-weight:800;font-size:11px;width:52px;letter-spacing:.03em;font-family:inherit}
+    .v1-tbl table{width:100%;border-collapse:collapse;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v1-tbl th{text-align:left;font-size:9.5px;letter-spacing:.03em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v1-tbl td{padding:6px 5px 6px 0;border-bottom:1px solid var(--viz-line)}
+    .v1-tbl td.is-rep{color:var(--viz-red);font-weight:700}
+    .v1-tbl td.is-key{color:var(--viz-accent)}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { o:'1001', l:'1', c:'4417', e:'ana@x.io', s:'SKU-9', p:'Cable 2m', q:'2', u:'12.00' },
+      { o:'1001', l:'2', c:'4417', e:'ana@x.io', s:'SKU-3', p:'Hub 4-port', q:'1', u:'40.00' },
+      { o:'1002', l:'1', c:'4417', e:'ana@x.io', s:'SKU-9', p:'Cable 2m', q:'5', u:'11.50' },
+      { o:'1003', l:'1', c:'8120', e:'kai@x.io', s:'SKU-9', p:'Cable 2m', q:'1', u:'12.00' }
+    ];
+    var COLS = [['o','order_id'],['l','line_no'],['c','customer_id'],['e','customer_email'],
+                ['s','product_sku'],['p','product_name'],['q','qty'],['u','unit_price']];
+    var FDS = [
+      { lhs:'(order_id, line_no)', rhs:'qty', keys:['o','l'], mark:['q'], isKey:true,
+        why:['Left side IS the key. No redundancy possible.',
+          'Every row has a distinct (order_id, line_no), so this dependency can never repeat itself: one key value, one row, one qty. This is what a well-placed fact looks like — and it is the baseline the other three fail against.'] },
+      { lhs:'order_id', rhs:'customer_id', keys:['o'], mark:['c'], isKey:false,
+        why:['Left side is a PROPER SUBSET of the key. This is the 2NF violation.',
+          'An order belongs to one customer, so customer_id is determined by order_id alone — but the table is keyed by (order_id, line_no). Order 1001 has two lines, so 4417 is written twice. Add a third line and it is written three times. The redundancy scales with something completely unrelated to the fact itself.'] },
+      { lhs:'customer_id', rhs:'customer_email', keys:['c'], mark:['e'], isKey:false,
+        why:['Left side is a NON-KEY column. This is the 3NF violation — transitively.',
+          'The key determines customer_id, and customer_id determines the email: <code>key → customer_id → customer_email</code>. So the email repeats once per line of every order that customer ever placed. In the real table that is 812 rows for customer 4417, which is the number the next visual is about.'] },
+      { lhs:'product_sku', rhs:'product_name', keys:['s'], mark:['p'], isKey:false,
+        why:['Another non-key determining a non-key. Same shape, different column.',
+          '"Cable 2m" is written into every line that ever sold SKU-9, across every order, forever. Note that the fix is not to delete the column — it is to move it to the one table where product_sku <em>is</em> the key, which is what makes it a single fact again.'] }
+    ];
+    var list = document.getElementById('v1-list'), tbl = document.getElementById('v1-tbl'), why = document.getElementById('v1-why');
+
+    function show(i){
+      var fd = FDS[i];
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+        var m = b.querySelector('.v1-mk');
+        if (i === j) { m.textContent = fd.isKey ? 'IS KEY' : 'NOT KEY'; m.style.color = fd.isKey ? 'var(--viz-green)' : 'var(--viz-red)'; }
+        else { m.textContent = ''; m.style.color = ''; }
+      });
+      tbl.innerHTML = '<table><thead><tr>' + COLS.map(function(c){ return '<th>' + c[1] + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + ROWS.map(function(r){
+          return '<tr>' + COLS.map(function(c){
+            var cls = fd.keys.indexOf(c[0]) > -1 ? 'is-key' : (fd.mark.indexOf(c[0]) > -1 ? 'is-rep' : '');
+            return '<td class="' + cls + '">' + r[c[0]] + '</td>';
+          }).join('') + '</tr>';
+        }).join('') + '</tbody></table>';
+      var vals = ROWS.map(function(r){ return fd.keys.map(function(k){ return r[k]; }).join('|'); });
+      var dupes = vals.length - new Set(vals).size;
+      why.innerHTML = '<b style="color:' + (fd.isKey ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + fd.why[0] + '</b>' + fd.why[1] +
+        '<br><br>In these 4 rows the left side repeats <b>' + dupes + '</b> time' + (dupes === 1 ? '' : 's') +
+        ', so the red value on the right is stored ' + (dupes ? (dupes + 1) + ' times where once would do' : 'exactly once, correctly') + '.';
+    }
+    FDS.forEach(function(fd, i){
+      var b = document.createElement('button');
+      b.className = 'v1-fd';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-mk"></span><span>' + fd.lhs + ' &nbsp;&rarr;&nbsp; ' + fd.rhs + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(1);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Key, Whole Key, Nothing But</h2>
+  <p class="vz-lede">Three normal forms, three specific violations, three splits. Step through and watch
+    one wide table become four narrow ones — and watch what stays behind on purpose.
+    <b>Like unpacking a suitcase where everything was rolled inside everything else.</b></p>
+
+  <div class="v2-steps" id="v2-steps"></div>
+
+  <div class="vz-card">
+    <div class="v2-tables" id="v2-tables"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Higher forms exist — BCNF closes an edge case where a non-key column determines part
+    of a key — but 3NF is the working target for a transactional schema and the returns diminish fast past
+    it. The transferable skill is not the forms. It is the question they force you to answer about every
+    single column: <b>which entity does this fact describe?</b></p>
+
+  <style>
+    .v2-steps{display:flex;gap:5px;margin-bottom:12px}
+    .v2-st{flex:1;min-height:56px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:800;font-size:12px;padding:6px 4px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;line-height:1.25}
+    .v2-st small{font-weight:700;font-size:9px;opacity:.8}
+    .v2-st[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+    .v2-tables{display:flex;flex-direction:column;gap:8px}
+    .v2-t{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v2-t.is-new{border-color:var(--viz-green)}
+    .v2-t h5{margin:0 0 5px;font-size:12px;font-family:ui-monospace,Consolas,monospace;
+      display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+    .v2-t h5 em{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.05em;
+      text-transform:uppercase;color:var(--viz-muted);font-family:inherit}
+    .v2-cols{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.6;color:var(--viz-muted)}
+    .v2-cols b{color:var(--viz-accent)}
+    .v2-cols i{font-style:normal;color:var(--viz-red);font-weight:700}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { nm:'0NF', sub:'as exported', tables:[
+          { n:'order_lines_raw', k:'(order_id, line_no)', cols:'<b>order_id</b>, <b>line_no</b>, customer_id, customer_email, product_sku, product_name, qty, unit_price, <i>tags "usb;cable;2m"</i>', neu:false }],
+        why:['A comma-packed list in a column the planner cannot see.',
+          'The tags column holds three values in one cell. You can LIKE against it and you cannot index it, join on it, or constrain it — as far as the query planner is concerned that column is one opaque string. <b>This is what 1NF is protecting.</b> Note it is not about "no lists ever": a declared <code>ARRAY</code> type is a different thing entirely, and visual 5 is about exactly that distinction.'] },
+      { nm:'1NF', sub:'atomic values', tables:[
+          { n:'order_lines', k:'(order_id, line_no)', cols:'<b>order_id</b>, <b>line_no</b>, customer_id, <i>customer_email</i>, product_sku, product_name, qty, unit_price', neu:false },
+          { n:'line_tags', k:'(order_id, line_no, tag)', cols:'<b>order_id</b>, <b>line_no</b>, <b>tag</b>', neu:true }],
+        why:['Every column now holds one value — and the real redundancy is still untouched.',
+          '1NF made the table queryable; it did nothing about repetition. customer_email is still written once per line, because the violation there is not about atomicity. That is the next form’s job, and it is why the three forms are a sequence rather than a checklist.'] },
+      { nm:'2NF', sub:'the WHOLE key', tables:[
+          { n:'orders', k:'order_id', cols:'<b>order_id</b>, customer_id, order_ts', neu:true },
+          { n:'order_lines', k:'(order_id, line_no)', cols:'<b>order_id</b>, <b>line_no</b>, product_sku, <i>product_name</i>, qty, unit_price', neu:false },
+          { n:'line_tags', k:'(order_id, line_no, tag)', cols:'<b>order_id</b>, <b>line_no</b>, <b>tag</b>', neu:false }],
+        why:['Anything depending on only PART of the composite key moves out.',
+          'customer_id depended on order_id alone, so it belongs in a table keyed by order_id — and customer_email travelled with it. Order 1001’s customer is now written <b>once</b> however many lines it grows to. What remains on the line is genuinely per-line: which product, how many, at what price.'] },
+      { nm:'3NF', sub:'NOTHING BUT the key', tables:[
+          { n:'customers', k:'customer_id', cols:'<b>customer_id</b>, customer_email', neu:true },
+          { n:'products', k:'product_sku', cols:'<b>product_sku</b>, product_name, list_price', neu:true },
+          { n:'orders', k:'order_id', cols:'<b>order_id</b>, customer_id, order_ts', neu:false },
+          { n:'order_lines', k:'(order_id, line_no)', cols:'<b>order_id</b>, <b>line_no</b>, product_sku, qty, <em style="color:var(--viz-amber);font-style:normal;font-weight:700">unit_price</em>', neu:false }],
+        why:['Non-key columns determined by other non-key columns move out too.',
+          'customer_email left for a table keyed by customer_id; product_name left for one keyed by product_sku. Every fact now lives in exactly one row of exactly one table.<br><br>' +
+          '<b style="color:var(--viz-amber)">And look at what stayed: unit_price is still on the order line, even though products carries list_price.</b> That is not an oversight. The price <em>at the moment of sale</em> is a fact about the sale, not about the product — prices change, and the sale happened at one of them. Move it out and you have destroyed history to satisfy a rule. The forms are a tool for asking "which entity does this fact describe?", never a substitute for answering it.'] }
+    ];
+    var cur = 0;
+    var stepsB = document.getElementById('v2-steps'), tablesB = document.getElementById('v2-tables'), whyB = document.getElementById('v2-why');
+    function show(i){
+      cur = i;
+      var s = STAGES[i];
+      [].slice.call(stepsB.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      tablesB.innerHTML = s.tables.map(function(t){
+        return '<div class="v2-t' + (t.neu ? ' is-new' : '') + '"><h5>' + t.n +
+          '<em>' + (t.neu ? 'new here' : 'key ' + t.k) + '</em></h5><div class="v2-cols">' + t.cols + '</div></div>';
+      }).join('');
+      whyB.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1];
+    }
+    STAGES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v2-st';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = s.nm + '<small>' + s.sub + '</small>';
+      b.addEventListener('click', function(){ show(i); });
+      stepsB.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Three Anomalies</h2>
+  <p class="vz-lede">Redundancy would cost only disk if data never changed. It changes. Pick a scenario and
+    run it against both schemas. <b>Like writing your phone number on 812 forms and then moving house.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Scenario">
+    <button id="v3-upd" aria-pressed="true">customer changes email</button>
+    <button id="v3-ins" aria-pressed="false">new product, not yet ordered</button>
+    <button id="v3-del" aria-pressed="false">delete their only order</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-fail">The 812-row UPDATE dies after
+      <span id="v3-fl">640</span> rows</label>
+    <input type="range" id="v3-fail" min="0" max="812" value="640" step="1" aria-label="Rows written before the job died">
+    <div class="v3-bar" id="v3-bar"></div>
+  </div>
+
+  <div class="vz-card v3-sides" id="v3-sides" style="margin-top:10px"></div>
+  <p class="vz-note">This is the deep claim of 3NF, and it is stronger than "tidier": each fact lives in
+    one row of one table, so an update is a single-row write that any transactional store makes
+    <b>atomic</b>. Inconsistency stops being discouraged and becomes <b>structurally unrepresentable</b>.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-bar{margin-top:12px}
+    .v3-track{height:18px;border-radius:5px;background:var(--viz-line);overflow:hidden;display:flex}
+    .v3-track i{display:block;height:100%}
+    .v3-legend{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;font-weight:700}
+    .v3-sides{display:flex;flex-direction:column;gap:10px}
+    .v3-s{border:1.5px solid var(--viz-line);border-radius:11px;padding:11px;background:var(--viz-bg)}
+    .v3-s h4{margin:0 0 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-stamp{font-weight:800;font-size:13px;display:block;margin-bottom:4px}
+    .v3-b{font-size:12.5px;line-height:1.55}
+  </style>
+  <script>
+  (function(){
+    var mode = 'upd';
+    var B = { upd:document.getElementById('v3-upd'), ins:document.getElementById('v3-ins'), del:document.getElementById('v3-del') };
+    var slider = document.getElementById('v3-fail');
+    var fl = document.getElementById('v3-fl'), bar = document.getElementById('v3-bar'), sides = document.getElementById('v3-sides');
+
+    var CASES = {
+      upd: {
+        flat:['✕ 812 rows to change, and the table can now disagree with itself',
+          'Customer 4417’s email is stored on all 812 of their order lines, so changing it is an 812-row UPDATE. Drag the slider: at any partial completion the table asserts <b>two different emails for one customer</b>, and a query joining to "the" email returns whichever row it happened to touch. ' +
+          '<b>No constraint can save you here</b> — the engine has no way to know those 812 cells are meant to be one fact. Correctness rests on every writer, everywhere, forever, remembering to update every copy.'],
+        norm:['✓ One row in customers. Atomic by construction.',
+          'The email lives in exactly one row of exactly one table, so the change is a single-row write — atomic in any transactional store. There is no partial state to reach, because there is no second copy to disagree with. The slider is meaningless on this side, which is the point.'] },
+      ins: {
+        flat:['✕ You cannot record the product until someone buys it',
+          'Product facts live only inside order-line rows, and the primary key demands an order_id. So a new SKU with a name and a list price has nowhere to go: <b>facts about one entity are hostage to the existence of another.</b> Teams work around this with a fake order, or a NULL-keyed row, and both are worse than the problem.'],
+        norm:['✓ INSERT INTO products. No host row required.',
+          'A product is its own entity with its own table and its own key, so it can exist before it has ever been sold. That is what having a place to put a fact means.'] },
+      del: {
+        flat:['✕ Deleting the order silently destroys the email',
+          'Customer 4417’s contact details existed only on their order lines. Remove the order and an entirely unrelated fact goes with it — no error, no warning, and nothing in the delete statement mentioned customers at all.'],
+        norm:['✓ Deleting an order removes only order facts.',
+          'The customers row is untouched, because it was never part of the order. A delete removes exactly its own facts, which is the third face of the same property.'] }
+    };
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var n = Number(slider.value);
+      fl.textContent = n;
+      var pct = Math.round(n / 812 * 100);
+      bar.innerHTML = '<div class="v3-track"><i style="width:' + pct + '%;background:var(--viz-green)"></i>' +
+        '<i style="width:' + (100 - pct) + '%;background:var(--viz-red)"></i></div>' +
+        '<div class="v3-legend"><span style="color:var(--viz-green)">' + n + ' rows say the NEW email</span>' +
+        '<span style="color:var(--viz-red)">' + (812 - n) + ' rows say the OLD one</span></div>' +
+        (n > 0 && n < 812
+          ? '<div style="margin-top:8px;font-size:12.5px;color:var(--viz-red);font-weight:700">The table currently asserts two emails for one customer.</div>'
+          : '<div style="margin-top:8px;font-size:12.5px;color:var(--viz-muted)">Consistent — but only because the job happened to finish. Nothing enforced it.</div>');
+      bar.parentNode.style.display = mode === 'upd' ? '' : 'none';
+
+      var c = CASES[mode];
+      function side(title, ok, txt){
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v3-s" style="border-color:' + col + '"><h4>' + title + '</h4>' +
+          '<span class="v3-stamp" style="color:' + col + '">' + txt[0] + '</span><div class="v3-b">' + txt[1] + '</div></div>';
+      }
+      sides.innerHTML = side('flat order_lines (unnormalized)', false, c.flat) +
+                        side('3NF schema', true, c.norm);
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Paying Storage For Reads</h2>
+  <p class="vz-lede">A join is a computation you run on <em>every read</em>. Denormalization moves it to
+    write time, where you run it once. Drag the read volume and watch the trade flip.
+    <b>Like pre-chopping vegetables: pointless for one meal, obvious for a hundred.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-q">Dashboard refreshes per day: <span id="v4-ql">2,000</span></label>
+    <input type="range" id="v4-q" min="1" max="5000" value="2000" step="1" aria-label="Reads per day">
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">Safe only under three conditions</h4>
+    <div class="v4-rules" id="v4-rules"></div>
+  </div>
+  <p class="vz-note">Experts denormalize the <b>serving layer</b> and keep the system of record normalized.
+    The amateur mistake is denormalizing the only copy and then hand-patching it — which is the update
+    anomaly with a process wrapped around it.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bars{margin-top:14px;display:flex;flex-direction:column;gap:11px}
+    .v4-b h5{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:9px}
+    .v4-b h5 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.4}
+    .v4-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-rules{display:flex;flex-direction:column;gap:7px}
+    .v4-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v4-r b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var SHUFFLE_GB = 3.2;          // moved per join execution
+    var WIDE_GB = 0.1;             // 100M rows x ~1 byte, dictionary-encoded
+    var s = document.getElementById('v4-q'), ql = document.getElementById('v4-ql');
+    var bars = document.getElementById('v4-bars'), why = document.getElementById('v4-why');
+
+    function render(){
+      var n = Number(s.value);
+      ql.textContent = n.toLocaleString();
+      var joinCost = n * SHUFFLE_GB;
+      var denormCost = WIDE_GB + SHUFFLE_GB;   // stored once + the single nightly join
+      var max = Math.max(joinCost, denormCost);
+      function bar(t, v, c, sub){
+        return '<div class="v4-b"><h5><span>' + t + '</span><b style="color:' + c + '">' +
+          (v >= 1000 ? (v / 1000).toFixed(1) + ' TB' : v.toFixed(1) + ' GB') + '/day</b></h5>' +
+          '<div class="v4-track"><i style="width:' + Math.max(1, Math.round(v / max * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div class="v4-sub">' + sub + '</div></div>';
+      }
+      var win = denormCost < joinCost;
+      bars.innerHTML =
+        bar('Normalized: join on every read', joinCost, win ? 'var(--viz-red)' : 'var(--viz-green)',
+          n.toLocaleString() + ' refreshes × a ' + SHUFFLE_GB + ' GB shuffle to hash-join 100M orders against 10M customers.') +
+        bar('Denormalized: join once at load', denormCost, win ? 'var(--viz-green)' : 'var(--viz-red)',
+          'One nightly join, plus ' + (WIDE_GB * 1000) + ' MB of stored customer_region — dictionary-encoded to about a byte per row.');
+      why.innerHTML = win
+        ? '<b style="color:var(--viz-green)">Denormalization wins, by ' + Math.round(joinCost / denormCost) + '×.</b>' +
+          'Two properties of analytics make this trade favourable, and both have to hold. <b>Reads dominate:</b> one load per night against thousands of reads per day, so a cost paid once at write time amortises across every one of them. ' +
+          '<b>Columnar storage makes the redundancy nearly free:</b> the engine scans only the columns a query references, and a repeated low-cardinality column dictionary-encodes to roughly a byte per row — ' +
+          'about 100 MB to attach a region to 100 million orders, which is a rounding error beside re-shuffling a 10-million-row join on every single query.'
+        : '<b style="color:var(--viz-red)">At this read volume, do not bother.</b>' +
+          'The wide table still costs a full join at load time plus the storage, and there are not enough reads to amortise it. This is the direction people forget exists: denormalization is not a maturity level, it is an arithmetic argument, ' +
+          'and at low read volume the normalized schema is simply cheaper as well as safer. Drag right and watch the argument appear.';
+    }
+    s.addEventListener('input', render);
+    render();
+
+    document.getElementById('v4-rules').innerHTML = [
+      ['1 · Reads must dominate writes', 'Otherwise you are paying the write-side cost of redundancy without collecting the read-side benefit — and you have installed the update anomaly for nothing.'],
+      ['2 · A normalized system of record persists upstream', 'The wide table is a <b>derived artifact</b>, never the truth. If it cannot be rebuilt from something, it is not derived; it is just a badly normalized table with an anomaly in it.'],
+      ['3 · Refresh is automated and idempotent', 'Rebuild the table, or recompute the affected partitions. Then drift is bounded by <b>pipeline latency</b> instead of by human memory — which is the entire difference between a design and a hope.']
+    ].map(function(r){ return '<div class="v4-r"><b>' + r[0] + '</b>' + r[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Three Shapes</h2>
+  <p class="vz-lede">One order with three lines, stored three ways. Watch what each shape duplicates, what
+    it costs to read, and what it costs to change. <b>Like keeping receipts in separate envelopes, taped
+    end to end, or folded inside the order they belong to.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Shape">
+    <button id="v5-norm" aria-pressed="false">normalized</button>
+    <button id="v5-flat" aria-pressed="false">flat wide</button>
+    <button id="v5-nest" aria-pressed="true">nested ARRAY&lt;STRUCT&gt;</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v5-shape" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v5-scores" id="v5-scores"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Choose nesting when children arrive with their parent and are queried with it — an
+    order's lines are created in the same event and rarely mean anything alone. Choose a child table when
+    children are first-class: queried standalone across many parents, <b>updated independently</b>, or
+    shared between parents. Followed to its endpoint this design gives the "one big table" per analytical
+    domain — and it is the shape your corpus tables will echo.</p>
+
+  <style>
+    .v5-scores{display:flex;flex-direction:column;gap:7px}
+    .v5-row{display:flex;gap:11px;align-items:center;border-bottom:1px solid var(--viz-line);padding-bottom:7px}
+    .v5-row:last-child{border-bottom:0;padding-bottom:0}
+    .v5-k{flex:0 0 116px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-v{flex:1;font-size:12.5px;line-height:1.45;display:flex;align-items:center;gap:8px}
+    .v5-dot{flex:0 0 auto;font-weight:800;font-size:13px}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SHAPES = {
+      norm: {
+        code: 'orders\n  order_id  customer  region  order_ts\n  1001      4417      APAC    2026-07-25\n\norder_lines\n  order_id  line_no  sku     qty  unit_price\n  1001      1        SKU-9   2    12.00\n  1001      2        SKU-3   1    40.00\n  1001      3        SKU-7   4     6.25',
+        rows:['2 tables, 1 + 3 rows', 'ok'],
+        dup:['none — every fact once', 'good'],
+        read:['a JOIN on every query, shuffled in a distributed engine', 'bad'],
+        write:['change a line: one row', 'good'],
+        why:['The system of record shape. Correct, and it makes the reader work.',
+          'Every fact lives in exactly one place, so all three anomalies are gone by construction. The cost is that reassembling an order means a join — read-time computation, paid again on every query, and in a distributed warehouse paid partly in network shuffle.'] },
+      flat: {
+        code: 'order_lines_wide\n  order_id  customer  region  order_ts     line_no  sku     qty  unit_price\n  1001      4417      APAC    2026-07-25   1        SKU-9   2    12.00\n  1001      4417      APAC    2026-07-25   2        SKU-3   1    40.00\n  1001      4417      APAC    2026-07-25   3        SKU-7   4     6.25',
+        rows:['1 table, 3 rows', 'ok'],
+        dup:['every ORDER-level column repeated 3×', 'bad'],
+        read:['no join — everything is on the row', 'good'],
+        write:['change the region: 3 rows, and 812 for a real customer', 'bad'],
+        why:['The join is gone, and fan-out duplication arrived to replace it.',
+          'This is the classic wide table, and for one-to-many data it has an ugly cost: <b>every order-level column repeats on every line.</b> Customer, region and timestamp are written three times for a three-line order and a thousand times for a thousand-line one. ' +
+          'On columnar storage the storage cost is genuinely small — these columns dictionary-encode well — but the <em>update</em> cost is the anomaly at full strength, which is why this shape belongs only in a derived, rebuildable table.'] },
+      nest: {
+        code: 'orders   items ARRAY&lt;STRUCT&lt;sku STRING, qty INT64, unit_price NUMERIC&gt;&gt;\n\n  order_id  customer  region  order_ts     items\n  1001      4417      APAC    2026-07-25   [ {SKU-9, 2, 12.00},\n                                             {SKU-3, 1, 40.00},\n                                             {SKU-7, 4,  6.25} ]\n\n-- restore line grain exactly when a query wants it:\nSELECT item.sku, SUM(item.qty * item.unit_price) AS revenue\nFROM   orders, UNNEST(items) AS item\nGROUP  BY item.sku',
+        rows:['1 table, 1 row', 'good'],
+        dup:['none — parent columns stored once', 'good'],
+        read:['no join, no shuffle; UNNEST when child grain is needed', 'good'],
+        write:['change one item: rewrites the WHOLE parent row', 'bad'],
+        why:['Both earlier worlds at once — with one real cost, at write time.',
+          'The join is pre-materialised because parent and children are physically co-located, and yet parent columns are stored <b>once</b>, so there is no fan-out duplication. <code>UNNEST(items)</code> recreates order-line grain on demand: a correlated cross join between the parent row and its own children.<br><br>' +
+          '<b>And it is not a blob.</b> The Dremel storage model behind BigQuery and Parquet stores every <em>leaf</em> field as its own column stripe, with repetition metadata recording how values reassemble into nested rows — so scanning <code>items.unit_price</code> across a billion orders reads that one stripe. ' +
+          'This deliberately violates 1NF’s atomicity rule, and the difference from a comma-packed string is total: the structure is declared in the schema, typed, and addressable as a real column.<br><br>' +
+          'The price is in the last row above. Mutating one element means rewriting the entire parent row — so if children are updated independently, they wanted a table.'] }
+    };
+    var mode = 'nest';
+    var B = { norm:document.getElementById('v5-norm'), flat:document.getElementById('v5-flat'), nest:document.getElementById('v5-nest') };
+    var codeB = document.getElementById('v5-shape'), scoresB = document.getElementById('v5-scores'), whyB = document.getElementById('v5-why');
+
+    function row(k, pair){
+      var good = pair[1] === 'good', bad = pair[1] === 'bad';
+      var c = good ? 'var(--viz-green)' : (bad ? 'var(--viz-red)' : 'var(--viz-muted)');
+      return '<div class="v5-row"><div class="v5-k">' + k + '</div><div class="v5-v">' +
+        '<span class="v5-dot" style="color:' + c + '">' + (good ? '✓' : (bad ? '✕' : '·')) + '</span>' + pair[0] + '</div></div>';
+    }
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var s = SHAPES[mode];
+      codeB.innerHTML = s.code;
+      scoresB.innerHTML = row('shape', s.rows) + row('duplication', s.dup) + row('read cost', s.read) + row('write cost', s.write);
+      whyB.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1];
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,479 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Pruning Two Scales</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Granularity Curve</button>
+  <button class="viz-tab" data-viz-tab="3">3. Cost Per Object</button>
+  <button class="viz-tab" data-viz-tab="4">4. Swap, Never Mutate</button>
+  <button class="viz-tab" data-viz-tab="5">5. When Compaction Fails</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Pruning Two Scales</h2>
+  <p class="vz-lede"><b>Column Statistics and Predicate Pushdown</b> skipped row groups inside a file. The
+    same idea works one level up, before a file is ever opened. Watch a one-day query eliminate data at
+    both scales. <b>Like finding a receipt: the right box, then the right folder, then the right page.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Partition scheme">
+    <button id="v1-none" aria-pressed="false">unpartitioned</button>
+    <button id="v1-year" aria-pressed="false">by year</button>
+    <button id="v1-day" aria-pressed="true">by day</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v1-layout" style="margin-bottom:12px"></div>
+    <div class="v1-levels" id="v1-levels"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The two mechanisms are independent and they multiply. Partitioning eliminates
+    <em>files</em> from the plan before any are opened; row-group statistics then eliminate <em>groups</em>
+    inside the files that survive. A table can be perfectly partitioned and still scan badly if the data
+    inside each partition is unsorted.</p>
+
+  <style>
+    .v1-levels{display:flex;flex-direction:column;gap:10px}
+    .v1-l h5{margin:0 0 5px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      display:flex;justify-content:space-between}
+    .v1-l h5 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;letter-spacing:0;text-transform:none}
+    .v1-track{height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden;display:flex}
+    .v1-track i{display:block;height:100%}
+    .v1-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TOTAL_GB = 3650;
+    var SCHEMES = {
+      none: { parts:1, partGB:3650, layout:'events/\n  part-0000.parquet … part-3649.parquet      (no partition columns)',
+        why:['Nothing to prune. Every byte is a candidate.',
+          'The engine has no metadata that lets it prove a file cannot match, so planning considers all 3.65 TB. Row-group statistics still help inside each file, but only after every file has been opened and its footer read — which on 3,650 files is 3,650 requests before a single row is scanned.'] },
+      year: { parts:1, partGB:3650, layout:'events/year=2026/\n  part-0000.parquet … part-3649.parquet',
+        why:['A partition column that is not selective enough to matter.',
+          'One year of data is one partition, so a one-day query must consider the entire 3.65 TB anyway. The layout has all the overhead of partitioning — a directory convention, a column users must understand, a migration if it changes — and delivers essentially none of the benefit. ' +
+          '<b>Partitioning on a column queries rarely constrain buys nothing and costs metadata forever.</b>'] },
+      day: { parts:365, partGB:10, layout:'events/event_date=2026-07-24/\n  part-0000.parquet … part-0009.parquet\nevents/event_date=2026-07-25/\n  part-0000.parquet … part-0009.parquet\n… 363 more dates',
+        why:['One day of 365. The engine opens 10 GB instead of 3.65 TB.',
+          'Event time is the usual partition key precisely because analytics filters ranges and ingestion advances through time naturally, so the key aligns with both the read pattern and the write pattern. ' +
+          '<br><br>Then row-group statistics take over <em>inside</em> the surviving partition: if the files there are sorted on a secondary column the query also filters, the scan narrows again. The two mechanisms are independent, and they multiply.'] }
+    };
+    var mode = 'day';
+    var B = { none:document.getElementById('v1-none'), year:document.getElementById('v1-year'), day:document.getElementById('v1-day') };
+    var layout = document.getElementById('v1-layout'), levels = document.getElementById('v1-levels'), why = document.getElementById('v1-why');
+
+    function fmt(gb){ return gb >= 1000 ? (gb / 1000).toFixed(2) + ' TB' : gb.toFixed(0) + ' GB'; }
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var s = SCHEMES[mode];
+      layout.innerHTML = s.layout;
+      var afterPart = s.partGB;
+      var afterRG = afterPart * 0.25;   // sorted inside the partition, a 4-hour predicate
+      function level(t, gb, colour){
+        var pct = Math.max(0.4, gb / TOTAL_GB * 100);
+        return '<div class="v1-l"><h5><span>' + t + '</span><b style="color:' + colour + '">' + fmt(gb) + '</b></h5>' +
+          '<div class="v1-track"><i style="width:' + pct + '%;background:' + colour + '"></i></div></div>';
+      }
+      levels.innerHTML =
+        level('table on disk', TOTAL_GB, 'var(--viz-muted)') +
+        level('after PARTITION pruning', afterPart, afterPart < TOTAL_GB ? 'var(--viz-green)' : 'var(--viz-red)') +
+        level('after ROW GROUP pruning (sorted inside)', afterRG, 'var(--viz-accent)');
+      why.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1] +
+        '<br><br><span style="color:var(--viz-muted)">Query: <code>WHERE event_time &gt;= \'2026-07-25\' AND event_time &lt; \'2026-07-26\'</code></span>';
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Granularity Curve</h2>
+  <p class="vz-lede">Finer partitions prune more and cost more to plan. The curve has a bottom, and both
+    sides of it are real failures. Drag the granularity. <b>Like drawer dividers: a few help, one per sock
+    means you spend the morning reading labels.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-g">Partition by <span id="v2-gl">day</span></label>
+    <input type="range" id="v2-g" min="0" max="4" value="2" step="1" aria-label="Partition granularity">
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v2-h">Two things that break pruning even when the layout is right</h4>
+    <div class="v2-break" id="v2-break"></div>
+  </div>
+  <p class="vz-note">Choose with measurements, not intuition: bytes per partition, files per partition,
+    filter frequency, pruning ratio, planning latency, skew, late-write frequency. <b>The goal is not
+    maximum partition count</b> — it is to skip large irrelevant regions while keeping each selected region
+    efficient to plan and scan.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-stats{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-h{margin:0 0 9px;font-size:13px}
+    .v2-break{display:flex;flex-direction:column;gap:7px}
+    .v2-bk{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v2-bk b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-red);font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var TOTAL_GB = 3650;
+    var LEVELS = [
+      { n:'year', parts:1,        scan:3650 },
+      { n:'month', parts:12,      scan:304 },
+      { n:'day', parts:365,       scan:10 },
+      { n:'hour', parts:8760,     scan:0.42 },
+      { n:'user_id (2M users)', parts:2000000, scan:0.002 }
+    ];
+    var s = document.getElementById('v2-g'), gl = document.getElementById('v2-gl');
+    var stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+
+    function render(){
+      var L = LEVELS[Number(s.value)];
+      gl.textContent = L.n;
+      var gbPer = TOTAL_GB / L.parts;
+      var filesPer = Math.max(1, Math.round(gbPer / 0.512));
+      var bad = L.parts >= 8760;
+      var weak = L.parts <= 12;
+      var c = (bad || weak) ? 'var(--viz-red)' : 'var(--viz-green)';
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">' + L.parts.toLocaleString() + ' partitions</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+          (gbPer >= 1 ? gbPer.toFixed(1) + ' GB' : (gbPer * 1024).toFixed(0) + ' MB') + ' each</span>' +
+        '<span class="v2-pill" style="color:' + (bad ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (bad ? 'var(--viz-red)' : 'var(--viz-line)') + '">' +
+          '~' + filesPer.toLocaleString() + ' file' + (filesPer === 1 ? '' : 's') + ' per partition</span>' +
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">one-day query scans ' +
+          (L.scan >= 1 ? L.scan.toFixed(0) + ' GB' : (L.scan * 1024).toFixed(0) + ' MB') + '</span>';
+
+      why.innerHTML = L.parts >= 2000000
+        ? '<b style="color:var(--viz-red)">Cardinality catastrophe.</b>' +
+          'Partitioning directly by a near-unique key creates millions of directories or metadata entries, most containing a file of a few kilobytes. ' +
+          '<b>Listing, planning, authorization checks and catalog updates now cost far more than reading the data</b> — the pruning is theoretically perfect and the table is unusable. ' +
+          '<br><br>The right tool is <b>bucketing or clustering by a hash</b>: distribute users into a fixed number of groups (say 256) so a user filter still narrows the scan sharply, without one partition per user.'
+        : L.parts === 8760
+          ? '<b style="color:var(--viz-red)">Finer than the write pattern can support.</b>' +
+            'A one-hour query does scan less. But 8,760 partitions <b>fragment the writes</b>: each ingestion batch now spreads across many partitions and produces a small file in each, so the partition count and the small-file problem arrive together. ' +
+            'That is the coupling worth remembering — <b>an over-granular partition scheme creates small files</b>, and then compaction has to undo it.'
+          : L.parts <= 12
+            ? '<b style="color:var(--viz-red)">Too coarse to prune anything useful.</b>' +
+              'A one-day query must consider a whole ' + (L.parts === 1 ? 'year' : 'month') + ' — ' + (gbPer >= 1000 ? (gbPer / 1000).toFixed(2) + ' TB' : gbPer.toFixed(0) + ' GB') + '. ' +
+              'The layout carries every cost of partitioning and delivers almost none of the benefit, and the fix is a migration rather than a query change.'
+            : '<b style="color:var(--viz-green)">A healthy middle.</b>' +
+              'Partitions large enough to hold well-sized files and small enough that a typical predicate eliminates almost everything. ' +
+              '<br><br>Note that the right answer <em>moves</em>: early data may fit monthly partitions and later scale demand daily. <b>Partition evolution is normal</b> — snapshot-aware table formats let old and new layouts coexist with metadata routing readers correctly, while a directory-only convention needs an explicit migration and query logic that understands both.';
+    }
+    s.addEventListener('input', render);
+    render();
+
+    document.getElementById('v2-break').innerHTML = [
+      ['WHERE DATE(event_time) = \'2026-07-25\'', 'The optimiser cannot translate a wrapped column into a partition predicate, so it plans <b>every</b> partition. This is the sargability rule from query plans, one level up — and the table definition looks perfect while the scan reads terabytes. Write the half-open range instead.'],
+      ['a 30-day-late event arrives', 'It belongs in a closed partition, so the pipeline needs an overwrite or merge strategy that changes only affected data while preserving concurrent readers. <b>A rolling window that rewrites the last seven days will silently miss it</b> unless a separate reconciliation path exists — and nothing will report the gap.']
+    ].map(function(b){ return '<div class="v2-bk"><b>' + b[0] + '</b>' + b[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Cost Per Object</h2>
+  <p class="vz-lede">Same bytes, different object counts. Every object costs a list, an open, a round trip,
+    a footer parse, a task and a teardown — before any row is read. Drag the file size.
+    <b>Like moving house in ten thousand shopping bags.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-sz">8 GB partition, written as <span id="v3-szl">1,000</span> files of
+      <span id="v3-szb">8 MB</span></label>
+    <input type="range" id="v3-sz" min="0" max="6" value="2" step="1" aria-label="File size">
+    <div class="v3-dots" id="v3-dots"></div>
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v3-h">Two things people confuse</h4>
+    <div class="v3-conf" id="v3-conf"></div>
+  </div>
+  <p class="vz-note">The operational signal is end-to-end: planning time, object requests, task count, scan
+    throughput, query latency, compaction cost. <b>A file-size threshold is a means, not the goal.</b> A
+    layout is healthy when reads use compute efficiently and maintenance does not consume disproportionate
+    resources.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-dots{margin-top:14px;display:flex;flex-wrap:wrap;gap:2px;min-height:34px;align-items:center}
+    .v3-d{border-radius:2px;background:var(--viz-accent);opacity:.8}
+    .v3-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-h{margin:0 0 9px;font-size:13px}
+    .v3-conf{display:flex;flex-direction:column;gap:7px}
+    .v3-c{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v3-c b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var TOTAL_MB = 8192;
+    var SIZES = [1, 8, 32, 128, 512, 2048, 8192];
+    var s = document.getElementById('v3-sz'), szl = document.getElementById('v3-szl'), szb = document.getElementById('v3-szb');
+    var dots = document.getElementById('v3-dots'), stats = document.getElementById('v3-stats'), why = document.getElementById('v3-why');
+
+    function fmt(mb){ return mb >= 1024 ? (mb / 1024).toFixed(0) + ' GB' : mb + ' MB'; }
+    function render(){
+      var sz = SIZES[Number(s.value)];
+      var n = Math.round(TOTAL_MB / sz);
+      szl.textContent = n.toLocaleString(); szb.textContent = fmt(sz);
+      var shown = Math.min(n, 240);
+      var d = Math.max(3, Math.min(22, Math.round(Math.sqrt(sz) * 1.4)));
+      dots.innerHTML = Array.from({ length: shown }, function(){
+        return '<span class="v3-d" style="width:' + d + 'px;height:' + d + 'px"></span>';
+      }).join('') + (n > shown ? '<span style="font-size:11px;color:var(--viz-muted);margin-left:7px">… ' + (n - shown).toLocaleString() + ' more</span>' : '');
+
+      var rowGroups = Math.max(1, Math.floor(sz / 128));
+      var tiny = sz <= 8, huge = sz >= 2048;
+      var c = (tiny || huge) ? 'var(--viz-red)' : 'var(--viz-green)';
+      stats.innerHTML =
+        '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + n.toLocaleString() + ' objects to open</span>' +
+        '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + n.toLocaleString() + ' tasks to schedule</span>' +
+        '<span class="v3-pill" style="color:' + (huge ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (huge ? 'var(--viz-red)' : 'var(--viz-line)') + '">' +
+          (n * rowGroups).toLocaleString() + ' row groups = max parallelism</span>';
+
+      why.innerHTML = tiny
+        ? '<b style="color:var(--viz-red)">The fixed cost per object now dominates the useful work.</b>' +
+          'For each of these ' + n.toLocaleString() + ' objects the engine lists or reads metadata, opens the object, makes network round trips, parses a footer, allocates a task, initialises decompression and closes the stream. ' +
+          'A distributed scheduler handling thousands of tiny tasks <b>spends its CPU coordinating rather than scanning</b>, and rate limits or per-request charges can become visible long before bandwidth is saturated. ' +
+          '<br><br>Where these come from is always the write path: parallel streaming writers, over-granular partitions, frequent micro-batches, retries, low-volume partition combinations. <b>200 workers writing one file a minute produce 288,000 files a day.</b>'
+        : huge
+          ? '<b style="color:var(--viz-red)">Too large, and this direction is real too.</b>' +
+            'Open costs are amortised beautifully and now <b>scan parallelism is the constraint</b>: ' + n.toLocaleString() + ' file' + (n === 1 ? '' : 's') + ' with ' + (n * rowGroups) + ' row groups caps how many tasks can work at once. ' +
+            'Rewrites become expensive (changing anything means rewriting a huge object) and each file spans such a broad range of values that its statistics prune much less. ' +
+            '<br><br>There is no universal optimum — hundreds of megabytes is common for analytical Parquet, and the right answer depends on engine, format, workload and object store.'
+          : '<b style="color:var(--viz-green)">A healthy range.</b>' +
+            'Few enough objects that the per-object cost disappears into the scan, and enough files and row groups that the cluster stays busy. ' +
+            'Note the second number: each ' + fmt(sz) + ' file holds about ' + rowGroups + ' row group' + (rowGroups === 1 ? '' : 's') + ', so parallelism and statistics survive <em>inside</em> the file.';
+    }
+    s.addEventListener('input', render);
+    render();
+
+    document.getElementById('v3-conf').innerHTML = [
+      ['File size is not row-group size', 'A 512 MB Parquet file can hold four 128 MB row groups, keeping row-group statistics and parallel readers intact. So merging thousands of tiny files into one large file <b>with sensible row groups</b> amortises metadata without turning the file into one indivisible unit — which is what makes compaction safe to do aggressively.'],
+      ['Averages hide skew', 'A table averaging 256 MB per file may still have one partition with 50,000 tiny files and another with a few enormous ones, and every query against the first will be slow while the mean looks fine. <b>Report distributions by partition</b> — count, p50, p95, min, max — plus files added per ingestion batch and the ratio of bytes to objects.']
+    ].map(function(c){ return '<div class="v3-c"><b>' + c[0] + '</b>' + c[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Swap, Never Mutate</h2>
+  <p class="vz-lede">A compactor must merge 1,000 files into 16 while queries are reading them. Step through
+    the safe workflow, then try the unsafe one and watch a reader double count.
+    <b>Like renovating a shop: build the new counter in the back, then move it in overnight.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Approach">
+    <button id="v4-safe" aria-pressed="true">immutable files + atomic swap</button>
+    <button id="v4-unsafe" aria-pressed="false">mutate in place</button>
+  </div>
+
+  <div class="v4-steps" id="v4-steps"></div>
+  <div class="vz-card">
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Compaction is successful when readers see a consistent snapshot throughout: either the
+    old set of small files or the new compacted set, <b>never an accidental mixture</b>. That guarantee
+    matters more than hitting an exact target size — physical maintenance should improve performance
+    without changing the table's logical history.</p>
+
+  <style>
+    .v4-steps{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v4-s{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.4}
+    .v4-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-s.is-bad{border-color:var(--viz-red)}
+    .v4-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;
+      border-left:3px solid var(--viz-accent);padding-left:11px;margin:10px 0;white-space:pre-wrap}
+    .v4-code.is-bad{border-color:var(--viz-red)}
+  </style>
+  <script>
+  (function(){
+    var safe = true;
+    var bS = document.getElementById('v4-safe'), bU = document.getElementById('v4-unsafe');
+    var steps = document.getElementById('v4-steps'), why = document.getElementById('v4-why');
+
+    var SAFE = [
+      { t:'Select eligible files in ONE partition, record the input snapshot',
+        why:['Planning is scoped and pinned.',
+          'Eligibility is not just size: it combines file size, file count, age, delete density and query importance. Recent streaming partitions may compact hourly while cold partitions compact once after they settle — and files still being rapidly superseded should be left alone entirely.' +
+          '<br><br>Recording the input snapshot is what makes the later conflict check possible. A bin-packing planner then groups the inputs into target-sized outputs <b>without crossing partition boundaries</b>, unless the partition scheme itself is being migrated.'] },
+      { t:'Read the rows and write NEW files to unique object names',
+        why:['New immutable objects. Nothing existing is touched.',
+          '1,000 files of 8 MB (~8 GB) targeted at 512 MB outputs becomes roughly 16 files. Readers on the old snapshot are still reading the 1,000 inputs at this moment, completely unaffected.' +
+          '<br><br><b>And this must go through a format-aware writer.</b> Columnar files carry footers, schemas, encodings and row groups, so valid compaction reads logical rows or copies compatible structures — preserving schema, partition values, null semantics and statistics. Concatenating bytes produces something that is not a Parquet file at all.'] },
+      { t:'Validate before committing anything',
+        why:['Row count, checksums, partition values, schema, readability.',
+          'The outputs exist and nothing references them yet, so this is the free moment to check that the logical contents are equivalent. Verify row count, key checksums or aggregate measures, partition values, schema, and that the outputs actually open. ' +
+          'If validation fails, the job aborts having changed nothing the table can see.'] },
+      { t:'Compare-and-swap the metadata: remove inputs, add outputs',
+        why:['One atomic commit. This is the only moment the table changes.',
+          'The commit removes the input files from the new snapshot and adds the outputs. If another writer has changed overlapping files since the planning snapshot, <b>conflict detection forces a retry or a replan</b> — which is why the input snapshot was recorded in step 1.' +
+          '<br><br>This is optimistic concurrency, and it is what lets compaction coexist with ingestion without partition-scoped locking: writers create immutable files independently and the table format detects conflicts at commit time. A compactor should not claim files that appeared <em>after</em> its planning snapshot unless it replans.'] },
+      { t:'Leave the old files alone. Expire them later.',
+        why:['Active queries are still on the old snapshot.',
+          'Old files cannot be deleted immediately: queries planned a minute ago still reference them, and rollback or time travel may need them for days. Garbage collection expires files only after the <b>snapshot-retention period plus a safety interval</b> — ' +
+          'and it should delete objects <b>proven unreachable from retained metadata</b>, not everything absent from the latest file list. Those two rules are different, and the second one deletes data someone is reading.'] }
+    ];
+    var UNSAFE = [
+      { t:'Open the existing files and start appending merged data', bad:true,
+        why:['On object storage this is where it ends.',
+          'Objects are not files you can edit. Even where an API appears to allow it, a reader may <b>observe a partially written object</b> — there is no isolation between your write and their read.'] },
+      { t:'A reader lists the directory mid-operation', bad:true,
+        why:['It sees old objects and new objects at the same moment.',
+          'The listing is not a snapshot. It reflects whatever the store happened to contain when each page of the listing was served, so the reader can pick up both generations of the same rows.'] },
+      { t:'The query returns 1.6× the correct row count', bad:true,
+        why:['Double counted, silently, with no error anywhere.',
+          'Some rows were read from a surviving small file <em>and</em> from the merged file that already contains them. Nothing failed; the number is simply wrong, and it is wrong differently on every run depending on timing. ' +
+          '<br><br>This is the whole argument for the other approach: <b>immutable data files plus an atomic snapshot pointer</b> mean a reader stays on the old snapshot until the new one is fully committed, and then moves to it whole.'] }
+    ];
+    var sel = 0;
+    function render(){
+      bS.setAttribute('aria-pressed', safe ? 'true' : 'false');
+      bU.setAttribute('aria-pressed', safe ? 'false' : 'true');
+      var L = safe ? SAFE : UNSAFE;
+      if (sel >= L.length) sel = 0;
+      steps.innerHTML = L.map(function(st, i){
+        return '<button class="v4-s' + (st.bad ? ' is-bad' : '') + '" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v4-n">' + (i + 1) + '</span><span>' + st.t + '</span></button>';
+      }).join('');
+      [].slice.call(steps.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var st = L[sel];
+      why.innerHTML = '<b style="color:' + (st.bad ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + st.why[0] + '</b>' + st.why[1];
+    }
+    bS.addEventListener('click', function(){ safe = true; sel = 0; render(); });
+    bU.addEventListener('click', function(){ safe = false; sel = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. When Compaction Fails</h2>
+  <p class="vz-lede">The job dies. What you do next depends entirely on whether the atomic commit landed —
+    and a lost acknowledgement makes that genuinely ambiguous. Pick a failure point.
+    <b>Like posting a letter and losing the receipt: did it arrive, or not?</b></p>
+
+  <div class="v5-timeline" id="v5-timeline"></div>
+
+  <div class="vz-card">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v5-h">What makes recovery possible at all</h4>
+    <div class="v5-obs" id="v5-obs"></div>
+  </div>
+  <p class="vz-note">Sorting during compaction is the bonus round: clustering events by tenant within a date
+    partition narrows the ranges a tenant filter touches, improving row-group statistics for free while the
+    rewrite is happening anyway. Weigh it against rewrite CPU and skew — and note that
+    <b>repeatedly compacting already-healthy files just burns resources and churns storage.</b></p>
+
+  <style>
+    .v5-timeline{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v5-t{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.4}
+    .v5-t[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-mk{flex:0 0 auto;font-size:14px;width:18px;text-align:center}
+    .v5-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.04em}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-h{margin:0 0 9px;font-size:13px}
+    .v5-obs{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var CASES = [
+      { t:'Dies while writing output files', mk:'💥', tag:'BEFORE COMMIT', colour:'var(--viz-amber)',
+        why:['Harmless. The table never saw it.',
+          'The commit never happened, so the snapshot still references all 1,000 input files and every reader is unaffected. What is left behind is <b>unreferenced output objects</b> — real bytes, costing storage, reachable from no metadata. ' +
+          '<br><br>A later <b>orphan cleanup</b> removes them after a safety delay. The delay matters: an object that looks orphaned might belong to a compaction that is still running and about to commit.'] },
+      { t:'Validation fails (row counts do not match)', mk:'✕', tag:'BEFORE COMMIT', colour:'var(--viz-amber)',
+        why:['Exactly what validation is for. Abort, change nothing.',
+          'The outputs exist and nothing references them, so aborting costs only the wasted work. This is why validation belongs <em>before</em> the commit rather than after: at this point the table has no opinion about the outputs at all.' +
+          '<br><br>Whatever caused the mismatch — a schema surprise, a null-semantics difference, a partition value that did not carry through — is now a bug report instead of a corrupted table.'] },
+      { t:'Commit succeeds, then the job crashes before logging it', mk:'⚠', tag:'AFTER COMMIT — AMBIGUOUS', colour:'var(--viz-red)',
+        why:['The dangerous one, and it is the ACID ambiguity again.',
+          'The table is already correct: the new snapshot references the 16 outputs and readers are being served from them. But the <em>job</em> does not know that. ' +
+          '<b>A naive retry now treats live output files as inputs to compact</b>, or re-plans against a snapshot that no longer exists, and either way it is operating on a false picture. ' +
+          '<br><br>This is the same structural uncertainty as a client timeout on a committed transaction: <b>failure is not proof of rollback.</b> ' +
+          'The rule is that a job which failed after a confirmed atomic commit must not retry as if the inputs were still active — it must <b>query the table metadata by attempt id or output ids to establish state before recovering</b>.'] },
+      { t:'Another writer committed to the same files first', mk:'⟲', tag:'CONFLICT', colour:'var(--viz-violet)',
+        why:['Detected at commit, not discovered afterwards.',
+          'Optimistic concurrency: writers create immutable files independently and the table format checks at commit time whether overlapping files changed since the recorded input snapshot. This attempt loses, retries or replans, and <b>nothing incorrect was ever visible</b>. ' +
+          '<br><br>The alternative — partition-scoped locking — also works and costs ingestion throughput, which is why the optimistic path is the common choice for a table being written to continuously.'] }
+    ];
+    var sel = 0;
+    var tl = document.getElementById('v5-timeline'), why = document.getElementById('v5-why');
+    function render(){
+      tl.innerHTML = CASES.map(function(c, i){
+        return '<button class="v5-t" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v5-mk">' + c.mk + '</span><span>' + c.t + '</span>' +
+          '<span class="v5-tag" style="color:' + c.colour + '">' + c.tag + '</span></button>';
+      }).join('');
+      [].slice.call(tl.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var c = CASES[sel];
+      why.innerHTML = '<b style="color:' + c.colour + '">' + c.why[0] + '</b>' + c.why[1];
+    }
+    render();
+
+    document.getElementById('v5-obs').innerHTML =
+      'Give every compaction attempt an <b>ID</b>, record its input and output files, and use deterministic selection or explicit conflict checks. That is what turns "the job died, what now?" into a query. ' +
+      '<br><br>Metrics should include bytes read and written, files removed and added, <b>write amplification</b>, duration, conflicts, validation failures and query impact — because compaction is maintenance that consumes real resources, ' +
+      'and a policy that rewrites healthy files is spending money to make nothing better. ' +
+      '<br><br>Eligibility is therefore a policy, not a threshold: file size, file count, age, delete density and query importance together. Recent streaming partitions may compact every hour; cold partitions compact once after they settle.';
+  })();
+  </script>
+</section>
+
+</body>
+</html>

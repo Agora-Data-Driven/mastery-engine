@@ -1,31 +1,292 @@
 {
   "questions": [
-    {"topic":"SPLADE: Learned Term Expansion and Impact Weights","question":"How does SPLADE represent a document?","options":["A dense vector of several hundred floats","A sparse weight vector over the vocabulary, including absent terms","A list of the document's own terms with their frequencies","A probability distribution over hidden document topics"],"answerIndex":1,"difficulty":"core"},
-    {"topic":"SPLADE: Learned Term Expansion and Impact Weights","question":"What does the SPLADE retrieval score equal?","options":["The cosine similarity of two dense embeddings","The sum of BM25 scores across query terms","The count of terms shared by query and document","The dot product of the query and document sparse vectors"],"answerIndex":3,"difficulty":"core"},
-    {"topic":"SPLADE: Learned Term Expansion and Impact Weights","question":"Why is a sparsity regularizer essential when training SPLADE?","options":["Without it, too many terms activate and query latency explodes","Without it, the model cannot represent rare vocabulary","Without it, expansion terms duplicate the document text","Without it, the weights cannot be quantized later"],"answerIndex":0,"difficulty":"balanced"},
-    {"topic":"SPLADE: Learned Term Expansion and Impact Weights","question":"Under SPLADE, why can the term `jaguar` carry a different weight in two different documents?","options":["The IDF is recomputed for each document","Postings are sorted by document recency","The weight is conditioned on the document's own context","Each document draws weights from a random seed"],"answerIndex":2,"difficulty":"balanced"},
-    {"topic":"SPLADE: Learned Term Expansion and Impact Weights","question":"After deploying SPLADE, a team finds expansion terms with the wrong sense polluting some niche documents. In a mature pipeline, what absorbs this noise?","options":["A larger RRF constant","Lower IDF thresholds","Additional positional postings","A downstream reranker"],"answerIndex":3,"difficulty":"challenge"},
-    {"topic":"SPLADE: Learned Term Expansion and Impact Weights","question":"Why does a SPLADE encoder upgrade require a full index rebuild?","options":["Quantization schemes change with the hardware","Every stored weight was produced by the old checkpoint","The vocabulary grows with each model release","Postings cannot be sorted a second time"],"answerIndex":1,"difficulty":"challenge"},
-
-    {"topic":"Document Expansion with doc2query","question":"What does doc2query append to each document before indexing?","options":["Queries the model predicts the document could answer","The document's own most frequent terms","Human relevance judgments from prior traffic","Translations of the document into other languages"],"answerIndex":0,"difficulty":"core"},
-    {"topic":"Document Expansion with doc2query","question":"What changes about scoring when doc2query is used?","options":["BM25 is replaced by learned impact weights","Cosine similarity replaces term-based scoring","Nothing: plain BM25 runs on the augmented text","All scores are produced by a reranker instead"],"answerIndex":2,"difficulty":"core"},
-    {"topic":"Document Expansion with doc2query","question":"Through which mechanism does appending predicted queries improve BM25 ranking?","options":["It lowers the index's average document length","It lets BM25 skip rare terms entirely","It converts all term scores into probabilities","It adds searcher-vocabulary terms and inflates salient term frequencies"],"answerIndex":3,"difficulty":"balanced"},
-    {"topic":"Document Expansion with doc2query","question":"A 1 million document corpus is expanded with 10 predicted queries each. What recurring cost does the team accept?","options":["Online inference for every search query","Batch generation that must rerun as documents change","A second cross-encoder in the serving path","Daily full-text translation jobs"],"answerIndex":1,"difficulty":"balanced"},
-    {"topic":"Document Expansion with doc2query","question":"What is the sharpest contrast between doc2query and SPLADE?","options":["doc2query requires labels, SPLADE does not","doc2query runs on GPUs, SPLADE runs on CPUs","doc2query expands at index time keeping tf scoring, SPLADE learns contextual weights at encode time","doc2query shrinks the index, SPLADE grows it"],"answerIndex":2,"difficulty":"challenge"},
-    {"topic":"Document Expansion with doc2query","question":"A much better query generator ships next year. Why do the current expansions not improve automatically?","options":["Expansions freeze at generation time until a full re-expansion pass","The index rejects terms from newer model versions","BM25 caps the frequency of generated query terms","The generator was licensed for one corpus only"],"answerIndex":0,"difficulty":"challenge"},
-
-    {"topic":"Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index","question":"What does a learned-sparse posting store in place of term frequency?","options":["A slice of the document's dense vector","A position list and nothing else","The document's full BM25 score","A quantized impact weight from the model"],"answerIndex":3,"difficulty":"core"},
-    {"topic":"Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index","question":"Why are impact-sorted postings ordered by descending weight?","options":["To compress docIDs with gap encoding","To enable early termination using known per-list upper bounds","To keep postings in document insertion order","To make positional intersection possible"],"answerIndex":1,"difficulty":"core"},
-    {"topic":"Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index","question":"Why do impact-sorted lists make MaxScore-style pruning safe?","options":["Each remaining block's maximum weight is known, giving tight bounds","Blocks are compressed with variable-length bytes","Queries are guaranteed to stay short","Weights are stored as full-precision floats"],"answerIndex":0,"difficulty":"balanced"},
-    {"topic":"Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index","question":"Why are incremental document updates cleaner with learned weights than with BM25?","options":["Postings are always docID-sorted","The index requires no term dictionary","A weight depends on the document and checkpoint, not shifting corpus statistics","Updates skip the quantization step entirely"],"answerIndex":2,"difficulty":"balanced"},
-    {"topic":"Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index","question":"A team raises its SPLADE sparsity budget so more terms activate per document. What serving consequence follows directly?","options":["Lower overall index memory usage","Fewer postings lists in the index","Faster early termination during scoring","More postings lists to walk per query, raising latency"],"answerIndex":3,"difficulty":"challenge"},
-    {"topic":"Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index","question":"What is the accepted tradeoff of storing impact weights as one byte?","options":["Scores become non-deterministic","A small accuracy loss for a compact, cache-friendly index","Documents must be re-encoded every week","Boolean filters stop working on the index"],"answerIndex":1,"difficulty":"challenge"},
-
-    {"topic":"Shipped Learned Sparse: ELSER and Neural Sparse Search","question":"What does ELSER produce for a document at ingest time?","options":["Weighted tokens stored in a rank_features-style field","Dense float vectors for an HNSW graph","A list of synonym rules for the analyzer","A separate BM25 index per document"],"answerIndex":0,"difficulty":"core"},
-    {"topic":"Shipped Learned Sparse: ELSER and Neural Sparse Search","question":"Why does document-only encoding minimize query latency in neural sparse search?","options":["Queries skip tokenization entirely","Documents are never re-encoded","The heavy model runs at ingest while queries use a light path","It removes the need for postings lists"],"answerIndex":2,"difficulty":"balanced"},
-    {"topic":"Shipped Learned Sparse: ELSER and Neural Sparse Search","question":"Which system profile most favors learned sparse over dense vectors?","options":["A multilingual corpus across 40 languages","Very short documents such as titles only","A team already on a managed vector database","Mixed exact-match and paraphrase traffic on a Lucene stack"],"answerIndex":3,"difficulty":"challenge"},
-    {"topic":"Shipped Learned Sparse: ELSER and Neural Sparse Search","question":"A team on open-source infrastructure cannot use ELSER's managed endpoints. What is the closest open path?","options":["doc2query run through a cross-encoder","SPLADE checkpoints deployed via OpenSearch neural sparse search","BM25 with a larger k1 parameter","Dense vectors with product quantization"],"answerIndex":1,"difficulty":"challenge"},
-    {"topic":"Shipped Learned Sparse: ELSER and Neural Sparse Search","question":"Why does learned sparse often beat dense retrieval on memory at scale?","options":["Quantized term weights replace per-document float vectors and graphs","Only the top three terms per document are stored","Postings are kept in cold storage only","One dictionary is shared across all tenants"],"answerIndex":0,"difficulty":"core"},
-    {"topic":"Shipped Learned Sparse: ELSER and Neural Sparse Search","question":"Learned sparse retrieval is best summarized as...","options":["a dense index running on faster hardware","a drop-in replacement for rerankers","the inverted index taught to read: classic machinery plus learned semantics","a way to avoid inference at ingest time"],"answerIndex":2,"difficulty":"balanced"}
+    {
+      "topic": "SPLADE: Learned Term Expansion and Impact Weights",
+      "question": "How does SPLADE represent a document?",
+      "options": [
+        "A dense vector of several hundred learned float dimensions",
+        "A sparse weight vector over the vocabulary, absent terms included",
+        "A list of the document's own terms with their frequencies",
+        "A probability distribution over a fixed set of latent document topics"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "SPLADE: Learned Term Expansion and Impact Weights",
+      "question": "What does the SPLADE retrieval score equal?",
+      "options": [
+        "The cosine between two dense embeddings of the same size",
+        "The sum of BM25 term scores over the shared query terms",
+        "The count of vocabulary terms the query and document share",
+        "The dot product of query and document sparse vectors"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "SPLADE: Learned Term Expansion and Impact Weights",
+      "question": "Why is a sparsity regularizer essential when training SPLADE?",
+      "options": [
+        "Without it too many terms activate and query latency dies",
+        "Without it the model cannot represent rare vocabulary at all",
+        "Without it expansion terms merely duplicate the document text",
+        "Without it the learned weights cannot be quantized for storage"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "SPLADE: Learned Term Expansion and Impact Weights",
+      "question": "Under SPLADE, why can the term `jaguar` carry a different weight in two different documents?",
+      "options": [
+        "The IDF is recomputed once for each indexed document",
+        "Postings are sorted by document recency before the scoring pass",
+        "The weight is conditioned on the document's own context",
+        "Each document draws its weights from a random seed"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "SPLADE: Learned Term Expansion and Impact Weights",
+      "question": "After deploying SPLADE, a team finds expansion terms with the wrong sense polluting some niche documents. In a mature pipeline, what absorbs this noise?",
+      "options": [
+        "A larger RRF smoothing constant",
+        "The downstream cross-encoder reranker",
+        "A lower IDF cutoff at index time",
+        "Extra positional data in the postings"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "SPLADE: Learned Term Expansion and Impact Weights",
+      "question": "Why does a SPLADE encoder upgrade require a full index rebuild?",
+      "options": [
+        "Every stored weight came from the old checkpoint",
+        "The vocabulary itself grows with every model release",
+        "Postings lists cannot be sorted a second time in place",
+        "Quantization schemes change with each hardware generation"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Document Expansion with doc2query",
+      "question": "What does doc2query append to each document before indexing?",
+      "options": [
+        "Translations of the document into other languages",
+        "The document's own most frequent content terms",
+        "Human relevance judgments taken from past search traffic",
+        "Queries the model predicts the document could answer"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Document Expansion with doc2query",
+      "question": "What changes about scoring when doc2query is used?",
+      "options": [
+        "BM25 gives way to learned impact weights for each term",
+        "Cosine similarity replaces the term-based scoring",
+        "Nothing, since plain BM25 runs on the augmented text",
+        "A reranker produces every score in place of BM25"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Document Expansion with doc2query",
+      "question": "Through which mechanism does appending predicted queries improve BM25 ranking?",
+      "options": [
+        "It lowers the index's average document length overall",
+        "It lets BM25 skip the rarest query terms entirely",
+        "It turns every term score into a calibrated relevance probability",
+        "It adds searcher vocabulary and inflates salient term counts"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Document Expansion with doc2query",
+      "question": "A 1 million document corpus is expanded with 10 predicted queries each. What recurring cost does the team accept?",
+      "options": [
+        "Online generator inference on every incoming search query",
+        "Batch generation that reruns whenever documents change",
+        "A second cross-encoder pass inside the serving path",
+        "A nightly full-text translation job over the corpus"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Document Expansion with doc2query",
+      "question": "What is the sharpest contrast between doc2query and SPLADE?",
+      "options": [
+        "doc2query changes the text, SPLADE changes the term weights",
+        "doc2query needs labeled queries, SPLADE needs none whatsoever",
+        "doc2query runs on GPUs, SPLADE runs entirely on CPU cores",
+        "doc2query shrinks the stored index, SPLADE enlarges it"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Document Expansion with doc2query",
+      "question": "A much better query generator ships next year. Why do the current expansions not improve automatically?",
+      "options": [
+        "The index rejects terms written by a newer model version",
+        "BM25 caps how often a generated term may be counted",
+        "Expansions freeze at generation time until a full re-run",
+        "The generator was licensed for only one corpus snapshot"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index",
+      "question": "What does a learned-sparse posting store in place of term frequency?",
+      "options": [
+        "A slice of the document's own dense vector",
+        "A position list and nothing besides it",
+        "The document's complete BM25 score",
+        "A quantized impact weight from the model"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index",
+      "question": "Why are impact-sorted postings ordered by descending weight?",
+      "options": [
+        "To compress the docID gaps more effectively",
+        "To allow early termination with tight upper bounds",
+        "To hold postings in document insertion order",
+        "To allow positional phrase intersection at query time"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index",
+      "question": "Why do impact-sorted lists make MaxScore-style pruning safe?",
+      "options": [
+        "Query length is guaranteed to stay short by the sparse encoder",
+        "Blocks are compressed with variable-length byte codes",
+        "Each remaining block's maximum weight is known in advance",
+        "Weights are stored at full float precision on disk"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index",
+      "question": "Why are incremental document updates cleaner with learned weights than with BM25?",
+      "options": [
+        "A weight depends on the document and checkpoint alone",
+        "The index needs no term dictionary once weights exist",
+        "Postings stay docID-sorted through every segment merge",
+        "Updates can skip the quantization step altogether"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index",
+      "question": "A team raises its SPLADE sparsity budget so more terms activate per document. What serving consequence follows directly?",
+      "options": [
+        "Lower index memory, because the weights spread more thinly",
+        "Fewer postings lists in the index for a fixed vocabulary",
+        "Faster early termination during top-k score accumulation",
+        "More postings lists to walk per query, raising latency"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Impact-Sorted Indexes: Neural Weights on the Classic Inverted Index",
+      "question": "What is the accepted tradeoff of storing impact weights as one byte?",
+      "options": [
+        "A little accuracy for a compact, cache-friendly index",
+        "Score determinism for a smaller memory footprint",
+        "Weekly re-encoding for a smaller on-disk index",
+        "Boolean filtering for faster postings traversal"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Shipped Learned Sparse: ELSER and Neural Sparse Search",
+      "question": "What does ELSER produce for a document at ingest time?",
+      "options": [
+        "Dense float vectors loaded into an HNSW graph",
+        "Weighted tokens held in a rank_features-style field",
+        "A set of synonym rules for the query analyzer",
+        "A separate small BM25 index for each document"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Shipped Learned Sparse: ELSER and Neural Sparse Search",
+      "question": "Why does document-only encoding minimize query latency in neural sparse search?",
+      "options": [
+        "Queries skip tokenization before they reach the index",
+        "Documents are never re-encoded once they are indexed",
+        "The heavy model runs at ingest, queries take a light path",
+        "The postings lists are no longer needed for scoring"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Shipped Learned Sparse: ELSER and Neural Sparse Search",
+      "question": "Which system profile most favors learned sparse over dense vectors?",
+      "options": [
+        "A multilingual corpus spanning some forty languages",
+        "Very short documents such as product titles alone",
+        "A team already settled on a managed vector database",
+        "Mixed exact and paraphrase traffic on a Lucene stack"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Shipped Learned Sparse: ELSER and Neural Sparse Search",
+      "question": "A team on open-source infrastructure cannot use ELSER's managed endpoints. What is the closest open path?",
+      "options": [
+        "doc2query expansions scored by a cross-encoder pass",
+        "SPLADE checkpoints served by OpenSearch neural sparse",
+        "BM25 tuned with a much larger k1 saturation parameter",
+        "Dense vectors compressed with product quantization"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Shipped Learned Sparse: ELSER and Neural Sparse Search",
+      "question": "Why does learned sparse often beat dense retrieval on memory at scale?",
+      "options": [
+        "Quantized term weights replace float vectors and graphs",
+        "Only the three strongest terms per document are stored",
+        "Postings lists are held in cold object storage only",
+        "A single dictionary is shared across all the tenants"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Shipped Learned Sparse: ELSER and Neural Sparse Search",
+      "question": "Learned sparse retrieval is best summarized as...",
+      "options": [
+        "a dense index running on much faster serving hardware",
+        "a drop-in replacement for the cross-encoder reranker",
+        "the inverted index taught to read for meaning",
+        "a way to avoid running any inference at ingest time"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    }
   ]
 }

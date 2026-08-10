@@ -1,0 +1,465 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Missing Layer</button>
+  <button class="viz-tab" data-viz-tab="2">2. Walking The Chain</button>
+  <button class="viz-tab" data-viz-tab="3">3. Safe Or Breaking</button>
+  <button class="viz-tab" data-viz-tab="4">4. Backfill Without Mutating</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Atomic Alias</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Missing Layer</h2>
+  <p class="vz-lede"><b>Consistency and Atomicity Limits of Object Storage</b> ended with a prescription:
+    immutable objects plus one authoritative reference, swapped conditionally. Here it is, built. Tap each
+    ACID letter to see which layer supplies it. <b>Like a library: the shelves hold the books, the
+    catalogue decides what counts as the collection.</b></p>
+
+  <div class="vz-card vz-mono" id="v1-tree" style="margin-bottom:11px"></div>
+
+  <div class="v1-letters" id="v1-letters"></div>
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Physical structures differ — Iceberg commonly uses snapshots, manifest lists and
+    manifests; Delta records ordered transaction-log actions plus <b>checkpoints</b> so readers do not
+    replay an unbounded log. Both make logical membership explicit and reconstructable, and both need
+    <b>metadata maintenance</b> alongside data compaction: rewrite oversized manifests or add checkpoints
+    based on measured planning cost.</p>
+
+  <style>
+    .v1-letters{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-L{flex:1 1 68px;min-height:52px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:800;font-size:11.5px;padding:5px 4px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;line-height:1.2}
+    .v1-L b{font-size:16px}
+    .v1-L[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    document.getElementById('v1-tree').innerHTML =
+      'CATALOG   table → current metadata pointer          ← the ONE thing that changes atomically\n' +
+      '  │\n' +
+      '  └ snapshot S11   parent=S10 · timestamp · operation · summary\n' +
+      '      │\n' +
+      '      └ manifest list\n' +
+      '          ├ manifest A → part-0001.parquet  part-0002.parquet  (+ stats, partition values)\n' +
+      '          └ manifest B → part-0003.parquet  …\n' +
+      '\n' +
+      'OBJECT STORE   immutable Parquet objects, never modified after they are written';
+
+    var LETTERS = [
+      { L:'A', n:'atomicity', why:['One small state change, after the data already exists.',
+        'A writer plans from snapshot <b>S10</b>, produces new immutable files, and attempts to publish <b>S11</b>. Readers holding S10 keep using its files; new readers get S11 after the commit. ' +
+        '<b>Nobody observes half the new file set</b>, because the file set was never assembled incrementally in a place a reader could see. ' +
+        '<br><br>Notice what has been separated: expensive construction happens with no visibility at all, and visibility changes in one conditional write.'] },
+      { L:'C', n:'consistency', why:['Enforced by conflict rules, not by hope.',
+        'Two append-only writers may both commit when their changes are compatible and the format can rebase or serialise them. Two writers rewriting the <b>same partition or rows should conflict</b> rather than one silently losing. ' +
+        '<br><br>This is why the planning snapshot is recorded: the commit re-validates the assumptions the plan was built on.'] },
+      { L:'I', n:'isolation', why:['Optimistic concurrency, validated at commit time.',
+        'Nobody takes a global lock. Writers work independently on immutable files, and the format checks at commit whether another transaction invalidated the planning assumptions — forcing a retry if so. ' +
+        'A reader, meanwhile, is always pinned to one snapshot for the whole query, so its answer is internally consistent even while commits land around it.'] },
+      { L:'D', n:'durability', why:['Shared between the format and you.',
+        'A commit is only useful if <b>every file in the snapshot is readable and protected from premature cleanup</b>. Object checksums, write completion, catalog durability and disaster-recovery replication remain operational responsibilities that the table format does not take over. ' +
+        '<br><br>A snapshot referencing a file that garbage collection removed is a durable commit pointing at nothing.'] },
+      { L:'⚠', n:'and not this', why:['Table ACID is not workflow ACID.',
+        'Updating facts and dimensions in <b>separate commits</b> exposes consumers to a mismatched pair — the fact table on generation 12, the dimension still on 11 — and no table format prevents it. ' +
+        '<br><br>Use an orchestration manifest, a higher-level transaction service where one exists, or publish a <b>dataset-level pointer only after all component snapshots are ready</b>. ' +
+        '<br><br>A second boundary worth knowing: a feature in the format <em>specification</em> may not be implemented consistently across every engine that reads or writes the table. Compatibility testing has to cover the actual production versions.'] }
+    ];
+    var letters = document.getElementById('v1-letters'), why = document.getElementById('v1-why');
+    function show(i){
+      [].slice.call(letters.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      why.innerHTML = '<b>' + LETTERS[i].why[0] + '</b>' + LETTERS[i].why[1];
+    }
+    LETTERS.forEach(function(l, i){
+      var b = document.createElement('button');
+      b.className = 'v1-L';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<b>' + l.L + '</b>' + l.n;
+      b.addEventListener('click', function(){ show(i); });
+      letters.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Walking The Chain</h2>
+  <p class="vz-lede">Every commit leaves an immutable description of the table behind it. Pick a snapshot to
+    read as-of, then expire some history and watch a pinned job break.
+    <b>Like a photo album: each page is a fixed moment, and throwing pages away is not the same as tidying
+    up.</b></p>
+
+  <div class="v2-chain" id="v2-chain"></div>
+
+  <div class="vz-card">
+    <div class="v2-detail" id="v2-detail"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <label class="v2-lab" for="v2-exp">Snapshot retention: keep the last
+      <span id="v2-el">6</span> snapshots</label>
+    <input type="range" id="v2-exp" min="1" max="6" value="6" step="1" aria-label="How many snapshots are retained">
+    <div class="v2-exp" id="v2-expout"></div>
+  </div>
+  <p class="vz-note">Snapshot inspection is also a debugging tool: a sudden row-count change traces to the
+    commit that added or removed particular files. Operation summaries help and should not replace
+    independent validation of schema, counts and business measures — the summary says what the writer
+    <em>intended</em>.</p>
+
+  <style>
+    .v2-chain{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+    .v2-s{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-s.is-gone{opacity:.35;border-style:dashed;border-color:var(--viz-red)}
+    .v2-op{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit;color:var(--viz-muted)}
+    .v2-detail{font-size:12.5px;line-height:1.6}
+    .v2-detail b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-exp{margin-top:12px;font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var SNAPS = [
+      { id:812, op:'append',  t:'2026-07-20 04:00', rows:'1.20 B', note:'the snapshot an experiment pinned' },
+      { id:813, op:'append',  t:'2026-07-21 04:00', rows:'1.24 B', note:'' },
+      { id:814, op:'overwrite', t:'2026-07-22 09:14', rows:'1.19 B', note:'a restatement — row count DROPPED' },
+      { id:815, op:'append',  t:'2026-07-23 04:00', rows:'1.23 B', note:'' },
+      { id:816, op:'compact', t:'2026-07-23 22:00', rows:'1.23 B', note:'files replaced, logical contents identical' },
+      { id:817, op:'append',  t:'2026-07-24 04:00', rows:'1.27 B', note:'current' }
+    ];
+    var sel = 0, keep = 6;
+    var chain = document.getElementById('v2-chain'), detail = document.getElementById('v2-detail');
+    var s = document.getElementById('v2-exp'), el = document.getElementById('v2-el'), expOut = document.getElementById('v2-expout');
+
+    function render(){
+      var firstKept = SNAPS.length - keep;
+      chain.innerHTML = SNAPS.map(function(sn, i){
+        var gone = i < firstKept;
+        return '<button class="v2-s' + (gone ? ' is-gone' : '') + '" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span>S' + sn.id + '</span><span>' + sn.t + '</span><span>' + sn.rows + ' rows</span>' +
+          '<span class="v2-op">' + (gone ? 'EXPIRED' : sn.op) + '</span></button>';
+      }).join('');
+      [].slice.call(chain.children).forEach(function(elm){
+        elm.addEventListener('click', function(){ sel = Number(elm.dataset.i); render(); });
+      });
+      var sn = SNAPS[sel];
+      detail.innerHTML = '<b>Reading as of snapshot ' + sn.id + ' — ' + sn.rows + ' rows</b>' +
+        'A snapshot is an immutable description of table state at a commit: the active data and delete files, plus <b>parent snapshot, timestamp, operation and summary</b>. ' +
+        'The parent chain is what lets a reader query this exact version long after later commits moved current state. ' +
+        (sn.note ? '<br><br><b style="color:var(--viz-accent)">' + sn.note + '</b>' : '') +
+        '<br><br><b style="color:var(--viz-amber)">Pin by ID, not by timestamp.</b> A timestamp lookup picks the latest snapshot committed <em>before</em> an instant, so it depends on commit clock semantics and two commits can share a moment. ' +
+        'A snapshot ID or sequence number identifies an exact state — record it in model and report lineage, and an experiment can rebuild its input months later.';
+
+      el.textContent = keep;
+      var lost = SNAPS.slice(0, SNAPS.length - keep).map(function(x){ return 'S' + x.id; });
+      expOut.innerHTML = lost.length
+        ? '<b style="color:var(--viz-red)">' + lost.join(', ') + ' expired.</b> Expiring a snapshot removes its metadata reference, and garbage collection can then delete the files it uniquely held. ' +
+          (lost.indexOf('S812') > -1
+            ? '<br><br><b style="color:var(--viz-red)">The experiment pinned to S812 now fails at read time</b> — not at expiry time, which is what makes this so easy to ship. ' +
+              'Retention has to cover the maximum query duration, rollback needs, audit obligations <em>and</em> downstream reproducibility. <b>History is not a free backup.</b>'
+            : '<br><br>Nothing pinned is affected yet. Drag further and watch what happens to the experiment holding S812.')
+        : '<span style="color:var(--viz-muted)">All six retained. Where branches and tags are supported, a <b>tag</b> can protect an important training snapshot from ordinary expiry, and a backfill can build on a <b>branch</b> and be promoted after validation — with governance to stop forgotten branches retaining sensitive data forever.</span>';
+    }
+    s.addEventListener('input', function(){ keep = Number(s.value); render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Safe Or Breaking</h2>
+  <p class="vz-lede">Schema evolution changes columns without rewriting history — and whether a change is
+    safe depends on how the format identifies a field and on what readers expect. Send each change through,
+    and switch the reader. <b>Like renaming a person in a database: fine if you kept their ID, chaos if you
+    keyed on the name.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Reader type">
+    <button id="v3-id" aria-pressed="true">ID-aware reader</button>
+    <button id="v3-name" aria-pressed="false">name-only tool</button>
+  </div>
+
+  <div class="v3-list" id="v3-list"></div>
+  <div class="vz-card">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note"><b>Expand and contract</b> is the migration shape for anything breaking: add the new
+    field, write both old and new forms, backfill, validate, migrate readers, stop writing the old field,
+    then remove it after the compatibility window. Contract tests across <em>all</em> production engines
+    catch the assumptions that one table client alone hides.</p>
+
+  <style>
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-c{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-v{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;border-radius:999px;
+      padding:2px 9px;border:1.5px solid;font-family:inherit;white-space:nowrap}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var idAware = true;
+    var CHANGES = [
+      { t:'add a NULLABLE column', id:'safe', name:'safe',
+        why:['Usually safe under both readers.',
+          'Old files have no stored value and readers interpret it as null, or as a declared default under controlled semantics. Nothing historical has to be rewritten, which is the whole point of schema evolution at the metadata layer.'] },
+      { t:'add a REQUIRED column, no historical value', id:'break', name:'break',
+        why:['Breaking. Historical rows cannot satisfy it.',
+          'The constraint claims something about every row and the old files cannot honour it. This becomes safe only after a <b>backfill and staged enforcement</b> establish completeness first — which is expand-and-contract, arriving through the back door.'] },
+      { t:'rename  amount_cents → amount_minor', id:'safe', name:'break',
+        why:['Depends entirely on the reader — the sharpest case in the lesson.',
+          'A robust format identifies a column by a <b>stable field ID</b>, so a rename changes the display name while the identity stays put, and old data keeps landing in the right column. ' +
+          'A <b>name-only tool</b> sees a column that vanished and a new unrelated one that is null for all history. ' +
+          '<br><br>Switch the reader above and watch the verdict flip. Nothing about the table changed.'] },
+      { t:'drop  legacy_flag', id:'break', name:'break',
+        why:['Logically breaking for consumers, even though the bytes remain.',
+          'The physical values are still in the old files, and every query referencing the column now fails. Before removal: <b>inventory downstream queries, publish a deprecation, migrate consumers, and wait out a defined window.</b> ' +
+          'This is a coordination problem wearing a schema problem’s clothes.'] },
+      { t:'widen  INT32 → INT64', id:'safe', name:'safe',
+        why:['Compatible when every existing value maps exactly.',
+          'Widening an integer preserves every value. The rule is that <b>compatibility is semantic, not syntactic</b>: narrowing risks overflow, string-to-number fails on historical values, and a timestamp change can alter timezone or precision <em>meaning</em> even where the engine happily allows the cast.'] },
+      { t:'reorder the columns', id:'safe', name:'break',
+        why:['Invisible to ID-aware readers; fatal to positional consumers.',
+          'Field IDs make column order a display detail. But <b>positional exports and code</b> — a CSV writer, a downstream parser reading by index — break immediately, and they are exactly the consumers least likely to be in your compatibility tests.'] },
+      { t:'reuse the dropped name for a new meaning', id:'break', name:'break',
+        why:['The dangerous one. Never recycle a stable identifier.',
+          'If a dropped <b>name or field ID</b> is reused for something else, old files are decoded as the new meaning — <b>silently, with no error anywhere</b>. The historical data is not wrong on disk; it is being read through the wrong definition, and every query afterwards produces confident nonsense. ' +
+          '<br><br>This is the single rule in the topic with no exception and no migration path: identifiers are retired, never recycled.'] }
+    ];
+    var sel = 0;
+    var bI = document.getElementById('v3-id'), bN = document.getElementById('v3-name');
+    var list = document.getElementById('v3-list'), why = document.getElementById('v3-why');
+
+    function render(){
+      bI.setAttribute('aria-pressed', idAware ? 'true' : 'false');
+      bN.setAttribute('aria-pressed', idAware ? 'false' : 'true');
+      list.innerHTML = CHANGES.map(function(c, i){
+        var v = idAware ? c.id : c.name;
+        var col = v === 'safe' ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<button class="v3-c" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span>' + c.t + '</span><span class="v3-v" style="color:' + col + ';border-color:' + col + '">' +
+          (v === 'safe' ? 'SAFE' : 'BREAKING') + '</span></button>';
+      }).join('');
+      [].slice.call(list.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var c = CHANGES[sel];
+      why.innerHTML = '<b>' + c.why[0] + '</b>' + c.why[1];
+    }
+    bI.addEventListener('click', function(){ idAware = true; render(); });
+    bN.addEventListener('click', function(){ idAware = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Backfill Without Mutating</h2>
+  <p class="vz-lede">A backfill recomputes history after logic, schema or source truth changed. Done safely
+    it is the same publish-by-pointer move, at scale. Step through it. <b>Like reprinting a book: you set
+    the whole new edition before anyone is asked to swap their copy.</b></p>
+
+  <div class="v4-steps" id="v4-steps"></div>
+
+  <div class="vz-card">
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">Very large backfills: the coherence problem</h4>
+    <div class="v4-big" id="v4-big"></div>
+  </div>
+  <p class="vz-note">Rollback is a <b>metadata operation</b>: retain the old snapshot, monitor queries after
+    publication, and switch back to a known state if guardrails fail. No terabytes are copied. Garbage
+    collection waits until the rollback and active-reader windows expire.</p>
+
+  <style>
+    .v4-steps{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v4-s{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.4}
+    .v4-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v4-vis{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;white-space:nowrap}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-big{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [
+      { t:'Pin the input snapshot IDs', vis:'table unchanged',
+        why:['Without a pin, the scope is a moving target.',
+          'A job reading a live table for six hours will see <b>different source states</b> at its start and its end — early partitions computed from one version of reality and late partitions from another, with nothing in the output to say so. ' +
+          'Pin the input snapshot IDs, and record the transformation code, configuration and target partitions alongside them. ' +
+          '<br><br>Data arriving during the run is not ignored; it is handled by a <b>separate catch-up step</b>, deliberately, so the backfill itself stays reproducible.'] },
+      { t:'Write outputs to unique staging paths with a deterministic job ID', vis:'table unchanged',
+        why:['Reruns must recognise their own work, not duplicate it.',
+          'Deterministic identifiers let a rerun detect already-written outputs <b>by checksum</b> and reuse them rather than re-transferring terabytes. ' +
+          '<br><br>And the crucial property: these outputs are invisible to table readers until a committed snapshot references them. <b>A failed job therefore leaves orphans, never partial table state</b> — the difference between a cleanup task and an incident.'] },
+      { t:'Validate the proposed snapshot against the current one', vis:'table unchanged',
+        why:['Compare, do not demand equality.',
+          'Row counts, unique keys, null rates, distributions, partition coverage, business totals, referential integrity, targeted samples. ' +
+          '<b>Some differences are the entire point of the backfill</b>, so encode the <em>expected</em> deltas rather than asserting byte equality — a check that can only pass when nothing changed is not a check.'] },
+      { t:'Commit — and re-verify the assumptions', vis:'ONE atomic change',
+        why:['If another writer touched a backfilled partition after planning: fail and rebase.',
+          'Overwriting newer data would be silent data loss dressed as a successful job. Appends <em>outside</em> the backfill scope may be perfectly compatible and can commit alongside. ' +
+          '<br><br><b>Conflict rules must match the logical operation, not merely whether file names differ</b> — two jobs writing different file names into the same partition are still in conflict if one rewrote what the other read.'] },
+      { t:'Retain the old snapshot and monitor', vis:'rollback available',
+        why:['Rollback is a pointer move, not a restore.',
+          'The previous snapshot still describes a complete, valid table, so reverting is a metadata change rather than an emergency rebuild. Monitor queries after publication, and let garbage collection wait until the rollback and active-reader windows expire. ' +
+          '<br><br>Deleting the old snapshot at cutover converts a one-line rollback into a multi-day recovery, which is why it is the most common wrong answer in this whole lesson.'] }
+    ];
+    var sel = 0;
+    var steps = document.getElementById('v4-steps'), why = document.getElementById('v4-why');
+    function render(){
+      steps.innerHTML = STEPS.map(function(s, i){
+        var c = s.vis === 'ONE atomic change' ? 'var(--viz-accent)' : (s.vis === 'rollback available' ? 'var(--viz-green)' : 'var(--viz-muted)');
+        return '<button class="v4-s" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v4-n">' + (i + 1) + '</span><span>' + s.t + '</span>' +
+          '<span class="v4-vis" style="color:' + c + '">' + s.vis + '</span></button>';
+      }).join('');
+      [].slice.call(steps.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      why.innerHTML = '<b>' + STEPS[sel].why[0] + '</b>' + STEPS[sel].why[1];
+    }
+    render();
+
+    document.getElementById('v4-big').innerHTML =
+      'A single commit covering years of partitions can be an impractically large transaction. Staged partition commits reduce the transaction size — and immediately expose <b>mixed logic</b>: ' +
+      'some partitions computed with the new rules and some with the old, all visible at once, all looking equally official. ' +
+      '<br><br>The fix is another pointer: a <b>dataset-level version column or a final view pointer</b> that hides incomplete generations until every partition is ready. ' +
+      '<b>The consumer must see one coherent generation even when physical construction is incremental</b> — which is the same separation of construction from visibility that the whole lesson is built on, applied one level up.';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Atomic Alias</h2>
+  <p class="vz-lede">A search index rebuild is the same mechanism with different nouns. Build the new
+    generation privately, validate, move a small pointer. Then handle the part people forget: where the
+    <em>writes</em> are going. <b>Like a shop moving premises: the sign redirects customers, and the
+    deliveries need redirecting too.</b></p>
+
+  <div class="vz-card vz-mono" id="v5-alias" style="margin-bottom:11px"></div>
+
+  <div class="v5-phase" id="v5-phase"></div>
+  <div class="vz-card">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v5-h">Write routing: four ways, each needing an idempotent sequence position</h4>
+    <div class="v5-w" id="v5-w"></div>
+  </div>
+  <p class="vz-note">Table snapshots and index aliases express one durable principle: <b>build immutable
+    state privately, validate it, then publish by changing a small authoritative reference atomically.</b>
+    That separates expensive construction from the visibility boundary, and it makes rollback a metadata
+    operation rather than an emergency rebuild.</p>
+
+  <style>
+    .v5-phase{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v5-p{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-size:12.5px;line-height:1.4}
+    .v5-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-h{margin:0 0 9px;font-size:13px}
+    .v5-w{display:flex;flex-direction:column;gap:7px}
+    .v5-ww{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v5-ww b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var PHASES = [
+      { t:'Old index serves traffic; new generation is built beside it', alias:'knowledge_current → knowledge_2026_05_v3',
+        why:['Nothing is switched, and nothing is at risk.',
+          'Rather than updating every document in a live index during a schema, analyzer, embedding or scoring change, the rebuild writes a <b>new index under a versioned name</b>. Users are still served entirely by the old one. ' +
+          '<br><br>The rebuild pins its <b>corpus snapshot and transformation versions</b> — the same discipline as pinning a backfill’s input snapshot, and for the same reason.'] },
+      { t:'Validate: counts, mappings, sample queries, latency, relevance', alias:'knowledge_current → knowledge_2026_05_v3',
+        why:['The free moment: it exists and nobody can reach it.',
+          'Counts and mappings catch mechanical failures; sample queries and relevance catch the ones that matter. This is where a bad analyzer change is caught, and it costs nothing to fail here — <b>no traffic has moved.</b>'] },
+      { t:'Catch up on changes that arrived after the pin', alias:'knowledge_current → knowledge_2026_05_v3',
+        why:['The pin created a gap. Close it deliberately.',
+          'The rebuild consumes the changes that arrived after its corpus snapshot, or pauses writes briefly for a final catch-up. Either way it is an explicit step with a known sequence position — not something the swap is assumed to handle.'] },
+      { t:'Atomically move the read alias', alias:'knowledge_current → knowledge_2026_07_v4',
+        why:['One small pointer. Clients never learn physical names.',
+          'An <b>alias</b> maps a logical name such as <code>knowledge_current</code> to a physical index such as <code>knowledge_2026_07_v4</code>. Where the platform supports an atomic alias update, new requests resolve to the new index while <b>in-flight requests finish against the old one</b>. ' +
+          '<br><br>This is the visibility boundary, and it is one operation — exactly as the table commit was.'] },
+      { t:'Keep the old index; monitor; expire later', alias:'knowledge_current → knowledge_2026_07_v4',
+        why:['Rollback is moving the alias back.',
+          'Keep the old index for a safety period and watch errors, <b>zero-result rates</b>, relevance, latency, permissions and resource usage — the guardrails that reveal a bad generation after real traffic hits it. ' +
+          '<br><br>State outside the index has to agree: caches and reranker feature stores must be version-compatible, so <b>cache keys should include the physical generation or scoring version</b>, or stale results survive the swap and quietly undo it. ' +
+          '<br><br>Delete the old index only after the rollback window, when no alias or active request needs it, under a controlled retention policy.'] }
+    ];
+    var sel = 0;
+    var alias = document.getElementById('v5-alias'), phase = document.getElementById('v5-phase'), why = document.getElementById('v5-why');
+    function render(){
+      var p = PHASES[sel];
+      alias.innerHTML = 'ALIAS   ' + p.alias + '\n\nknowledge_2026_05_v3   ← old generation, immutable\nknowledge_2026_07_v4   ← new generation, immutable';
+      phase.innerHTML = PHASES.map(function(x, i){
+        return '<button class="v5-p" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v5-n">' + (i + 1) + '</span><span>' + x.t + '</span></button>';
+      }).join('');
+      [].slice.call(phase.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      why.innerHTML = '<b>' + p.why[0] + '</b>' + p.why[1];
+    }
+    render();
+
+    document.getElementById('v5-w').innerHTML = [
+      ['dual writing', 'Send every write to both generations during the migration. Simple to reason about, doubles the write cost, and needs both sides to agree on ordering.'],
+      ['pause writes for the final catch-up', 'A short window of unavailability for writes, in exchange for a clean cutover with no divergence. Often the cheapest correct option when the pause is measured in seconds.'],
+      ['replay an ordered change log', 'The new generation consumes the log from the pinned position forward, so it can catch up while the old index still serves. This is the CDC shape, and it needs a durable sequence position.'],
+      ['switch both aliases atomically', 'Read and write aliases move together, so writers follow readers to the new generation in the same instant. Cleanest where the platform supports it.']
+    ].map(function(w){ return '<div class="v5-ww"><b>' + w[0] + '</b>' + w[1] + '</div>'; }).join('') +
+      '<div class="v5-ww" style="border-color:var(--viz-red)"><b style="color:var(--viz-red)">and the failure they all prevent</b>' +
+      'Switching the <b>read</b> alias while writers keep targeting the old index causes the two generations to diverge immediately — new documents land where nobody is reading, and the gap is invisible until someone searches for something recent.</div>';
+  })();
+  </script>
+</section>
+
+</body>
+</html>

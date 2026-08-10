@@ -3,126 +3,211 @@
     {
       "topic": "Dual-Tower Architecture: Encode Separately, Compare by Dot Product",
       "question": "What makes document vectors reusable across queries in a bi-encoder?",
-      "options": ["The document tower encodes each document without seeing the current query", "The query tower reads every document during each request", "The dot product changes document text before scoring", "The index stores only lexical term frequencies"],
+      "options": [
+        "The document tower encodes each document without seeing the current query",
+        "The query tower is applied to every stored document at request time",
+        "Both towers share weights, so either can re-derive the other's output",
+        "The scoring function rewrites the document text before comparing it"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Dual-Tower Architecture: Encode Separately, Compare by Dot Product",
       "question": "What is the standard bi-encoder scoring pattern?",
-      "options": ["Concatenate every corpus token into the query", "Encode query and document separately, then compare their vectors", "Run one joint transformer over every corpus pair", "Compare only the lengths of the two texts"],
+      "options": [
+        "Run one joint transformer over each query-document pair, then rank",
+        "Encode query and document separately, then compare their vectors",
+        "Encode the query, then decode it into the document's vocabulary",
+        "Compare the query against a centroid computed per document cluster"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Dual-Tower Architecture: Encode Separately, Compare by Dot Product",
       "question": "Why must an encoder upgrade be coordinated with the vector index?",
-      "options": ["New encoders always change document IDs", "Old vectors become unauthorized", "The new model can define a different coordinate space", "Dot products require identical source text"],
+      "options": [
+        "The new model may emit vectors the index's metric cannot compare",
+        "Document identifiers are derived from the encoder's checkpoint hash",
+        "The new model can define a different coordinate space entirely",
+        "Approximate index graphs are rebuilt whenever any model version changes"
+      ],
       "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Dual-Tower Architecture: Encode Separately, Compare by Dot Product",
       "question": "What is the main quality limitation created by independent encoding?",
-      "options": ["Documents cannot be encoded in batches", "Query vectors cannot have fixed dimensions", "Document vectors cannot be stored", "The document representation cannot adapt token interactions to each query"],
+      "options": [
+        "Document vectors must be recomputed whenever the query distribution shifts",
+        "The two towers can drift apart because they are trained on different data",
+        "Scoring is limited to a single dot product, so no threshold can be applied",
+        "The document representation cannot adapt its token interactions per query"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Dual-Tower Architecture: Encode Separately, Compare by Dot Product",
       "question": "A new query service uses model v2 while the index still holds model v1 vectors of the same dimension. What is the safest response?",
-      "options": ["Block the mismatch and complete a versioned re-embedding migration", "Assume equal dimensions guarantee compatible geometry", "Normalize both versions and mix them permanently", "Rename the index without changing its vectors"],
+      "options": [
+        "Block the mismatch and complete a versioned re-embedding migration",
+        "Serve both, since matching dimensions make the dot product well defined",
+        "Normalize both sets to unit length so the two spaces become comparable",
+        "Rerank the v1 results with v2 so the mismatch is corrected downstream"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Dual-Tower Architecture: Encode Separately, Compare by Dot Product",
       "question": "Vector search takes 8 ms but total retrieval takes 180 ms. What should be measured next?",
-      "options": ["Only the number of index shards", "Online query-encoding and surrounding request latency", "Only raw vector storage size", "The term frequency of every document"],
+      "options": [
+        "The index's recall curve, since a low probe count inflates end-to-end cost",
+        "Online query encoding and the surrounding request latency",
+        "The stored vector footprint, since paging dominates once it exceeds memory",
+        "The number of shards, since fan-out multiplies the per-shard search time"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Sentence Embeddings vs Token Embeddings",
       "question": "What does mean pooling produce?",
-      "options": ["One index per token", "One lexical posting list", "One vector averaged from eligible token states", "One authorization rule per chunk"],
+      "options": [
+        "One vector per token, averaged across the model's attention heads",
+        "A weighted sum of token vectors, weighted by inverse document frequency",
+        "One vector averaged from the eligible token states of the input",
+        "A centroid of the document's chunks, recomputed as chunks are added"
+      ],
       "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Sentence Embeddings vs Token Embeddings",
       "question": "What does a token-level representation retain that one sentence vector loses?",
-      "options": ["The project billing account", "The document's IAM role", "The source file checksum only", "Separate contextual vectors for local token evidence"],
+      "options": [
+        "The original ordering of the tokens as they appeared in the text",
+        "The document's length, which pooling normalizes away entirely",
+        "The vocabulary identity of each token before contextualization",
+        "Separate contextual vectors carrying local token-level evidence"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Sentence Embeddings vs Token Embeddings",
       "question": "Why must padding tokens be excluded from mean pooling?",
-      "options": ["Their states can distort the pooled representation", "They always improve semantic precision", "They supply document authorization", "Their count defines the correct metric"],
+      "options": [
+        "Their states are averaged in and distort the pooled representation",
+        "They carry no positional encoding, so the mean becomes undefined",
+        "They are shared across the batch, leaking one document into another",
+        "They inflate the vector norm and break the index's distance metric"
+      ],
       "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Sentence Embeddings vs Token Embeddings",
       "question": "What is a key cost of late interaction over token embeddings?",
-      "options": ["It cannot represent local matches", "It increases vector storage and query-time comparisons", "It forces every document into one number", "It prevents any form of compression"],
+      "options": [
+        "It cannot be combined with a lexical retriever in a hybrid pipeline",
+        "It increases vector storage and the work done per query at scoring time",
+        "It requires the query to be re-encoded once per candidate document",
+        "It prevents any quantization, since token vectors must stay exact"
+      ],
       "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Sentence Embeddings vs Token Embeddings",
       "question": "A long passage contains several unrelated procedures and small details determine relevance. Which design deserves evaluation?",
-      "options": ["One larger unstructured paragraph vector only", "A shorter lexical vocabulary", "Focused chunks or a multi-vector interaction representation", "Removing all section titles before encoding"],
+      "options": [
+        "A larger encoder with a longer context window over the whole passage",
+        "A lexical retriever alone, since exact details are lexical evidence",
+        "Focused chunks, or a multi-vector late-interaction representation",
+        "A summary vector built from the passage's headings before encoding"
+      ],
       "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Sentence Embeddings vs Token Embeddings",
       "question": "When is one sentence embedding usually the stronger production default?",
-      "options": ["When no document can be precomputed", "When every token needs an independent ACL", "When memory is unlimited but latency is irrelevant", "When high-throughput candidate generation and compact storage dominate"],
+      "options": [
+        "When relevance depends on rare exact terms appearing in the passage",
+        "When passages are long enough that pooling captures every subtopic",
+        "When the reranker is strong enough to repair candidate-set mistakes",
+        "When high-throughput candidate generation and compact storage dominate"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "Similarity Metrics: Cosine vs Dot Product vs Euclidean",
       "question": "What does cosine similarity remove from a dot product comparison?",
-      "options": ["The effect of vector magnitudes", "The direction between vectors", "The embedding dimensions", "The query's token sequence"],
+      "options": [
+        "The effect of the vectors' magnitudes",
+        "The angle between the two vectors being compared",
+        "The contribution of dimensions whose values are negative",
+        "The dependence on how many dimensions the space has"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Similarity Metrics: Cosine vs Dot Product vs Euclidean",
       "question": "When do cosine similarity and dot product give the same ranking?",
-      "options": ["When every vector has a different norm", "When all compared vectors are normalized to unit length", "When all vectors have zero dimensions", "When Euclidean distance is not defined"],
+      "options": [
+        "When the query vector is normalized, whatever the document norms are",
+        "When every compared vector is normalized to unit length",
+        "When all vectors lie in the non-negative orthant of the space",
+        "When the corpus vectors all share the same mean and variance"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Similarity Metrics: Cosine vs Dot Product vs Euclidean",
       "question": "Query [1,0] is compared by dot product with [2,0] and [0.8,0.6]. Which vector ranks first?",
-      "options": ["Both tie at 1", "The vector [0.8,0.6]", "The vector [2,0]", "Neither vector has a score"],
+      "options": ["They tie, since both have the same cosine", "The vector [0.8,0.6]", "The vector [2,0]", "Neither, since the query is not normalized"],
       "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Similarity Metrics: Cosine vs Dot Product vs Euclidean",
       "question": "What should happen to a zero vector in a cosine-search pipeline?",
-      "options": ["Index it with maximum similarity", "Use its norm as an authorization score", "Duplicate it across every shard", "Reject or route it because cosine is undefined"],
+      "options": [
+        "Score it as maximally dissimilar so it sorts to the end of the results",
+        "Substitute the corpus centroid so the comparison remains well defined",
+        "Store it unnormalized and compare it by dot product instead",
+        "Reject or route it, because cosine similarity is undefined for it"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Similarity Metrics: Cosine vs Dot Product vs Euclidean",
       "question": "An embedding model was trained with meaningful vector norms. What risk does forced unit normalization create?",
-      "options": ["It can discard magnitude information learned for relevance", "It adds new semantic dimensions", "It restores token-level interactions", "It makes incompatible model versions compatible"],
+      "options": [
+        "It discards magnitude information the model learned to encode relevance",
+        "It changes the dimensionality the approximate index was built against",
+        "It makes the dot product and Euclidean distance disagree on ranking",
+        "It removes the model's ability to distinguish queries from documents"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Similarity Metrics: Cosine vs Dot Product vs Euclidean",
       "question": "A vector API returns smaller values for better matches, but application code sorts descending. What is the likely defect?",
-      "options": ["The encoder has too few parameters", "Distance is being treated as similarity", "The chunks contain too much metadata", "The query needs a lexical analyzer"],
+      "options": [
+        "The index was built with a metric other than the one being queried",
+        "A distance is being treated as though it were a similarity",
+        "The query vector was normalized while the stored vectors were not",
+        "The API returns squared distances, so the ordering is non-monotonic"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     }

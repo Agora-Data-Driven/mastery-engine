@@ -1,31 +1,292 @@
 {
   "questions": [
-    {"topic":"Why Sparse and Dense Retrieval Fail Differently","question":"What is BM25's characteristic failure mode?","options":["Relevant documents that share no query terms score as if irrelevant","Exact identifiers blur into generic semantic neighborhoods","Approximate indexes miss true nearest neighbors","Rare terms receive almost no score weight"],"answerIndex":0,"difficulty":"core"},
-    {"topic":"Why Sparse and Dense Retrieval Fail Differently","question":"What is dense retrieval's characteristic weakness?","options":["It cannot match paraphrased natural-language queries","It requires labeled relevance judgments to rank","Exact identifiers blur into generic semantic neighborhoods","It ranks documents only by raw term frequency"],"answerIndex":2,"difficulty":"core"},
-    {"topic":"Why Sparse and Dense Retrieval Fail Differently","question":"For the query `error 0x80070057 windows update`, which retriever should win and why?","options":["Dense search, because error text is conceptual","BM25, because the rare exact token dominates the ranking","Dense search, because embeddings store error codes exactly","BM25, because it ignores document frequency entirely"],"answerIndex":1,"difficulty":"balanced"},
-    {"topic":"Why Sparse and Dense Retrieval Fail Differently","question":"BM25 alone reaches recall@100 of 0.85 and dense search 0.82, yet their union reaches 0.93. Why does the union beat either system?","options":["The fused scores are better calibrated","The dense model was fine-tuned on these queries","The union deduplicates irrelevant documents","The two systems fail on largely different documents"],"answerIndex":3,"difficulty":"balanced"},
-    {"topic":"Why Sparse and Dense Retrieval Fail Differently","question":"A BM25-only service adds dense retrieval. Which query segment should improve most?","options":["Paraphrased conceptual questions","Exact part-number lookups","Error-code searches","Rare proper-noun queries"],"answerIndex":0,"difficulty":"challenge"},
-    {"topic":"Why Sparse and Dense Retrieval Fail Differently","question":"Why does the query `treatments that do not involve surgery` defeat both a sparse and a dense retriever?","options":["Both systems require negation labels at training time","The inverted index cannot store negated terms","BM25 counts surgery as positive evidence and the embedding averages the negation away","Embeddings only match documents containing every query term"],"answerIndex":2,"difficulty":"challenge"},
-
-    {"topic":"Reciprocal Rank Fusion","question":"With smoothing constant k, what does a document at rank r in one list contribute to its RRF score?","options":["1 divided by r squared","1 divided by (k + r)","k divided by r","1 divided by (k x r squared)"],"answerIndex":1,"difficulty":"core"},
-    {"topic":"Reciprocal Rank Fusion","question":"What information does RRF take from each retriever?","options":["Calibrated relevance probabilities","Length-normalized raw scores","Score magnitudes and list means","Rank positions only"],"answerIndex":3,"difficulty":"core"},
-    {"topic":"Reciprocal Rank Fusion","question":"With k = 60, what is the RRF contribution of a document at rank 1 in one list and absent from the other?","options":["About 0.0164","About 0.0323","About 0.0610","About 0.1640"],"answerIndex":0,"difficulty":"balanced"},
-    {"topic":"Reciprocal Rank Fusion","question":"With k = 60, document A ranks 1st and 6th in two lists while document B ranks 2nd in both. Which fuses higher and why?","options":["A, because a single rank 1 dominates fusion","A, because its average rank is lower","B, because two strong ranks outvote one top rank","They tie with equal fused scores"],"answerIndex":2,"difficulty":"balanced"},
-    {"topic":"Reciprocal Rank Fusion","question":"What is the effect of raising the RRF constant k?","options":["It sharpens the advantage of top ranks","It flattens rank contributions toward a vote count","It weights the stronger retriever more heavily","It caps how many lists can be fused"],"answerIndex":1,"difficulty":"challenge"},
-    {"topic":"Reciprocal Rank Fusion","question":"When is weighted RRF justified over plain RRF?","options":["Whenever the scores are heavy-tailed","When one retriever has lower latency","When the constant k has been swept on labels","When labels show one retriever is reliably stronger"],"answerIndex":3,"difficulty":"challenge"},
-
-    {"topic":"Score Normalization vs Rank Fusion","question":"BM25 returns a top score of 25 with a next-best score of 9 for a query. What does min-max normalization do to that list?","options":["Spreads the remaining scores evenly","Centers every score around zero mean","Compresses almost all scores into the bottom of the range","Converts every score into a rank position"],"answerIndex":2,"difficulty":"core"},
-    {"topic":"Score Normalization vs Rank Fusion","question":"Why is rank fusion invariant to score scale?","options":["Any monotone transformation of scores leaves ranks unchanged","It recomputes corpus statistics for every query","It normalizes scores by document length first","It fits weights that absorb each system's scale"],"answerIndex":0,"difficulty":"core"},
-    {"topic":"Score Normalization vs Rank Fusion","question":"When can score fusion beat rank fusion?","options":["When no relevance labels exist","When models are swapped frequently","When score distributions are heavy-tailed","When scores carry calibrated probability meaning"],"answerIndex":3,"difficulty":"balanced"},
-    {"topic":"Score Normalization vs Rank Fusion","question":"Why is thresholding on min-max fused scores unsound?","options":["Thresholds require integer-valued scores","Each query's fused scale is different","Fusion weights depend on the threshold","Min-max removes each score's mean"],"answerIndex":1,"difficulty":"balanced"},
-    {"topic":"Score Normalization vs Rank Fusion","question":"Three months after fusion weights were fitted, an embedding model upgrade silently degrades merged quality. Rank fusion is immune to this because...","options":["It retrains itself on a nightly schedule","It uses more candidates from each system","Ranks do not drift when score distributions shift","It normalizes by z-score instead of min-max"],"answerIndex":2,"difficulty":"challenge"},
-    {"topic":"Score Normalization vs Rank Fusion","question":"Why do mature pipelines fuse candidates with RRF yet let a trained reranker set the final order?","options":["The reranker is calibrated within itself, containing normalization issues","RRF cannot fuse more than two ranked lists","The reranker needs no accelerator at that stage","Fused ranks are required as reranker input features"],"answerIndex":0,"difficulty":"challenge"},
-
-    {"topic":"The Atrium Pattern: BM25 + Vectors + RRF + Reranker","question":"In the Atrium pattern, what is the correct order of stages for one query?","options":["Rerank, fuse, retrieve in parallel, filter","Retrieve, rerank, then fuse the rescored lists","Fuse both sources, retrieve, filter, rerank","Parallel retrieval, RRF fusion, filter and dedupe, cross-encoder rerank"],"answerIndex":3,"difficulty":"core"},
-    {"topic":"The Atrium Pattern: BM25 + Vectors + RRF + Reranker","question":"BM25 takes 15 ms, dense search takes 20 ms run in parallel, and reranking 50 pairs takes 35 ms. What end-to-end latency should be expected?","options":["About 35 ms","About 70 to 80 ms with overhead","About 15 ms","About 150 ms"],"answerIndex":1,"difficulty":"balanced"},
-    {"topic":"The Atrium Pattern: BM25 + Vectors + RRF + Reranker","question":"The vector service goes down mid-day. What is the designed degraded mode in this architecture?","options":["Serve stale cached answers for every query","Return errors until vectors recover","Serve BM25-only fusion, flagged and previously evaluated","Replay the last successful fused ranking"],"answerIndex":2,"difficulty":"balanced"},
-    {"topic":"The Atrium Pattern: BM25 + Vectors + RRF + Reranker","question":"Why must multi-tenant ACL filters live inside the retrievers rather than after fusion?","options":["Post-fusion filtering starves the reranker of eligible candidates","ACL metadata cannot survive rank fusion","Filtering after fusion doubles the RRF constant","Retrievers cannot access document text otherwise"],"answerIndex":0,"difficulty":"challenge"},
-    {"topic":"The Atrium Pattern: BM25 + Vectors + RRF + Reranker","question":"For which system is the full Atrium pattern most likely overkill?","options":["Heterogeneous natural-language question traffic","A corpus whose size doubles every month","Queries mixing exact and conceptual intent","A pure exact-SKU catalog with hard latency floors"],"answerIndex":3,"difficulty":"challenge"},
-    {"topic":"The Atrium Pattern: BM25 + Vectors + RRF + Reranker","question":"Why are per-source ranks preserved through the pipeline?","options":["They are required to compute BM25 scores","They let engineers diagnose which retriever found or lost a candidate","They double as the fusion weights","They replace the reranker at low traffic"],"answerIndex":1,"difficulty":"core"}
+    {
+      "topic": "Why Sparse and Dense Retrieval Fail Differently",
+      "question": "What is BM25's characteristic failure mode?",
+      "options": [
+        "Relevant documents sharing no query terms score as irrelevant",
+        "Exact identifiers blur into a generic semantic neighborhood",
+        "Approximate search occasionally misses a true nearest neighbor",
+        "Rare terms receive almost no weight relative to common ones"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Why Sparse and Dense Retrieval Fail Differently",
+      "question": "What is dense retrieval's characteristic weakness?",
+      "options": [
+        "Paraphrased natural-language queries fall out of the ranking",
+        "Ranking requires labeled relevance judgments at query time",
+        "Exact identifiers blur into generic semantic neighborhoods",
+        "Documents are scored only by raw term frequency and length"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Why Sparse and Dense Retrieval Fail Differently",
+      "question": "For the query `error 0x80070057 windows update`, which retriever should win and why?",
+      "options": [
+        "Dense search, because error text is conceptual",
+        "BM25, because the rare exact token dominates the ranking",
+        "Dense search, because embeddings store error codes exactly",
+        "BM25, because it ignores document frequency entirely"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Why Sparse and Dense Retrieval Fail Differently",
+      "question": "BM25 alone reaches recall@100 of 0.85 and dense search 0.82, yet their union reaches 0.93. Why does the union beat either system?",
+      "options": [
+        "The fused scores are better calibrated than either input",
+        "The dense model was fine-tuned on this labeled query set",
+        "The union removes the irrelevant duplicates from both lists",
+        "The two systems fail on largely different sets of documents"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Why Sparse and Dense Retrieval Fail Differently",
+      "question": "A BM25-only service adds dense retrieval. Which query segment should improve most?",
+      "options": [
+        "Paraphrased conceptual questions with no shared terms",
+        "Exact part-number lookups for items such as ZX-4817-Q rev 3",
+        "Windows error-code searches typed verbatim by users",
+        "Rare proper-noun queries naming one specific person"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Why Sparse and Dense Retrieval Fail Differently",
+      "question": "Why does the query `treatments that do not involve surgery` defeat both a sparse and a dense retriever?",
+      "options": [
+        "Both systems need negation examples labeled at training time to work",
+        "The inverted index has no way to store a negated term at all",
+        "BM25 counts surgery as evidence and the vector averages negation away",
+        "Embeddings match only documents that hold every query term already"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Reciprocal Rank Fusion",
+      "question": "With smoothing constant k, what does a document at rank r in one list contribute to its RRF score?",
+      "options": [
+        "1 divided by (k plus r)",
+        "1 divided by (r squared)",
+        "k divided by (k plus r)",
+        "1 divided by (k times r)"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Reciprocal Rank Fusion",
+      "question": "What information does RRF take from each retriever?",
+      "options": [
+        "The calibrated relevance probability of each document",
+        "The raw score of each document after normalization",
+        "The score magnitude and the mean of the whole list",
+        "The rank position each document holds in its list"
+      ],
+      "answerIndex": 3,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Reciprocal Rank Fusion",
+      "question": "With k = 60, what is the RRF contribution of a document at rank 1 in one list and absent from the other?",
+      "options": [
+        "About 0.0164",
+        "About 0.0323",
+        "About 0.0610",
+        "About 0.1640"
+      ],
+      "answerIndex": 0,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Reciprocal Rank Fusion",
+      "question": "With k = 60, document A ranks 1st and 6th in two lists while document B ranks 2nd in both. Which fuses higher and why?",
+      "options": [
+        "A, because a single rank 1 dominates the fused score",
+        "A, because its mean rank across the two lists is lower",
+        "B, because two strong ranks outweigh one top rank",
+        "They tie, since both sum to exactly the same fused score"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Reciprocal Rank Fusion",
+      "question": "What is the effect of raising the RRF constant k?",
+      "options": [
+        "It sharpens the advantage held by the very top ranks",
+        "It flattens rank contributions toward a plain vote count",
+        "It weights the stronger retriever more heavily than the other",
+        "It caps how many ranked lists the fusion can accept"
+      ],
+      "answerIndex": 1,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Reciprocal Rank Fusion",
+      "question": "When is weighted RRF justified over plain RRF?",
+      "options": [
+        "Whenever one system's scores are heavy-tailed",
+        "When the constant k has already been swept on labels",
+        "When one retriever answers with much lower latency",
+        "When labels show one retriever is reliably stronger"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Score Normalization vs Rank Fusion",
+      "question": "BM25 returns a top score of 25 with a next-best score of 9 for a query. What does min-max normalization do to that list?",
+      "options": [
+        "It spreads the remaining scores evenly across the range",
+        "It centers every score on a mean of zero for that query",
+        "It compresses the rest of the list into the bottom of the range",
+        "It converts each score into that document's rank position"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Score Normalization vs Rank Fusion",
+      "question": "Why is rank fusion invariant to score scale?",
+      "options": [
+        "Any monotone change to the scores leaves the ranks untouched",
+        "It recomputes the corpus statistics once for every query",
+        "It normalizes each score by the document's length first",
+        "It fits weights that absorb each system's own scale"
+      ],
+      "answerIndex": 0,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Score Normalization vs Rank Fusion",
+      "question": "When can score fusion beat rank fusion?",
+      "options": [
+        "When no relevance labels exist anywhere for tuning at all",
+        "When component models are swapped out frequently",
+        "When the score distributions are heavy-tailed",
+        "When the scores carry calibrated probability meaning"
+      ],
+      "answerIndex": 3,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Score Normalization vs Rank Fusion",
+      "question": "Why is thresholding on min-max fused scores unsound?",
+      "options": [
+        "Thresholds require scores to be integer valued",
+        "The fused scale differs from query to query",
+        "The fusion weights depend on the threshold chosen",
+        "Min-max subtracts the mean from every score"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Score Normalization vs Rank Fusion",
+      "question": "Three months after fusion weights were fitted, an embedding model upgrade silently degrades merged quality. Rank fusion is immune to this because...",
+      "options": [
+        "it refits its own weights on a nightly schedule",
+        "it draws far more candidates from each of the systems",
+        "ranks hold steady when a score distribution shifts",
+        "it normalizes by z-score rather than by min-max"
+      ],
+      "answerIndex": 2,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "Score Normalization vs Rank Fusion",
+      "question": "Why do mature pipelines fuse candidates with RRF yet let a trained reranker set the final order?",
+      "options": [
+        "RRF cannot merge more than two ranked lists at a time",
+        "The reranker runs without an accelerator at that stage",
+        "Fused ranks are a required input feature for the reranker",
+        "The reranker scores on one self-contained internal scale"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "The Atrium Pattern: BM25 + Vectors + RRF + Reranker",
+      "question": "In the Atrium pattern, what is the correct order of stages for one query?",
+      "options": [
+        "Rerank, fuse, retrieve in parallel, then filter the survivors",
+        "Parallel retrieval, RRF fusion, filter and dedupe, then rerank",
+        "Retrieve, rerank each source, then fuse the rescored lists",
+        "Fuse both sources, retrieve, filter, and rerank the result"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "The Atrium Pattern: BM25 + Vectors + RRF + Reranker",
+      "question": "BM25 takes 15 ms, dense search takes 20 ms run in parallel, and reranking 50 pairs takes 35 ms. What end-to-end latency should be expected?",
+      "options": [
+        "About 35 ms",
+        "About 80 ms",
+        "About 15 ms",
+        "About 150 ms"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "The Atrium Pattern: BM25 + Vectors + RRF + Reranker",
+      "question": "The vector service goes down mid-day. What is the designed degraded mode in this architecture?",
+      "options": [
+        "Serve stale cached answers for every query until recovery",
+        "Return an error to the caller until the vectors come back",
+        "Serve BM25-only fusion, flagged and evaluated in advance",
+        "Replay the last fused ranking that the system had produced"
+      ],
+      "answerIndex": 2,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "The Atrium Pattern: BM25 + Vectors + RRF + Reranker",
+      "question": "Why must multi-tenant ACL filters live inside the retrievers rather than after fusion?",
+      "options": [
+        "Filtering later starves the reranker of eligible candidates",
+        "ACL metadata cannot survive the rank fusion step at all",
+        "Filtering after fusion doubles the RRF smoothing constant",
+        "Retrievers cannot reach the document text any other way"
+      ],
+      "answerIndex": 0,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "The Atrium Pattern: BM25 + Vectors + RRF + Reranker",
+      "question": "For which system is the full Atrium pattern most likely overkill?",
+      "options": [
+        "A stream of heterogeneous natural-language questions",
+        "A corpus whose size roughly doubles every month",
+        "Traffic mixing exact identifiers and conceptual intent",
+        "A pure exact-SKU catalog under a hard latency floor"
+      ],
+      "answerIndex": 3,
+      "difficulty": "challenge"
+    },
+    {
+      "topic": "The Atrium Pattern: BM25 + Vectors + RRF + Reranker",
+      "question": "Why are per-source ranks preserved through the pipeline?",
+      "options": [
+        "They are needed to compute each BM25 term score",
+        "They serve as the fusion weights for the merge",
+        "They show which retriever found or lost a candidate",
+        "They stand in for the reranker at low traffic"
+      ],
+      "answerIndex": 2,
+      "difficulty": "core"
+    }
   ]
 }
