@@ -1,0 +1,593 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Grain Pipeline</button>
+  <button class="viz-tab" data-viz-tab="2">2. Naming A Result</button>
+  <button class="viz-tab" data-viz-tab="3">3. Correlated Or Not</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Cost Of Per-Row</button>
+  <button class="viz-tab" data-viz-tab="5">5. Duplicate Semantics</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Grain Pipeline</h2>
+  <p class="vz-lede">You already have four ways to move the grain: <b>Join Fan-out</b> multiplies it,
+    <b>GROUP BY Mechanics</b> collapses it, <b>OVER and PARTITION BY</b> preserves it, and a filter narrows
+    it. A CTE gives each move a name. Tap a stage to make it the final SELECT and inspect what one of its
+    rows means. <b>Like a factory line with a labelled bin between every machine.</b></p>
+
+  <div class="v1-stages" id="v1-stages"></div>
+
+  <div class="vz-card vz-mono" id="v1-sql" style="margin-bottom:11px"></div>
+  <div class="vz-card">
+    <div class="v1-out" id="v1-out"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">This is not decoration. During development, temporarily make each stage the final
+    SELECT and check its row count and key uniqueness — exactly what the buttons above simulate. That turns
+    one opaque statement into a sequence of verified transformations, and it is where you catch a fan-out:
+    at the boundary where it happened, not four stages later in a total that looks slightly high.</p>
+
+  <style>
+    .v1-stages{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-s{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:10px 12px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-nm{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:700}
+    .v1-gr{font-size:11px;color:var(--viz-muted);margin-left:auto;text-align:right;line-height:1.35}
+    .v1-gr b{display:block;color:var(--viz-accent);font-size:11.5px}
+    .v1-op{font-size:9.5px;font-weight:800;letter-spacing:.05em;border:1.5px solid var(--viz-line);
+      border-radius:999px;padding:2px 8px;color:var(--viz-muted)}
+    .v1-out table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v1-out th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 5px 5px 0;font-family:inherit}
+    .v1-out td{padding:6px 5px 6px 0;border-bottom:1px solid var(--viz-line)}
+    .v1-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { nm:'ranked_results', op:'source', grain:'one row per query-document', rows:'12 rows',
+        sql:'-- the base table, no CTE yet\nSELECT * FROM ranked_results;',
+        cols:['model','query_id','document_id','rank','score'],
+        data:[['v3','q1',"'d1'",1,'0.91'],['v3','q1',"'d2'",2,'0.74'],['v3','q1',"'d9'",11,'0.20'],
+              ['v3','q2',"'d3'",1,'0.88'],['v3','q2',"'d4'",2,'0.55'],['v4','q1',"'d1'",1,'0.95']],
+        more:6,
+        why:['Where every pipeline starts: the widest grain you have.',
+          'One row per query-document per model. Nothing is wrong with it — it is simply not an answer to any question a human asked, which is what the next three stages are for.'] },
+      { nm:'top_hits', op:'filter', grain:'one row per query-document (top 10 only)', rows:'8 rows',
+        sql:'WITH top_hits AS (\n  SELECT model, query_id, document_id, rank, score\n  FROM   ranked_results\n  WHERE  rank &lt;= 10\n)\nSELECT * FROM top_hits;',
+        cols:['model','query_id','document_id','rank','score'],
+        data:[['v3','q1',"'d1'",1,'0.91'],['v3','q1',"'d2'",2,'0.74'],
+              ['v3','q2',"'d3'",1,'0.88'],['v3','q2',"'d4'",2,'0.55'],['v4','q1',"'d1'",1,'0.95']],
+        more:3,
+        why:['A population filter. The grain has not moved.',
+          'Rows leave; the meaning of a row does not change. Keeping this as its own stage is what makes the next one honest — "average over the top 10" is a different metric from "average over everything", and the difference is now visible in a name rather than buried in a WHERE clause four lines further down.'] },
+      { nm:'per_query', op:'GROUP BY', grain:'one row per model-query', rows:'4 rows',
+        sql:'per_query AS (\n  SELECT model, query_id,\n         MAX(CASE WHEN rank = 1 THEN score END) AS best,\n         1.0 / MIN(rank) AS reciprocal_rank\n  FROM   top_hits\n  GROUP  BY model, query_id\n)\nSELECT * FROM per_query;',
+        cols:['model','query_id','best','reciprocal_rank'],
+        data:[['v3','q1','0.91','1.00'],['v3','q2','0.88','1.00'],['v4','q1','0.95','1.00'],['v4','q2','0.61','0.50']],
+        more:0,
+        why:['The collapse. Grain moves from query-document to model-query.',
+          'This is the moment document_id stops being selectable, and the moment any downstream count starts counting queries rather than hits. Naming the stage <code>per_query</code> means the next reader does not have to reconstruct that from the GROUP BY list.'] },
+      { nm:'per_model', op:'GROUP BY', grain:'one row per model', rows:'2 rows',
+        sql:'per_model AS (\n  SELECT model,\n         COUNT(*) AS queries,\n         AVG(reciprocal_rank) AS mrr\n  FROM   per_query\n  GROUP  BY model\n)\nSELECT *\nFROM   per_model\nWHERE  queries &gt;= 100\nORDER  BY mrr DESC;',
+        cols:['model','queries','mrr'],
+        data:[['v4','2','0.75'],['v3','2','1.00']],
+        more:0,
+        why:['A second collapse, and then the final filter.',
+          'Two grain changes in one statement, each with a name you could put in a code review comment. Written as one nested expression this is still correct SQL and considerably harder to check — and the illegal-column and fan-out mistakes both hide at exactly these boundaries.<br><br>Note the final <code>WHERE queries &gt;= 100</code>: it filters model summaries, which only makes sense because the row it tests is a model. That is the whole argument for naming grains.'] }
+    ];
+    var cur = 0;
+    var stagesB = document.getElementById('v1-stages');
+    var sqlB = document.getElementById('v1-sql');
+    var outB = document.getElementById('v1-out');
+    var whyB = document.getElementById('v1-why');
+
+    function show(i){
+      cur = i;
+      var s = STAGES[i];
+      [].slice.call(stagesB.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      sqlB.innerHTML = s.sql;
+      outB.innerHTML = '<table><thead><tr>' + s.cols.map(function(c){ return '<th>' + c + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + s.data.map(function(r){
+          return '<tr>' + r.map(function(v){ return '<td>' + v + '</td>'; }).join('') + '</tr>';
+        }).join('') + (s.more ? '<tr><td colspan="' + s.cols.length + '" style="color:var(--viz-muted)">… ' + s.more + ' more</td></tr>' : '') +
+        '</tbody></table>';
+      whyB.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1];
+    }
+    STAGES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v1-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-op">' + s.op + '</span><span class="v1-nm">' + s.nm + '</span>' +
+        '<span class="v1-gr">' + s.rows + '<b>' + s.grain + '</b></span>';
+      b.addEventListener('click', function(){ show(i); });
+      stagesB.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Naming A Result</h2>
+  <p class="vz-lede">Three constructs put a name on a query result, and they differ in scope, in whether
+    the data is written down, and in whether the engine may compute it twice. Pick one and see what you
+    actually bought. <b>Like a sticky note, a printed form, and a filing cabinet.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Construct">
+    <button id="v2-cte" aria-pressed="true">CTE (WITH)</button>
+    <button id="v2-view" aria-pressed="false">VIEW</button>
+    <button id="v2-tmp" aria-pressed="false">TEMP TABLE</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-grid" id="v2-grid"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v2-h">The question people actually get wrong: referenced twice</h4>
+    <div class="v2-tog">
+      <button class="v2-t" id="v2-inl" aria-pressed="true">optimiser inlines it</button>
+      <button class="v2-t" id="v2-mat" aria-pressed="false">optimiser materialises it</button>
+    </div>
+    <div class="v2-plan" id="v2-plan"></div>
+  </div>
+  <p class="vz-note">Both "CTEs make queries faster" and "CTEs are optimisation fences" are folklore. The
+    behaviour depends on the engine, the query shape, and any hints — so read the plan before claiming a CTE
+    saved work. What a CTE reliably buys is <b>scope, a name, and a visible grain</b>, and those are worth
+    it on their own.</p>
+
+  <style>
+    .v2-grid{display:flex;flex-direction:column;gap:7px}
+    .v2-row{display:flex;gap:11px;align-items:flex-start;border-bottom:1px solid var(--viz-line);padding-bottom:7px}
+    .v2-row:last-child{border-bottom:0;padding-bottom:0}
+    .v2-k{flex:0 0 96px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+      color:var(--viz-muted);padding-top:2px}
+    .v2-v{flex:1;font-size:12.5px;line-height:1.5}
+    .v2-h{margin:0 0 9px;font-size:13px}
+    .v2-tog{display:flex;gap:6px;margin-bottom:11px}
+    .v2-t{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-muted);
+      border-radius:10px;font:inherit;font-weight:700;font-size:12px}
+    .v2-t[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);background:var(--viz-surface)}
+    .v2-plan{font-size:12.5px;line-height:1.6}
+    .v2-steps{display:flex;flex-direction:column;gap:5px;margin:10px 0}
+    .v2-st{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;gap:9px;align-items:center}
+    .v2-st b{margin-left:auto;font-family:inherit;font-size:10.5px;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var DEFS = {
+      cte: { rows:[
+        ['Scope', 'This statement only. It disappears when the statement ends, so nothing else in your session can reference it.'],
+        ['Stored?', 'No. It is a named piece of the query, not an object in the catalog and not bytes on disk.'],
+        ['Indexable', 'No. There is nothing to index.'],
+        ['Cost', 'None up front. The engine may inline it into consumers or materialise it internally — its choice, and the choice can change with the query shape.'],
+        ['Use it when', 'You want a long statement to read as a pipeline of named grains. That is what it is for, and it is a very good reason.'],
+        ['Watch for', 'A pile of stages named step1…step10 with no grain boundary. That is not more readable than one nested query, it just looks organised.']
+      ]},
+      view: { rows:[
+        ['Scope', 'The catalog. Every statement, every session, until someone drops it.'],
+        ['Stored?', 'The definition is stored. The result is not — a plain view re-runs its query on every reference.'],
+        ['Indexable', 'Not directly. A <em>materialised</em> view is a different object: it does store rows, can often be indexed, and has to be refreshed.'],
+        ['Cost', 'Nothing until read, then the cost of the underlying query, every time.'],
+        ['Use it when', 'Several queries or several people need the same definition, and you want one place to fix it.'],
+        ['Watch for', 'Views stacked on views. Each layer is invisible in the SQL you are reading and entirely visible in the plan.']
+      ]},
+      tmp: { rows:[
+        ['Scope', 'Your session or script. Several statements can read it.'],
+        ['Stored?', 'Yes — the rows are written down. That is the whole point.'],
+        ['Indexable', 'Yes, and this is often the reason to reach for one: build the intermediate, index the join key, then use it repeatedly.'],
+        ['Cost', 'A write, and later a read. Not free, and worth measuring against just re-running the query.'],
+        ['Use it when', 'A costly, stable intermediate must be computed <b>exactly once</b>, reused across statements, or audited on its own.'],
+        ['Watch for', 'Staleness. It is a snapshot, so anything that changes underneath it will not be reflected.']
+      ]}
+    };
+    var mode = 'cte';
+    var B = { cte:document.getElementById('v2-cte'), view:document.getElementById('v2-view'), tmp:document.getElementById('v2-tmp') };
+    var grid = document.getElementById('v2-grid');
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      grid.innerHTML = DEFS[mode].rows.map(function(r){
+        return '<div class="v2-row"><div class="v2-k">' + r[0] + '</div><div class="v2-v">' + r[1] + '</div></div>';
+      }).join('');
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+
+    var inl = true;
+    var bI = document.getElementById('v2-inl'), bM = document.getElementById('v2-mat');
+    var plan = document.getElementById('v2-plan');
+    function step(t, tag, c){ return '<div class="v2-st"><span>' + t + '</span><b style="color:' + c + '">' + tag + '</b></div>'; }
+    function planRender(){
+      bI.setAttribute('aria-pressed', inl ? 'true' : 'false');
+      bM.setAttribute('aria-pressed', inl ? 'false' : 'true');
+      plan.innerHTML = inl
+        ? 'A CTE referenced twice, inlined:' +
+          '<div class="v2-steps">' +
+          step('scan chunks · aggregate', 'run #1', 'var(--viz-red)') +
+          step('scan chunks · aggregate', 'run #2 — same work again', 'var(--viz-red)') +
+          step('join the two results', '', 'var(--viz-muted)') +
+          '</div>' +
+          'The CTE’s logic is substituted into each consumer, so the expensive part executes <b>twice</b>. ' +
+          'Nothing in the SQL text hints at it, which is why "I gave it a name, so it runs once" is the most common wrong belief about CTEs.'
+        : 'The same CTE, materialised:' +
+          '<div class="v2-steps">' +
+          step('scan chunks · aggregate', 'run #1', 'var(--viz-green)') +
+          step('write intermediate', 'cost added here', 'var(--viz-amber)') +
+          step('read it · read it again · join', 'reused', 'var(--viz-green)') +
+          '</div>' +
+          'Computed once and stored, so the scan is not repeated — but a write and two reads have been added, and on a small intermediate that can lose. ' +
+          '<b>If you genuinely need exactly-once, do not hope for this: make it a temp table and know what you bought.</b>';
+    }
+    bI.addEventListener('click', function(){ inl = true; planRender(); });
+    bM.addEventListener('click', function(){ inl = false; planRender(); });
+    planRender();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Correlated Or Not</h2>
+  <p class="vz-lede">One word changes how many times the inner query runs. Tap an outer row to watch its
+    own evaluation — and count the evaluations at the bottom.
+    <b>Like one exam pass mark for the whole school versus a pass mark computed per class.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Subquery kind">
+    <button id="v3-un" aria-pressed="false">uncorrelated</button>
+    <button id="v3-co" aria-pressed="true">correlated</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v3-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-inner" id="v3-inner"></div>
+  </div>
+  <p class="vz-note">The per-row model explains the <b>semantics</b>, not necessarily the execution: a
+    capable optimiser often <em>decorrelates</em> this into a join plus an aggregate and runs it once.
+    Correlation blocks that when the subquery contains complex limits, volatile functions, inequality
+    conditions, or engine-specific constructs — and then it really does run per row.</p>
+
+  <style>
+    .v3-rows{display:flex;flex-direction:column;gap:4px}
+    .v3-r{width:100%;display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 11px;background:var(--viz-bg);color:var(--viz-ink);text-align:left;min-height:44px;
+      font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:400}
+    .v3-r.is-sel{border-color:var(--viz-violet);border-width:2px}
+    .v3-r.is-out{opacity:.45}
+    .v3-q{color:var(--viz-muted);min-width:34px}
+    .v3-mk{margin-left:auto;font-weight:800;font-size:11px;letter-spacing:.03em;font-family:inherit}
+    .v3-inner{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-inner b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-box{border:1.5px solid var(--viz-violet);border-radius:10px;padding:10px 12px;margin:9px 0;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap}
+    .v3-count{display:inline-block;font-size:11px;font-weight:800;letter-spacing:.04em;border-radius:999px;
+      padding:3px 10px;border:1.5px solid;margin-top:4px}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { q:'q1', d:"'d1'", s:0.90 }, { q:'q1', d:"'d5'", s:0.50 },
+      { q:'q2', d:"'d3'", s:0.80 }, { q:'q2', d:"'d4'", s:0.70 }, { q:'q2', d:"'d8'", s:0.60 }
+    ];
+    var corr = true, sel = 2;
+    var bU = document.getElementById('v3-un'), bC = document.getElementById('v3-co');
+    var sqlB = document.getElementById('v3-sql'), rowsB = document.getElementById('v3-rows'), innerB = document.getElementById('v3-inner');
+
+    function globalAvg(){ return ROWS.reduce(function(a, r){ return a + r.s; }, 0) / ROWS.length; }
+    function qAvg(q){
+      var rs = ROWS.filter(function(r){ return r.q === q; });
+      return rs.reduce(function(a, r){ return a + r.s; }, 0) / rs.length;
+    }
+    function threshold(r){ return corr ? qAvg(r.q) : globalAvg(); }
+
+    function render(){
+      bU.setAttribute('aria-pressed', corr ? 'false' : 'true');
+      bC.setAttribute('aria-pressed', corr ? 'true' : 'false');
+      sqlB.innerHTML = corr
+        ? 'SELECT r.query_id, r.document_id, r.score\nFROM   ranked_results r\nWHERE  r.score &gt; (\n  SELECT AVG(r2.score)\n  FROM   ranked_results r2\n  WHERE  r2.query_id = r.query_id      -- ← names the OUTER row\n);'
+        : 'SELECT query_id, document_id, score\nFROM   ranked_results\nWHERE  score &gt; (\n  SELECT AVG(score)\n  FROM   ranked_results             -- ← names nothing outside itself\n);';
+
+      rowsB.innerHTML = ROWS.map(function(r, i){
+        var t = threshold(r), keep = r.s > t;
+        return '<button class="v3-r ' + (i === sel ? 'is-sel ' : '') + (keep ? '' : 'is-out') + '" data-i="' + i + '">' +
+          '<span class="v3-q">' + r.q + '</span><span>' + r.d + ' &nbsp; score ' + r.s.toFixed(2) + '</span>' +
+          '<span class="v3-mk" style="color:' + (keep ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (keep ? '✓ ' + r.s.toFixed(2) + ' &gt; ' + t.toFixed(2) : '✕ ' + r.s.toFixed(2) + ' ≤ ' + t.toFixed(2)) + '</span></button>';
+      }).join('');
+      [].slice.call(rowsB.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+
+      var r = ROWS[sel];
+      if (corr) {
+        var rs = ROWS.filter(function(x){ return x.q === r.q; });
+        innerB.innerHTML = '<b>The inner query, evaluated for this row.</b>' +
+          '<div class="v3-box">SELECT AVG(r2.score) FROM ranked_results r2\nWHERE  r2.query_id = <span style="color:var(--viz-violet)">\'' + r.q + '\'</span>\n\n-- sees ' + rs.length + ' row(s): ' +
+          rs.map(function(x){ return x.s.toFixed(2); }).join(', ') + '\n-- returns ' + qAvg(r.q).toFixed(2) + '</div>' +
+          'The subquery names <code>r.query_id</code> from the outer row, so its input changes row by row: it is the same SQL text and a different question each time. ' +
+          'Each row is compared with <b>its own query’s</b> average, which is exactly why a 0.60 can be dropped in one query and a 0.60 kept in another. ' +
+          '<br><span class="v3-count" style="color:var(--viz-red);border-color:var(--viz-red)">' + ROWS.length + ' logical inner evaluations</span>';
+      } else {
+        innerB.innerHTML = '<b>The inner query, evaluated once for the whole statement.</b>' +
+          '<div class="v3-box">SELECT AVG(score) FROM ranked_results\n\n-- sees all ' + ROWS.length + ' rows\n-- returns ' + globalAvg().toFixed(2) + '</div>' +
+          'Nothing inside the subquery refers to the outer query, so it can be computed independently and reused for every comparison. ' +
+          'That is the entire test for "uncorrelated" — look for an outer column name inside the parentheses. ' +
+          'One consequence worth carrying: a scalar subquery must return <b>at most one row</b> or the statement errors, and if it returns NULL then <code>score &gt; NULL</code> is UNKNOWN and <b>every</b> row is filtered out. ' +
+          '<br><span class="v3-count" style="color:var(--viz-green);border-color:var(--viz-green)">1 inner evaluation</span>';
+      }
+    }
+    bU.addEventListener('click', function(){ corr = false; render(); });
+    bC.addEventListener('click', function(){ corr = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Cost Of Per-Row</h2>
+  <p class="vz-lede">Every document wants <code>MAX(updated_at)</code> from its chunks. Three ways to get
+    it, and which one wins <em>flips</em> as the outer set grows. Drag the document count.
+    <b>Like phoning ten people versus mailing everyone: the cheap option depends entirely on how many.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-n">Outer set: <span id="v4-nl">1,000</span> documents
+      &nbsp;·&nbsp; chunks table: 10,000,000 rows</label>
+    <input type="range" id="v4-n" min="2" max="6" value="3" step="1" aria-label="Documents, as a power of ten">
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-verdict" id="v4-verdict"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <div class="vz-mono" id="v4-fix">WITH latest AS (
+  SELECT document_id, MAX(updated_at) AS latest_at
+  FROM   chunks
+  GROUP  BY document_id
+)
+SELECT d.document_id, l.latest_at
+FROM   documents d
+LEFT JOIN latest l USING (document_id);</div>
+    <p class="v4-cap">Scan chunks once, build one row per document, then join. This is the general cure for
+      a correlated subquery that would not decorrelate — and it is just the pre-aggregate-then-join move
+      that fixed fan-out, arriving from the other direction.</p>
+  </div>
+  <p class="vz-note">Correlation is not automatically bad. The risk profile is specific: a <b>large outer
+    set</b> multiplied by <b>inner work that is not a cheap keyed probe</b>. State the logical intent
+    cleanly first, then check whether the optimiser decorrelated it or the index made repeated probes
+    affordable.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bars{margin-top:14px;display:flex;flex-direction:column;gap:11px}
+    .v4-b h5{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:9px}
+    .v4-b h5 span:first-child{color:var(--viz-ink)}
+    .v4-b h5 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.4}
+    .v4-verdict{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-verdict b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-cap{font-size:12px;color:var(--viz-muted);line-height:1.5;margin:10px 0 0}
+  </style>
+  <script>
+  (function(){
+    var CHUNKS = 10000000, PROBE = 24;
+    var s = document.getElementById('v4-n');
+    var nl = document.getElementById('v4-nl');
+    var bars = document.getElementById('v4-bars');
+    var verdict = document.getElementById('v4-verdict');
+
+    function fmt(x){
+      if (x >= 1e12) return (x / 1e12).toFixed(1) + ' trillion';
+      if (x >= 1e9) return (x / 1e9).toFixed(1) + ' billion';
+      if (x >= 1e6) return (x / 1e6).toFixed(1) + ' million';
+      return Math.round(x).toLocaleString();
+    }
+    function bar(t, v, maxLog, c, sub){
+      var pct = Math.max(2, Math.round((Math.log10(v) / maxLog) * 100));
+      return '<div class="v4-b"><h5><span>' + t + '</span><b style="color:' + c + '">' + fmt(v) + ' row touches</b></h5>' +
+        '<div class="v4-track"><i style="width:' + pct + '%;background:' + c + '"></i></div>' +
+        '<div class="v4-sub">' + sub + '</div></div>';
+    }
+    function render(){
+      var n = Math.pow(10, Number(s.value));
+      nl.textContent = n.toLocaleString();
+      var naive = n * CHUNKS;
+      var pre = CHUNKS + n;
+      var idx = n * PROBE;
+      var maxLog = Math.log10(naive);
+
+      bars.innerHTML =
+        bar('Correlated, no index', naive, maxLog, 'var(--viz-red)',
+          'Each of the ' + n.toLocaleString() + ' documents scans all 10,000,000 chunks. This is a product, and it stops being survivable long before the slider does.') +
+        bar('Pre-aggregate, then join', pre, maxLog, 'var(--viz-green)',
+          'One pass over chunks (10,000,000) plus one row per document. Flat in the outer set — the cost barely moves as you drag.') +
+        bar('Correlated, indexed on (document_id, updated_at)', idx, maxLog, 'var(--viz-violet)',
+          'Roughly ' + PROBE + ' touches per keyed probe, ' + n.toLocaleString() + ' times. Grows with the outer set, and starts from almost nothing.');
+
+      var winner = idx < pre ? 'indexed probes' : 'pre-aggregate';
+      var cross = Math.round(CHUNKS / PROBE);
+      verdict.innerHTML = '<b style="color:' + (idx < pre ? 'var(--viz-violet)' : 'var(--viz-green)') + '">At ' +
+        n.toLocaleString() + ' documents, ' + winner + ' wins.</b>' +
+        (idx < pre
+          ? 'The whole pre-aggregate costs a full 10M-row scan whether you need one answer or a million. With only ' + n.toLocaleString() +
+            ' documents to serve, ' + fmt(idx) + ' indexed touches is far less work — <b>ten indexed probes really can beat aggregating a billion-row table</b>, and this is why "always rewrite correlated subqueries" is bad advice.'
+          : 'Repeated probes have overtaken the single scan: ' + fmt(idx) + ' against ' + fmt(pre) + '. Past roughly <b>' + cross.toLocaleString() +
+            ' documents</b> the one-pass aggregate is cheaper, and it also stops caring how big the outer set gets.') +
+        '<br><br>The red bar is the case that matters most in practice, because it is what you get by default when no index supports the correlation — and the SQL that produces it is short, clear and completely reasonable-looking.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Duplicate Semantics</h2>
+  <p class="vz-lede">Two exports overlap by one row. <code>UNION ALL</code> keeps everything;
+    <code>UNION</code> removes duplicates — but only rows that are identical across <em>every selected
+    column</em>. Add the score column and watch the "duplicate" stop being one.
+    <b>Like merging two guest lists where one person wrote their name slightly differently.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Operator">
+    <button id="v5-all" aria-pressed="true">UNION ALL</button>
+    <button id="v5-uni" aria-pressed="false">UNION</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v5-tog">
+      <button class="v5-t" id="v5-two" aria-pressed="true">select (query_id, document_id)</button>
+      <button class="v5-t" id="v5-three" aria-pressed="false">select (query_id, document_id, score)</button>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-src" id="v5-src"></div>
+    <div class="v5-res" id="v5-res"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v5-h">Two more things about set operators</h4>
+    <div class="v5-more" id="v5-more"></div>
+  </div>
+  <p class="vz-note">Three questions settle every case: are duplicate rows valid events or redundant
+    copies; which columns define business identity; and which row should win when the non-key attributes
+    disagree? <code>UNION ALL</code> answers only the first. <code>UNION</code> answers exact-tuple set
+    membership. Anything involving keyed precedence, freshness, or source trust needs an explicit
+    deduplication stage after the concatenation.</p>
+
+  <style>
+    .v5-tog{display:flex;gap:6px}
+    .v5-t{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-muted);
+      border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;font-family:ui-monospace,Consolas,monospace;padding:5px 6px}
+    .v5-t[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);background:var(--viz-surface)}
+    .v5-src{display:flex;gap:9px;margin-bottom:13px;flex-wrap:wrap}
+    .v5-tbl{flex:1 1 132px;border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg)}
+    .v5-tbl h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-line{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75}
+    .v5-line.is-dupe{color:var(--viz-violet);font-weight:700}
+    .v5-res{padding-top:12px;border-top:1px dashed var(--viz-line)}
+    .v5-res h5{margin:0 0 7px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-out{display:flex;flex-wrap:wrap;gap:5px}
+    .v5-chip{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;border:1.5px solid var(--viz-line);
+      border-radius:8px;padding:4px 9px;background:var(--viz-surface)}
+    .v5-chip.is-dupe{border-color:var(--viz-violet);color:var(--viz-violet);font-weight:700}
+    .v5-chip.is-cut{border-color:var(--viz-red);color:var(--viz-red);opacity:.55;text-decoration:line-through}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-h{margin:0 0 9px;font-size:13px}
+    .v5-more{display:flex;flex-direction:column;gap:7px}
+    .v5-m{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v5-m b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-amber)}
+  </style>
+  <script>
+  (function(){
+    var CUR = [ {q:'q1', d:'d1', s:'0.91'}, {q:'q2', d:'d2', s:'0.80'} ];
+    var ARC = [ {q:'q2', d:'d2', s:'0.70'}, {q:'q3', d:'d3', s:'0.64'} ];
+    var all = true, three = false;
+    var bA = document.getElementById('v5-all'), bU = document.getElementById('v5-uni');
+    var bT2 = document.getElementById('v5-two'), bT3 = document.getElementById('v5-three');
+    var srcB = document.getElementById('v5-src'), resB = document.getElementById('v5-res'), whyB = document.getElementById('v5-why');
+
+    function tup(r){ return three ? '(' + r.q + ',' + r.d + ',' + r.s + ')' : '(' + r.q + ',' + r.d + ')'; }
+    function render(){
+      bA.setAttribute('aria-pressed', all ? 'true' : 'false');
+      bU.setAttribute('aria-pressed', all ? 'false' : 'true');
+      bT2.setAttribute('aria-pressed', three ? 'false' : 'true');
+      bT3.setAttribute('aria-pressed', three ? 'true' : 'false');
+
+      function tbl(name, rows){
+        return '<div class="v5-tbl"><h5>' + name + '</h5>' + rows.map(function(r){
+          var overlap = r.q === 'q2' && r.d === 'd2';
+          return '<div class="v5-line' + (overlap ? ' is-dupe' : '') + '">' + tup(r) + '</div>';
+        }).join('') + '</div>';
+      }
+      srcB.innerHTML = tbl('current', CUR) + tbl('archive', ARC);
+
+      var cat = CUR.concat(ARC), seen = {}, out = [];
+      cat.forEach(function(r){
+        var t = tup(r), dupe = !!seen[t];
+        seen[t] = true;
+        out.push({ t:t, cut: !all && dupe, dupe: r.q === 'q2' && r.d === 'd2' });
+      });
+      var kept = out.filter(function(o){ return !o.cut; }).length;
+      resB.innerHTML = '<h5>result — ' + kept + ' rows</h5><div class="v5-out">' +
+        out.map(function(o){
+          return '<span class="v5-chip' + (o.cut ? ' is-cut' : (o.dupe ? ' is-dupe' : '')) + '">' + o.t + '</span>';
+        }).join('') + '</div>';
+
+      if (all) {
+        whyB.innerHTML = '<b>4 rows — concatenation, nothing removed.</b>' +
+          'UNION ALL requires only that the branches have the same number of columns in corresponding positions with compatible types. ' +
+          'It can stream or concatenate the branches with very little coordination, which is why it should be your default whenever duplicates are impossible ' +
+          'by construction, or are meaningful in their own right. ' +
+          (three ? 'Note the q2/d2 rows carry <b>different scores</b> — they are two real observations, and here you can see both.' :
+            'The q2/d2 pair appears twice because both exports contain it.');
+      } else if (!three) {
+        whyB.innerHTML = '<b>3 rows — the exact-tuple duplicate is removed.</b>' +
+          'Set semantics: identical rows collapse. This is the case UNION was designed for, and it costs what COUNT DISTINCT costs, and for the same reason — ' +
+          'the engine must hash or sort to know a row is a repeat, with memory, possible spill, and usually a distributed shuffle. ' +
+          'Now switch the projection to include score.';
+      } else {
+        whyB.innerHTML = '<b style="color:var(--viz-amber)">Still 4 rows — and the duplicate is gone from the query’s point of view.</b>' +
+          'Duplicate identity covers <b>every selected column</b>. (q2,d2,0.80) and (q2,d2,0.70) differ, so UNION keeps both — correctly, by its own rules, ' +
+          'and uselessly, by yours. It was never asked which score should survive, and it has no way to decide. ' +
+          '<br><br>This is the trap: business identity is <code>(query_id, document_id)</code>, exact-tuple identity is all three columns, and only one of those ' +
+          'is what UNION means. Keyed precedence needs an explicit stage — concatenate with UNION ALL, then ' +
+          '<code>ROW_NUMBER() OVER (PARTITION BY query_id, document_id ORDER BY source_priority, updated_at DESC)</code> and keep row 1. ' +
+          'Retry exports with different ingestion timestamps land here every time.';
+      }
+    }
+    bA.addEventListener('click', function(){ all = true; render(); });
+    bU.addEventListener('click', function(){ all = false; render(); });
+    bT2.addEventListener('click', function(){ three = false; render(); });
+    bT3.addEventListener('click', function(){ three = true; render(); });
+    render();
+
+    document.getElementById('v5-more').innerHTML = [
+      ['Columns align by POSITION, never by name',
+        '<code>SELECT document_id, score FROM sparse_hits UNION ALL SELECT score, document_id FROM dense_hits</code> is a defect even when type coercion lets it run: values cross semantic columns, and the output column names come from the <b>first</b> branch, so the header still reads correctly. Use identical explicit column order, cast deliberately, and never <code>SELECT *</code> in a branch — schema evolution on one side silently shifts the positions.'],
+      ['UNION also dedupes WITHIN a branch',
+        'Not just across them. So it can quietly absorb an upstream duplication defect exactly the way DISTINCT does. If duplicates are a surprise, assert branch uniqueness and go find out why, rather than letting set semantics tidy up. Adding a provenance column such as <code>\'current\' AS source</code> is good practice and worth knowing about here: it makes otherwise-equal rows distinct, so plain UNION stops removing anything at all.'],
+      ['ORDER BY goes once, at the end',
+        'Neither operator promises output order. Ordering an individual branch does not define the final order and is often rejected outright unless paired with a branch-local LIMIT inside a subquery — and a LIMIT after the union applies to the combined result.']
+    ].map(function(m){ return '<div class="v5-m"><b>' + m[0] + '</b>' + m[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+</body>
+</html>

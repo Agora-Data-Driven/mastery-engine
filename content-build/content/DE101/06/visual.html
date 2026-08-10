@@ -1,0 +1,541 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Plan Tree</button>
+  <button class="viz-tab" data-viz-tab="2">2. Sargable Or Not</button>
+  <button class="viz-tab" data-viz-tab="3">3. Two Kinds Of Index</button>
+  <button class="viz-tab" data-viz-tab="4">4. Four Letters</button>
+  <button class="viz-tab" data-viz-tab="5">5. Two Shapes Of Work</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Plan Tree</h2>
+  <p class="vz-lede"><b>SELECT-FROM-WHERE and Logical Evaluation Order</b> told you what a query
+    <em>means</em>. The plan tells you what the engine <em>did</em> — and the engine is free to reorder,
+    as long as the answer matches. Same SQL, two plans. Read from the leaves upward and tap any operator.
+    <b>Like a recipe versus the order the kitchen actually cooks it in.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which plan">
+    <button id="v1-good" aria-pressed="true">good plan</button>
+    <button id="v1-bad" aria-pressed="false">bad plan (stale statistics)</button>
+  </div>
+
+  <div class="vz-card vz-mono" style="margin-bottom:11px">SELECT c.region, COUNT(*), SUM(o.amount)
+FROM   orders o
+JOIN   customers c ON c.customer_id = o.customer_id
+WHERE  o.created_at &gt;= '2026-07-01' AND o.created_at &lt; '2026-07-02'
+GROUP  BY c.region;
+-- orders: 100,000,000 rows · customers: 1,000,000 rows · the date keeps 1%</div>
+
+  <div class="vz-card">
+    <div class="v1-tree" id="v1-tree"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">No operator name is inherently bad. A full scan of a small dimension is healthy; an
+    index probe returning half a table is not. And never read cost numbers across different database
+    products as time units — use them to rank alternatives inside one optimiser, then confirm with actual
+    runtime and bytes read.</p>
+
+  <style>
+    .v1-tree{display:flex;flex-direction:column-reverse;gap:5px}
+    .v1-op{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+    .v1-op[aria-pressed="true"]{border-color:var(--viz-violet);border-width:2px}
+    .v1-op.is-hot{border-color:var(--viz-red)}
+    .v1-nm{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:700}
+    .v1-rows{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted);
+      text-align:right;line-height:1.4}
+    .v1-rows b{display:block;font-size:12px}
+    .v1-ind{flex:0 0 auto;color:var(--viz-muted);font-size:11px;font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v1-est{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.04em;border-radius:999px;
+      padding:2px 8px;border:1.5px solid;margin-top:6px}
+  </style>
+  <script>
+  (function(){
+    var PLANS = {
+      good: [
+        { d:0, nm:'HashAggregate  (GROUP BY region)', est:8, act:8, hot:false,
+          why:['Eight regions out. Cheap, because everything below it already shrank.',
+            'The root returns the result. By the time rows reach here there are a million of them, not a hundred million — every decision that made that true happened lower in the tree, which is why you read a plan from the leaves upward.'] },
+        { d:1, nm:'HashJoin  (customers ⋈ orders)', est:1000000, act:1000000, hot:false,
+          why:['Hash join: build on the small side, probe with the big one.',
+            'Typically O(m + n) — one pass to build the hash table over 1M customers, one pass to probe it with 1M filtered orders. It is memory-hungry and can spill, which is the thing to watch for in ANALYZE output. Note it joins <b>1 million</b> orders, not a hundred million: the filter already ran.'] },
+        { d:2, nm:'SeqScan customers', est:1000000, act:1000000, hot:false,
+          why:['A full scan of the dimension — and that is healthy.',
+            'The join needs every customer row to build its hash table, so seeking an index a million times would be strictly worse. "Full scan" is not a diagnosis; a full scan of a small table you need all of is the right answer.'] },
+        { d:2, nm:'PartitionPrunedScan orders (1 day)', est:1000000, act:1000000, hot:false,
+          why:['The filter is applied at the leaf, so 99 million rows are never read at all.',
+            'The predicate is <b>sargable</b> — a half-open range on the partition/index key — so the engine can skip whole partitions using metadata alone. This is the single most valuable thing in the plan: a filter that reduces 100M to 1M is worth everything when it runs <em>here</em>, and worth nothing when it runs above the join.'] }
+      ],
+      bad: [
+        { d:0, nm:'HashAggregate  (GROUP BY region)', est:8, act:8, hot:false,
+          why:['Identical root, identical answer.',
+            'This is the point: the bad plan is not wrong. It returns exactly the same eight rows. Correctness is not what a plan is telling you about.'] },
+        { d:1, nm:'Filter  o.created_at &gt;= … AND &lt; …', est:10000, act:1000000, hot:true,
+          why:['The filter is ABOVE the join, so the join already did the work.',
+            'A hundred million joined rows arrive here and one million leave. Everything discarded on this line was probed, hashed and materialised first. The filter is doing its job perfectly — in the wrong place.'] },
+        { d:2, nm:'NestedLoop  (orders ⋈ customers)', est:10000, act:100000000, hot:true,
+          why:['A nested loop over 100 million outer rows: 100 million index probes.',
+            'The operator is not the villain. A nested loop is <b>excellent</b> for a small outer set with an indexed inner key — the optimiser chose it because it believed the outer set was 10,000 rows. It was 100,000,000. Fix the estimate and this choice fixes itself.'] },
+        { d:3, nm:'SeqScan orders (all partitions)', est:100000000, act:100000000, hot:false,
+          why:['Everything is read, because nothing told the scan not to.',
+            'Estimated and actual agree here — the scan really does return the whole table. The lie is one level up.'] },
+        { d:3, nm:'IndexScan customers_pk', est:1, act:1, hot:false,
+          why:['One probe per outer row, and each probe is genuinely cheap.',
+            'This is what makes the bad plan so convincing in isolation: every individual operation is fast and correct. It is executed a hundred million times.'] }
+      ]
+    };
+    var mode = 'good', sel = 0;
+    var bG = document.getElementById('v1-good'), bB = document.getElementById('v1-bad');
+    var tree = document.getElementById('v1-tree'), why = document.getElementById('v1-why');
+
+    function fmt(n){ return n.toLocaleString(); }
+    function render(){
+      bG.setAttribute('aria-pressed', mode === 'good' ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', mode === 'bad' ? 'true' : 'false');
+      var ops = PLANS[mode];
+      if (sel >= ops.length) sel = 0;
+      tree.innerHTML = ops.map(function(o, i){
+        var off = 0;
+        var bad = o.act > 0 && o.est > 0 && (o.act / o.est) >= 10;
+        return '<button class="v1-op' + (o.hot ? ' is-hot' : '') + '" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '"' +
+          ' style="margin-left:' + (o.d * 12) + 'px">' +
+          '<span class="v1-ind">' + (o.d ? '└' : '▲') + '</span>' +
+          '<span class="v1-nm">' + o.nm + '</span>' +
+          '<span class="v1-rows">est ' + fmt(o.est) + '<b style="color:' + (bad ? 'var(--viz-red)' : 'var(--viz-green)') + '">act ' + fmt(o.act) + '</b></span></button>';
+      }).join('');
+      [].slice.call(tree.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var o = ops[sel];
+      var ratio = o.est ? Math.round(o.act / o.est) : 1;
+      why.innerHTML = '<b>' + o.why[0] + '</b>' + o.why[1] +
+        '<br><span class="v1-est" style="color:' + (ratio >= 10 ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' +
+        (ratio >= 10 ? 'var(--viz-red)' : 'var(--viz-green)') + '">estimated ' + fmt(o.est) + ' · actual ' + fmt(o.act) +
+        (ratio >= 10 ? ' — off by ' + fmt(ratio) + '×' : ' — estimate holds') + '</span>' +
+        (ratio >= 10 ? '<br><br><b>Estimated-versus-actual divergence is the most useful number in any plan.</b> A gap this size points at stale statistics, correlated predicates, data skew, or a non-sargable expression — and it is the <em>cause</em> of the operator choice above it, not a separate problem.' : '');
+    }
+    bG.addEventListener('click', function(){ mode = 'good'; sel = 0; render(); });
+    bB.addEventListener('click', function(){ mode = 'bad'; sel = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Sargable Or Not</h2>
+  <p class="vz-lede">An index is a sorted structure, so the engine can only jump into it if the predicate
+    names the <em>column</em>. Wrap that column in anything and the index has nothing to seek on. Tap a
+    predicate. <b>Like a phone book: you can find "Reyes" instantly, and you cannot find "everyone whose
+    surname has seven letters" without reading all of it.</b></p>
+
+  <div class="v2-list" id="v2-list"></div>
+
+  <div class="vz-card">
+    <div class="v2-bar" id="v2-bar"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The word is "sargable" — <b>S</b>earch <b>ARG</b>ument-<b>able</b>. The test is
+    mechanical: is the indexed column sitting bare on one side of the comparison? If it is wrapped in a
+    function, a cast, or arithmetic, the engine must compute that expression for every row before it can
+    compare anything, and a sorted structure over the raw values cannot help.</p>
+
+  <style>
+    .v2-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-p{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v2-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-mk{flex:0 0 auto;font-weight:800;font-size:12px;width:15px;text-align:center}
+    .v2-bar{margin-bottom:4px}
+    .v2-line{display:flex;justify-content:space-between;font-size:11.5px;font-weight:700;margin-bottom:5px}
+    .v2-line b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-track{height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%;transition:width .15s linear}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-fix{border-left:3px solid var(--viz-green);padding-left:10px;margin-top:10px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var TOTAL = 100000000;
+    var PREDS = [
+      { sql:"created_at &gt;= '2026-07-01' AND created_at &lt; '2026-07-02'", ok:true, read:1000000,
+        why:['Sargable. The engine seeks to the start of the range and walks.',
+          'The column sits bare on one side of each comparison, so a B-tree on <code>created_at</code> can navigate straight to the first qualifying key. A half-open range is also the safest way to write a "single day" filter: no rounding, no timezone-truncation surprise, and it keeps working when the column gains sub-second precision.'] },
+      { sql:"DATE(created_at) = '2026-07-01'", ok:false, read:TOTAL,
+        why:['NOT sargable. The function has to be applied to every row first.',
+          'The index stores <code>created_at</code> values in order; it stores nothing about <code>DATE(created_at)</code>. So unless the engine rewrites this for you, or an <b>expression index</b> on that exact expression exists, the only way to evaluate it is to compute the function 100 million times and compare.'],
+        fix:"created_at &gt;= '2026-07-01' AND created_at &lt; '2026-07-02'" },
+      { sql:'amount * 1.12 &gt; 100', ok:false, read:TOTAL,
+        why:['NOT sargable. Arithmetic on the column is a function too.',
+          'Same mechanism, less obvious shape. Move the arithmetic to the <em>constant</em> side and the column goes bare again — which is a rewrite you can always do for a monotonic operation, and never for something like a hash.'],
+        fix:'amount &gt; 100 / 1.12' },
+      { sql:"customer_email LIKE 'ana%'", ok:true, read:40000,
+        why:['Sargable. A left-anchored prefix is a range on the sorted keys.',
+          'Everything beginning with "ana" is contiguous in a B-tree, so this is a seek plus a walk — exactly like the date range. It depends on the collation being one the index was built with, which is why a collation change forces a rebuild.'] },
+      { sql:"body LIKE '%retrieval%'", ok:false, read:TOTAL,
+        why:['NOT sargable, and no B-tree will ever fix it.',
+          'The index orders complete body strings, and you have asked to enter one in the middle. There is no contiguous region to seek to. This is not a tuning problem — it is a <b>grain</b> problem, and it is exactly the case an inverted index exists for. Visual 3 is that comparison.'],
+        fix:'-- needs an inverted (or trigram) index, not a bigger B-tree' },
+      { sql:"CAST(order_id AS TEXT) = '4471'", ok:false, read:TOTAL,
+        why:['NOT sargable. A cast on the column is the same mistake in disguise.',
+          'It also usually means the column type and the parameter type disagree somewhere upstream — worth fixing there, because an implicit cast injected by a driver produces this plan with nothing visibly wrong in the SQL you wrote.'],
+        fix:'order_id = 4471' }
+    ];
+    var list = document.getElementById('v2-list');
+    var bar = document.getElementById('v2-bar');
+    var why = document.getElementById('v2-why');
+
+    function show(i){
+      var p = PREDS[i];
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+        var m = b.querySelector('.v2-mk');
+        m.textContent = i === j ? (p.ok ? '✓' : '✕') : '›';
+        m.style.color = i === j ? (p.ok ? 'var(--viz-green)' : 'var(--viz-red)') : '';
+      });
+      var pct = Math.max(1, Math.round(p.read / TOTAL * 100));
+      var c = p.ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      bar.innerHTML = '<div class="v2-line"><span>rows the engine must examine</span>' +
+        '<b style="color:' + c + '">' + p.read.toLocaleString() + ' of 100,000,000</b></div>' +
+        '<div class="v2-track"><i style="width:' + pct + '%;background:' + c + '"></i></div>';
+      why.innerHTML = '<b style="color:' + c + '">' + p.why[0] + '</b>' + p.why[1] +
+        (p.fix ? '<div class="v2-fix">rewrite:  ' + p.fix + '</div>' : '');
+    }
+    PREDS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.className = 'v2-p';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v2-mk">›</span><span>WHERE ' + p.sql + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Two Kinds Of Index</h2>
+  <p class="vz-lede">Both are called indexes and they store different things. A B-tree stores ordered
+    <em>row keys</em>; an inverted index stores <em>terms</em> pointing at documents. Send four queries at
+    both and watch which one can answer. <b>Like a book's page numbers versus its back-of-book index.</b></p>
+
+  <div class="v3-struct" id="v3-struct"></div>
+
+  <div class="v3-list" id="v3-list"></div>
+  <div class="vz-card">
+    <div class="v3-verdicts" id="v3-verdicts"></div>
+  </div>
+  <p class="vz-note">The judgment test is one question: <b>what is the lookup key?</b> An ordered scalar or
+    tuple attached to a row is a B-tree question. A token appearing across many documents is an
+    inverted-index question. A query that combines both needs both access paths, and the engine intersects
+    the candidates — but authorization must be a constraint, never something inferred from text relevance.</p>
+
+  <style>
+    .v3-struct{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v3-s{flex:1 1 148px;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 11px;background:var(--viz-surface)}
+    .v3-s h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-s .v3-body{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.75}
+    .v3-s .v3-body em{font-style:normal;color:var(--viz-accent);font-weight:700}
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-q{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.4;display:flex;align-items:center;gap:9px}
+    .v3-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-verdicts{display:flex;flex-direction:column;gap:9px}
+    .v3-v{border:1.5px solid var(--viz-line);border-radius:11px;padding:11px;background:var(--viz-bg)}
+    .v3-v h4{margin:0 0 6px;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-stamp{font-weight:800;font-size:13px;display:block;margin-bottom:4px}
+    .v3-b{font-size:12.5px;line-height:1.5}
+  </style>
+  <script>
+  (function(){
+    document.getElementById('v3-struct').innerHTML =
+      '<div class="v3-s"><h5>B-tree on (tenant_id, created_at)</h5><div class="v3-body">' +
+      '<em>7</em> │ 2026-07-01 → row 118\n<em>7</em> │ 2026-07-02 → row 204\n<em>7</em> │ 2026-07-09 → row 311\n<em>8</em> │ 2026-07-01 → row 402\n<em>8</em> │ 2026-07-04 → row 455' +
+      '</div></div>' +
+      '<div class="v3-s"><h5>Inverted index on body</h5><div class="v3-body">' +
+      '<em>hybrid</em> → [(d2, p9)]\n<em>index</em> → [(d2, p1), (d8, p3)]\n<em>retrieval</em> → [(d2, p4,19), (d8, p7)]\n<em>rerank</em> → [(d8, p22)]' +
+      '</div></div>';
+
+    var QUERIES = [
+      { sql:"WHERE tenant_id = 7 AND created_at &gt;= '2026-07-01'",
+        bt:[true, 'Seek to tenant 7, then walk the dates in order. This is exactly what a composite key is for: equality on the leading column, range on the next.'],
+        iv:[false, 'Not its grain. A text index knows about terms in a body, not about ordered scalars attached to a row. Search systems keep separate structures — columnar, bitmap, or tree-like — precisely for filters like this one.'] },
+      { sql:"WHERE created_at &gt;= '2026-07-01'   -- no tenant",
+        bt:[false, 'Poorly, and this is the composite-index subtlety. The index is organised by tenant FIRST, so the dates are only sorted <em>within</em> each tenant — there is no single contiguous run of July dates to walk. Leading-column order decides which queries an index can serve.'],
+        iv:[false, 'Still not its grain.'] },
+      { sql:"WHERE body LIKE '%retrieval%'",
+        bt:[false, 'It orders complete body strings, so it cannot enter one at an interior token. Usually a full scan. No amount of tuning changes this — it is the wrong structure, not a badly configured one.'],
+        iv:[true, 'Open the <code>retrieval</code> postings and read off (d2, d8). This is what the whole structure exists to do, and it is why Boolean intersection, phrase matching and BM25 are all cheap on top of it.'] },
+      { sql:"WHERE document_id = 4471",
+        bt:[true, 'A primary-key probe: a handful of page reads. Nothing beats it.'],
+        iv:[false, 'An inverted index is not the natural tool for an exact key lookup either. It is easy to assume the "search" index is simply better; it answers a different question.'] }
+    ];
+    var list = document.getElementById('v3-list'), out = document.getElementById('v3-verdicts');
+
+    function side(title, ok, body){
+      var c = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v3-v" style="border-color:' + c + '"><h4>' + title + '</h4>' +
+        '<span class="v3-stamp" style="color:' + c + '">' + (ok ? '✓ can answer it directly' : '✕ cannot navigate to it') + '</span>' +
+        '<div class="v3-b">' + body + '</div></div>';
+    }
+    function show(i){
+      var q = QUERIES[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      out.innerHTML = side('B-tree', q.bt[0], q.bt[1]) + side('Inverted index', q.iv[0], q.iv[1]) +
+        (i === 2 ? '<div class="v3-v" style="border-style:dashed"><h4>and both pay for writes</h4><div class="v3-b">' +
+          'A B-tree insert modifies leaf pages and may split nodes. An inverted index buffers occurrences, writes sorted immutable segments, then merges them later. ' +
+          'Both trade storage and write work for read speed — and both need a <b>rebuild</b> when the key definition changes: a new collation or key expression for one, a new analyzer or tokenisation for the other.' +
+          '</div></div>' : '');
+    }
+    QUERIES.forEach(function(q, i){
+      var b = document.createElement('button');
+      b.className = 'v3-q';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span style="color:var(--viz-muted);font-weight:800">' + (i + 1) + '</span><span>' + q.sql + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Four Letters</h2>
+  <p class="vz-lede">ACID is four separate promises, and most confusion comes from attributing a failure to
+    the wrong one. Pick a scenario and see which letter is actually at stake — including one where all four
+    hold and the outcome is still wrong. <b>Like blaming the lock when the problem was the person you gave
+    the key to.</b></p>
+
+  <div class="v4-list" id="v4-list"></div>
+
+  <div class="vz-card">
+    <div class="v4-story" id="v4-story"></div>
+  </div>
+  <p class="vz-note">ACID applies inside <b>one datastore's documented boundary</b>. It creates no
+    atomicity across Firestore, GCS, Pub/Sub and an external API — cross-system workflows need idempotency
+    keys, outbox patterns, state machines and reconciliation. And Firestore's own transactions rerun
+    optimistically when a read document changes, so the code inside has to be safe to execute several
+    times.</p>
+
+  <style>
+    .v4-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v4-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-let{flex:0 0 auto;font-weight:800;font-size:15px;width:22px;text-align:center}
+    .v4-story{font-size:12.5px;line-height:1.6}
+    .v4-hd{display:block;font-size:13.5px;font-weight:800;margin-bottom:6px}
+    .v4-steps{display:flex;flex-direction:column;gap:5px;margin:10px 0}
+    .v4-st{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;gap:9px;align-items:center;line-height:1.4}
+    .v4-st b{margin-left:auto;font-family:inherit;font-size:10.5px;letter-spacing:.03em;white-space:nowrap}
+  </style>
+  <script>
+  (function(){
+    var S = [
+      { L:'A', letter:'Atomicity', colour:'var(--viz-violet)',
+        t:'The process crashes after debiting A and before crediting B',
+        steps:[['UPDATE accounts SET bal = bal - 100 WHERE id = A', 'written', 'var(--viz-amber)'],
+               ['💥 process dies', '', 'var(--viz-red)'],
+               ['UPDATE accounts SET bal = bal + 100 WHERE id = B', 'never ran', 'var(--viz-red)'],
+               ['ROLLBACK on recovery', 'neither write is visible', 'var(--viz-green)']],
+        body:'<b>Atomicity</b> is all-or-nothing: every write in the transaction commits, or none of them becomes visible. Without it, $100 simply ceases to exist. Note that the debit really was written down — atomicity is not "the first write did not happen", it is "no one will ever see a state where only the first write happened".' },
+      { L:'I', letter:'Isolation', colour:'var(--viz-red)',
+        t:'Two workers sell the last unit of stock at the same moment',
+        steps:[['worker 1: SELECT stock → 1', '', 'var(--viz-muted)'],
+               ['worker 2: SELECT stock → 1', 'same read', 'var(--viz-amber)'],
+               ['worker 1: UPDATE stock = 0', 'commits', 'var(--viz-muted)'],
+               ['worker 2: UPDATE stock = 0', 'oversold by one', 'var(--viz-red)']],
+        body:'<b>Isolation</b> restricts which intermediate effects concurrent transactions may observe. Serializable isolation aims for an outcome equivalent to <em>some</em> serial order, which would have made worker 2 read 0. Weaker levels allow more concurrency and may permit non-repeatable reads, phantoms, or write skew depending on the database. ' +
+          'The judgment comes from the invariant, not from fear: a dashboard can tolerate a snapshot slightly behind current writes; allocating a unique quota or preventing a double spend cannot.' },
+      { L:'D', letter:'Durability',  colour:'var(--viz-green)',
+        t:'The machine loses power one second after COMMIT returned',
+        steps:[['COMMIT', 'server writes the WAL, then acknowledges', 'var(--viz-green)'],
+               ['⚡ power loss', '', 'var(--viz-red)'],
+               ['restart · replay the write-ahead log', 'the committed state is there', 'var(--viz-green)']],
+        body:'<b>Durability</b> means a successful commit survives process or machine failure, per the system’s documented contract — typically a write-ahead log plus replicated or persistent storage. ' +
+          'Its useful corollary is the one people miss: <b>a client timeout does not prove a rollback.</b> The server may have committed and lost the acknowledgement, so the caller genuinely cannot tell. That uncertainty is structural, and it is exactly why external requests still need <b>idempotency keys</b>.' },
+      { L:'C', letter:'Consistency', colour:'var(--viz-amber)',
+        t:'The application transfers $1,000 instead of $100 — and every constraint passes',
+        steps:[['balances stay non-negative', 'invariant holds', 'var(--viz-green)'],
+               ['foreign keys valid', 'invariant holds', 'var(--viz-green)'],
+               ['order id unique', 'invariant holds', 'var(--viz-green)'],
+               ['COMMIT', 'the wrong amount, committed perfectly', 'var(--viz-red)']],
+        body:'<b>Consistency</b> means a commit moves the database from one state satisfying its <em>declared invariants</em> to another. It is not magical business correctness. If the application logic is wrong but every constraint is satisfied, ACID faithfully commits the wrong decision — which is why the letter is doing less work than people assume, and why the invariants you actually declare are the ones that protect you.' },
+      { L:'⏱', letter:'Boundaries', colour:'var(--viz-accent)',
+        t:'A four-hour index rebuild, and a document that must never appear without its chunks',
+        steps:[['1 document row + 20 chunk rows + a counter', 'one short transaction ✓', 'var(--viz-green)'],
+               ['rebuild the whole index inside a transaction', 'impractical ✕', 'var(--viz-red)'],
+               ['build a versioned index · validate · swap the alias', 'the swap is the transaction', 'var(--viz-green)']],
+        body:'Transaction <b>boundaries</b> are a design decision, and broad is not better. Publishing a document with its chunks atomically is exactly right. A massive rebuild is not: build a versioned index separately, validate it, then atomically switch a small alias. ' +
+          '<b>ACID protects the cutover, not every byte of a long-running computation.</b> ' +
+          'The same reasoning forbids holding locks while calling an LLM or a remote API: do the external work outside, then open a short transaction to validate current state and commit deterministic writes — and keep irreversible side effects out of anything that might be retried.' }
+    ];
+    var list = document.getElementById('v4-list'), story = document.getElementById('v4-story');
+    function show(i){
+      var s = S[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      story.innerHTML = '<span class="v4-hd" style="color:' + s.colour + '">' + s.letter + ' — ' + s.t + '</span>' +
+        '<div class="v4-steps">' + s.steps.map(function(st){
+          return '<div class="v4-st"><span>' + st[0] + '</span>' + (st[1] ? '<b style="color:' + st[2] + '">' + st[1] + '</b>' : '') + '</div>';
+        }).join('') + '</div>' + s.body;
+    }
+    S.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v4-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-let" style="color:' + s.colour + '">' + s.L + '</span><span>' + s.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Two Shapes Of Work</h2>
+  <p class="vz-lede">Two queries, two storage layouts, four combinations — and two of them are absurd. Pick
+    a query and a layout and read the bytes. <b>Like a filing cabinet of complete forms versus a
+    spreadsheet column you can read straight down.</b></p>
+
+  <div class="v5-pick">
+    <div class="v5-col"><h5>the query</h5>
+      <button class="v5-b" id="v5-point" aria-pressed="true">GET /jobs/abc — one row by key, under 20 ms</button>
+      <button class="v5-b" id="v5-scan" aria-pressed="false">weekly success rate over 5 billion events</button>
+    </div>
+    <div class="v5-col"><h5>the storage</h5>
+      <button class="v5-b" id="v5-row" aria-pressed="true">row-oriented + B-tree</button>
+      <button class="v5-b" id="v5-colm" aria-pressed="false">columnar</button>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-cols" id="v5-cols"></div>
+    <div class="v5-read" id="v5-read"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Workload shape decides placement, not what the data is called. The same
+    <code>orders</code> domain can be normalised in an operational store and denormalised in a warehouse,
+    with a change pipeline keeping the copy fresh — and the derived copy may lag, so it must never become
+    the authority for transactional updates. Declare which system owns each fact and how the copies are
+    rebuilt.</p>
+
+  <style>
+    .v5-pick{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v5-col{flex:1 1 152px;display:flex;flex-direction:column;gap:5px}
+    .v5-col h5{margin:0 0 1px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-b{min-height:52px;border:1.5px solid var(--viz-line);background:var(--viz-surface);color:var(--viz-muted);
+      border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:7px 9px;text-align:left;line-height:1.35}
+    .v5-b[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-cols{display:flex;gap:3px;margin-bottom:12px}
+    .v5-c{flex:1;height:58px;border-radius:6px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      display:flex;align-items:flex-end;justify-content:center;padding-bottom:5px;font-size:8.5px;font-weight:800;
+      color:var(--viz-muted);writing-mode:vertical-rl;transform:rotate(180deg);letter-spacing:.02em}
+    .v5-c.is-read{border-color:var(--viz-accent);background:var(--viz-surface);color:var(--viz-accent)}
+    .v5-read{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:12px;border-top:1px dashed var(--viz-line)}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid}
+    .v5-why{margin-top:12px;font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var COLS = ['job_id','tenant','week','model_version','status','payload','created_at','updated_at','retries','cost','latency','trace'];
+    var NEEDED = { point: COLS.slice(), scan: ['week','model_version','status'] };
+    var q = 'point', store = 'row';
+    var B = { point:document.getElementById('v5-point'), scan:document.getElementById('v5-scan'),
+              row:document.getElementById('v5-row'), colm:document.getElementById('v5-colm') };
+    var colsB = document.getElementById('v5-cols'), readB = document.getElementById('v5-read'), whyB = document.getElementById('v5-why');
+
+    var TEXT = {
+      'point|row': ['✓ The right pairing — this is OLTP.',
+        'A primary-key B-tree seek finds the one row, and a row-oriented layout keeps all twelve of its columns physically together, so a single read returns the whole thing — and an update rewrites one contiguous row. That is what "many short, selective, concurrent, latency-sensitive, write-heavy" wants, and it is why operational schemas are normalised: facts stay authoritative and updates stay small.'],
+      'point|col': ['✕ Absurd in the other direction.',
+        'The row’s twelve values live in twelve separate column segments, so serving one job means touching all twelve and reassembling. Worse, warehouses are built for scans rather than for thousands of concurrent point reads with a 20 ms budget. It would return the right answer, slowly, and fall over under the concurrency.'],
+      'scan|row': ['✕ The classic waste.',
+        'The query needs three columns. A row store reads whole rows, so all twelve come off disk five billion times over — the nine you did not ask for are pure I/O. And the alternative is no better: five billion indexed point probes to serve one report is exactly the shape the phrase "absurd" was invented for.'],
+      'scan|col': ['✓ The right pairing — this is OLAP.',
+        'Columnar storage reads only the referenced columns — three of twelve — compresses repeated values well (a status column of five distinct strings compresses enormously), and vectorises the arithmetic. Few queries, each heavy, throughput-bound, almost all reads. Denormalised stars or nested tables then remove the repeated joins.']
+    };
+    function render(){
+      B.point.setAttribute('aria-pressed', q === 'point' ? 'true' : 'false');
+      B.scan.setAttribute('aria-pressed', q === 'scan' ? 'true' : 'false');
+      B.row.setAttribute('aria-pressed', store === 'row' ? 'true' : 'false');
+      B.colm.setAttribute('aria-pressed', store === 'col' ? 'true' : 'false');
+
+      var needed = NEEDED[q];
+      var read = store === 'col' ? needed : COLS;
+      colsB.innerHTML = COLS.map(function(c){
+        return '<div class="v5-c' + (read.indexOf(c) > -1 ? ' is-read' : '') + '">' + c + '</div>';
+      }).join('');
+
+      var rows = q === 'point' ? 1 : 5000000000;
+      var perCol = 8;
+      var bytes = rows * read.length * perCol;
+      var ideal = rows * needed.length * perCol;
+      var waste = bytes - ideal;
+      function fb(b){
+        if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB';
+        if (b >= 1e9) return (b / 1e9).toFixed(0) + ' GB';
+        if (b >= 1e6) return (b / 1e6).toFixed(0) + ' MB';
+        return b.toLocaleString() + ' B';
+      }
+      var t = TEXT[q + '|' + store];
+      var good = t[0].charAt(0) === '✓';
+      var c = good ? 'var(--viz-green)' : 'var(--viz-red)';
+      readB.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + read.length + ' of 12 columns touched</span>' +
+        '<span class="v5-pill" style="color:' + c + ';border-color:' + c + '">' + fb(bytes) + ' read</span>' +
+        (waste > 0 ? '<span class="v5-pill" style="color:var(--viz-red);border-color:var(--viz-red)">' + fb(waste) + ' of it wasted</span>' : '');
+      whyB.innerHTML = '<b style="color:' + c + '">' + t[0] + '</b>' + t[1] +
+        (q === 'scan' && store === 'row' ? '<br><br><b style="color:var(--viz-amber)">And the interference runs both ways.</b>' +
+          'A full-table dashboard scan on an OLTP primary evicts hot pages, burns CPU, holds a snapshot open and slows customer writes — while heavy point-update traffic fragments analytical files and defeats their compression. ' +
+          'Systems separate the two with replicas, exports, or storage-compute architectures rather than asking one engine to optimise contradictory access patterns.' : '');
+    }
+    B.point.addEventListener('click', function(){ q = 'point'; render(); });
+    B.scan.addEventListener('click', function(){ q = 'scan'; render(); });
+    B.row.addEventListener('click', function(){ store = 'row'; render(); });
+    B.colm.addEventListener('click', function(){ store = 'col'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

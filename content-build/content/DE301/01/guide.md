@@ -1,0 +1,55 @@
+**The big idea**: Every model you train and every retrieval system you operate is downstream of a pipeline, and prediction quality is capped by the correctness of the values that pipeline delivers. Your hybrid retriever already lives this: BM25 statistics, document embeddings and reranker inputs are all values some job computed from raw documents and interaction logs. **Feature pipelines** are the general form of that work — immutable raw events in, model inputs out. **Feature stores** are the storage pattern that lets *one* set of definitions serve two consumers with opposite access patterns: training jobs scanning months of history in bulk, and serving paths answering for one entity in milliseconds. The architecture exists to enforce one sentence: **two projections of one computation, never two computations.**
+
+**Key concepts**
+
+- **A raw event is an immutable, append-only record of a fact** — something happened, to some entity, at some time. `{"user_id":"u42","event":"click","doc_id":"d9","ts":"2026-07-01T08:14:03Z"}`. Events are never updated in place; a wrong click gets a *correction event* appended. **That immutability is what makes everything downstream recomputable** — any derived value can be rebuilt for any past point, as many times as you need.
+- **A feature is a named, typed, derived value describing an entity *as of* a point in time.** `user_ctr_7d(u42, as_of=2026-07-08) = 0.214`. Three parts carry equal weight: the **entity key**, the **value**, and the **as-of timestamp**. A feature without a timestamp is a latent bug — the same name takes different values on different days, and a consumer that cannot say which day it wants will eventually get the wrong one. Model inputs are then just a fixed-order vector of feature values for one entity at one as-of time: the design-matrix rows you already know.
+- **Five stages, each with a contract.** **Ingestion** lands events into durable partitioned storage keyed by arrival date. **Validation** checks schema and sanity ranges — required keys, parseable non-future timestamps, legal enumerations, plausible numerics. **Transformation** does stateless per-event cleaning: UTC normalisation, canonical categoricals, casts. **Aggregation** is where features are born — windowed reductions grouped by entity key. **Materialization** writes to the storage consumers read.
+- **Quarantine, do not drop.** Failing events go to a dead-letter table *with the reason attached*, and the **failure rate is monitored**. Quarantining beats silent dropping because you can inspect, fix and replay; it beats letting bad rows through because one malformed producer deploy otherwise poisons every aggregate computed after it.
+- **Aggregation is where the correctness risk lives.** Stages 1–3 are stateless and trivially re-runnable; stage 4 is stateful across events, window-dependent, and the place where every subtle bug in this course shows up.
+- **Worked example.** `user_ctr_7d` for u42 as of 2026-07-08 windows `2026-07-01 <= ts < 2026-07-08`: 14 impressions, 3 clicks → **0.214**. Run it as of 2026-07-09 and the window slides — two impressions fall out, one click enters → 4/12 ≈ **0.333**. Both rows are kept; history accumulates one row per entity per day.
+- **Idempotence: a run *owns* a deterministic output partition and overwrites it.** `feature=user_ctr_7d/as_of=2026-07-08` is rewritten byte-identically on a re-run. A pipeline that **appends** on each run doubles its counts on the first retry after a mid-job crash, and the corruption reaches every downstream consumer before anyone notices. Cheap to design in, brutal to retrofit.
+- **Event time versus processing time.** Event time is when the fact happened; processing time is when you observed it. Mobile clients batch uploads, queues back up, regions fail over — events arrive minutes to days late. **Window on processing time and a re-run assigns events to different windows than the original run**, so outputs are unstable by construction. The stable design windows on **event time**, waits out a declared **lateness horizon** (say 48 hours), then closes the window and treats the partition as immutable. Later arrivals go to a correction process or are consciously dropped; the closed partition never silently changes.
+- **Choose the slowest freshness the model measurably needs.** Batch recomputes on a schedule: simple, cheap, reproducible, freshness = the schedule. Streaming updates per event: fresh in seconds, and state management, out-of-order events and exactly-once accounting make it materially harder to trust. A weekly-retrained model scored nightly gains nothing from a streaming 30-day aggregate. Most teams run batch everywhere and move individual features to streaming only when staleness is *shown* to cost accuracy — a 10-minute transaction count in fraud detection is the canonical exception.
+- **Precompute versus compute-at-request follows the same logic.** Features derivable from the request payload alone (the query text your retriever tokenizes) are computed inline; features over history must be precomputed, because no request-time budget survives scanning 90 days of events.
+- **Two consumers want physically different layouts.** Training assembles a design matrix — millions of (entity, as-of) rows read as a bulk scan over months. Serving fetches the *latest* values of a handful of features for *one* entity inside a few milliseconds. Bulk scans want columnar, compressed, date-partitioned files where one feature column across a billion rows is sequential I/O. Point reads want a key-value engine with one entity's values under one key. **Layout is a commitment**, exactly as it was for BM25 postings versus bulk analytics.
+- **The offline store** is the columnar historical side — a warehouse table or Parquet on object storage, partitioned by as-of date, holding the **full history** with timestamps. Consumers: training-set assembly, backfills, analysis. Seconds-to-minutes latency is fine; storage and per-scan compute are the costs that matter.
+- **The online store** is the serving side — a key-value system mapping entity key to the **latest** values, often with a TTL. `GET features:u42` → `{"user_ctr_7d":0.214,"spend_30d":112.50,"updated_at":"…"}` in single-digit milliseconds at p99. **It holds no history**; it is a materialized cache of current truth per entity.
+- **One pipeline, two writes.** The same computation writes the full dated history offline and the latest values online. **The two stores are two projections of one computation, never two computations** — the moment training reads values from one code path and serving from another, the definitions drift and the model silently degrades.
+- **The registry is what makes that enforceable.** Each feature's definition as code plus metadata: name, entity type, source events, transformation, refresh schedule, TTL, owner. It also enables discovery and reuse across models and gives lineage and monitoring somewhere to attach.
+- **Worked numbers.** Training a click model on 90 days for 1M users scans ~90M offline rows in a minutes-long batch costing cents. At serving, one point read for u42 (~3 ms), assemble the vector in code, call the model — comfortably inside a 20 ms budget even with 40 features, **because all 40 live under one key**.
+- **TTL turns a missed run into model input.** Online values refreshed nightly usually carry a TTL near the refresh interval, so a missed run means reads come back empty and **the serving code's default policy becomes the feature value**. An unnoticed default of `0` for `spend_30d` looks like "brand-new customer" to the model. Decide defaults deliberately and monitor the **null-read rate** as a first-class alert.
+
+**Rules to remember**
+
+- Events are immutable and append-only. Corrections are new events.
+- A feature is (entity key, value, **as-of timestamp**). Drop the third and you have a bug waiting.
+- Quarantine bad events with a reason; monitor the rate.
+- A run owns its output partition and **overwrites** it. Never append on re-run.
+- Window on **event time**, declare a lateness horizon, then close the partition for good.
+- Pick the slowest freshness that measurably helps. Batch first, streaming by exception.
+- Offline = columnar history. Online = key-value latest. Both written by **one** pipeline.
+- Serving defaults are model inputs. Choose them deliberately and alert on empty reads.
+
+**Common pitfalls**
+
+- **Windowing on processing time.** It makes a re-run produce different numbers from the original run, which destroys reproducibility before any other bug gets a chance to.
+- **Appending instead of overwriting.** The first crash-and-retry silently doubles every count, and the damage is downstream by the time anyone looks.
+- **Storing a feature without an as-of timestamp.** It reads fine today and is unjoinable to labels tomorrow — and the next lesson is entirely about what that costs.
+- **Serving out of the warehouse.** Each request runs aggregation queries taking hundreds of milliseconds to seconds. The latency budget dies immediately.
+- **Training from the online store.** Only *latest* values exist there, so you join today's features to last month's labels — a temporal mismatch with a name and a whole lesson attached.
+- **Two implementations of one feature.** One in the training SQL, one in the serving service. They agree the day they are written and never again.
+- **Defaulting a missing online value to zero.** Zero is a legitimate value for most features, so the model cannot tell "no data" from "no spend".
+- **Reaching for streaming by default.** It buys freshness nobody measured against real accuracy, and it costs exactly-once accounting, out-of-order handling and state management forever.
+- **Adopting a feature store because it is the pattern.** If all scoring is a nightly batch, there is no online read path and the machinery adds nothing.
+
+**How to approach the questions**
+
+1. For any feature question, check that all three parts are present — entity, value, as-of. A missing timestamp is usually the defect being tested.
+2. When a scenario describes numbers changing on a re-run, look for processing-time windowing or an append-instead-of-overwrite job.
+3. For offline-versus-online, decide from the **access pattern**, not the data: bulk scan over history, or point read of latest.
+4. Any option with two separate implementations of one feature definition is wrong, however reasonable the rest sounds.
+5. For freshness questions, ask what the model actually consumes. Streaming is the right answer only when staleness has a measured accuracy cost.
+6. Watch for defaults and TTLs — a question about a missed pipeline run is usually really about what the serving path substituted.
+
+**Where this leads**: this lesson kept deferring one thing — the as-of timestamp is not decoration, it is the join key that makes training data honest. The next lesson, **Temporal Correctness**, is point-in-time joins, label leakage (learning from the future), and training-serving skew: the three ways a pipeline that looks correct produces a model that cannot possibly work in production.

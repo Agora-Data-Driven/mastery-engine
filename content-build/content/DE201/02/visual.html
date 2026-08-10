@@ -1,0 +1,488 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two Layers Of Shrink</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Cardinality Cliff</button>
+  <button class="viz-tab" data-viz-tab="3">3. Sorted Pays Twice</button>
+  <button class="viz-tab" data-viz-tab="4">4. Where The Bottleneck Is</button>
+  <button class="viz-tab" data-viz-tab="5">5. Postings, Renamed</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two Layers Of Shrink</h2>
+  <p class="vz-lede"><b>Row vs Columnar Layout</b> bought you the right to read fewer columns. Now watch a
+    single column shrink twice: an <em>encoding</em> that knows what the values are, then a <em>codec</em>
+    that only sees bytes. Step through it. <b>Like packing: fold the clothes first, then vacuum-seal the
+    bag.</b></p>
+
+  <div class="v1-steps" id="v1-steps"></div>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v1-bytes"></div>
+    <div class="v1-bar" id="v1-bar"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Order matters and so does the division of labour. <b>Encodings do the intelligent
+    work</b> — they are type-aware and reversible and they exploit what the values <em>are</em>. The codec
+    is general-purpose and sees only bytes, so it mops up residual redundancy in whatever it is handed.</p>
+
+  <style>
+    .v1-steps{display:flex;gap:5px;margin-bottom:12px}
+    .v1-s{flex:1;min-height:56px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:800;font-size:11.5px;padding:6px 4px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;line-height:1.25}
+    .v1-s small{font-weight:700;font-size:9px;opacity:.8}
+    .v1-s[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+    .v1-bar{margin:13px 0}
+    .v1-track{height:18px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%;background:var(--viz-accent);transition:width .15s linear}
+    .v1-size{display:flex;justify-content:space-between;font-size:11.5px;font-weight:700;margin-top:6px}
+    .v1-size b{font-family:ui-monospace,Consolas,monospace;font-size:13px;color:var(--viz-accent)}
+    .v1-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { nm:'raw', sub:'plain', bytes:8000000,
+        code: 'status column · 1,000,000 rows · 8-byte strings\n\n"ok"  "ok"  "ok"  "error"  "ok"  "warn"  "ok"  "ok" …\n\n8 bytes per value × 1,000,000 = 8,000,000 bytes',
+        why:['Every value written out in full, one per row.',
+          'This is what a row-oriented file gives you and what a naive columnar writer would too. Nothing about the data has been exploited yet — the same four words are written a million times.'] },
+      { nm:'dictionary', sub:'encoding', bytes:250032,
+        code: 'DICTIONARY PAGE   0→"ok"  1→"error"  2→"warn"  3→"skip"     (32 bytes)\n\nDATA PAGE (bit-packed indexes, ceil(log2 4) = 2 bits each)\n  00 00 00 01 00 10 00 00 …\n\n2 bits × 1,000,000 = 250,000 bytes + 32-byte dictionary',
+        why:['Distinct values stored once; the rows become tiny integers.',
+          'A column with <b>k</b> distinct values needs <code>ceil(log2 k)</code> bits per row — here 2 bits for 4 values. The dictionary is written once in its own page and the data pages hold only indexes into it. ' +
+          '<br><br>Scale it up: a <code>country</code> column with 200 distinct names needs 8 bits per value where the raw strings at ~10 bytes cost 80 bits. <b>10× before the codec touches anything.</b>'] },
+      { nm:'RLE', sub:'encoding', bytes:48,
+        code: 'The hybrid runs over the INDEXES, not the strings:\n\n  (index 0) × 600,000\n  (index 1) × 400,000\n\nRLE/bit-packing hybrid: long runs → run-length,\nstretches without runs → bit-packed literals.\n\n≈ 48 bytes',
+        why:['Consecutive repetition collapses to (value, count) pairs.',
+          'Parquet’s workhorse is a <b>hybrid</b>: long runs are run-length encoded and stretches without runs fall back to bit-packed literals. Crucially it is applied to the <b>dictionary indexes themselves</b> — and to the definition and repetition levels that track nulls and nesting.' +
+          '<br><br>That is why a low-cardinality column which is <em>also sorted</em> gets both wins multiplied: tiny indexes, and long runs of the same index collapsing to almost nothing. 8 MB to a few dozen bytes — five orders of magnitude, purely from structure.'] },
+      { nm:'codec', sub:'Zstd', bytes:44,
+        code: 'The codec sees only bytes. It does not know these\nare indexes, or that the column had 4 distinct values.\n\n≈ 44 bytes  (a few percent)',
+        why:['Barely anything left to find — and that is the useful lesson.',
+          'Codecs compress <b>encoded</b> pages, so their measured ratio depends entirely on what the encoding left behind. This column is already near its entropy floor, so Zstd level 19 would beat Snappy by a rounding error while costing many times the CPU.' +
+          '<br><br><b>If a benchmark shows a heavy codec barely beating a light one, the encoding already did the work.</b> Do not pay level-19 CPU for it.'] }
+    ];
+    var cur = 0;
+    var steps = document.getElementById('v1-steps'), code = document.getElementById('v1-bytes');
+    var bar = document.getElementById('v1-bar'), why = document.getElementById('v1-why');
+    function fmt(b){
+      if (b >= 1e6) return (b / 1e6).toFixed(2) + ' MB';
+      if (b >= 1e3) return (b / 1e3).toFixed(1) + ' KB';
+      return b + ' B';
+    }
+    function show(i){
+      cur = i;
+      var s = STAGES[i];
+      [].slice.call(steps.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      code.innerHTML = s.code;
+      var pct = Math.max(0.6, s.bytes / STAGES[0].bytes * 100);
+      bar.innerHTML = '<div class="v1-track"><i style="width:' + pct + '%"></i></div>' +
+        '<div class="v1-size"><span>' + s.nm + '</span><b>' + fmt(s.bytes) + '</b></div>';
+      why.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1] +
+        (i > 0 ? '<br><br><span style="color:var(--viz-muted)">' + Math.round(STAGES[0].bytes / s.bytes) + '× smaller than raw.</span>' : '');
+    }
+    STAGES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v1-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = s.nm + '<small>' + s.sub + '</small>';
+      b.addEventListener('click', function(){ show(i); });
+      steps.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Cardinality Cliff</h2>
+  <p class="vz-lede">Dictionary encoding is not a setting that always helps — it has a cliff, and the writer
+    walks off it silently, mid-chunk. Drag the number of distinct values. <b>Like a phrasebook: brilliant
+    for 200 phrases, useless when every sentence is new.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-k">Distinct values in this 1,000,000-row chunk:
+      <span id="v2-kl">4</span></label>
+    <input type="range" id="v2-k" min="1" max="24" value="2" step="1" aria-label="Distinct values, as a power of two">
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v2-h">Nulls: honest, or a sentinel?</h4>
+    <div class="v2-null" id="v2-null"></div>
+  </div>
+  <p class="vz-note">For sorted numerics there is a third encoding worth knowing:
+    <code>DELTA_BINARY_PACKED</code> stores successive <em>differences</em> instead of absolute values,
+    which shrinks magnitudes dramatically on timestamps and auto-incrementing ids. Visual 5 is about why
+    that will look extremely familiar.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%}
+    .v2-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-h{margin:0 0 9px;font-size:13px}
+    .v2-null{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var ROWS = 1000000, RAW_BYTES = 8, DICT_CAP = 1048576;
+    var s = document.getElementById('v2-k'), kl = document.getElementById('v2-kl');
+    var bars = document.getElementById('v2-bars'), why = document.getElementById('v2-why');
+
+    function fmt(b){
+      if (b >= 1e6) return (b / 1e6).toFixed(2) + ' MB';
+      if (b >= 1e3) return (b / 1e3).toFixed(0) + ' KB';
+      return Math.round(b) + ' B';
+    }
+    function render(){
+      var pow = Number(s.value), k = Math.pow(2, pow);
+      kl.textContent = k.toLocaleString();
+      var bits = Math.max(1, Math.ceil(Math.log2(k)));
+      var dictBytes = k * RAW_BYTES;
+      var overflow = dictBytes > DICT_CAP;
+      var raw = ROWS * RAW_BYTES;
+      var encoded = overflow ? raw : (ROWS * bits / 8) + dictBytes;
+      var max = raw;
+
+      function bar(t, v, c, sub){
+        return '<div class="v2-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + fmt(v) + '</b></h6>' +
+          '<div class="v2-track"><i style="width:' + Math.max(1, Math.round(v / max * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('plain encoding', raw, 'var(--viz-muted)', '1,000,000 × 8 bytes.') +
+        bar(overflow ? 'dictionary — FELL BACK to plain' : 'dictionary encoded', encoded,
+          overflow ? 'var(--viz-red)' : 'var(--viz-green)',
+          overflow ? 'The dictionary would need ' + fmt(dictBytes) + ', over the ~1 MB page cap.'
+                   : bits + ' bit' + (bits === 1 ? '' : 's') + ' per value (ceil(log2 ' + k.toLocaleString() + ')) + a ' + fmt(dictBytes) + ' dictionary.');
+
+      why.innerHTML = overflow
+        ? '<b style="color:var(--viz-red)">Over the cliff: the writer falls back to plain encoding, mid-chunk.</b>' +
+          'Parquet writers cap the dictionary page at around 1 MB. When a chunk’s dictionary overflows that cap the writer abandons it <em>partway through the chunk</em> and writes the rest plainly — silently, with no error and nothing in the schema to say so. ' +
+          '<br><br>A UUID or free-text column therefore gains nothing from dictionary encoding and <b>bloats files that expected a win</b>. ' +
+          'This is worth keeping in your pocket for a specific incident shape: <b>a sudden jump in file size after a schema change is very often exactly this fallback triggering</b>, and the row count will not have moved at all.'
+        : '<b style="color:var(--viz-green)">' + Math.round(raw / encoded) + '× smaller, at ' + bits + ' bit' + (bits === 1 ? '' : 's') + ' per value.</b>' +
+          'The cost per row is <code>ceil(log2 k)</code> bits, so it grows only <em>logarithmically</em> with cardinality — doubling the distinct values adds one bit per row, not double the bytes. That is why dictionary encoding stays useful much further up the range than intuition suggests. ' +
+          '<br><br>What ends it is not the per-row cost but <b>the dictionary itself</b>: it has to fit in a page. Drag right and watch exactly where that happens.';
+    }
+    s.addEventListener('input', render);
+    render();
+
+    document.getElementById('v2-null').innerHTML =
+      'Parquet represents nulls through <b>definition levels</b> rather than sentinel values, and those levels are themselves RLE/bit-packed — so a nullable low-cardinality column compresses nearly as well as a required one. ' +
+      '<br><br>Encode "missing" as <code>\'\'</code> or <code>0</code> instead and it becomes an ordinary, very frequent entry in the dictionary: it consumes a dictionary slot, it inflates the run structure, and it <b>blurs the line between absent and zero in the data itself</b>, permanently. ' +
+      '<b style="color:var(--viz-green)">Honest nulls keep the semantics and the compression profile clean at the same time</b> — one of the rare cases where the correct modelling choice is also the cheaper one.';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Sorted Pays Twice</h2>
+  <p class="vz-lede">You sorted at write time to make min/max pruning work. Here is the second dividend from
+    the same decision, on the same data. Toggle the order. <b>Like tidying a bookshelf: it makes finding a
+    book fast <em>and</em> it makes the shelf take less space.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Write order">
+    <button id="v3-sort" aria-pressed="true">sorted by status</button>
+    <button id="v3-shuf" aria-pressed="false">arrival order</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-strip" id="v3-strip"></div>
+    <div class="v3-enc vz-mono" id="v3-enc"></div>
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two separate mechanisms, one write-time decision. Sorting narrows every row group's
+    <b>min/max</b> so predicate pushdown can skip whole groups from the footer alone — and it lengthens the
+    <b>runs</b> so RLE collapses the indexes to almost nothing. Neither is a query-side tuning knob.</p>
+
+  <style>
+    .v3-strip{display:flex;gap:1px;height:26px;border-radius:5px;overflow:hidden;margin-bottom:11px}
+    .v3-c{flex:1}
+    .v3-enc{margin-bottom:12px}
+    .v3-stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var VALS = ['ok', 'error', 'warn', 'skip'];
+    var COLOURS = ['var(--viz-green)', 'var(--viz-red)', 'var(--viz-amber)', 'var(--viz-violet)'];
+    var MIX = [];
+    for (var i = 0; i < 60; i++) MIX.push(i < 34 ? 0 : (i < 46 ? 1 : (i < 55 ? 2 : 3)));
+    var SHUF = MIX.slice();
+    // a fixed interleave, so the panel is deterministic
+    SHUF.sort(function(a, b){ return ((a * 7 + 3) % 11) - ((b * 7 + 3) % 11); });
+    var mixIdx = MIX.map(function(v, i){ return [v, (i * 17) % 60]; }).sort(function(a, b){ return a[1] - b[1]; }).map(function(p){ return p[0]; });
+
+    var sorted = true;
+    var bS = document.getElementById('v3-sort'), bR = document.getElementById('v3-shuf');
+    var strip = document.getElementById('v3-strip'), enc = document.getElementById('v3-enc');
+    var stats = document.getElementById('v3-stats'), why = document.getElementById('v3-why');
+
+    function render(){
+      bS.setAttribute('aria-pressed', sorted ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', sorted ? 'false' : 'true');
+      var seq = sorted ? MIX : mixIdx;
+      strip.innerHTML = seq.map(function(v){ return '<div class="v3-c" style="background:' + COLOURS[v] + '"></div>'; }).join('');
+
+      var runs = [], last = -1;
+      seq.forEach(function(v){
+        if (v === last) runs[runs.length - 1][1] += 1;
+        else { runs.push([v, 1]); last = v; }
+      });
+      var scale = 1000000 / seq.length;
+      var rleBytes = runs.length * 4;
+      var packedBytes = Math.round(1000000 * 2 / 8);
+      var chosen = sorted ? rleBytes : packedBytes;
+
+      enc.innerHTML = 'dictionary indexes, scaled to 1,000,000 rows:\n\n' +
+        runs.slice(0, 6).map(function(r){ return '  (index ' + r[0] + ') × ' + Math.round(r[1] * scale).toLocaleString(); }).join('\n') +
+        (runs.length > 6 ? '\n  … ' + (runs.length - 6) + ' more runs' : '');
+
+      stats.innerHTML =
+        '<span class="v3-pill" style="color:' + (sorted ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (sorted ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + runs.length + ' runs</span>' +
+        '<span class="v3-pill" style="color:' + (sorted ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (sorted ? 'var(--viz-green)' : 'var(--viz-red)') + '">≈ ' + (chosen >= 1000 ? (chosen / 1000).toFixed(0) + ' KB' : chosen + ' B') + ' encoded</span>' +
+        '<span class="v3-pill" style="color:' + (sorted ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (sorted ? 'var(--viz-green)' : 'var(--viz-red)') + '">min/max prunes ' + (sorted ? 'well' : 'nothing') + '</span>';
+
+      why.innerHTML = sorted
+        ? '<b style="color:var(--viz-green)">Four runs. RLE represents a million rows in a few dozen bytes.</b>' +
+          'The hybrid encoder sees long stretches of one index and emits <code>(value, count)</code> pairs instead of a million entries. And because each row group now covers a narrow slice of the sort key, its min/max is narrow too — ' +
+          'so the <b>same decision</b> that shrank the file also lets predicate pushdown skip whole groups without reading a data byte. ' +
+          '<br><br>That is the point worth carrying: sort order is not a compression setting or a pruning setting. It is one physical-layout decision that both mechanisms feed on.'
+        : '<b style="color:var(--viz-red)">' + runs.length + ' runs. RLE has nothing to collapse, so the encoder falls back to bit-packed literals.</b>' +
+          'The values are interleaved, so almost every position differs from the one before it and the run-length half of the hybrid never fires. You still get the dictionary win — 2 bits per value instead of 8 bytes — but the ' +
+          'thousand-fold saving is gone, and it is roughly ' + Math.round(packedBytes / rleBytes) + '× larger than the sorted version. ' +
+          '<br><br>The same shuffle also widens every row group’s min/max to span the whole domain, so <b>nothing prunes either</b>. One missing decision, two costs.';
+    }
+    bS.addEventListener('click', function(){ sorted = true; render(); });
+    bR.addEventListener('click', function(){ sorted = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Where The Bottleneck Is</h2>
+  <p class="vz-lede">Heavier compression is not better or worse — it is a trade of CPU for bytes, and which
+    side wins depends entirely on what is currently the slow part. Move the storage and watch the answer
+    flip. <b>Like posting a parcel: worth repacking it smaller if postage is expensive, not if you are
+    walking it next door.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Where the data lives">
+    <button id="v4-obj" aria-pressed="true">object storage · 200 MB/s</button>
+    <button id="v4-nvme" aria-pressed="false">local NVMe · 3 GB/s</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">The asymmetry that settles most of it</h4>
+    <div class="v4-asym" id="v4-asym"></div>
+  </div>
+  <p class="vz-note">And choose <b>per temperature</b>, not once for the estate: hot, interactively queried
+    tables want Snappy or low-level Zstd; cold archival partitions tolerate high Zstd levels where a
+    one-time compression cost amortises over years of storage. Parquet even permits a codec <b>per
+    column</b>, which matters when one bulky text column sits beside a dozen numeric ones.</p>
+
+  <style>
+    .v4-rows{display:flex;flex-direction:column;gap:9px}
+    .v4-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+    .v4-r.is-win{border-color:var(--viz-green)}
+    .v4-hd{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;font-weight:700;margin-bottom:7px}
+    .v4-hd b{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+    .v4-split{display:flex;height:16px;border-radius:5px;overflow:hidden;background:var(--viz-line)}
+    .v4-split i{display:block;height:100%}
+    .v4-leg{display:flex;gap:12px;margin-top:6px;font-size:10.5px;font-weight:700;flex-wrap:wrap}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-asym{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var ENCODED_GB = 10;
+    var CODECS = [
+      { n:'Uncompressed', ratio:1.0, dec:99999 },
+      { n:'Snappy',       ratio:2.0, dec:2000 },
+      { n:'Zstd level 3', ratio:2.5, dec:800 },
+      { n:'Zstd level 19',ratio:3.0, dec:700 },
+      { n:'Gzip',         ratio:2.6, dec:180 }
+    ];
+    var obj = true;
+    var bO = document.getElementById('v4-obj'), bN = document.getElementById('v4-nvme');
+    var rows = document.getElementById('v4-rows'), why = document.getElementById('v4-why');
+
+    function render(){
+      bO.setAttribute('aria-pressed', obj ? 'true' : 'false');
+      bN.setAttribute('aria-pressed', obj ? 'false' : 'true');
+      var bw = obj ? 200 : 3000;   // MB/s
+      var results = CODECS.map(function(c){
+        var gb = ENCODED_GB / c.ratio;
+        var io = gb * 1024 / bw;                 // seconds
+        var cpu = gb * 1024 / c.dec;             // seconds
+        var total = Math.max(io, cpu);           // overlapped
+        return { c:c, gb:gb, io:io, cpu:cpu, total:total };
+      });
+      var best = results.reduce(function(a, b){ return b.total < a.total ? b : a; });
+
+      rows.innerHTML = results.map(function(r){
+        var ioPct = Math.round(r.io / (r.io + r.cpu) * 100);
+        return '<div class="v4-r' + (r === best ? ' is-win' : '') + '">' +
+          '<div class="v4-hd"><span>' + r.c.n + ' &nbsp;<span style="color:var(--viz-muted);font-weight:400">' + r.c.ratio.toFixed(1) + '× · ' + r.gb.toFixed(1) + ' GB shipped</span></span>' +
+          '<b style="color:' + (r === best ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' + r.total.toFixed(1) + ' s</b></div>' +
+          '<div class="v4-split"><i style="width:' + ioPct + '%;background:var(--viz-violet)"></i>' +
+          '<i style="width:' + (100 - ioPct) + '%;background:var(--viz-amber)"></i></div>' +
+          '<div class="v4-leg"><span style="color:var(--viz-violet)">I/O ' + r.io.toFixed(1) + ' s</span>' +
+          '<span style="color:var(--viz-amber)">decompress ' + r.cpu.toFixed(1) + ' s</span></div></div>';
+      }).join('');
+
+      why.innerHTML = obj
+        ? '<b style="color:var(--viz-green)">I/O-bound: buy bytes with CPU.</b>' +
+          'At 200 MB/s the network dominates, so shipping fewer bytes wins even when decompression costs more. Zstd level 3 ships 4 GB in about 20 s while Snappy ships 5 GB in 25 s — and because a core decompresses Zstd output fast enough to overlap the transfer, ' +
+          'the heavier codec is a <b>straight win</b> rather than a trade. ' +
+          '<br><br>Note where Gzip lands: a similar ratio to Zstd and far slower to decompress, so it is beaten on both axes at once. That is the whole reason it survives only for legacy compatibility and cold data.'
+        : '<b style="color:var(--viz-red)">CPU-bound: the lighter codec wins.</b>' +
+          'At 3 GB/s the bytes arrive faster than any codec can unpack them, so <b>decompression is now the critical path</b> and every extra point of ratio makes the scan slower. Snappy and LZ4 exist for exactly this regime. ' +
+          '<br><br>This is why "turn the compression level up" is not a general remedy for a slow scan. <b>Find the bottleneck first</b> — the same file, the same query and the same codec give opposite answers on the two storage tiers above.';
+    }
+    bO.addEventListener('click', function(){ obj = true; render(); });
+    bN.addEventListener('click', function(){ obj = false; render(); });
+    render();
+
+    document.getElementById('v4-asym').innerHTML =
+      'Analytical data is <b>write-once, read-many</b>. A file is compressed once and may be decompressed thousands of times, so <b>decompression speed matters far more than compression speed</b> — ' +
+      'which is exactly why Zstd, fast to decompress even at high levels, dominates Gzip, slow in both directions at a similar ratio. ' +
+      '<br><br>Any option that optimises <em>compression</em> speed for analytical data is nearly always the wrong one; the cost you are choosing lands on every future read, not on the load job.';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Postings, Renamed</h2>
+  <p class="vz-lede">You already compress sorted integers for a living. Put the inverted index beside the
+    Parquet column and the transform is identical — only the vocabulary differs. Tap a row.
+    <b>Like discovering two trades use the same tool under two different names.</b></p>
+
+  <div class="v5-map" id="v5-map"></div>
+
+  <div class="vz-card">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v5-h">Where they genuinely differ: access pattern</h4>
+    <div class="v5-diff" id="v5-diff"></div>
+  </div>
+  <p class="vz-note">Carry the bridge forward. When a later lesson shows many small files merged into large
+    ones, you will recognise LSM-style segment merging from the search side. The storage layer of a search
+    engine and the storage layer of a data lake are the same discipline wearing different clothes.</p>
+
+  <style>
+    .v5-map{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v5-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-a{flex:1 1 0;min-width:0}
+    .v5-eq{flex:0 0 auto;color:var(--viz-muted);font-weight:800}
+    .v5-b{flex:1 1 0;min-width:0;color:var(--viz-violet)}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;
+      border-left:3px solid var(--viz-accent);padding-left:11px;margin:10px 0;white-space:pre-wrap}
+    .v5-h{margin:0 0 9px;font-size:13px}
+    .v5-diff{display:flex;flex-direction:column;gap:9px}
+    .v5-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v5-d b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { a:'gap (delta) encoding of doc IDs', b:'DELTA_BINARY_PACKED on a sorted column',
+        why:['Literally the same transform.',
+          'Postings are doc IDs in sorted ascending order, turned into differences between consecutive IDs — small positive integers — then stored in few bits by variable-byte coding or bit-packing.',
+          'postings   [1000, 1003, 1007, 1012]\n     gaps  →  [1000,    3,    4,    5]\n              after the first, 3 bits each instead of 32\n\nParquet    event_ts sorted ascending\n     delta →  the same small residuals, bit-packed'] },
+      { a:'term dictionary → term IDs', b:'dictionary page → bit-packed indexes',
+        why:['Map unbounded values into a dense integer space, then spend few bits.',
+          'A search engine replaces terms with dense integer term IDs so postings and skip structures work on fixed-width numbers. Parquet replaces column values with dense integer dictionary indexes for exactly the same reason — and both then bit-pack those integers to <code>ceil(log2 k)</code> bits.'] },
+      { a:'dense postings for a frequent term', b:'low-cardinality column',
+        why:['Same distribution insight, exactly.',
+          'A frequent term’s postings are <b>dense</b> in doc-ID space, so its gaps are small and it costs few bits per document. A rare term’s postings are sparse, the gaps are large, and each entry costs more.' +
+          '<br><br>The tabular analogue is precise: a <b>low-cardinality column</b> (values recur constantly, like a dense postings list) compresses to almost nothing, while a <b>high-cardinality column</b> (every value distinct, like maximally sparse postings) resists every trick in this lesson. ' +
+          'That is the cardinality cliff from visual 2, arriving from the other direction.'] },
+      { a:'sorted doc IDs are the precondition', b:'write-time sort is the precondition',
+        why:['Sortedness is the common fuel.',
+          'Postings compress <em>because</em> doc IDs are sorted — unsorted IDs have large, random gaps and the whole scheme collapses. Parquet columns compress and prune because <em>you</em> sorted them at write time. ' +
+          '<br><br>When you sorted a table by <code>event_ts</code> and both the min/max pruning and the file size improved, you were re-running the postings playbook on tabular data. One principle underneath both: ' +
+          '<b>apply a cheap, reversible transform that exposes the data’s low entropy, then spend only as many bits as the transformed values need.</b>'] }
+    ];
+    var map = document.getElementById('v5-map'), why = document.getElementById('v5-why');
+    function show(i){
+      [].slice.call(map.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      var r = ROWS[i];
+      why.innerHTML = '<b>' + r.why[0] + '</b>' + r.why[1] + (r.why[2] ? '<div class="v5-code">' + r.why[2] + '</div>' : '');
+    }
+    ROWS.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.className = 'v5-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-a">' + r.a + '</span><span class="v5-eq">≡</span><span class="v5-b">' + r.b + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      map.appendChild(b);
+    });
+    show(0);
+
+    document.getElementById('v5-diff').innerHTML = [
+      ['A search engine decodes during scoring', 'BM25 traversal walks a postings list sequentially, intersecting and skipping via skip pointers, so every nanosecond of decode latency sits directly on the query’s critical path. Postings formats therefore favour schemes that decode at RAM speed <b>and support jumping into the middle of a list</b>.'],
+      ['A Parquet reader decodes a whole page', 'It decompresses a page at a time into a vectorized batch and hands it to the engine. Random access <em>within</em> a page is not a goal, and the per-page decompression cost amortises over thousands of values.'],
+      ['And they converge anyway', 'Because decoding sits on the read path in both, both ecosystems favour light, fast codecs over maximum-ratio ones for anything queried frequently. <b>An index that decompresses slowly is a slow search engine; a lake that decompresses slowly is an expensive warehouse.</b>']
+    ].map(function(d){ return '<div class="v5-d"><b>' + d[0] + '</b>' + d[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+</body>
+</html>

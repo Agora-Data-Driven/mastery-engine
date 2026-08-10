@@ -736,8 +736,28 @@ model reading top-to-bottom must meet the override *after* the permission it ove
 [`lib/_deep_test.js`](lib/_deep_test.js) asserts both the wording and the ordering — moving the
 block earlier in the prompt passes `node --check` and silently breaks this.
 
-Three more properties, each the same rule the growth journal and the task board already carry:
+Four more properties, each the same rule the growth journal and the task board already carry:
 
+0. 🔴 **It matches the section against the SHELF (`engineCatalog`), which SPANS PROGRAMS — never
+   against `requestScope`.** Fixed 2026-08-10; it shipped the other way and was the `cardScope` bug
+   above, one level up. The assistant's POST carries no `program`, so `requestScope` falls back to
+   the learner's **first enrolled program** while the screen behind it is `/api/catalog`'s
+   cross-program shelf. On the live shelf that was **285 of 808 topics** (the whole DE/IR
+   curriculum, in `ai_engineering`, behind a `data_science` fallback): every deep turn on that half
+   matched zero rows and answered *"deep mode couldn't load anything"* with the bank sitting right
+   there. All three sources failed together — rows, questions and the guide's cache key.
+   Consequences, all load-bearing:
+   - **The program is read off the MATCHED ROWS, per topic** (`programByTopic`), not off the
+     request. A `topics` scope can straddle programs, and a topic NAME is not unique across them —
+     which is the collision `filterQuestions` exists for. So the bank is read unscoped and each
+     question is kept only if its own program equals its row's.
+   - **A PINNED session wins** (`pinnedProgram`): Sentinel's Philosophical/Spiritual tabs are one
+     program for the whole session, and that program may not be on the shelf at all. The program
+     scope also remains the fallback for anyone with no shelf built yet.
+   - `engineCatalog()` is now the one place that builds "the learner's actual engine" — `/api/catalog`
+     calls it too. Anything else grounding on *what is on screen* must call it, not `getCatalog(email,
+     requestScope(req))`. (`learnerCatalog` deliberately does not: it also needs the rows that fell
+     OUT of the engine, to report parked sections.)
 1. **Scope comes from the SCREEN, most specific first** (`deepScopeFrom`): an open visual guide or
    flashcard pins the section harder than the setup dropdowns, which can still read "Review All"
    while a lesson's guide fills the screen. This is why `assistantContext()` now sends `scope` on

@@ -1,0 +1,470 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Bytes You Pay For</button>
+  <button class="viz-tab" data-viz-tab="2">2. Inside A Parquet File</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Row Group Dial</button>
+  <button class="viz-tab" data-viz-tab="4">4. Proving Absence</button>
+  <button class="viz-tab" data-viz-tab="5">5. Sorted Or Shuffled</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Bytes You Pay For</h2>
+  <p class="vz-lede"><b>OLTP vs OLAP Workloads</b> said the two shapes of work want different storage. Here
+    is the inside of that claim: storage hands you contiguous byte ranges and you pay for every byte,
+    used or not. Drag the columns a query touches. <b>Like a newspaper: reading one column down every page
+    versus reading one whole page.</b></p>
+
+  <div class="v1-grids">
+    <div class="v1-g"><h5>row-oriented</h5><div class="v1-cells" id="v1-row"></div></div>
+    <div class="v1-g"><h5>columnar</h5><div class="v1-cells" id="v1-col"></div></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Query touches <span id="v1-nl">2</span> of 50 columns
+      &nbsp;·&nbsp; 100,000,000 rows &nbsp;·&nbsp; 20 GB</label>
+    <input type="range" id="v1-n" min="1" max="50" value="2" step="1" aria-label="Columns the query touches">
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Columnar also enables <b>vectorized execution</b>: the engine processes a column as a
+    dense array of one type — cache-friendly and SIMD-friendly — instead of interpreting one heterogeneous
+    record at a time. That is a second, independent win on top of the bytes.</p>
+
+  <style>
+    .v1-grids{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-g{flex:1 1 148px}
+    .v1-g h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-cells{display:grid;grid-template-columns:repeat(8, 1fr);gap:2px;border:1.5px solid var(--viz-line);
+      border-radius:8px;padding:5px;background:var(--viz-bg)}
+    .v1-cell{height:9px;border-radius:1.5px;background:var(--viz-line)}
+    .v1-cell.is-read{background:var(--viz-red)}
+    .v1-cell.is-want{background:var(--viz-green)}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var COLS = 8, ROWS = 6;   // the little grid is 8 columns wide for legibility
+    var s = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var rowG = document.getElementById('v1-row'), colG = document.getElementById('v1-col');
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+
+    function render(){
+      var n = Number(s.value);
+      nl.textContent = n;
+      var wanted = Math.max(1, Math.round(n / 50 * COLS));
+
+      var rh = '', ch = '';
+      for (var r = 0; r < ROWS; r++) {
+        for (var c = 0; c < COLS; c++) {
+          var want = c < wanted;
+          rh += '<div class="v1-cell ' + (want ? 'is-want' : 'is-read') + '"></div>';
+          ch += '<div class="v1-cell ' + (want ? 'is-want' : '') + '"></div>';
+        }
+      }
+      rowG.innerHTML = rh; colG.innerHTML = ch;
+
+      var rowGB = 20, colGB = Math.round(20 * (n / 50) * 100) / 100;
+      function bar(t, v, c, sub){
+        return '<div class="v1-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + v.toFixed(2) + ' GB read</b></h6>' +
+          '<div class="v1-track"><i style="width:' + Math.max(1, Math.round(v / 20 * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+      }
+      var ratio = Math.round(rowGB / Math.max(colGB, 0.01) * 10) / 10;
+      bars.innerHTML =
+        bar('row-oriented scan', rowGB, 'var(--viz-red)', 'Every row’s 200 bytes are contiguous, so reading 2 fields drags all 50 through the I/O path.') +
+        bar('columnar scan', colGB, 'var(--viz-green)', n + ' column' + (n === 1 ? '' : 's') + ' × ~400 MB. Only these bytes are ever requested.');
+
+      why.innerHTML = n >= 45
+        ? '<b style="color:var(--viz-amber)">Touch nearly every column and columnar saves nothing.</b>' +
+          'The advantage is roughly proportional to the fraction of columns you touch, so it vanishes as that fraction approaches one — and then columnar is <em>worse</em>: the record has to be reassembled from one location per column. ' +
+          '<code>SELECT *</code> on a 200-column table to fetch one row by id forces 200 separate reads to rebuild what a row store returns in one seek. ' +
+          '<br><br>High-rate single-record inserts and in-place updates are equally hostile, because columnar formats are batch-oriented — they lay out a large group of rows at once and want writes accumulated. ' +
+          'This is why one business runs both: Firestore serves the point reads and writes, exports to a columnar format serve the analytical scans.'
+        : '<b style="color:var(--viz-green)">' + ratio + '× less I/O — before compression.</b>' +
+          'And compression amplifies the gap: a column holds values of <b>one type with similar magnitudes and repeated members side by side</b>, which compresses far better than interleaved heterogeneous rows. ' +
+          'The specific encodings that exploit this are the next lesson. ' +
+          '<br><br>Note what is <em>not</em> doing the work here: the data has not changed at all. The layout question is a property of the <b>workload</b>, and the whole answer lives in the ratio you are dragging.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Inside A Parquet File</h2>
+  <p class="vz-lede">Parquet is self-describing and puts its map at the <em>end</em>. Follow the read path:
+    tail first, then the footer, then exactly the byte ranges you need. Tap each step.
+    <b>Like a book whose index is the last page — you read that first, then jump straight to two
+    chapters.</b></p>
+
+  <div class="vz-card vz-mono" id="v2-file" style="margin-bottom:11px"></div>
+
+  <div class="v2-steps" id="v2-steps"></div>
+  <div class="vz-card">
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Why two levels rather than one column per file? <b>Row groups are the unit of
+    parallelism and of bounded writer memory.</b> Each is independently readable, so a distributed engine
+    hands different row groups of the same file to different tasks; the writer buffers one group, flushes
+    it, and starts the next, so its memory is bounded by the group rather than the file. Column chunks
+    inside the group then deliver the columnar I/O benefit.</p>
+
+  <style>
+    .v2-steps{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v2-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LAYOUT = [
+      'PAR1                                        ← 4-byte magic',
+      '┌ row group 0  (1,000,000 rows)',
+      '│   column chunk  tenant_id     [pages…]',
+      '│   column chunk  latency_ms    [pages…]',
+      '│   … 48 more column chunks',
+      '├ row group 1  (1,000,000 rows)',
+      '│   … 50 column chunks',
+      '├ … 98 more row groups',
+      '└',
+      'FOOTER   schema · row counts · for EVERY chunk:',
+      '         byte offset, size, encoding, min, max, null_count',
+      'footer_length (4 bytes)',
+      'PAR1                                        ← 4-byte magic'
+    ];
+    document.getElementById('v2-file').innerHTML = LAYOUT.join('\n');
+
+    var STEPS = [
+      { t:'Fetch the tail of the file', why:['One small range GET at the end.',
+        'The reader does not know where anything is yet, so it grabs the last few kilobytes. The final 4 bytes are the magic <code>PAR1</code>, and the 4 before that are the <b>footer length</b>. Two numbers, and now it knows exactly how much footer to ask for.'] },
+      { t:'Read the footer', why:['Thrift-encoded metadata describing every chunk in the file.',
+        'Schema, total rows, and for <b>every column of every row group</b>: byte offset, size, encoding, and statistics. With 100 row groups × 50 columns that is 5,000 chunk descriptions — and at this moment the reader knows the exact byte range of each one without having read any data.'] },
+      { t:'Prune row groups on the statistics', why:['Skip whole groups without reading a data byte.',
+        'This is predicate pushdown, and visual 4 is about it. What matters here is <em>where</em> it happens: the footer is already in hand, so a group that provably cannot match is dropped before any data request is issued at all.'] },
+      { t:'Issue byte-range reads for the surviving chunks', why:['2 columns × the surviving row groups, coalesced.',
+        'The query needs 2 of 50 columns, so the reader asks for those chunks only, merging adjacent ranges into single requests. On object storage this is a handful of range GETs per row group rather than a full-file download — which is precisely why the format puts its map at the end and makes every chunk independently addressable.' +
+        '<br><br><b>Worked numbers:</b> 100M rows in 1M-row groups gives 100 groups; 50 columns makes 5,000 chunks. The two-column query reads the footer plus 200 chunks — roughly <b>800 MB</b> out of a multi-gigabyte file, with up to 100-way parallelism.'] },
+      { t:'Decode pages', why:['Pages are the smallest unit of encoding, compression and reading.',
+        'Each column chunk divides into data pages of about 1 MB. Page size is the smaller dial: smaller pages give finer-grained reads and finer pruning (newer Parquet keeps page-level min/max in a column index), at the cost of more per-page overhead.'] }
+    ];
+    var steps = document.getElementById('v2-steps'), why = document.getElementById('v2-why');
+    function show(i){
+      [].slice.call(steps.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      why.innerHTML = '<b>' + STEPS[i].why[0] + '</b>' + STEPS[i].why[1];
+    }
+    STEPS.forEach(function(st, i){
+      var b = document.createElement('button');
+      b.className = 'v2-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v2-n">' + (i + 1) + '</span><span>' + st.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      steps.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Row Group Dial</h2>
+  <p class="vz-lede">One number, wrong in both directions. Drag it and watch parallelism, metadata size and
+    writer memory move against each other. <b>Like choosing how many boxes to pack a house into: a thousand
+    tiny ones or two enormous ones both make moving day worse.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-rg">Row group size: <span id="v3-rgl">128 MB</span></label>
+    <input type="range" id="v3-rg" min="0" max="8" value="4" step="1" aria-label="Row group size">
+    <div class="v3-splits" id="v3-splits"></div>
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The historical 128 MB default matched HDFS block size. On object stores, 256 MB to
+    1 GB is common — because <b>per-request latency, not block locality, dominates</b> there. The dial is
+    not a constant to memorise; it is a consequence of what your storage charges you for.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-splits{margin-top:16px;display:flex;gap:2px;flex-wrap:wrap;min-height:26px}
+    .v3-sp{height:22px;border-radius:3px;background:var(--viz-accent);opacity:.8;flex:0 0 auto}
+    .v3-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SIZES = [
+      { l:'1 MB', mb:1 }, { l:'8 MB', mb:8 }, { l:'32 MB', mb:32 }, { l:'64 MB', mb:64 },
+      { l:'128 MB', mb:128 }, { l:'256 MB', mb:256 }, { l:'512 MB', mb:512 },
+      { l:'1 GB', mb:1024 }, { l:'2 GB (whole file)', mb:2048 }
+    ];
+    var FILE_MB = 2048, COLS = 50;
+    var s = document.getElementById('v3-rg'), lab = document.getElementById('v3-rgl');
+    var splits = document.getElementById('v3-splits'), stats = document.getElementById('v3-stats'), why = document.getElementById('v3-why');
+
+    function render(){
+      var sz = SIZES[Number(s.value)];
+      lab.textContent = sz.l;
+      var groups = Math.max(1, Math.round(FILE_MB / sz.mb));
+      var chunks = groups * COLS;
+      var shown = Math.min(groups, 96);
+      var w = Math.max(3, Math.round(280 / shown));
+      splits.innerHTML = Array.from({ length: shown }, function(){
+        return '<div class="v3-sp" style="width:' + w + 'px"></div>';
+      }).join('') + (groups > shown ? '<span style="font-size:11px;color:var(--viz-muted);align-self:center;margin-left:6px">… ' + (groups - shown) + ' more</span>' : '');
+
+      var small = sz.mb <= 8, big = sz.mb >= 1024;
+      var c = (small || big) ? 'var(--viz-red)' : 'var(--viz-green)';
+      stats.innerHTML =
+        '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + groups + ' row group' + (groups === 1 ? '' : 's') + ' = ' + groups + '-way parallelism</span>' +
+        '<span class="v3-pill" style="color:' + (small ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (small ? 'var(--viz-red)' : 'var(--viz-line)') + '">' + chunks.toLocaleString() + ' chunk entries in the footer</span>' +
+        '<span class="v3-pill" style="color:' + (big ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (big ? 'var(--viz-red)' : 'var(--viz-line)') + '">writer buffers ~' + sz.l + '</span>';
+
+      why.innerHTML = small
+        ? '<b style="color:var(--viz-red)">Too small.</b>' +
+          'Footer metadata balloons — ' + chunks.toLocaleString() + ' chunk entries to parse before a single byte of data is read — and per-chunk request overhead multiplies on object storage, where each range GET has fixed latency. ' +
+          'Worse, each chunk is now too small to encode or compress effectively: dictionary and run-length encoding both need a decent run of values to find any redundancy at all. ' +
+          '<br><br>This is the shape you get by accident when a streaming job writes one file per micro-batch.'
+        : big
+          ? '<b style="color:var(--viz-red)">Too large.</b>' +
+            'The file has ' + groups + ' split' + (groups === 1 ? '' : 's') + ', so ' + (groups === 1 ? 'one task processes the whole file while the rest of the cluster idles' : 'parallelism is limited to ' + groups + ' tasks') + '. ' +
+            'And memory is proportional to the group on both sides: the writer must buffer a whole row group before flushing, and a reader materialising one needs room for it. ' +
+            '<br><br>Note the asymmetry with the previous case — small groups waste <em>requests</em>, large groups waste <em>the cluster</em>.'
+          : '<b style="color:var(--viz-green)">A workable range.</b>' +
+            groups + ' independently readable row groups means up to ' + groups + '-way parallelism on this one file, chunks large enough to compress well, and a footer that stays small enough to parse quickly. ' +
+            '<br><br>Page size is the smaller dial underneath this one: smaller pages give finer-grained reads and finer pruning, at the cost of more per-page overhead.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Proving Absence</h2>
+  <p class="vz-lede">Statistics can prove a row group contains <em>no</em> match. They can never prove it
+    contains one. Pick a predicate and watch which groups are skipped from the footer alone — and which are
+    read and then throw everything away. <b>Like a library catalogue that lists each shelf's first and last
+    title: you can rule shelves out, never rule one in.</b></p>
+
+  <div class="v4-list" id="v4-list"></div>
+
+  <div class="vz-card">
+    <div class="v4-groups" id="v4-groups"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Two edge cases experts check. Floating-point <code>NaN</code> does not order cleanly,
+    so writers historically produced unusable min/max for such columns and engines may ignore those
+    statistics entirely. And very long strings are <b>truncated</b> in statistics — min truncated downward,
+    max padded upward — which stays safe and quietly weakens pruning as values get longer.</p>
+
+  <style>
+    .v4-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-p{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v4-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-groups{display:flex;flex-direction:column;gap:4px}
+    .v4-g{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-g.is-skip{opacity:.42;border-style:dashed}
+    .v4-g.is-read{border-color:var(--viz-accent)}
+    .v4-g.is-waste{border-color:var(--viz-amber)}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Six row groups over event_ts, written roughly sorted, one with a straggler.
+    var GROUPS = [
+      { i:0, min:'00:00', max:'00:14', nulls:0,  hasMatch:false },
+      { i:1, min:'00:15', max:'00:29', nulls:0,  hasMatch:false },
+      { i:2, min:'00:30', max:'00:44', nulls:0,  hasMatch:true },
+      { i:3, min:'00:45', max:'23:58', nulls:0,  hasMatch:false },   // one straggler widens the range
+      { i:4, min:'01:00', max:'01:14', nulls:12, hasMatch:false },
+      { i:5, min:'01:15', max:'01:29', nulls:0,  hasMatch:false }
+    ];
+    var PREDS = [
+      { sql:"event_ts &gt;= '00:30' AND event_ts &lt; '00:45'",
+        test:function(g){ return !(g.max < '00:30' || g.min >= '00:45'); },
+        why:['A range predicate — the case pushdown was built for.',
+          'Any group whose <code>max</code> is below the lower bound, or whose <code>min</code> is at or above the upper bound, provably contains no matching row and is skipped <b>without reading a single data byte</b>. Only the footer was ever read.' +
+          '<br><br>Look at group 3: its range is <code>00:45–23:58</code> because one straggler row landed in it. That single value makes the group overlap almost every predicate you could write, so it is read, filtered, and discarded. ' +
+          '<b>A wasted read, never a wrong answer</b> — correct statistics give false positives and never false negatives.'] },
+      { sql:"event_ts = '00:35'",
+        test:function(g){ return g.min <= '00:35' && g.max >= '00:35'; },
+        why:['Equality prunes well when the column is clustered.',
+          'Same mechanism: the value has to lie inside [min, max] for the group to survive. On a well-clustered column this is nearly as selective as a partition. On a uniformly distributed high-cardinality column — a UUID, a hash — every group’s range spans the whole space and nothing prunes. That is what <b>Bloom filters</b> are for: an optional per-chunk structure that answers "definitely not present" for equality tests.'] },
+      { sql:"event_ts != '00:35'",
+        test:function(){ return true; },
+        why:['Almost never prunes, and the reason is worth internalising.',
+          'A group can be skipped only if <b>every</b> row in it fails the predicate — which for <code>!=</code> means every row equals the literal, i.e. the degenerate case <code>min = max = \'00:35\'</code>. Any group with any variety at all survives. ' +
+          '<br><br>This is a good test of whether you have the rule: pruning needs <em>proof of absence for the whole group</em>, not a hint that most rows do not match.'] },
+      { sql:'event_ts IS NULL',
+        test:function(g){ return g.nulls > 0; },
+        why:['Pruned by null_count, not by min/max.',
+          'The footer stores a null count per chunk alongside the min and max, so a group with <code>null_count = 0</code> provably has no NULL and is skipped. Only group 4 survives here. ' +
+          '<br><br>It is a small thing, and it is the one predicate shape where the third statistic does all the work.'] }
+    ];
+    var cur = 0;
+    var list = document.getElementById('v4-list'), groupsB = document.getElementById('v4-groups'), why = document.getElementById('v4-why');
+    function show(i){
+      cur = i;
+      var p = PREDS[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      var read = 0, skipped = 0, waste = 0;
+      groupsB.innerHTML = GROUPS.map(function(g){
+        var survives = p.test(g);
+        if (survives) { read += 1; if (!g.hasMatch) waste += 1; } else skipped += 1;
+        var cls = !survives ? 'is-skip' : (g.hasMatch ? 'is-read' : 'is-waste');
+        var tag = !survives ? 'SKIPPED — no bytes read' : (g.hasMatch ? 'read · has matches' : 'read · 0 matches (wasted)');
+        var col = !survives ? 'var(--viz-muted)' : (g.hasMatch ? 'var(--viz-accent)' : 'var(--viz-amber)');
+        return '<div class="v4-g ' + cls + '"><span>row group ' + g.i + '</span>' +
+          '<span>min ' + g.min + ' · max ' + g.max + ' · nulls ' + g.nulls + '</span>' +
+          '<span class="v4-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+      why.innerHTML = '<b>' + p.why[0] + '</b>' +
+        '<span style="color:var(--viz-muted)">' + skipped + ' of 6 groups skipped from metadata alone; ' + read + ' read, of which ' + waste + ' turned out to contain nothing.</span><br><br>' + p.why[1] +
+        '<br><br><b>Keep two optimisations distinct:</b> predicate pushdown prunes <em>rows</em> (this panel); projection pushdown prunes <em>columns</em> (visual 1). They are routinely confused and they do different jobs.';
+    }
+    PREDS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.className = 'v4-p';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span style="color:var(--viz-muted);font-weight:800">WHERE</span><span>' + p.sql + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Sorted Or Shuffled</h2>
+  <p class="vz-lede">Identical rows, identical statistics machinery, identical query. The only difference is
+    the order they were written in — and it decides whether you skip 96% of the file or none of it.
+    <b>Like a filing cabinet: alphabetised, you open one drawer; shuffled, you open all of them.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Write order">
+    <button id="v5-sorted" aria-pressed="true">written sorted by event_ts</button>
+    <button id="v5-shuf" aria-pressed="false">written in arrival order</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-strip" id="v5-strip"></div>
+    <div class="v5-stat" id="v5-stat"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">This is the central judgment of the whole lesson: <b>statistics are only as good as
+    your clustering.</b> Sort or cluster on the columns your queries filter by most and min/max pruning
+    approaches partition-level power at row-group granularity. Do nothing, and the machinery runs perfectly
+    and prunes nothing — with no error and nothing in the plan to say why.</p>
+
+  <style>
+    .v5-strip{display:flex;flex-direction:column;gap:3px}
+    .v5-r{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v5-lbl{flex:0 0 58px;color:var(--viz-muted)}
+    .v5-range{position:relative;flex:1;height:14px;border-radius:3px;background:var(--viz-line);overflow:hidden}
+    .v5-range i{position:absolute;top:0;bottom:0;background:var(--viz-accent);opacity:.85;border-radius:3px}
+    .v5-mk{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;width:64px;text-align:right}
+    .v5-win{position:absolute;top:0;bottom:0;background:var(--viz-violet);opacity:.28}
+    .v5-stat{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 24, WIN = [0.30, 0.34];   // the predicate window, as a fraction of the day
+    var sorted = true;
+    var bS = document.getElementById('v5-sorted'), bR = document.getElementById('v5-shuf');
+    var strip = document.getElementById('v5-strip'), stat = document.getElementById('v5-stat'), why = document.getElementById('v5-why');
+
+    function render(){
+      bS.setAttribute('aria-pressed', sorted ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', sorted ? 'false' : 'true');
+      var hit = 0;
+      var rows = '';
+      for (var i = 0; i < N; i++) {
+        var lo, hi;
+        if (sorted) { lo = i / N; hi = (i + 1) / N; }
+        else { lo = 0.01 + (i % 3) * 0.004; hi = 0.985 - (i % 4) * 0.003; }
+        var overlaps = !(hi < WIN[0] || lo > WIN[1]);
+        if (overlaps) hit += 1;
+        rows += '<div class="v5-r"><span class="v5-lbl">group ' + (i < 10 ? ' ' : '') + i + '</span>' +
+          '<span class="v5-range">' +
+          '<i style="left:' + (lo * 100) + '%;width:' + Math.max(1.5, (hi - lo) * 100) + '%;background:' + (overlaps ? 'var(--viz-red)' : 'var(--viz-accent)') + '"></i>' +
+          '<span class="v5-win" style="left:' + (WIN[0] * 100) + '%;width:' + ((WIN[1] - WIN[0]) * 100) + '%"></span>' +
+          '</span>' +
+          '<span class="v5-mk" style="color:' + (overlaps ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + (overlaps ? 'READ' : 'skipped') + '</span></div>';
+      }
+      strip.innerHTML = rows;
+      var pct = Math.round((N - hit) / N * 100);
+      stat.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">predicate: 1 hour of the day</span>' +
+        '<span class="v5-pill" style="color:' + (hit <= 4 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (hit <= 4 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + hit + ' of ' + N + ' groups read</span>' +
+        '<span class="v5-pill" style="color:' + (pct > 50 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (pct > 50 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + pct + '% I/O skipped</span>';
+
+      why.innerHTML = sorted
+        ? '<b style="color:var(--viz-green)">Each group covers a disjoint window, so the predicate touches ' + hit + '.</b>' +
+          'Sorted on the write, every row group’s [min, max] is a narrow slice of the day, and a one-hour predicate overlaps only the slices that could contain it. <b>' + pct + '% of the file is skipped from the footer alone</b> — not read and discarded, never requested. ' +
+          '<br><br>This is what "clustering" buys, and note the granularity: partition-level pruning power, at <em>row-group</em> resolution, without any partition columns in the schema.'
+        : '<b style="color:var(--viz-red)">Every group spans nearly the whole day, so every group overlaps.</b>' +
+          'Arrival order interleaves timestamps, so each group’s min is near the global minimum and its max near the global maximum. Every range overlaps every predicate; <b>zero groups are skipped</b>. ' +
+          '<br><br>Identical data. Identical statistics. Identical query. The entire benefit was created or destroyed by physical layout — which is why "the query got slower" is often a question about the <em>writer</em>. ' +
+          '<br><br>And for a uniformly distributed high-cardinality column such as a UUID, this is the permanent state unless you sort by it: min/max is useless, and equality lookups there are what <b>Bloom filters</b> exist for.';
+    }
+    bS.addEventListener('click', function(){ sorted = true; render(); });
+    bR.addEventListener('click', function(){ sorted = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

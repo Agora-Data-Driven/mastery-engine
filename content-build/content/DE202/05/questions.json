@@ -3,84 +3,144 @@
     {
       "topic": "CDC: Log-Based vs Query-Based",
       "question": "Where does log-based CDC normally read changes?",
-      "options": ["The database transaction or replication log", "A dashboard cache", "The query optimizer plan only", "A daily CSV export only"],
-      "answerIndex": 0,
-      "difficulty": "core"
-    },
-    {
-      "topic": "CDC: Log-Based vs Query-Based",
-      "question": "What is a core advantage of log-based CDC over table polling?",
-      "options": ["It requires no source privileges", "It naturally observes committed deletes and intermediate changes", "It cannot fall behind", "It eliminates initial snapshots"],
+      "options": [
+        "From a trigger-maintained audit table the application writes on every change",
+        "From the database's transaction log, which already records every committed change",
+        "From a materialized view the database refreshes after each committed transaction",
+        "From the query planner's statistics, which track how often each row is modified"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "CDC: Log-Based vs Query-Based",
-      "question": "Why can polling with updated_at greater than the last timestamp lose rows?",
-      "options": ["Timestamps cannot be indexed", "Polling returns deletes automatically", "Several rows can share the cursor timestamp or commit late around the boundary", "Every update changes the primary key"],
+      "question": "What is a core advantage of log-based CDC over table polling?",
+      "options": [
+        "It removes the need to take an initial snapshot of the rows that already exist",
+        "It runs through ordinary SQL credentials without replication privileges",
+        "It observes committed deletes and every intermediate change between polls",
+        "It guarantees the consumer can never fall behind the source's log retention"
+      ],
       "answerIndex": 2,
+      "difficulty": "core"
+    },
+    {
+      "topic": "CDC: Log-Based vs Query-Based",
+      "question": "Why can polling with updated_at greater than the last timestamp lose rows?",
+      "options": [
+        "Rows can share the cursor timestamp, or commit after the cursor has passed them",
+        "The source clock drifts, so timestamps written by replicas are always rejected",
+        "Any row updated twice within one interval is filtered out as a duplicate change",
+        "Indexes on timestamp columns go stale, so recent rows are skipped under load"
+      ],
+      "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "CDC: Log-Based vs Query-Based",
       "question": "How can query-based CDC capture deletes reliably?",
-      "options": ["Assume missing rows never matter", "Use a larger polling interval", "Read only an increasing ID", "Use soft deletes, a deletion log, or an explicit comparison process"],
+      "options": [
+        "Poll more frequently so a deleted row is observed before it disappears",
+        "Compare each poll against the previous poll and treat absences as deletes",
+        "Read a monotonically increasing ID, which stops advancing once a row is gone",
+        "Use soft-delete flags, a separate deletion log, or a periodic full comparison"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "CDC: Log-Based vs Query-Based",
       "question": "What composite polling cursor avoids skipping rows that share an update timestamp?",
-      "options": ["(updated_at, primary_key) with lexicographic progress", "(table_name, row_count) only", "(current_time, random_number)", "(column_count, database_size)"],
+      "options": [
+        "`(updated_at, primary_key)`, compared lexicographically so ties still advance",
+        "`(updated_at, row_version)`, resetting the version counter on every poll run",
+        "`(primary_key, updated_at)`, so the scan follows the table's clustering order",
+        "`(updated_at, poll_number)`, which records which run first observed the row"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "CDC: Log-Based vs Query-Based",
       "question": "How should an initial snapshot hand off to a log stream without a gap?",
-      "options": ["Start both at unrelated times", "Tie a consistent snapshot to a recorded log position and replay after it", "Ignore changes during the snapshot", "Overwrite newer events with snapshot rows"],
+      "options": [
+        "Snapshot the table first, then begin reading the log from the position reached at the end",
+        "Record a log position, take a snapshot consistent with it, then replay from that position",
+        "Run both concurrently and let the snapshot overwrite any change it disagrees with",
+        "Pause writes to the source until the snapshot completes, then start the log reader"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Ordering and Schema Changes in CDC Streams",
       "question": "What is normally safer than a wall-clock timestamp for CDC ordering?",
-      "options": ["The row's text length", "The destination table name", "A source log sequence or version position", "The worker start time"],
+      "options": [
+        "The time the consumer acknowledged the event to the message broker",
+        "The commit timestamp assigned by the source database's primary node",
+        "A source log sequence number or per-row version position",
+        "The order in which the connector's worker threads finished decoding"
+      ],
       "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Ordering and Schema Changes in CDC Streams",
       "question": "What is needed for a consumer to decode events across schema changes?",
-      "options": ["One fixed field order forever", "A global ordering key only", "No event metadata", "A schema identifier or version plus compatible reader logic"],
+      "options": [
+        "A guarantee that producers only ever append fields to the end of the record",
+        "A single reader schema that every producer is required to conform to",
+        "A replay of the full history whenever the writer's schema is altered",
+        "A schema identifier on each event plus reader logic that maps writer to reader"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Ordering and Schema Changes in CDC Streams",
       "question": "How can a latest-state sink prevent an older event from overwriting a newer one?",
-      "options": ["Store the last applied source version per key and reject stale versions", "Sort by consumer arrival time only", "Delete all tombstones", "Use random output keys"],
+      "options": [
+        "Store the last applied source version per key and reject anything not newer",
+        "Buffer each key's events briefly and apply them in arrival order once settled",
+        "Partition the topic by primary key so every event for a key is strictly ordered",
+        "Compare the incoming payload against the stored row and skip identical writes"
+      ],
       "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Ordering and Schema Changes in CDC Streams",
       "question": "Why should a delete tombstone retain its source version through the replay window?",
-      "options": ["Tombstones cannot be stored", "It prevents a delayed older update from resurrecting the row", "It makes every delete reversible", "It changes the producer schema"],
+      "options": [
+        "So the connector can measure how far behind the source retention it has fallen",
+        "So a delayed older update cannot be applied and resurrect the deleted row",
+        "So the sink can restore the row if the delete is later found to be erroneous",
+        "So downstream consumers can distinguish a hard delete from a soft delete flag"
+      ],
       "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Ordering and Schema Changes in CDC Streams",
       "question": "Why does per-key ordering not guarantee an atomic account transfer?",
-      "options": ["Transfers have no keys", "Source logs contain no transactions", "Debit and credit on different keys can become visible separately", "Per-key order always provides global transactions"],
+      "options": [
+        "The debit and credit are written by separate connectors with independent cursors",
+        "Transaction boundaries are stripped from the log before the connector reads them",
+        "The debit and credit live on different keys, so each can become visible alone",
+        "Per-key ordering only holds within one partition, and a transfer spans two of them"
+      ],
       "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Ordering and Schema Changes in CDC Streams",
       "question": "What is the safe rollout for a breaking field replacement?",
-      "options": ["Change meaning under the same field immediately", "Drop the old field before consumers update", "Reuse the old field ID", "Add and dual-publish, migrate and backfill, then retire the old field"],
+      "options": [
+        "Publish the new field, cut consumers over in one release, then drop the old field",
+        "Keep the field name and type but change its meaning, then announce the change",
+        "Drop the old field first so no consumer can keep depending on it during migration",
+        "Add the new field, dual-publish both, migrate and backfill consumers, then retire the old"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     }

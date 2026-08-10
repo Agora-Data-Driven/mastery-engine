@@ -73,6 +73,20 @@ Hard rules:
   for balanced and challenge.
 - No two questions interchangeable (different angle, failure mode, or scenario).
 - Vary answerIndex roughly uniformly across 0–3; never the same index more than twice in a row.
+- 🔴 **LENGTH MUST NOT LEAK THE ANSWER — the single worst failure in this file.** Measured on the
+  first 1,710-question batch: **72.9%** had the correct answer as the single longest option
+  (chance is 25%), because distractors were written as short dismissive stubs — "Only index name",
+  "The day of the week" — beside a full, specific correct sentence. A learner scores ~73% by
+  picking the longest option **without reading the question**, and the whole bank stops measuring
+  anything. Rules, all four:
+  - Every option within **±25% of the mean option length** for that question. No stubs.
+  - The correct answer must be the longest in **no more than ~1 question in 4**, and the shortest
+    about as often. Check across the lesson, not per question.
+  - Each distractor states a **specific, plausible, genuinely wrong** claim — a real misconception,
+    a right idea applied at the wrong layer, a true statement that does not answer the question, or
+    the correct mechanism with one detail wrong. Never nonsense, never a joke option.
+  - Same grammatical shape and register across all four, so no option stands out structurally.
+  Verify with `node content-build/check-questions.js --course=<CODE>` before you finish.
 - PLAIN TEXT ONLY in question/options: no LaTeX, no $ delimiters; words or plain Unicode
   (×, ², →, log). Backtick code spans allowed for SQL/code. No em dashes.
 - "topic" must match a spec topic name character-for-character.

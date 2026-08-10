@@ -113,7 +113,7 @@ import {
 import * as watcher from './lib/watcher.js';
 import { stepGenJob, publicJob } from './lib/genjobs.js';
 import { computeMastery, computePriority, deriveStats } from './lib/priority.js';
-import { DEFAULT_PROGRAM, filterCatalog } from './lib/programs.js';
+import { DEFAULT_PROGRAM, filterCatalog, programOf } from './lib/programs.js';
 import {
   toNode,
   buildFlowEdges,
@@ -833,6 +833,29 @@ function inEngine(row, tracks, included, hidden) {
   return incDepth > matchDepth(row, hidden);
 }
 
+/**
+ * The catalog the learner is actually LOOKING AT: their personal Mastery Engine — shelf tracks
+ * plus individually-added sections, minus removed ones — carrying their own stats.
+ *
+ * 🔴 It SPANS PROGRAMS, deliberately, and that is the whole reason this is a named function
+ * rather than four lines inlined in /api/catalog: anything grounding on "the section on screen"
+ * must match against THIS, never against a single-program `requestScope` catalog. See
+ * deepGroundingFor, where doing the latter made half a real shelf invisible.
+ *
+ * Full rows (program + stats), so callers can resolve a row's own program. `learnerCatalog`
+ * deliberately does NOT use it: it also needs the rows that fell OUT of the engine, to report
+ * parked sections.
+ */
+async function engineCatalog(email) {
+  if (!email) return [];
+  const tracks = (await effectiveShelf(email)) || [];
+  const shelf = (await getShelf(email)) || {};
+  const full = await getCatalog(email, null); // whole bank + this user's stats
+  // Keep rows whose deepest inclusion (a shelf track, or an individually-added
+  // course/lesson/sub-lesson) out-specifies any hidden prefix. See inEngine.
+  return full.filter((t) => inEngine(t, tracks, shelf.included || [], shelf.hidden || []));
+}
+
 app.get('/api/catalog', async (req, res, next) => {
   try {
     const email = optionalUser(req);
@@ -845,13 +868,7 @@ app.get('/api/catalog', async (req, res, next) => {
     if (req.query.full) {
       catalog = await getCatalog(email, null); // whole bank + this user's stats (none for guests)
     } else if (email && !req.query.program) {
-      const tracks = (await effectiveShelf(email)) || [];
-      const shelf = (await getShelf(email)) || {};
-      const included = shelf.included || [], hidden = shelf.hidden || [];
-      const full = await getCatalog(email, null); // whole bank + this user's stats
-      // Keep rows whose deepest inclusion (a shelf track, or an individually-added
-      // course/lesson/sub-lesson) out-specifies any hidden prefix. See inEngine.
-      catalog = full.filter((t) => inEngine(t, tracks, included, hidden));
+      catalog = await engineCatalog(email);
     } else {
       catalog = await getCatalog(email, await requestScope(req));
     }
@@ -2865,12 +2882,37 @@ async function deepGroundingFor(req, context) {
   if (!scope) return { gaps: ['nothing on screen names a section'] };
 
   const gaps = [];
+  const email = req.userEmail;
   const programScope = await requestScope(req);
-  const catalog = await getCatalog(req.userEmail, programScope);
-  const rows = Array.isArray(scope.topics)
+  const match = (catalog) => (Array.isArray(scope.topics)
     ? catalog.filter((r) => scope.topics.includes(r.topic))
-    : scopeCatalog(catalog, scope);
+    : scopeCatalog(catalog, scope));
+
+  // 🔴 The section on screen is matched against their SHELF, which spans programs — never against
+  // one program's catalog. This read `getCatalog(email, requestScope(req))` and that is a scoping
+  // bug of exactly the `cardScope` shape (§7), one level up: the assistant's POST carries no
+  // `program`, so requestScope falls back to the learner's FIRST enrolled program while the screen
+  // behind it is engineCatalog's cross-program shelf. Measured on the live shelf: 285 of 808 topics
+  // sat in a second program, so every deep turn on that entire half of their engine matched zero
+  // rows and answered "deep mode couldn't load anything" — with the bank sitting right there.
+  //
+  // A PINNED session is the exception and wins: Sentinel's Philosophical/Spiritual tabs are one
+  // program for the whole session, and that program may not be on the shelf at all (see
+  // pinnedProgram). The program scope is also the fallback for anyone with no shelf built yet.
+  let rows = [];
+  if (!pinnedProgram(req, programScope)) rows = match(await engineCatalog(email));
+  if (!rows.length) rows = match(await getCatalog(email, programScope));
   if (!rows.length) return { gaps: ['the section on screen matched no topics in their engine'] };
+
+  // The program comes from the rows we MATCHED, never from the request — they are what is on
+  // screen. Per topic, because a `topics` scope (the recently-practised fallback) can legitimately
+  // straddle two programs; and because a topic NAME is not unique across programs, which is the
+  // collision `filterQuestions` exists for. Comparing each question's own program to its row's
+  // settles it exactly, where a single scope could only approximate.
+  const programByTopic = new Map(rows.map((r) => [r.topic, programOf(r)]));
+  const tally = new Map();
+  for (const r of rows) tally.set(programOf(r), (tally.get(programOf(r)) || 0) + 1);
+  const guideProgram = [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0];
 
   const topics = [...new Set(rows.map((r) => r.topic).filter(Boolean))];
   const scopeLabel = Array.isArray(scope.topics)
@@ -2880,12 +2922,14 @@ async function deepGroundingFor(req, context) {
 
   // The bank and the guide are independent reads; the progress rows are already in `catalog`.
   const [bank, guide] = await Promise.all([
-    getQuestionsForTopics(topics.slice(0, DEEP_MAX_TOPICS), programScope)
+    // Read unscoped, then keep only the questions whose program matches their OWN topic's row.
+    getQuestionsForTopics(topics.slice(0, DEEP_MAX_TOPICS), null)
+      .then((qs) => qs.filter((q) => programByTopic.get(q.topic) === programOf(q)))
       .catch(() => { gaps.push('their question bank could not be read'); return []; }),
     // A guide is keyed by its exact scope tuple, so a `topics` fallback (no tuple) has none to fetch.
     (Array.isArray(scope.topics) ? Promise.resolve(null) : Promise.all([
-      getStudyGuide({ ...scope, program: programScope.program, kind: 'lesson' }),
-      getStudyGuide({ ...scope, program: programScope.program, kind: 'review' }),
+      getStudyGuide({ ...scope, program: guideProgram, kind: 'lesson' }),
+      getStudyGuide({ ...scope, program: guideProgram, kind: 'review' }),
     ]).then(([lesson, review]) => lesson || review))
       .catch(() => { gaps.push('their study guide could not be read'); return null; }),
   ]);
@@ -3250,7 +3294,7 @@ const GUIDE_KIND = 'lesson';
  * because what is cached afterwards genuinely IS model output.
  */
 const LOCKED_MESSAGE =
-  'This one was written by hand, not generated. Regenerating replaces it with an AI version and cannot be undone.';
+  'This one was made by Claude Code, not generated by the quiz app. Regenerating replaces it with a model version and cannot be undone from here.';
 
 const cleanScopeField = (v) => (isAll(v) ? '' : String(v || '').trim());
 function guideScope(_kind, program, body = {}) {
@@ -3929,6 +3973,10 @@ async function patchVisualGuide(req, { kind, scope, body, programScope, critique
     provider: edits[0]?.meta?.provider || previous.provider || '',
     model: edits[0]?.meta?.model || previous.model || '',
     source: 'visualize-patch',
+    // A patched authored page STAYS locked. Most of it is still hand-written, and
+    // dropping the flag here would leave the panels the learner did NOT touch
+    // unprotected against the next regenerate. The tag names both authors.
+    locked: !!previous.locked,
   });
   const saved = await getVisualGuide(scope);
   return visualPayload(saved || { ...previous, html, outline, patched: wanted }, false);

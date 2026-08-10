@@ -1,0 +1,60 @@
+**The big idea**: **Column Statistics and Predicate Pushdown** skipped row groups inside a file, and **Encodings and Compression** made each file small. This lesson is the layout *between* files, where the same two goals return at a coarser scale: avoid opening irrelevant data, and read what you do open in large sequential units. **Partitioning** skips whole regions before a scan starts. **File sizing** decides whether the fixed per-object cost is amortised or dominant. **Compaction** repairs the second without breaking readers. They are not independent knobs — an over-granular partition scheme *creates* the small-file problem, and compaction only works if it preserves the snapshot semantics concurrent readers rely on.
+
+**Key concepts**
+
+- **Partitioning groups rows into separate physical or logical units keyed on column values, so the engine can skip files it can prove cannot match.** *Example:* 3.65 TB across 365 daily partitions of ~10 GB. A one-day query scans about **10 GB instead of 3.65 TB** — before any column or row-group pruning. Partition the same data by year and the engine must consider an entire 3.65 TB partition.
+- **The partition key must align with common, *selective* predicates.** Event time is the usual choice because analytics filters ranges and ingestion advances through time naturally; tenant, region or source help when queries nearly always constrain them. Partitioning on a column users rarely filter buys no pruning and adds metadata overhead permanently.
+- **Cardinality is where partitioning turns dangerous.** Partitioning directly by a near-unique user id creates millions of directories or metadata entries, most holding tiny files — and listing, planning, authorization checks and catalog updates can then cost more than reading the data. **Bucketing or clustering by a hash** distributes users into a fixed number of groups without one partition per user.
+- **Partition *transforms* beat exposing raw values.** A table format can partition a timestamp by day or month and a high-cardinality key by a bucket transform, translating `event_time >= …` into pruning without making users filter a separate `event_date` column. **Hidden partitioning** also permits layout evolution with far less query breakage.
+- **Multi-column partitions must follow real access patterns.** `date/region` helps queries constrained by both and creates a cell for every combination — sparse the moment many regions carry little data. Order matters in directory-style systems too: pruning by region *without* date may still require enumerating many date prefixes.
+- **A partitioned table does not guarantee a pruned query.** Pruning needs predicates the optimiser can translate. Wrapping the column in an unsupported function, comparing incompatible types, or filtering after a transformation all block it — the same sargability rule from **Reading a Query Execution Plan**, one level up. Verify with explain plans and scanned-byte metrics, not with the DDL.
+- **Late data reopens old partitions.** An event arriving thirty days late lands in a closed partition, so the pipeline needs an overwrite or merge strategy that touches only affected data while preserving concurrent readers. A rolling window that rewrites the last seven days will silently miss anything later unless a separate reconciliation path exists.
+- **Partition evolution is normal, not a failure.** Early data may fit monthly partitions and later scale demand daily. Snapshot-aware table formats let old and new layouts coexist with metadata routing readers correctly; a directory-only convention requires an explicit migration and query logic that understands both.
+- **A small file is one holding too little data to amortise the fixed cost of finding, opening, authorizing, scheduling and decoding it.** *Example:* 10,000 × 1 MB files and 10 × 1 GB files hold the same bytes; the first needs vastly more requests and tasks. The fixed costs are everywhere — list or read metadata, open the object, network round trips, parse a footer, allocate a task, initialise decompression, close the stream — and a scheduler handling thousands of tiny tasks spends its CPU coordinating rather than scanning.
+- **Small files come from the write path.** Parallel streaming writers, over-granular partitions, frequent micro-batches, retries, and low-volume partition combinations. *Example:* 200 workers each writing one file per minute produce **288,000 files a day** — substantial data, unusable metadata.
+- **There is no universal target size.** Hundreds of megabytes is common for analytical Parquet, but very large files also hurt: they limit scan parallelism, make rewrites expensive, and span broad value ranges that weaken statistics. Very small files maximise parallel units and drown the scheduler.
+- **File size is not row-group size.** A 512 MB Parquet file can hold four 128 MB row groups, keeping row-group statistics and parallel readers intact. Combining thousands of tiny files into one file *with sensible row groups* amortises metadata without turning the file into one indivisible unit.
+- **Skew hides behind averages.** A table averaging 256 MB per file may still have one partition with 50,000 tiny files and another with a few huge ones. Report **distributions per partition** — count, p50, p95, min, max — plus files added per batch and the ratio of bytes to objects.
+- **Compaction rewrites many small files into fewer large ones, often sorting at the same time, and the logical contents must not change** unless the job explicitly deduplicates or applies deletes. A safe compactor writes **new immutable files** and commits a metadata change that replaces the old references **atomically**.
+- **In-place mutation on object storage is the thing to avoid.** A reader may list old and new objects at different moments, observe a partially written file, or combine both generations and double count. Immutable data files plus an atomic snapshot pointer keep readers on the old snapshot until the new one is fully committed.
+- **The safe workflow:** select eligible files within one partition, record the input snapshot, read and validate the rows, write replacements to unique object names, then attempt a **compare-and-swap** metadata commit that removes inputs and adds outputs. If another writer changed overlapping files, conflict detection forces a retry or a replan. *Example:* a partition of 1,000 × 8 MB files (~8 GB) compacted to 512 MB outputs becomes ~16 files — and before committing, the job verifies row count, checksums or aggregate measures, partition values, schema and output readability.
+- **Old files cannot be deleted immediately.** Active queries may still reference the old snapshot, and rollback or time travel may need it. Garbage collection expires files only after the snapshot-retention period plus a safety interval, and should delete objects **proven unreachable from retained metadata** — not everything missing from the latest file list.
+- **Compaction must coexist with ingestion.** Partition-scoped locking works and costs throughput; **optimistic concurrency** is more flexible — writers create immutable files independently and the table format detects conflicts at commit time. A compactor should not claim files that appeared *after* its planning snapshot unless it replans.
+- **Sorting during compaction improves statistics, and is not free.** Clustering events by tenant within a date partition narrows the ranges a tenant filter touches. Weigh that against rewrite CPU and skew — and note that **repeatedly compacting already-healthy files just burns resources and churns storage**.
+- **Failure has two distinct shapes.** Failure *before* commit leaves unreferenced outputs that an orphan cleanup removes after a safety delay. Failure *after* a confirmed atomic commit must **not** retry as though the inputs were still active — the job must query table metadata by attempt id or output ids to establish state before recovering.
+
+**Rules to remember**
+
+- Partition on what queries actually filter, selectively. Everything else is metadata cost with no return.
+- High-cardinality key ⇒ bucket or cluster by hash, never one partition per value.
+- Hidden partitioning / transforms let the layout evolve without rewriting every query.
+- A partitioned table guarantees nothing; a wrapped column or a type mismatch blocks pruning silently.
+- Fixed per-object cost is the whole small-file argument. Bytes are not the problem; object count is.
+- File size ≠ row group size. One healthy file holds several row groups.
+- Report distributions, not averages. Skew is invisible in a mean.
+- Compaction writes new immutable files and swaps a pointer atomically. Never mutate in place.
+- Readers must see the old set or the new set, never a mixture. That guarantee outranks hitting a target size.
+- Delete old files only after retention plus a safety interval, and only when proven unreachable.
+
+**Common pitfalls**
+
+- **Partitioning by hour "to be safe".** 8,760 partitions fragment writes and multiply planning cost, for a pruning gain most queries never ask for.
+- **Treating partition count as the goal.** The goal is skipping large irrelevant regions *while keeping each selected region efficient to plan and scan* — two objectives that pull in opposite directions.
+- **Assuming the DDL delivers pruning.** `WHERE DATE(event_time) = …` or a string-versus-timestamp comparison can disable it entirely. Check scanned bytes.
+- **Forcing every low-latency writer to produce large files.** That trades ingestion delay for file size. The usual answer is to land micro-batches fast into a raw tier and compact asynchronously for analytical serving.
+- **Concatenating Parquet files byte-wise.** Columnar files carry footers, schemas, encodings and row groups. Valid compaction reads logical rows or copies compatible structures through a **format-aware writer**, preserving schema, partition values, null semantics and statistics.
+- **Compacting on a size threshold alone.** Eligibility combines size, count, age, delete density and query importance — and files still being rapidly superseded should be left alone.
+- **Deleting inputs as soon as the commit lands.** Queries planned a minute ago are still reading them, and time travel may need them for days.
+- **Retrying a compaction after an unconfirmed failure.** If the commit actually landed, a naive retry treats live outputs as inputs. Establish state by attempt id first.
+- **Compacting across partition boundaries.** Outputs then carry mixed partition values, which breaks pruning — legitimate only when the partition scheme itself is being migrated.
+
+**How to approach the questions**
+
+1. For partition-design questions, ask two things: do queries filter on it, and what is its cardinality? Those two answers eliminate most options immediately.
+2. When a scenario reports slow queries on a correctly partitioned table, look for a predicate the optimiser cannot translate, or for file count rather than byte volume.
+3. For small-file questions, count *objects*, not gigabytes. The cost being described is per-object work.
+4. Any compaction answer that mutates existing files, or that lets a reader see part of both generations, is wrong regardless of how efficient it sounds.
+5. Distinguish "commit failed" from "commit succeeded and the ack was lost" — the recovery differs, and that ambiguity is the same one you met in **Transactions and ACID Guarantees**.
+6. Watch for options that fix a write-path problem with a read-path setting. Small files, skew and partition granularity are all decided by the writer.
+
+**Where this leads**: everything here assumed something could swap a metadata pointer atomically and give every reader a consistent snapshot. Object storage does not offer that by itself. The next lesson, **Object Storage Semantics**, is what an object store actually guarantees — immutability, listing behaviour, and the consistency and atomicity limits that make a table format necessary rather than optional.

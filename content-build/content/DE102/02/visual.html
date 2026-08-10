@@ -1,0 +1,550 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Measure Or Context</button>
+  <button class="viz-tab" data-viz-tab="2">2. What Sums, What Does Not</button>
+  <button class="viz-tab" data-viz-tab="3">3. Declare The Grain</button>
+  <button class="viz-tab" data-viz-tab="4">4. Mixed Grain Overcounts</button>
+  <button class="viz-tab" data-viz-tab="5">5. Star Or Snowflake</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Measure Or Context</h2>
+  <p class="vz-lede"><b>Normalization and Denormalization</b> asked which entity a fact describes. Here the
+    question narrows: is this column something you <em>measure</em>, or something you <em>slice by</em>?
+    Tap each column of a raw sales export and sort it. <b>Like a receipt: the amounts are what you add up,
+    everything else is how you find it again.</b></p>
+
+  <div class="v1-cols" id="v1-cols"></div>
+
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <div class="v1-roles" id="v1-roles"></div>
+  </div>
+  <p class="vz-note">Start from the <b>business process and its measurement event</b>, then ask what
+    context describes it. Starting from a list of source tables reproduces operational complexity and calls
+    it a model.</p>
+
+  <style>
+    .v1-cols{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-c{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v1-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-nm{font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:700}
+    .v1-tag{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;border-radius:999px;
+      padding:2px 9px;border:1.5px solid;white-space:nowrap}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v1-roles{font-size:12.5px;line-height:1.6}
+    .v1-roles h4{margin:0 0 8px;font-size:13px}
+    .v1-swap{display:flex;gap:9px;flex-wrap:wrap;margin-top:9px}
+    .v1-s{flex:1 1 148px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px;background:var(--viz-bg);
+      font-size:12px;line-height:1.5}
+    .v1-s b{display:block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var KIND = {
+      measure:  ['MEASURE',  'var(--viz-green)'],
+      dimkey:   ['DIM KEY',  'var(--viz-violet)'],
+      degen:    ['DEGENERATE', 'var(--viz-amber)'],
+      attr:     ['BELONGS IN A DIM', 'var(--viz-red)']
+    };
+    var COLS = [
+      { n:'quantity', k:'measure', why:['A measure. Numeric, and it means something summed.',
+        'Facts are the measurable part of a business event: quantity, revenue, latency, token count. If a column is a number you would put inside SUM or AVG in a real question, it is a measure and it lives on the fact.'] },
+      { n:'gross_amount', k:'measure', why:['A measure, and an additive one.',
+        'It sums correctly across products, customers and dates alike — which is the easy case, and worth naming as the easy case, because the next visual is entirely about measures that do not behave this way.'] },
+      { n:'date_key', k:'dimkey', why:['A dimension key. Context you slice by.',
+        'The fact stores a key; the date dimension supplies weekday, month, quarter, fiscal period and holiday flags. Storing all of that on every fact row is the redundancy the previous lesson was about — and a date dimension is the single most reused table in any warehouse.'] },
+      { n:'product_key', k:'dimkey', why:['A dimension key, and a SURROGATE one on purpose.',
+        'The operational product id stays inside dim_product as a business-key attribute; the fact references a warehouse-generated key. That separation is what survives a source-system change, two sources with colliding identifiers, and <b>historical versions</b>: a product whose category changes gets a second dimension row with a second surrogate key while keeping one business identity.'] },
+      { n:'product_category', k:'attr', why:['A dimension ATTRIBUTE that has wandered onto the fact.',
+        'Category describes the product, not the sale, so it belongs in dim_product where it is stored once per product rather than once per sale. Leave it here and every category rename is an update anomaly across the whole fact table.'] },
+      { n:'order_id', k:'degen', why:['A degenerate dimension — an identifier with no table.',
+        'Analysts genuinely filter and group by order number, so it is dimensional in role. But there are no useful independent attributes to hang off it, so a dim_order table would hold nothing but the key. Store it directly on the fact and move on; clarity beats diagram tidiness.'] },
+      { n:'is_gift · is_expedited · is_first_order', k:'degen', why:['Candidates for a junk dimension.',
+        'Several low-cardinality flags can be bundled into one small dimension so the fact is not cluttered with a handful of tiny foreign keys. Worth doing when there are many; not worth doing to make a diagram look neater.'] },
+      { n:'conversion_rate', k:'attr', why:['Not a measure at all — a trap.',
+        'It is a ratio, so it cannot be summed and must not be stored alone. Keep the components (conversions and visits) and recompute. Visual 2 shows exactly how much this costs when it is stored precomputed.'] }
+    ];
+    var list = document.getElementById('v1-cols'), why = document.getElementById('v1-why');
+
+    function show(i){
+      var c = COLS[i];
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+        var t = b.querySelector('.v1-tag');
+        if (i === j) {
+          t.textContent = KIND[c.k][0];
+          t.style.color = KIND[c.k][1]; t.style.borderColor = KIND[c.k][1];
+        } else { t.textContent = 'which?'; t.style.color = ''; t.style.borderColor = ''; }
+      });
+      why.innerHTML = '<b style="color:' + KIND[c.k][1] + '">' + c.why[0] + '</b>' + c.why[1];
+    }
+    COLS.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v1-c';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-nm">' + c.n + '</span><span class="v1-tag">which?</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+
+    document.getElementById('v1-roles').innerHTML =
+      '<h4>Fact and dimension are ROLES, not properties</h4>' +
+      'The same entity can be either, depending on which business process you are modelling — which is why you cannot classify a table by looking at it.' +
+      '<div class="v1-swap">' +
+      '<div class="v1-s"><b>sales process</b>A <b>product</b> is context. You slice revenue by its category and brand, and dim_product is a dimension.</div>' +
+      '<div class="v1-s"><b>price-history process</b>A <b>product price observation</b> is the event being measured. Now the product is the context and the price is the fact.</div>' +
+      '</div>';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. What Sums, What Does Not</h2>
+  <p class="vz-lede">Three measures, two directions to add them up. One works everywhere, one works in only
+    one direction, and one must never be added at all. <b>Like adding up bank balances: across accounts
+    today, fine; across days for one account, nonsense.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Measure">
+    <button id="v2-rev" aria-pressed="true">order revenue</button>
+    <button id="v2-bal" aria-pressed="false">daily balance</button>
+    <button id="v2-rate" aria-pressed="false">conversion rate</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-grid" id="v2-grid"></div>
+    <div class="v2-sums" id="v2-sums"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v2-h">Why a stored ratio can never be repaired downstream</h4>
+    <label class="v2-lab" for="v2-a">Segment A: <span id="v2-al">1</span> of 10 visits converted</label>
+    <input type="range" id="v2-a" min="0" max="10" value="1" step="1" aria-label="Segment A conversions">
+    <label class="v2-lab" for="v2-b" style="margin-top:11px">Segment B: <span id="v2-bl">50</span> of 100 visits converted</label>
+    <input type="range" id="v2-b" min="0" max="100" value="50" step="1" aria-label="Segment B conversions">
+    <div class="v2-rate" id="v2-rateout"></div>
+  </div>
+  <p class="vz-note">Three fact patterns, chosen by the business process: a <b>transaction</b> fact appends
+    one row per event; a <b>periodic snapshot</b> records state at an interval (which is where semi-additive
+    measures come from); an <b>accumulating snapshot</b> updates milestone columns as one process instance
+    moves through its stages.</p>
+
+  <style>
+    .v2-grid table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v2-grid th{text-align:right;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 6px 5px 0;font-family:inherit}
+    .v2-grid th:first-child{text-align:left}
+    .v2-grid td{padding:6px 6px 6px 0;border-bottom:1px solid var(--viz-line);text-align:right}
+    .v2-grid td:first-child{text-align:left;color:var(--viz-muted)}
+    .v2-sums{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line)}
+    .v2-dir{display:flex;gap:9px;align-items:flex-start;margin-bottom:10px}
+    .v2-dir:last-child{margin-bottom:0}
+    .v2-mk{flex:0 0 auto;font-weight:800;font-size:14px;width:18px}
+    .v2-txt{flex:1;font-size:12.5px;line-height:1.55}
+    .v2-txt b{display:block;font-size:12.5px;margin-bottom:2px}
+    .v2-h{margin:0 0 9px;font-size:13px}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-rate{margin-top:12px;font-size:12.5px;line-height:1.6}
+    .v2-nums{display:flex;gap:8px;flex-wrap:wrap;margin:9px 0}
+    .v2-pill{font-size:12px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var M = {
+      rev: { cls:'ADDITIVE', colour:'var(--viz-green)',
+        head:['fact_order_line', 'SKU-9', 'SKU-3', 'SKU-7'],
+        rows:[['Mon', 120, 40, 25], ['Tue', 80, 60, 25], ['Wed', 200, 0, 50]],
+        across:[true, 'Sum across products for one day: 185 on Monday. This is real revenue.'],
+        down:[true, 'Sum across days for one product: 400 for SKU-9 over three days. Also real revenue.'],
+        note:'<b>Additive</b> means it sums across <em>every</em> dimension, and the grand total is meaningful too. Order-line revenue is the archetype, which is why it is a poor guide to the other two cases.' },
+      bal: { cls:'SEMI-ADDITIVE', colour:'var(--viz-amber)',
+        head:['balance at close', 'acct A', 'acct B', 'acct C'],
+        rows:[['Mon', 500, 300, 100], ['Tue', 520, 280, 100], ['Wed', 510, 290, 120]],
+        across:[true, 'Sum across accounts for one day: 900 on Monday. That is genuinely the money held on Monday.'],
+        down:[false, 'Sum across days for one account: 500 + 520 + 510 = 1,530. <b>That number refers to nothing.</b> The same money was counted three times because it sat there for three days.'],
+        note:'A <b>stock</b> measure is semi-additive: it sums across entities, never across time. Across time you want the last value, an average, or an explicit as-of date — and a chart will happily draw the meaningless version without complaint.' },
+      rate: { cls:'NON-ADDITIVE', colour:'var(--viz-red)',
+        head:['conversion_rate', 'segment A', 'segment B', 'segment C'],
+        rows:[['Mon', '10%', '50%', '20%'], ['Tue', '12%', '48%', '25%'], ['Wed', '8%', '52%', '18%']],
+        across:[false, 'Sum or average across segments: meaningless. Averaging 10% and 50% gives 30%, and the real combined rate is nowhere near it.'],
+        down:[false, 'Sum or average across days: also meaningless, and for the same reason — every rate hides a different denominator.'],
+        note:'A <b>ratio</b> is non-additive in every direction. It must be recomputed from its components, which means the components have to still exist. Slide the controls below to see what a stored rate throws away.' }
+    };
+    var mode = 'rev';
+    var B = { rev:document.getElementById('v2-rev'), bal:document.getElementById('v2-bal'), rate:document.getElementById('v2-rate') };
+    var grid = document.getElementById('v2-grid'), sums = document.getElementById('v2-sums');
+
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var m = M[mode];
+      grid.innerHTML = '<table><thead><tr>' + m.head.map(function(h){ return '<th>' + h + '</th>'; }).join('') +
+        '</tr></thead><tbody>' + m.rows.map(function(r){
+          return '<tr>' + r.map(function(v){ return '<td>' + v + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody></table>';
+      function dir(label, pair){
+        var c = pair[0] ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v2-dir"><span class="v2-mk" style="color:' + c + '">' + (pair[0] ? '✓' : '✕') + '</span>' +
+          '<span class="v2-txt"><b style="color:' + c + '">' + label + '</b>' + pair[1] + '</span></div>';
+      }
+      sums.innerHTML = '<div style="font-size:11px;font-weight:800;letter-spacing:.05em;color:' + m.colour + ';margin-bottom:9px">' + m.cls + '</div>' +
+        dir('across entities (one day)', m.across) + dir('across time (one entity)', m.down) +
+        '<div style="margin-top:11px;font-size:12.5px;line-height:1.6;color:var(--viz-muted)">' + m.note + '</div>';
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+
+    var sa = document.getElementById('v2-a'), sb = document.getElementById('v2-b');
+    var al = document.getElementById('v2-al'), bl = document.getElementById('v2-bl');
+    var out = document.getElementById('v2-rateout');
+    function rates(){
+      var a = Number(sa.value), b = Number(sb.value);
+      al.textContent = a; bl.textContent = b;
+      var ra = a / 10 * 100, rb = b / 100 * 100;
+      var naive = (ra + rb) / 2;
+      var truth = (a + b) / 110 * 100;
+      out.innerHTML =
+        '<div class="v2-nums">' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">A ' + ra.toFixed(0) + '%</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">B ' + rb.toFixed(0) + '%</span>' +
+        '<span class="v2-pill" style="color:var(--viz-red);border-color:var(--viz-red)">average of the rates ' + naive.toFixed(2) + '%</span>' +
+        '<span class="v2-pill" style="color:var(--viz-green);border-color:var(--viz-green)">true ' + (a + b) + '/110 = ' + truth.toFixed(2) + '%</span>' +
+        '</div>' +
+        'The gap is <b>' + Math.abs(naive - truth).toFixed(2) + ' points</b>, and it exists because averaging precomputed rates throws away the <b>denominator weight</b> — ' +
+        'segment B has ten times the visits and gets an equal vote. ' +
+        '<br><br><b>The point is not that the average is wrong; it is that nothing downstream can fix it.</b> If the warehouse stored only ' +
+        '<code>conversion_rate</code>, the 110 and the ' + (a + b) + ' are gone, and no query written afterwards can recover the correct number. ' +
+        'Store conversions and visits; let the ratio be computed at read time, at whatever grain the question asks for.';
+    }
+    sa.addEventListener('input', rates); sb.addEventListener('input', rates);
+    rates();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Declare The Grain</h2>
+  <p class="vz-lede">Grain is the exact statement of what one row represents, written before you choose a
+    single column. Pick a candidate and see whether it survives the data — and what questions it just made
+    unanswerable. <b>Like deciding whether a photo album has one page per holiday, per day, or per
+    photograph.</b></p>
+
+  <div class="v3-list" id="v3-list"></div>
+
+  <div class="vz-card">
+    <div class="v3-key" id="v3-key"></div>
+    <div class="v3-can" id="v3-can"></div>
+  </div>
+  <p class="vz-note">Write the grain statement in the model documentation <em>and</em> encode it in tests:
+    uniqueness of the row key, not-null on grain columns, accepted event types, reconciliation totals. And
+    before adding any column, ask whether its value is functionally determined at the declared grain — a
+    line quantity is; a customer's <em>current</em> segment is not, unless it comes through a time-aware
+    dimension.</p>
+
+  <style>
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-g{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-g[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-mk{flex:0 0 auto;font-weight:800;font-size:13px;width:16px;text-align:center}
+    .v3-key{font-size:12.5px;line-height:1.6}
+    .v3-key b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-tbl{margin:10px 0;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7}
+    .v3-tbl .v3-clash{color:var(--viz-red);font-weight:700}
+    .v3-can{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);display:flex;flex-direction:column;gap:6px}
+    .v3-q{display:flex;gap:9px;align-items:flex-start;font-size:12.5px;line-height:1.45}
+    .v3-q span:first-child{flex:0 0 auto;font-weight:800;width:16px}
+  </style>
+  <script>
+  (function(){
+    var GRAINS = [
+      { t:'"Sales data by customer and product"', ok:false,
+        key:['Not a grain statement at all.',
+          'It names no time, no event, and it does not say whether two lines for the same product in one order are one row or two. Every later decision — which measures are legal, which joins are safe, what the key is — has nothing to stand on. ' +
+          '<b>A grain that cannot be tested is not a grain.</b>'],
+        can:[[false,'is 2 × SKU-9 in one order one row or two?'],[false,'what is the unique key?'],[false,'can this table be safely joined to promotions?']] },
+      { t:'"One row per order per product"', ok:false,
+        key:['A real statement, and the data breaks it.',
+          'Order 1001 contains SKU-9 twice — a customer added it, then added more. The declared key <code>(order_id, product_id)</code> is therefore not unique, and a build-time uniqueness test would fail on day one, which is exactly what you want it to do.',
+          '<div class="v3-tbl">order_id  line_no  product   qty\n1001      1        <span class="v3-clash">SKU-9</span>     2\n1001      2        SKU-3     1\n1001      <span class="v3-clash">3</span>        <span class="v3-clash">SKU-9</span>     4   ← same (order, product)\n</div>'],
+        can:[[true,'roll up to orders and days'],[false,'store two distinct lines for one product'],[false,'pass its own uniqueness test']] },
+      { t:'"One row per order line as received from the commerce source"', ok:true,
+        key:['A grain you can test, and the finest practical one here.',
+          'The key is <code>(order_id, line_number)</code> and it is unique. It states the <b>source</b> too, which matters when a correction arrives: the model now has somewhere to say whether a correction replaces the row, appends a compensating event, or creates a new version. Those are semantic decisions, not loading mechanics.<br><br>' +
+          '<b>Atomic grain buys flexibility.</b> This table rolls up to orders, customers, days and categories on demand. It costs more storage than any summary and it deletes no dimension.'],
+        can:[[true,'which customer bought SKU-9'],[true,'revenue by category by day'],[true,'average lines per order'],[true,'roll up to any coarser grain later']] },
+      { t:'"One row per category per month"', ok:false,
+        key:['Legal, testable — and it has thrown away the dimensions.',
+          'A pre-aggregated table is not a smaller version of the atomic one; it is the atomic one with columns <b>deleted at write time</b>. It answers its own question quickly and can never answer another. ' +
+          'Build these as a derived performance layer on top of atomic facts, never as the model itself.'],
+        can:[[true,'monthly revenue by category, fast'],[false,'which customer bought the item'],[false,'anything at day grain'],[false,'any question invented after the table was built']] },
+      { t:'"One row per account per day at end of day"', ok:true,
+        key:['A snapshot grain — and it needs entity AND time, which this has.',
+          'Naming both is what stops an analyst confusing <em>state</em> with <em>events</em>. The remaining question is the one people skip: <b>what does a missing row mean?</b> Zero balance, entity not observed, or pipeline failure? Those are three different facts and only a completeness test — expected active entities against observed snapshots — can tell them apart.'],
+        can:[[true,'balance held on any given day'],[true,'sum across accounts for one day'],[false,'sum one account across days (semi-additive)'],[false,'reconstruct the individual transactions']] }
+    ];
+    var list = document.getElementById('v3-list'), keyB = document.getElementById('v3-key'), canB = document.getElementById('v3-can');
+    function show(i){
+      var g = GRAINS[i];
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+        var m = b.querySelector('.v3-mk');
+        if (i === j) { m.textContent = g.ok ? '✓' : '✕'; m.style.color = g.ok ? 'var(--viz-green)' : 'var(--viz-red)'; }
+        else { m.textContent = '›'; m.style.color = ''; }
+      });
+      keyB.innerHTML = '<b style="color:' + (g.ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + g.key[0] + '</b>' + g.key[1] + (g.key[2] || '');
+      canB.innerHTML = g.can.map(function(c){
+        return '<div class="v3-q"><span style="color:' + (c[0] ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (c[0] ? '✓' : '✕') + '</span><span>' + c[1] + '</span></div>';
+      }).join('');
+    }
+    GRAINS.forEach(function(g, i){
+      var b = document.createElement('button');
+      b.className = 'v3-g';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-mk">›</span><span>' + g.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Mixed Grain Overcounts</h2>
+  <p class="vz-lede">An order-level number sitting on a line-level row is the most damaging defect a
+    warehouse can carry, because nothing errors and the error factor differs per order. Drag the line count.
+    <b>Like writing the delivery fee on every item in the box and then adding up the box.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-lines">Order 1001 has <span id="v4-ll">3</span> lines · shipping cost 12.00</label>
+    <input type="range" id="v4-lines" min="1" max="10" value="3" step="1" aria-label="Number of lines on the order">
+    <div class="v4-tbl" id="v4-tbl"></div>
+    <div class="v4-sum" id="v4-sum"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">The same defect arrives through a join, too</h4>
+    <div class="v4-join" id="v4-join"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">Three repairs</h4>
+    <div class="v4-fix" id="v4-fix"></div>
+  </div>
+  <p class="vz-note">Late-arriving and duplicated events test the same contract. Pipelines should carry
+    stable source identifiers or idempotency keys, so a payment delivered twice does not double count — and
+    when a correction arrives the model must already say whether it replaces, compensates, or versions.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-tbl{margin-top:14px}
+    .v4-tbl table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v4-tbl th{text-align:right;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 6px 5px 0;font-family:inherit}
+    .v4-tbl th:first-child{text-align:left}
+    .v4-tbl td{padding:5px 6px 5px 0;border-bottom:1px solid var(--viz-line);text-align:right}
+    .v4-tbl td:first-child{text-align:left;color:var(--viz-muted)}
+    .v4-tbl td.v4-bad{color:var(--viz-red);font-weight:700}
+    .v4-sum{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px}
+    .v4-pill{font-size:12px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-join{font-size:12.5px;line-height:1.6}
+    .v4-fix{display:flex;flex-direction:column;gap:7px}
+    .v4-f{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v4-f b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var SHIP = 12, REV = [120, 40, 25, 60, 18, 35, 90, 14, 22, 47];
+    var s = document.getElementById('v4-lines'), ll = document.getElementById('v4-ll');
+    var tbl = document.getElementById('v4-tbl'), sum = document.getElementById('v4-sum');
+
+    function render(){
+      var n = Number(s.value);
+      ll.textContent = n;
+      var rows = [];
+      for (var i = 0; i < n; i++) rows.push({ ln:i + 1, rev:REV[i] });
+      tbl.innerHTML = '<table><thead><tr><th>line_no</th><th>line revenue</th><th>shipping_cost</th></tr></thead><tbody>' +
+        rows.map(function(r){
+          return '<tr><td>' + r.ln + '</td><td>' + r.rev.toFixed(2) + '</td><td class="v4-bad">' + SHIP.toFixed(2) + '</td></tr>';
+        }).join('') + '</tbody></table>';
+      var revTotal = rows.reduce(function(a, r){ return a + r.rev; }, 0);
+      var shipSum = SHIP * n;
+      sum.innerHTML =
+        '<div class="v4-pills">' +
+        '<span class="v4-pill" style="color:var(--viz-green);border-color:var(--viz-green)">SUM(revenue) = ' + revTotal.toFixed(2) + ' ✓</span>' +
+        '<span class="v4-pill" style="color:' + (n > 1 ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (n > 1 ? 'var(--viz-red)' : 'var(--viz-green)') + '">SUM(shipping_cost) = ' + shipSum.toFixed(2) + (n > 1 ? ' ✕' : ' ✓') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">true shipping = 12.00</span>' +
+        '</div>' +
+        (n > 1
+          ? 'Two grains in one table: revenue is per <b>line</b>, shipping is per <b>order</b>. The revenue column is right and the shipping column is overcounted <b>' + n + '×</b> — ' +
+            'and note that the multiplier is the line count, so a different order overcounts by a different factor. No single scale factor explains the total, ' +
+            'which is what makes this so hard to spot in a finished report and so easy to see here.'
+          : 'With one line the two grains coincide and everything looks fine. This is exactly why the defect survives testing: <b>it is invisible until the data has more than one child row.</b>');
+    }
+    s.addEventListener('input', render);
+    render();
+
+    document.getElementById('v4-join').innerHTML =
+      'Grain also decides which joins are safe. Join a 10-line order fact to a table holding 3 promotions for that order and you get ' +
+      '<b>30 rows</b> — every line repeated once per promotion — and any naïve <code>SUM(revenue)</code> now reports <b>3× the truth</b>. ' +
+      'The join is legal, the keys are right, and the result answers a question nobody asked: it is at order-line-promotion grain. ' +
+      '<br><br>The repairs are a <b>bridge table with allocation weights</b> (split the promotion across the lines it applies to, with the weights documented), ' +
+      'a distinct pre-aggregation to one row per order before joining, or a <b>separate promotion event fact</b> so the two measurements never share a table at all.';
+
+    document.getElementById('v4-fix').innerHTML = [
+      ['Put it in an order fact', 'Order-level measures belong at order grain. A fact_order table with one row per order carries shipping cost correctly, and joins to the line fact only when a question genuinely needs both.'],
+      ['Allocate it by a documented rule', 'Split the 12.00 across the lines — by revenue share, by weight, by count. Then it sums correctly at line grain <b>and</b> the rule is written down, so two teams cannot allocate it differently.'],
+      ['Store it on exactly one designated line', 'Cheapest to implement and the most dangerous: it sums correctly and it is invisible, so every consumer must know the convention. If you do this, encode it in a test, not in a wiki page.']
+    ].map(function(f){ return '<div class="v4-f"><b>' + f[0] + '</b>' + f[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Star Or Snowflake</h2>
+  <p class="vz-lede">One million products, 2,000 brands, 500 categories. Flatten the hierarchy into the
+    dimension, or normalise it out? Tap a consideration and read what each shape actually costs.
+    <b>Like a contacts app: full address on every card, or a link to a shared address book.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Shape">
+    <button id="v5-star" aria-pressed="true">star</button>
+    <button id="v5-snow" aria-pressed="false">snowflake</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v5-diagram" style="margin-bottom:11px"></div>
+
+  <div class="v5-list" id="v5-list"></div>
+  <div class="vz-card">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The best schema is the simplest model that preserves the declared grain and the
+    history while meeting the workload. A star is often the default because analytical systems favour reads
+    and columnar compression. Snowflake <em>selectively</em>, where independent governance, genuine reuse,
+    or real structural complexity justifies the extra join path — and hybrids are normal.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-i{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v5-i[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-w{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;border-radius:999px;
+      padding:2px 9px;border:1.5px solid;white-space:nowrap}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var star = true;
+    var bS = document.getElementById('v5-star'), bN = document.getElementById('v5-snow');
+    var diag = document.getElementById('v5-diagram'), list = document.getElementById('v5-list'), why = document.getElementById('v5-why');
+
+    var ITEMS = [
+      { t:'Joins to group revenue by department', winner:'star',
+        star:['One hop. fact_sales → dim_product, then GROUP BY department.',
+          'Every analytical path is a single join, which is where the diagram gets its name. Fewer joins is not only CPU: it is fewer chances to pick a wrong join path, and fewer chances to accidentally multiply rows.'],
+        snow:['Three hops. fact_sales → dim_product → dim_category → dim_department.',
+          'Each additional relationship is one more thing a BI tool has to be configured for, one more permission surface, and one more join whose cardinality someone has to have checked.'] },
+      { t:'Storage for repeated brand and category labels', winner:'tie',
+        star:['Labels repeat across a million product rows — and compress well.',
+          'A columnar warehouse dictionary-encodes a low-cardinality repeated column down to roughly a byte per row, so 2,000 brands over a million products is a small number. <b>Measure it under the actual engine</b>; uncompressed row intuition overestimates this badly.'],
+        snow:['Each label stored once, in its own small table.',
+          'Logically tidier, and the physical saving is often far less than it looks. This is the argument people reach for first and it is usually the weakest one available.'] },
+      { t:'A geography hierarchy shared by customer, supplier and facility', winner:'snow',
+        star:['Copied into three dimensions, and now it can drift.',
+          'Three pipelines can update three copies. That is the update anomaly from the previous lesson, and denormalizing without a maintenance plan is exactly how it arrives.'],
+        snow:['One standardised structure, centrally stewarded.',
+          '<b>This is the strong case for snowflaking</b>: a hierarchy that is large, shared, independently managed, or genuinely many-to-many. Governance, not normal forms, is the argument.'] },
+      { t:'A product that belongs to several categories at once', winner:'snow',
+        star:['Copied category columns cannot express it.',
+          'A single category column forces one answer, and adding category_1, category_2, category_3 is the repeating-group violation 1NF exists to prevent.'],
+        snow:['A bridge table, with allocation weights if totals must reconcile.',
+          'Many-to-many membership is structure, and structure needs a table. Note the same bridge-with-weights pattern that repairs the promotions fan-out — it is one idea, used twice.'] },
+      { t:'A category is renamed and old sales must keep the old label', winner:'neither',
+        star:['Update in place and every historical sale silently moves.',
+          'The label lives on the product row; change it and last year’s report changes with it.'],
+        snow:['Update in place and every historical sale silently moves.',
+          '<b>Identical failure.</b> Normalising a dimension does not give you history — normalisation is about where a fact lives, not about when it was true. Historical reporting needs versioning at the right dimension grain and time-aware fact keys, and the diagram shape is irrelevant to it. That is the whole subject of the next lesson.'] }
+    ];
+    var cur = 0;
+    function render(){
+      bS.setAttribute('aria-pressed', star ? 'true' : 'false');
+      bN.setAttribute('aria-pressed', star ? 'false' : 'true');
+      diag.innerHTML = star
+        ? '        dim_date\n            |\ndim_customer -- fact_sales -- dim_product\n                            (product, brand,\n                             category, department)\n\n-- one hop from the fact to every attribute'
+        : '        dim_date\n            |\ndim_customer -- fact_sales -- dim_product -- dim_brand\n                                    |\n                               dim_category -- dim_department\n\n-- the hierarchy is normalised out into its own tables';
+
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', cur === j ? 'true' : 'false');
+        var w = b.querySelector('.v5-w');
+        var it = ITEMS[j];
+        if (cur === j) {
+          var label = it.winner === 'star' ? 'STAR WINS' : (it.winner === 'snow' ? 'SNOWFLAKE WINS' : (it.winner === 'tie' ? 'ROUGHLY EVEN' : 'NEITHER'));
+          var c = it.winner === 'star' ? 'var(--viz-green)' : (it.winner === 'snow' ? 'var(--viz-violet)' : (it.winner === 'tie' ? 'var(--viz-muted)' : 'var(--viz-red)'));
+          w.textContent = label; w.style.color = c; w.style.borderColor = c;
+        } else { w.textContent = 'compare'; w.style.color = ''; w.style.borderColor = ''; }
+      });
+      var it = ITEMS[cur], side = star ? it.star : it.snow;
+      why.innerHTML = '<b>' + (star ? 'Star: ' : 'Snowflake: ') + side[0] + '</b>' + side[1] +
+        '<br><br><span style="color:var(--viz-muted)">Flip the shape above to see the other side of this same consideration.</span>';
+    }
+    ITEMS.forEach(function(it, i){
+      var b = document.createElement('button');
+      b.className = 'v5-i';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + it.t + '</span><span class="v5-w">compare</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      list.appendChild(b);
+    });
+    bS.addEventListener('click', function(){ star = true; render(); });
+    bN.addEventListener('click', function(){ star = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

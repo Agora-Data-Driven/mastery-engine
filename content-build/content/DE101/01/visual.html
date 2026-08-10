@@ -1,0 +1,639 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own. That is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px}
+.vz-seg button{flex:1;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:13px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Contract Desk</button>
+  <button class="viz-tab" data-viz-tab="2">2. Logical Order Machine</button>
+  <button class="viz-tab" data-viz-tab="3">3. Pagination Roulette</button>
+  <button class="viz-tab" data-viz-tab="4">4. Three-Valued Gate</button>
+  <button class="viz-tab" data-viz-tab="5">5. Where NULL Hides</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Contract Desk</h2>
+  <p class="vz-lede">You already store data in a document store, where a write is accepted first and
+    judged later. A relational table judges it at the door. Send each proposed write through both and
+    watch where the disagreement is. <b>Like a bouncer with the guest list versus one who lets everyone
+    in and sorts it out inside.</b></p>
+
+  <div class="vz-card vz-mono" style="margin-bottom:12px">CREATE TABLE users (
+  user_id  INTEGER PRIMARY KEY,
+  email    TEXT NOT NULL UNIQUE,
+  country  TEXT                      -- nullable on purpose
+);
+CREATE TABLE orders (
+  order_id INTEGER PRIMARY KEY,
+  user_id  INTEGER NOT NULL REFERENCES users(user_id),
+  amount   NUMERIC NOT NULL
+);
+-- already stored: users 7 ('mara@x.io','PH'), 9 ('kai@x.io','SG'); orders 41 -&gt; user 7</div>
+
+  <div class="v1-list" id="v1-list"></div>
+  <div class="v1-verdicts" id="v1-verdicts"></div>
+
+  <style>
+    .v1-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-w{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.45;display:flex;
+      align-items:center;gap:9px}
+    .v1-w[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-mark{flex:0 0 auto;font-weight:800;font-size:12px;width:15px;text-align:center}
+    .v1-verdicts{display:flex;flex-direction:column;gap:9px}
+    .v1-side{border:1.5px solid var(--viz-line);border-radius:11px;padding:11px;background:var(--viz-bg)}
+    .v1-side h4{margin:0 0 7px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-stamp{font-weight:800;font-size:13.5px;display:block;margin-bottom:4px}
+    .v1-body{font-size:12.5px;line-height:1.5}
+    .v1-empty{font-size:13px;color:var(--viz-muted)}
+  </style>
+  <script>
+  (function(){
+    var WRITES = [
+      { sql:"INSERT INTO users VALUES (12, 'rae@x.io', 'PH')",
+        docOk:true, sqlOk:true,
+        doc:'Stored. A new document with three fields.',
+        sqlv:'Accepted. Types match, the key is new, the email is new. Nothing to complain about.' },
+      { sql:"INSERT INTO users VALUES ('abc', 'sam@x.io', 'SG')",
+        docOk:true, sqlOk:false,
+        doc:'Stored. user_id is now a string on this document and an integer on every other one. Nothing tells you.',
+        sqlv:'REJECTED — type check. user_id is declared INTEGER, so the value never lands. This is schema-on-WRITE: the error arrives at the insert, not three months later inside a report.' },
+      { sql:"INSERT INTO users VALUES (13, NULL, 'SG')",
+        docOk:true, sqlOk:false,
+        doc:'Stored. The field is simply absent, which reads exactly like a user who has no email.',
+        sqlv:'REJECTED — NOT NULL. Every row must supply a value for every column, and email is one you declared mandatory. A row cannot quietly omit a column.' },
+      { sql:"INSERT INTO users VALUES (7, 'new@x.io', 'PH')",
+        docOk:true, sqlOk:false,
+        doc:'Stored, or the existing document is overwritten, depending on how you wrote the call.',
+        sqlv:'REJECTED — PRIMARY KEY. user_id 7 already exists, and a primary key is the engine’s own guarantee of uniqueness, not a convention you agreed to keep.' },
+      { sql:"INSERT INTO users VALUES (14, 'kai@x.io', 'PH')",
+        docOk:true, sqlOk:false,
+        doc:'Stored. Two documents now claim the same email and both look authoritative.',
+        sqlv:'REJECTED — UNIQUE. email is a candidate key: it could have been the primary key. Declaring UNIQUE keeps that promise true even though user_id was chosen instead.' },
+      { sql:"INSERT INTO orders VALUES (55, 999, 40.00)",
+        docOk:true, sqlOk:false,
+        doc:'Stored. An order belonging to a user who does not exist. Every join you write later silently drops it.',
+        sqlv:'REJECTED — FOREIGN KEY. orders.user_id must exist in users. This is referential integrity, and it is enforced by the storage layer rather than by whichever service happened to write the row.' },
+      { sql:"DELETE FROM users WHERE user_id = 7",
+        docOk:true, sqlOk:false,
+        doc:'Deleted. Order 41 now points at nobody, and it will keep doing so until something breaks.',
+        sqlv:'REJECTED — FOREIGN KEY, from the other direction. Order 41 still references user 7. You may configure ON DELETE CASCADE to delete the orders too, but the one thing you cannot get is a dangling reference.' },
+      { sql:"INSERT INTO users VALUES (15, 'ana@x.io', NULL)",
+        docOk:true, sqlOk:true,
+        doc:'Stored.',
+        sqlv:'Accepted. country was declared nullable, so NULL is a legal value here. Nullability is a per-column decision you make once — and every future query touching that column pays for it in three-valued logic.' }
+    ];
+    var list = document.getElementById('v1-list');
+    var out  = document.getElementById('v1-verdicts');
+
+    function side(title, ok, body){
+      var c = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v1-side" style="border-color:' + c + '"><h4>' + title + '</h4>' +
+        '<span class="v1-stamp" style="color:' + c + '">' + (ok ? '✓ accepted' : '✕ refused at the door') + '</span>' +
+        '<div class="v1-body">' + body + '</div></div>';
+    }
+    function show(i){
+      var w = WRITES[i];
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+        var m = b.querySelector('.v1-mark');
+        if (i === j) { m.textContent = w.sqlOk ? '✓' : '✕'; m.style.color = w.sqlOk ? 'var(--viz-green)' : 'var(--viz-red)'; }
+        else { m.textContent = '›'; m.style.color = ''; }
+      });
+      out.innerHTML = side('Document store (schema-on-read)', w.docOk, w.doc) +
+                      side('Relational table (schema-on-write)', w.sqlOk, w.sqlv);
+    }
+    WRITES.forEach(function(w, i){
+      var b = document.createElement('button');
+      b.className = 'v1-w';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-mark">›</span><span>' + w.sql + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    out.innerHTML = '<div class="vz-card v1-empty">Pick a write above. Both stores answer.</div>';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Logical Order Machine</h2>
+  <p class="vz-lede">You type SELECT first. It runs third. Step a query through the order it actually
+    <em>means</em> things in and the alias bug stops being a mystery.
+    <b>Like a recipe: you name the dish at the top, but you still chop before you plate.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which query to run">
+    <button id="v2-ok" aria-pressed="true">WHERE amount &gt; 100</button>
+    <button id="v2-bug" aria-pressed="false">WHERE a2 &gt; 100</button>
+  </div>
+
+  <div class="vz-card vz-mono v2-q" id="v2-q"></div>
+
+  <div class="v2-steps" id="v2-steps"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v2-stage" id="v2-stage"></div>
+    <div class="v2-tbl" id="v2-tbl"></div>
+    <p class="v2-why" id="v2-why"></p>
+  </div>
+  <p class="vz-note">The optimiser is free to do this work in a different physical order — filter through
+    an index before touching most rows, for instance. It is never free to return a different answer than
+    this order specifies. That is why the ladder is a reasoning tool, not a description of execution.</p>
+
+  <style>
+    .v2-q{margin-bottom:12px}
+    .v2-steps{display:flex;gap:5px;margin-bottom:0}
+    .v2-step{flex:1;min-height:52px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:9px;font:inherit;font-weight:800;font-size:11px;padding:5px 3px;
+      letter-spacing:.02em;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+    .v2-step small{font-weight:700;font-size:9px;opacity:.75}
+    .v2-step[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+    .v2-step.is-dead{border-color:var(--viz-red);color:var(--viz-red)}
+    .v2-step.is-dead[aria-pressed="true"]{background:var(--viz-red);border-color:var(--viz-red);color:#fff}
+    .v2-stage{font-size:13.5px;font-weight:700;margin-bottom:9px}
+    .v2-tbl table{width:100%;border-collapse:collapse;font-size:12.5px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-tbl th{text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+      color:var(--viz-muted);border-bottom:1.5px solid var(--viz-line);padding:0 8px 5px 0}
+    .v2-tbl td{padding:5px 8px 5px 0;border-bottom:1px solid var(--viz-line)}
+    .v2-tbl tr.is-cut td{opacity:.34;text-decoration:line-through}
+    .v2-tbl tr.is-new td{color:var(--viz-accent)}
+    .v2-err{border:1.5px solid var(--viz-red);border-radius:10px;padding:11px;font-size:12.5px;
+      line-height:1.5;color:var(--viz-red);font-weight:600}
+    .v2-why{font-size:12.5px;line-height:1.55;margin:11px 0 0;padding-top:10px;
+      border-top:1px dashed var(--viz-line)}
+  </style>
+  <script>
+  (function(){
+    var BASE = [
+      { id:1, uid:7, amt:40 }, { id:2, uid:7, amt:250 }, { id:3, uid:9, amt:120 },
+      { id:4, uid:9, amt:250 }, { id:5, uid:7, amt:95 }
+    ];
+    var LADDER = [
+      ['FROM',     '1st'], ['WHERE',   '2nd'], ['SELECT',  '3rd'],
+      ['ORDER BY', '4th'], ['LIMIT',   '5th']
+    ];
+    var mode = 'ok', step = 0;
+    var qBox = document.getElementById('v2-q');
+    var steps = document.getElementById('v2-steps');
+    var stage = document.getElementById('v2-stage');
+    var tbl = document.getElementById('v2-tbl');
+    var why = document.getElementById('v2-why');
+    var bOk = document.getElementById('v2-ok'), bBug = document.getElementById('v2-bug');
+
+    function table(cols, rows, cls){
+      var h = '<table><thead><tr>' + cols.map(function(c){ return '<th>' + c + '</th>'; }).join('') + '</tr></thead><tbody>';
+      h += rows.map(function(r){
+        return '<tr class="' + (cls ? cls(r) : '') + '">' + r.cells.map(function(v){ return '<td>' + v + '</td>'; }).join('') + '</tr>';
+      }).join('');
+      return h + '</tbody></table>';
+    }
+    var raw = BASE.map(function(r){ return { cells:[r.id, r.uid, r.amt], amt:r.amt, id:r.id }; });
+    var kept = BASE.filter(function(r){ return r.amt > 100; });
+    var projected = kept.map(function(r){ return { cells:[r.id, r.amt * 2], a2:r.amt * 2, id:r.id }; });
+    var sorted = projected.slice().sort(function(a, b){ return (b.a2 - a.a2) || (a.id - b.id); });
+
+    function render(){
+      var dead = (mode === 'bug' && step >= 1);
+      qBox.innerHTML = mode === 'ok'
+        ? 'SELECT order_id, amount * 2 AS a2\nFROM   orders\nWHERE  amount &gt; 100\nORDER  BY a2 DESC, order_id\nLIMIT  2'
+        : 'SELECT order_id, amount * 2 AS a2\nFROM   orders\nWHERE  a2 &gt; 100          -- the alias, in WHERE\nORDER  BY a2 DESC, order_id\nLIMIT  2';
+      bOk.setAttribute('aria-pressed', mode === 'ok' ? 'true' : 'false');
+      bBug.setAttribute('aria-pressed', mode === 'bug' ? 'true' : 'false');
+
+      [].slice.call(steps.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', i === step ? 'true' : 'false');
+        b.classList.toggle('is-dead', mode === 'bug' && i >= 1);
+      });
+
+      if (dead) {
+        stage.innerHTML = '<span style="color:var(--viz-red)">2. WHERE — the query never gets past here</span>';
+        tbl.innerHTML = '<div class="v2-err">ERROR: column "a2" does not exist</div>';
+        why.innerHTML = 'WHERE runs <b>before</b> SELECT, so the alias <code>a2</code> has not been created yet — nothing has been projected. ' +
+          'Repeat the expression instead: <code>WHERE amount * 2 &gt; 100</code>. The mirror-image fact is the useful one: ' +
+          '<code>ORDER BY a2</code> is legal, because sorting happens <b>after</b> projection.';
+        return;
+      }
+      if (step === 0) {
+        stage.textContent = '1. FROM orders — 5 rows, in no promised order';
+        tbl.innerHTML = table(['order_id', 'user_id', 'amount'], raw);
+        why.innerHTML = 'A table is a <b>set</b>. The engine hands over every row; the arrangement you see here is an accident of storage and is not promised to repeat.';
+      } else if (step === 1) {
+        stage.textContent = '2. WHERE amount > 100 — 3 rows survive';
+        tbl.innerHTML = table(['order_id', 'user_id', 'amount'], raw, function(r){ return r.amt > 100 ? '' : 'is-cut'; });
+        why.innerHTML = 'The predicate reads <b>stored</b> column values, row by row. Orders 1 and 5 are gone here — which is why their doubling never happens at all.';
+      } else if (step === 2) {
+        stage.textContent = '3. SELECT order_id, amount * 2 AS a2 — the alias is born';
+        tbl.innerHTML = table(['order_id', 'a2'], projected, function(){ return 'is-new'; });
+        why.innerHTML = 'Projection: the output columns are computed now, on the surviving rows only. <code>a2</code> exists from this line downward and nowhere above it.';
+      } else if (step === 3) {
+        stage.textContent = '4. ORDER BY a2 DESC, order_id — a total order';
+        tbl.innerHTML = table(['order_id', 'a2'], sorted);
+        why.innerHTML = 'Orders 2 and 4 tie at 500. The second sort key <code>order_id</code> settles it, so this arrangement is the same on every run — that is what makes the LIMIT below reproducible.';
+      } else {
+        stage.textContent = '5. LIMIT 2 — the first 2 rows of the sorted stream';
+        tbl.innerHTML = table(['order_id', 'a2'], sorted.map(function(r, i){
+          return { cells: r.cells, keep: i < 2 };
+        }), function(r){ return r.keep ? '' : 'is-cut'; });
+        why.innerHTML = 'LIMIT truncates the <b>sorted</b> stream. Without the ORDER BY above it, "the first 2" would be whichever 2 the engine happened to produce first — a different answer run to run.';
+      }
+    }
+    LADDER.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v2-step';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = s[0] + '<small>' + s[1] + '</small>';
+      b.addEventListener('click', function(){ step = i; render(); });
+      steps.appendChild(b);
+    });
+    bOk.addEventListener('click', function(){ mode = 'ok'; render(); });
+    bBug.addEventListener('click', function(){ mode = 'bug'; step = Math.max(step, 1); render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Pagination Roulette</h2>
+  <p class="vz-lede">Six orders tie at 300. Page 1 and page 2 are two <em>separate</em> queries, so the
+    engine is free to arrange that tie group differently in each. Hit re-run and watch rows appear twice
+    or vanish. <b>Like shuffling a deck between dealing hand one and hand two.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Sort key">
+    <button id="v3-off" aria-pressed="true">ORDER BY amount DESC</button>
+    <button id="v3-on" aria-pressed="false">… , order_id</button>
+  </div>
+
+  <div class="vz-card">
+    <button class="v3-run" id="v3-run">↻ Re-run both page queries</button>
+    <div class="v3-pages">
+      <div class="v3-page" id="v3-p1"></div>
+      <div class="v3-page" id="v3-p2"></div>
+    </div>
+    <div class="v3-audit" id="v3-audit"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <label for="v3-depth" style="font-size:12.5px;font-weight:700;display:block;margin-bottom:6px">
+      Now a 2,000,000-row table, 20 per page. Reader is on page
+      <span id="v3-plabel" style="color:var(--viz-accent)">1</span></label>
+    <input type="range" id="v3-depth" min="1" max="500" value="1" step="1" aria-label="Page number">
+    <div class="v3-work" id="v3-work"></div>
+  </div>
+  <p class="vz-note">Two separate lessons, one clause. A sort that is not a <b>total</b> order is not
+    reproducible, so paging over it is a lottery. And OFFSET truncates the output without saving the
+    work — which is why deep paging uses keyset: <code>WHERE (amount, order_id) &lt; (300, 106)</code>,
+    a seek instead of a scan-and-discard, and immune to rows inserted between fetches.</p>
+
+  <style>
+    .v3-run{width:100%;min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-surface);
+      color:var(--viz-accent);border-radius:10px;font:inherit;font-weight:700;font-size:13.5px;margin-bottom:12px}
+    .v3-pages{display:flex;flex-direction:column;gap:9px}
+    .v3-page{border:1.5px solid var(--viz-line);border-radius:10px;padding:10px;background:var(--viz-bg)}
+    .v3-page h4{margin:0 0 7px;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-rowline{display:flex;gap:6px;flex-wrap:wrap}
+    .v3-chip{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:700;
+      border:1.5px solid var(--viz-line);border-radius:8px;padding:4px 8px;background:var(--viz-surface)}
+    .v3-chip.is-dupe{border-color:var(--viz-red);color:var(--viz-red)}
+    .v3-audit{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-audit b{font-size:13px}
+    .v3-tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.04em;
+      border-radius:999px;padding:2px 8px;border:1.5px solid;margin-right:7px}
+    .v3-work{margin-top:12px;font-size:12.5px;line-height:1.55}
+    .v3-bar{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden;display:flex;margin:8px 0}
+    .v3-bar i{display:block;height:100%;background:var(--viz-red)}
+    .v3-bar i.v3-good{background:var(--viz-green)}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { id:101, amt:500 }, { id:102, amt:500 },
+      { id:103, amt:300 }, { id:104, amt:300 }, { id:105, amt:300 },
+      { id:106, amt:300 }, { id:107, amt:300 }, { id:108, amt:300 },
+      { id:109, amt:100 }, { id:110, amt:100 }, { id:111, amt:100 }, { id:112, amt:100 }
+    ];
+    var TIE = [103, 104, 105, 106, 107, 108];
+    var SIZE = 4, tiebreak = false;
+    var p1El = document.getElementById('v3-p1'), p2El = document.getElementById('v3-p2');
+    var audit = document.getElementById('v3-audit');
+    var bOff = document.getElementById('v3-off'), bOn = document.getElementById('v3-on');
+
+    // One EXECUTION of the sort. With no tiebreaker the engine may arrange equal
+    // rows however its plan happens to; that freedom is the whole point here.
+    function run(){
+      var rows = ROWS.slice();
+      if (!tiebreak) rows.sort(function(){ return Math.random() - 0.5; });
+      rows.sort(function(a, b){ return (b.amt - a.amt) || (tiebreak ? a.id - b.id : 0); });
+      return rows;
+    }
+    function page(n){ return run().slice((n - 1) * SIZE, n * SIZE); }
+
+    function chips(rows, dupes){
+      return rows.map(function(r){
+        return '<span class="v3-chip' + (dupes.indexOf(r.id) > -1 ? ' is-dupe' : '') + '">' + r.id + ' · ' + r.amt + '</span>';
+      }).join('');
+    }
+    function deal(){
+      var a = page(1), b = page(2);
+      var ida = a.map(function(r){ return r.id; }), idb = b.map(function(r){ return r.id; });
+      var dupes = ida.filter(function(x){ return idb.indexOf(x) > -1; });
+      var seen = ida.concat(idb);
+      var missed = TIE.filter(function(x){ return seen.indexOf(x) === -1; });
+
+      p1El.innerHTML = '<h4>page 1 · LIMIT 4</h4><div class="v3-rowline">' + chips(a, dupes) + '</div>';
+      p2El.innerHTML = '<h4>page 2 · LIMIT 4 OFFSET 4</h4><div class="v3-rowline">' + chips(b, dupes) + '</div>';
+
+      if (tiebreak) {
+        audit.innerHTML = '<span class="v3-tag" style="color:var(--viz-green);border-color:var(--viz-green)">TOTAL ORDER</span>' +
+          '<b style="color:var(--viz-green)">Same two pages every time.</b><br>' +
+          'order_id is unique, so no two rows can tie on the full key list. There is exactly one correct arrangement, ' +
+          'both page queries find it, and every row is shown exactly once. Re-run as often as you like.';
+      } else {
+        audit.innerHTML = '<span class="v3-tag" style="color:var(--viz-red);border-color:var(--viz-red)">PARTIAL ORDER</span>' +
+          '<b style="color:var(--viz-red)">Shown twice: ' + (dupes.length ? dupes.join(', ') : 'none this run') + '</b><br>' +
+          '<b style="color:var(--viz-amber)">Never shown at all: ' + (missed.length ? missed.join(', ') : 'none this run') + '</b><br>' +
+          'Both pages are correct SQL. Rows 103–108 all satisfy "amount = 300", so any arrangement of them honours ' +
+          'the ORDER BY — and the two page queries are separate executions that need not agree. ' +
+          'Some runs happen to come out clean, which is exactly why this bug survives review.';
+      }
+    }
+    bOff.addEventListener('click', function(){ tiebreak = false; bOff.setAttribute('aria-pressed','true'); bOn.setAttribute('aria-pressed','false'); deal(); });
+    bOn.addEventListener('click', function(){ tiebreak = true; bOn.setAttribute('aria-pressed','true'); bOff.setAttribute('aria-pressed','false'); deal(); });
+    document.getElementById('v3-run').addEventListener('click', deal);
+
+    var depth = document.getElementById('v3-depth');
+    var plabel = document.getElementById('v3-plabel');
+    var work = document.getElementById('v3-work');
+    function meter(){
+      var p = Number(depth.value), off = (p - 1) * 20;
+      var total = off + 20, pct = Math.round((off / total) * 100);
+      plabel.textContent = p;
+      work.innerHTML =
+        '<div class="v3-bar"><i style="width:' + pct + '%"></i><i class="v3-good" style="width:' + (100 - pct) + '%"></i></div>' +
+        'To serve <code>LIMIT 20 OFFSET ' + off + '</code> the engine produces <b>' + total + '</b> ordered rows, ' +
+        'then throws <b style="color:var(--viz-red)">' + off + '</b> of them away to hand you ' +
+        '<b style="color:var(--viz-green)">20</b>. Cost grows linearly with page depth: page 1 is 20 rows of work, ' +
+        'page ' + p + ' is ' + total + '.';
+    }
+    depth.addEventListener('input', meter);
+    deal(); meter();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Three-Valued Gate</h2>
+  <p class="vz-lede">NULL means <em>unknown</em>, so a comparison against it is neither true nor false.
+    Set the two operands and read off what SQL concludes — then watch the WHERE gate, which keeps a row
+    only when the answer is exactly TRUE. <b>Like a witness who says "I don't know": not a yes, and not a
+    no either.</b></p>
+
+  <div class="v4-pick">
+    <div class="v4-col"><h4>p</h4><div class="v4-set" id="v4-p"></div></div>
+    <div class="v4-col"><h4>q</h4><div class="v4-set" id="v4-q"></div></div>
+  </div>
+
+  <div class="v4-grid" id="v4-grid"></div>
+  <div class="vz-card v4-why" id="v4-why"></div>
+  <p class="vz-note">Derive it rather than memorise it: treat UNKNOWN as "could be either" and ask whether
+    that freedom can still change the answer. FALSE AND anything is FALSE because one false conjunct dooms
+    the conjunction whichever way the unknown lands. TRUE OR anything is TRUE for the mirror reason.
+    Everywhere else the unknown survives — and a surviving unknown is a dropped row.</p>
+
+  <style>
+    .v4-pick{display:flex;gap:9px;margin-bottom:13px}
+    .v4-col{flex:1}
+    .v4-col h4{margin:0 0 6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--viz-muted)}
+    .v4-set{display:flex;flex-direction:column;gap:5px}
+    .v4-set button{min-height:40px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:9px;font:inherit;font-weight:700;font-size:12px;padding:4px 6px}
+    .v4-set button[aria-pressed="true"]{color:#fff}
+    .v4-grid{display:flex;flex-direction:column;gap:7px;margin-bottom:12px}
+    .v4-cell{border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 12px;background:var(--viz-surface);
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .v4-expr{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:700;flex:1 1 108px}
+    .v4-val{font-weight:800;font-size:13px;letter-spacing:.02em}
+    .v4-gate{font-size:10.5px;font-weight:800;letter-spacing:.05em;border-radius:999px;
+      padding:3px 9px;border:1.5px solid;margin-left:auto}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;margin-bottom:4px;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var VALS = ['TRUE', 'FALSE', 'UNKNOWN'];
+    var COLOUR = { TRUE:'var(--viz-green)', FALSE:'var(--viz-red)', UNKNOWN:'var(--viz-amber)' };
+    var p = 'TRUE', q = 'UNKNOWN';
+
+    function and(a, b){
+      if (a === 'FALSE' || b === 'FALSE') return 'FALSE';
+      if (a === 'UNKNOWN' || b === 'UNKNOWN') return 'UNKNOWN';
+      return 'TRUE';
+    }
+    function or(a, b){
+      if (a === 'TRUE' || b === 'TRUE') return 'TRUE';
+      if (a === 'UNKNOWN' || b === 'UNKNOWN') return 'UNKNOWN';
+      return 'FALSE';
+    }
+    function not(a){ return a === 'UNKNOWN' ? 'UNKNOWN' : (a === 'TRUE' ? 'FALSE' : 'TRUE'); }
+
+    var grid = document.getElementById('v4-grid');
+    var whyBox = document.getElementById('v4-why');
+    var sets = { p: document.getElementById('v4-p'), q: document.getElementById('v4-q') };
+
+    function build(which){
+      VALS.forEach(function(v){
+        var b = document.createElement('button');
+        b.textContent = v;
+        b.setAttribute('aria-pressed', 'false');
+        b.addEventListener('click', function(){
+          if (which === 'p') p = v; else q = v;
+          render();
+        });
+        sets[which].appendChild(b);
+      });
+    }
+    function cell(expr, val){
+      var kept = val === 'TRUE';
+      return '<div class="v4-cell" style="border-color:' + COLOUR[val] + '">' +
+        '<span class="v4-expr">' + expr + '</span>' +
+        '<span class="v4-val" style="color:' + COLOUR[val] + '">' + val + '</span>' +
+        '<span class="v4-gate" style="color:' + (kept ? 'var(--viz-green)' : 'var(--viz-red)') +
+        ';border-color:' + (kept ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        (kept ? 'WHERE KEEPS THE ROW' : 'WHERE DROPS THE ROW') + '</span></div>';
+    }
+    function reason(){
+      var anyU = p === 'UNKNOWN' || q === 'UNKNOWN';
+      if (!anyU) {
+        return ['Both operands known — ordinary two-valued logic.',
+          'With no NULL anywhere in the predicate, SQL behaves exactly like the boolean logic you already use, and every row is kept or dropped for a reason you can see. Set either operand to UNKNOWN to leave that world.'];
+      }
+      if (p === 'UNKNOWN' && q === 'UNKNOWN') {
+        return ['Both unknown — everything built from them stays unknown.',
+          'This is the shape of <code>NULL = NULL</code>: two unknown quantities cannot be asserted equal, so the comparison is UNKNOWN rather than TRUE. And look at <code>NOT p</code> — still UNKNOWN. Negating "I do not know" does not produce knowledge, which is why you can never reach a NULL row by adding a NOT.'];
+      }
+      if (p === 'FALSE' || q === 'FALSE') {
+        return ['FALSE AND UNKNOWN is FALSE — the one place the unknown loses its vote.',
+          'A single false conjunct settles the conjunction on its own: whichever way the unknown turns out, the AND cannot become true, so SQL is entitled to answer FALSE and does. The OR beside it shows the other half of the story — FALSE OR UNKNOWN stays UNKNOWN, because there the unknown could still decide the outcome.'];
+      }
+      return ['TRUE AND UNKNOWN is UNKNOWN — and that row is dropped.',
+        'The most expensive line in the lesson. The predicate did not evaluate FALSE, nothing is wrong with the row, and no error is raised anywhere; <code>WHERE</code> simply keeps rows that are TRUE. Contrast the OR beside it: TRUE OR UNKNOWN is TRUE, because one true disjunct settles the disjunction and the unknown never gets a say. Same unknown, opposite fate — which is why rewriting a filter as an OR sometimes rescues rows an AND was quietly discarding.'];
+    }
+    function render(){
+      [].slice.call(sets.p.children).forEach(function(b){
+        var on = b.textContent === p;
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.style.background = on ? COLOUR[p] : '';
+        b.style.borderColor = on ? COLOUR[p] : '';
+      });
+      [].slice.call(sets.q.children).forEach(function(b){
+        var on = b.textContent === q;
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.style.background = on ? COLOUR[q] : '';
+        b.style.borderColor = on ? COLOUR[q] : '';
+      });
+      grid.innerHTML = cell('p AND q', and(p, q)) + cell('p OR q', or(p, q)) + cell('NOT p', not(p));
+      var r = reason();
+      whyBox.innerHTML = '<b>' + r[0] + '</b>' + r[1];
+    }
+    build('p'); build('q'); render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Where NULL Hides</h2>
+  <p class="vz-lede">Five users, two of them with an unknown country. Run each predicate and read the
+    per-row verdict. The tally at the bottom is the point: two filters that look like opposites do not
+    cover the table between them. <b>Like a survey where "did not answer" is neither a yes nor a no,
+    so both bar charts are short.</b></p>
+
+  <div class="v5-list" id="v5-list"></div>
+  <div class="vz-card">
+    <div class="v5-tbl" id="v5-tbl"></div>
+    <div class="v5-tally" id="v5-tally"></div>
+  </div>
+  <p class="vz-note">The fix at query time is <code>IS NULL</code> / <code>IS NOT NULL</code>, which never
+    return UNKNOWN, or <code>COALESCE</code> to map unknown onto a sentinel at projection time. The fix at
+    design time is better: declare <code>NOT NULL</code> wherever the domain guarantees a value. Every
+    nullable column taxes every future query that touches it.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-p{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v5-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-n{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-muted);min-width:52px}
+    .v5-tbl table{width:100%;border-collapse:collapse;font-size:12.5px}
+    .v5-tbl th{text-align:left;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 6px 5px 0}
+    .v5-tbl td{padding:6px 6px 6px 0;border-bottom:1px solid var(--viz-line);
+      font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v5-tbl td.v5-verdict{font-weight:800}
+    .v5-tbl tr.v5-drop td:not(.v5-verdict){opacity:.4}
+    .v5-tally{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-tally b{font-size:13px}
+    .v5-cover{display:flex;gap:4px;margin:9px 0 8px}
+    .v5-cover span{flex:1;height:26px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+      font-size:10.5px;font-weight:800;border:1.5px solid}
+  </style>
+  <script>
+  (function(){
+    var USERS = [
+      { id:1, c:"'PH'" }, { id:2, c:'NULL' }, { id:3, c:"'SG'" },
+      { id:4, c:'NULL' }, { id:5, c:"'PH'" }
+    ];
+    var isNull = function(u){ return u.c === 'NULL'; };
+    var PREDS = [
+      { sql:"country = 'PH'", tag:'compare',
+        ev:function(u){ return isNull(u) ? 'UNKNOWN' : (u.c === "'PH'" ? 'TRUE' : 'FALSE'); },
+        why:'Users 2 and 4 are not FALSE here — they are UNKNOWN. The engine cannot say whether an unknown country equals PH, so it declines to say either.' },
+      { sql:"country &lt;&gt; 'PH'", tag:'compare',
+        ev:function(u){ return isNull(u) ? 'UNKNOWN' : (u.c === "'PH'" ? 'FALSE' : 'TRUE'); },
+        why:'The apparent opposite of the previous filter, and it drops the same two rows. Comparisons cannot see through a NULL <b>in either direction</b> — this is the number-one cause of silently missing rows.' },
+      { sql:'country IS NULL', tag:'special',
+        ev:function(u){ return isNull(u) ? 'TRUE' : 'FALSE'; },
+        why:'IS NULL is a special predicate, not a comparison. It returns only TRUE or FALSE, never UNKNOWN — which is exactly why it is the only reliable way to ask the question.' },
+      { sql:'country IS NOT NULL', tag:'special',
+        ev:function(u){ return isNull(u) ? 'FALSE' : 'TRUE'; },
+        why:'The genuine complement of IS NULL. These two really do partition the table: 2 rows plus 3 rows equals all 5, every time.' },
+      { sql:"country NOT IN ('PH','SG')", tag:'expands',
+        ev:function(u){ return isNull(u) ? 'UNKNOWN' : 'FALSE'; },
+        why:'Expands to <code>country &lt;&gt; \'PH\' AND country &lt;&gt; \'SG\'</code>. Every known country fails one conjunct, and the unknown ones stay UNKNOWN — so this returns nothing, which is correct and still surprising.' },
+      { sql:"country NOT IN ('PH', NULL)", tag:'trap',
+        ev:function(){ return 'UNKNOWN'; },
+        why:'<b>Zero rows, always, on any data.</b> It expands to <code>country &lt;&gt; \'PH\' AND country &lt;&gt; NULL</code>, and that second conjunct is UNKNOWN for every row including the ones with a known country — TRUE AND UNKNOWN is UNKNOWN. One NULL inside a NOT IN list annihilates the whole query, silently. Keep this one in your pocket: it comes back when NOT IN meets NOT EXISTS in the joins lesson.' },
+      { sql:"COALESCE(country,'??') &lt;&gt; 'PH'", tag:'tool',
+        ev:function(u){ return isNull(u) ? 'TRUE' : (u.c === "'PH'" ? 'FALSE' : 'TRUE'); },
+        why:'COALESCE substitutes a sentinel before the comparison runs, so there is no NULL left to poison it. Two-valued logic is restored and the unknown rows are counted as "not PH" — a decision you have now made deliberately rather than inherited by accident.' }
+    ];
+    var COLOUR = { TRUE:'var(--viz-green)', FALSE:'var(--viz-red)', UNKNOWN:'var(--viz-amber)' };
+    var list = document.getElementById('v5-list');
+    var tbl = document.getElementById('v5-tbl');
+    var tally = document.getElementById('v5-tally');
+
+    function count(pred){ return USERS.filter(function(u){ return pred.ev(u) === 'TRUE'; }).length; }
+
+    function show(i){
+      var pr = PREDS[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      var rows = USERS.map(function(u){
+        var v = pr.ev(u), kept = v === 'TRUE';
+        return '<tr class="' + (kept ? '' : 'v5-drop') + '"><td>' + u.id + '</td><td>' + u.c + '</td>' +
+          '<td class="v5-verdict" style="color:' + COLOUR[v] + '">' + v + '</td>' +
+          '<td style="color:' + (kept ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (kept ? 'returned' : 'dropped') + '</td></tr>';
+      }).join('');
+      tbl.innerHTML = '<table><thead><tr><th>user_id</th><th>country</th><th>predicate</th><th>WHERE</th></tr></thead><tbody>' + rows + '</tbody></table>';
+
+      var n = count(pr), eq = count(PREDS[0]), ne = count(PREDS[1]);
+      tally.innerHTML =
+        '<b>Returns ' + n + ' of 5 rows.</b> ' + pr.why +
+        '<div class="v5-cover">' +
+        '<span style="color:var(--viz-green);border-color:var(--viz-green)">= \'PH\' → ' + eq + '</span>' +
+        '<span style="color:var(--viz-green);border-color:var(--viz-green)">&lt;&gt; \'PH\' → ' + ne + '</span>' +
+        '<span style="color:var(--viz-amber);border-color:var(--viz-amber)">neither → ' + (5 - eq - ne) + '</span>' +
+        '</div>' +
+        'The coverage bar never changes, whichever predicate you pick: <code>= \'PH\'</code> and ' +
+        '<code>&lt;&gt; \'PH\'</code> account for ' + (eq + ne) + ' of 5 rows between them. The other ' +
+        (5 - eq - ne) + ' fall through both, in silence.';
+    }
+    PREDS.forEach(function(pr, i){
+      var b = document.createElement('button');
+      b.className = 'v5-p';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-n">' + pr.tag + '</span><span>WHERE ' + pr.sql + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+</body>
+</html>

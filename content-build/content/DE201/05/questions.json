@@ -3,210 +3,360 @@
     {
       "topic": "Iceberg and Delta: Metadata Layers That Add ACID to Object Storage",
       "question": "What do open table formats add above object-store data files?",
-      "options": ["Transactional metadata defining table state", "In-place object byte editing", "A requirement to use row storage", "One directory per query"],
+      "options": [
+        "A transactional metadata layer that defines the committed table state",
+        "A block device driver that lets engines edit object bytes in place",
+        "A requirement that every table be stored in a row-oriented file format",
+        "A separate storage bucket that holds one directory for each query"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Iceberg and Delta: Metadata Layers That Add ACID to Object Storage",
       "question": "Why do readers consult table metadata instead of listing a data prefix?",
-      "options": ["Metadata contains every row value", "It identifies the exact committed file set", "Prefix listing cannot return keys", "Data files have no schema"],
+      "options": [
+        "Because metadata stores the row values themselves, so no scan is needed",
+        "Because metadata names the exact file set committed by a snapshot",
+        "Because a prefix listing cannot return keys once a bucket is versioned",
+        "Because data files carry no schema, so a listing cannot be interpreted"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Iceberg and Delta: Metadata Layers That Add ACID to Object Storage",
       "question": "What should happen when two writers rewrite the same files from one parent snapshot?",
-      "options": ["Both silently win", "The later writer deletes all metadata", "Conflict validation should reject an incompatible commit", "Readers combine both as duplicates"],
+      "options": [
+        "Both commits should succeed, since each wrote its own immutable files",
+        "The later writer should delete the earlier snapshot and its metadata",
+        "Conflict validation should reject the second, incompatible commit",
+        "Readers should merge both file sets and deduplicate the rows later"
+      ],
       "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Iceberg and Delta: Metadata Layers That Add ACID to Object Storage",
       "question": "What operational requirement remains after a table metadata commit?",
-      "options": ["Data objects may be missing", "Readers must list every prefix", "Snapshots no longer need retention", "Every referenced object must remain readable and durable"],
+      "options": [
+        "The referenced data objects may be deleted once the commit is durable",
+        "Readers must list every prefix to confirm the snapshot is complete",
+        "Retention policies become unnecessary because snapshots are immutable",
+        "Every referenced object must stay readable, durable and safe from cleanup"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Iceberg and Delta: Metadata Layers That Add ACID to Object Storage",
       "question": "Why does updating two formatted tables separately not create one atomic dataset transaction?",
-      "options": ["Each table has its own independent commit boundary", "Open formats cannot store multiple tables", "Object stores prohibit manifests", "Table schemas must be identical"],
+      "options": [
+        "Each table commits on its own boundary, so versions can be mismatched",
+        "Open formats forbid more than one table inside a single storage bucket",
+        "Object stores reject manifests that reference more than one table name",
+        "The two tables must share an identical schema before any commit lands"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Iceberg and Delta: Metadata Layers That Add ACID to Object Storage",
       "question": "Why must engine compatibility be tested even when a feature exists in a format specification?",
-      "options": ["Specifications contain no semantics", "Reader and writer implementations can support features differently", "Every engine uses a private object store", "Metadata eliminates software versions"],
+      "options": [
+        "Because a specification defines file layout but carries no semantics",
+        "Because reader and writer implementations support features unevenly",
+        "Because each engine keeps its own private copy of the object store",
+        "Because a metadata commit makes the software version irrelevant"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Snapshots and Time Travel",
       "question": "What is a table snapshot?",
-      "options": ["A mutable copy of one file", "A query result cache only", "An immutable description of table state at a commit", "A list of all bucket prefixes"],
+      "options": [
+        "A mutable working copy of one data file kept beside the original",
+        "A cache of query results attached to the table for faster reads",
+        "An immutable description of the table's state at a single commit",
+        "A listing of every prefix the table's bucket currently contains"
+      ],
       "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Snapshots and Time Travel",
       "question": "What is a key use of time travel?",
-      "options": ["Modify old objects in place", "Remove table lineage", "Disable rollback", "Reproduce or audit a prior table state"],
+      "options": [
+        "Editing objects from an earlier snapshot without rewriting them",
+        "Removing lineage records so a table's history stays compact",
+        "Disabling rollback so the newest commit is always authoritative",
+        "Reproducing or auditing the table exactly as it stood earlier"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Snapshots and Time Travel",
       "question": "Why is snapshot ID more deterministic than a timestamp for lineage?",
-      "options": ["It names one exact committed state", "It always equals the row count", "It removes the parent snapshot", "It encodes every data value"],
+      "options": [
+        "It names one exact committed state, free of clock and ordering doubt",
+        "It equals the row count at commit, so a mismatch is easy to detect",
+        "It replaces the parent reference, so the chain cannot be walked back",
+        "It encodes each data value, so the state can be rebuilt from the ID"
+      ],
       "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Snapshots and Time Travel",
       "question": "Why is time travel not automatically a permanent backup?",
-      "options": ["Snapshots never reference data", "Expiration and garbage collection can remove old metadata and files", "A snapshot can be read only once", "Time travel rewrites all rows"],
+      "options": [
+        "Because snapshots record only counts and never reference data files",
+        "Because expiration and cleanup can remove old metadata and files",
+        "Because each snapshot can be read once before it is marked consumed",
+        "Because reading an old snapshot rewrites the rows it was built from"
+      ],
       "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Snapshots and Time Travel",
       "question": "A six-hour query is pinned to a snapshot. What must retention guarantee?",
-      "options": ["The snapshot expires immediately", "Only the newest data file remains", "Its referenced files survive through the query and safety window", "The query changes snapshots hourly"],
+      "options": [
+        "That the snapshot expires as soon as a newer commit lands on the table",
+        "That only the newest data file of each partition is kept in the bucket",
+        "That its referenced files outlive the query and a safety margin",
+        "That the query is rebased onto the current snapshot every hour"
+      ],
       "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Snapshots and Time Travel",
       "question": "What is a risk of forgotten branches or protected tags?",
-      "options": ["They cannot reference snapshots", "They delete main-branch data", "They force schema narrowing", "They can retain sensitive or costly history indefinitely"],
+      "options": [
+        "They cannot reference a snapshot once the main branch advances",
+        "They delete data from the main branch when their retention expires",
+        "They force every later schema change to narrow a column's type",
+        "They pin sensitive or costly history so cleanup never reclaims it"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "Schema Evolution Rules: Safe vs Breaking Changes",
       "question": "Which schema change is usually safest?",
-      "options": ["Add a nullable column", "Narrow a large integer to a small integer", "Reuse a dropped field ID", "Change timestamp timezone semantics"],
+      "options": [
+        "Adding a nullable column that old files simply read back as a null value",
+        "Narrowing a large integer column to a smaller integer width",
+        "Reusing a dropped field ID for a newly introduced column",
+        "Redefining a timestamp column's timezone after historical data landed"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Schema Evolution Rules: Safe vs Breaking Changes",
       "question": "Why do stable field IDs matter?",
-      "options": ["They compress every column", "They preserve column identity across renames and file history", "They determine partition sizes", "They eliminate consumer contracts"],
+      "options": [
+        "They let a reader compress every column with one dictionary per table",
+        "They keep a column's identity constant across renames and old files",
+        "They fix the partition size so each file holds the same row count",
+        "They remove the need for contracts between producers and consumers"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Schema Evolution Rules: Safe vs Breaking Changes",
       "question": "Why is adding a required column without a historical value breaking?",
-      "options": ["Required columns cannot be named", "Old files become larger", "Historical rows cannot satisfy the new invariant", "Every query must use the column"],
+      "options": [
+        "Because a required column cannot be given a name that old files lack",
+        "Because every old file must be rewritten to make room for the field",
+        "Because historical rows cannot satisfy the new not-null invariant",
+        "Because every query is then forced to reference the new column"
+      ],
       "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Schema Evolution Rules: Safe vs Breaking Changes",
       "question": "What is the safest migration sequence for replacing a field?",
-      "options": ["Drop old, then notify consumers", "Reuse the old field ID", "Rewrite only one file", "Add new, dual write, backfill, migrate readers, then remove old"],
+      "options": [
+        "Drop the old field, then tell consumers to adopt the replacement",
+        "Reuse the old field's ID so existing readers need no configuration change",
+        "Rewrite one representative file and let the rest migrate lazily",
+        "Add the new field, dual write, backfill, migrate readers, then drop"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Schema Evolution Rules: Safe vs Breaking Changes",
       "question": "Why can an engine-allowed timestamp type change still be unsafe?",
-      "options": ["Timezone or precision meaning may change", "Timestamps cannot be stored in Parquet", "Schema evolution removes clocks", "Field IDs become row counts"],
+      "options": [
+        "The timezone or precision meaning of the stored values can shift",
+        "Parquet has no timestamp type, so the cast writes a string column",
+        "Schema evolution discards the clock used to order table commits",
+        "Field IDs are recomputed, so old files map onto the row counter"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Schema Evolution Rules: Safe vs Breaking Changes",
       "question": "Why should a dropped field ID never be reused?",
-      "options": ["IDs are too long", "Old files could be interpreted as containing the new meaning", "It prevents adding nullable columns", "It changes object-store region"],
+      "options": [
+        "Because identifiers grow too long once a table has many columns",
+        "Because old files would surface under the new column's meaning",
+        "Because reusing an ID blocks any later addition of nullable columns",
+        "Because the table's storage region is derived from its field IDs"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Safe Backfills on Immutable Snapshots",
       "question": "How should a safe backfill publish rewritten history?",
-      "options": ["Modify active files gradually", "Delete old snapshots first", "Write immutable replacements, validate, then commit a snapshot", "Expose staging prefixes to readers"],
+      "options": [
+        "By editing the active data files partition by partition as it runs",
+        "By expiring the old snapshots first so readers cannot mix versions",
+        "By writing immutable replacements, validating them, then committing once",
+        "By exposing the staging prefix so readers pick up files as they land"
+      ],
       "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Safe Backfills on Immutable Snapshots",
       "question": "Why pin the backfill's input snapshot?",
-      "options": ["To prevent output validation", "To force all source tables to stop", "To disable idempotency", "To avoid reading a moving mixture of source states"],
+      "options": [
+        "To stop validation from comparing the old and the proposed snapshots",
+        "To halt every upstream producer for the duration of the rewrite",
+        "To make reruns non-deterministic so duplicates are easy to spot",
+        "To keep a long job from reading a moving mixture of source states"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Safe Backfills on Immutable Snapshots",
       "question": "How should a failed pre-commit backfill output be classified?",
-      "options": ["Unreferenced orphan data, not active table state", "Successfully committed current data", "A replacement for all partitions", "A required time-travel snapshot"],
+      "options": [
+        "As unreferenced orphan objects rather than as active table state",
+        "As current table data that readers will find on the next listing",
+        "As the authoritative replacement for every partition it touched",
+        "As a retained snapshot that time travel must be able to resolve"
+      ],
       "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Safe Backfills on Immutable Snapshots",
       "question": "Why compare business measures as well as row counts?",
-      "options": ["Row counts prove every value is correct", "Equal counts can still hide incorrect transformed values", "Measures determine object keys", "Backfills cannot change null rates"],
+      "options": [
+        "Because a matching row count proves each value was transformed right",
+        "Because equal row counts can still hide values transformed incorrectly",
+        "Because business measures decide which object keys the writer uses",
+        "Because a backfill can never change a column's null rate by design"
+      ],
       "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Safe Backfills on Immutable Snapshots",
       "question": "Another writer updates a partition in the backfill scope after planning. What should the commit do?",
-      "options": ["Overwrite the newer data silently", "Delete both generations", "Detect conflict and rebase or retry", "Commit duplicate files"],
+      "options": [
+        "Overwrite the newer files, since the backfill planned that scope first",
+        "Delete both generations and let the next scheduled run rebuild them",
+        "Detect the conflict and rebase or retry against the newer snapshot",
+        "Commit both file sets and let a later compaction drop the duplicates"
+      ],
       "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Safe Backfills on Immutable Snapshots",
       "question": "How can a huge multi-commit backfill avoid exposing mixed logic to consumers?",
-      "options": ["Use no version columns", "Make consumers list staging files", "Expire the old snapshot during construction", "Publish a final dataset generation or view pointer only when all parts are ready"],
+      "options": [
+        "Emit no version marker, so consumers cannot tell the generations apart",
+        "Point consumers at the staging prefix and let them filter partial data",
+        "Expire the previous snapshot while the new partitions are still landing",
+        "Publish a dataset generation or view pointer once every part is ready"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "Index Rebuild-and-Swap: The Atomic Alias Mechanism",
       "question": "What is the purpose of a stable search-index alias?",
-      "options": ["Point a logical name to an active physical index generation", "Store every document body", "Replace all source IDs", "Prevent index validation"],
+      "options": [
+        "To point one logical name at the physical index now serving traffic",
+        "To store the document bodies apart from the index that scores them",
+        "To rewrite source identifiers so every generation shares a key space",
+        "To block validation queries from reaching a newly built index"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Index Rebuild-and-Swap: The Atomic Alias Mechanism",
       "question": "Why build a new index beside the serving index?",
-      "options": ["To make rollback impossible", "To validate a complete new generation without exposing partial state", "To modify old vectors in place", "To avoid pinning the corpus"],
+      "options": [
+        "So rollback becomes impossible once the new generation is validated",
+        "So a complete generation can be validated before anything is exposed",
+        "So existing vectors can be modified in place while queries continue",
+        "So the corpus never has to be pinned to a single point in time"
+      ],
       "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Index Rebuild-and-Swap: The Atomic Alias Mechanism",
       "question": "What problem arises if only the read alias switches while writers still target the old index?",
-      "options": ["The new index gains duplicate aliases", "All reads stop immediately", "The generations diverge as new writes miss the serving index", "The corpus snapshot changes automatically"],
+      "options": [
+        "The new index inherits duplicate aliases that resolve unpredictably later",
+        "All read traffic stops until the write alias is moved to match it",
+        "The generations diverge, since new writes never reach the served index",
+        "The pinned corpus snapshot advances on its own to include new writes"
+      ],
       "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Index Rebuild-and-Swap: The Atomic Alias Mechanism",
       "question": "Why should cache keys include index generation or scoring version?",
-      "options": ["Caches cannot store query text", "Aliases never change", "Physical indexes have no names", "Old results could otherwise survive a cutover"],
+      "options": [
+        "Because a cache cannot store the query text alongside its results",
+        "Because an alias never changes once the first generation has been built",
+        "Because physical indexes carry no name that a cache key could use",
+        "Because results scored by the old generation would otherwise survive"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Index Rebuild-and-Swap: The Atomic Alias Mechanism",
       "question": "Which process gives the strongest cutover correctness?",
-      "options": ["Pin corpus, build, validate, catch up changes, atomically switch routing", "Write random documents to both indexes", "Delete old index before validation", "Switch alias after the first shard completes"],
+      "options": [
+        "Pin the corpus, build, validate, catch up writes, then switch routing",
+        "Write each document to both indexes in a random order, then switch",
+        "Delete the old index first so validation cannot read stale documents",
+        "Switch the alias as soon as the first shard reports that it is ready"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Index Rebuild-and-Swap: The Atomic Alias Mechanism",
       "question": "Why retain the previous physical index after alias swap?",
-      "options": ["It must receive all future writes", "It enables rapid metadata rollback while guardrails are monitored", "The alias points to both forever", "New indexes cannot be deleted"],
+      "options": [
+        "Because it must keep receiving every write until the next rebuild",
+        "Because rollback is then a pointer move while guardrails are watched",
+        "Because the alias is required to resolve to both generations at once",
+        "Because a newly built index cannot be deleted while an alias exists"
+      ],
       "answerIndex": 1,
       "difficulty": "challenge"
     }

@@ -5,9 +5,9 @@
       "question": "In a web crawler, what does the crawl frontier contain?",
       "options": [
         "Pages that have been fetched and are waiting for parsing and link extraction",
-        "Hosts that are temporarily excluded from fetching because of politeness rules",
+        "Hosts that are temporarily excluded from fetching until their politeness delay elapses",
         "URLs that have been discovered but not yet fetched, ordered for future fetching",
-        "Links between already-crawled pages, stored for later link-graph analysis"
+        "Links between already-crawled pages, kept for later link-graph analysis and scoring"
       ],
       "answerIndex": 2,
       "difficulty": "core"
@@ -30,7 +30,7 @@
       "options": [
         "The URL-seen test is silently discarding most newly extracted links before queueing",
         "Extracted links mostly stay on the same host, so politeness delays serialize the queue",
-        "The frontier has exhausted all discovered URLs and is waiting for new seed injection",
+        "The frontier has exhausted its discovered URLs and is waiting on a new seed injection batch",
         "DNS resolution is caching failures, so most hosts appear unreachable to the workers"
       ],
       "answerIndex": 1,
@@ -65,7 +65,7 @@
       "question": "You are building a scoped research corpus of about 20 million pages from a few thousand approved hosts. Which frontier design is the most defensible starting point?",
       "options": [
         "Per-host FIFO queues under a simple host-level scheduler, without multi-tier machinery",
-        "A full Mercator design with hundreds of front queues, since correctness requires it",
+        "A full Mercator design with hundreds of front queues, since host fairness demands both tiers",
         "A single global max-priority heap, since host fairness is irrelevant at this scale",
         "A random-order frontier, since prioritization only matters beyond one billion pages"
       ],
@@ -76,7 +76,7 @@
       "topic": "Politeness: Rate Limits, robots.txt, and Crawl Delay",
       "question": "A crawler wants to check crawl permissions for `https://example.com/docs/page`. Where must it look?",
       "options": [
-        "`https://example.com/docs/robots.txt`, the closest directory above the page",
+        "`https://example.com/docs/robots.txt`, the robots file nearest the requested path",
         "The `<meta name=\"robots\">` tag on the page itself, fetched before crawling",
         "`https://example.com/sitemap.xml`, which lists the crawlable URL inventory",
         "`https://example.com/robots.txt`, the single file at the root of that origin"
@@ -114,7 +114,7 @@
       "options": [
         "Keep the current rate but rotate alternate IPs so no single address exceeds limits",
         "Pause that host for at least 120 seconds and resume with a longer inter-request delay",
-        "Drop the host from the frontier permanently, since 429 indicates a hard crawling ban",
+        "Drop the host from the frontier permanently, since a 429 response signals a hard crawl ban",
         "Retry immediately at lower priority, since 429 responses are advisory, not binding"
       ],
       "answerIndex": 1,
@@ -150,7 +150,7 @@
       "options": [
         "A calendar widget whose next-month link generates an unbounded series of unique URLs",
         "A robots.txt file that disallows every path on the host for all user agents",
-        "A page whose links all point to hosts outside the configured crawl scope",
+        "A page whose outlinks all point to hosts that lie outside the configured crawl scope",
         "A server that returns 429 responses whenever the crawler exceeds its rate limit"
       ],
       "answerIndex": 0,
@@ -196,8 +196,8 @@
       "topic": "Crawler Traps and URL Canonicalization",
       "question": "After adding aggressive query-parameter stripping, coverage of a forum's long discussion threads silently drops. What most likely happened?",
       "options": [
-        "Pagination parameters that select real content were stripped, collapsing later pages into page 1",
-        "The tracking-parameter list was too small, so campaign URLs still flooded the frontier",
+        "Pagination parameters that select real content were stripped, collapsing threads onto page 1",
+        "The tracking-parameter list was too small, so campaign URLs still flooded the frontier queues",
         "The canonicalizer uppercased percent-escapes, which made valid URLs fail to resolve",
         "The seen-URL test began hashing raw URLs, so alias variants were fetched repeatedly"
       ],
@@ -211,7 +211,7 @@
         "As a directive that must override the crawler's own URL normalization decisions",
         "As a site-supplied hint to weigh against content-equality checks, never obeyed blindly",
         "As a spam signal that should immediately exclude the entire host from the corpus",
-        "As a redirect equivalent, replacing the fetched URL with the canonical target URL"
+        "As a redirect equivalent, so the fetched URL is replaced by the declared canonical target"
       ],
       "answerIndex": 1,
       "difficulty": "challenge"

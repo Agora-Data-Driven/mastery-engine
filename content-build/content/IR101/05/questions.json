@@ -4,10 +4,10 @@
       "topic": "Delta (Gap) Encoding of Postings",
       "question": "How are sorted document IDs converted to gaps?",
       "options": [
-        "Keep the first ID, then subtract each preceding ID from the current ID",
+        "Keep the first ID, then store each successive difference",
         "Subtract every document ID from the final document ID",
         "Store the difference between each ID and the vocabulary size",
-        "Replace every ID with its term frequency"
+        "Replace each ID with the count of its stored positions"
       ],
       "answerIndex": 0,
       "difficulty": "core"
@@ -28,9 +28,9 @@
       "topic": "Delta (Gap) Encoding of Postings",
       "question": "How are gap-encoded document IDs decoded?",
       "options": [
-        "By sorting each gap in descending order",
+        "By sorting the gaps into descending order",
         "By multiplying every gap by the term frequency",
-        "By computing cumulative prefix sums",
+        "By computing the cumulative prefix sums",
         "By hashing each gap into a document bucket"
       ],
       "answerIndex": 2,
@@ -40,10 +40,10 @@
       "topic": "Delta (Gap) Encoding of Postings",
       "question": "Why do frequent terms often require fewer bits per posting?",
       "options": [
-        "Their document IDs are stored without any order",
-        "They have no document IDs in their postings",
-        "Their absolute document IDs are always smaller than rare terms",
-        "Dense occurrence across documents tends to produce small gaps"
+        "Their document IDs are stored without any ordering",
+        "Their postings are stored uncompressed for fast decode",
+        "Their absolute document IDs are smaller than a rare term's",
+        "Dense occurrence across documents produces small gaps"
       ],
       "answerIndex": 3,
       "difficulty": "balanced"
@@ -52,10 +52,10 @@
       "topic": "Delta (Gap) Encoding of Postings",
       "question": "Why do compressed blocks store an absolute base or last document ID?",
       "options": [
-        "It provides a restart point for decoding or skipping into delta data",
-        "It makes every following gap equal to zero",
-        "It removes the need to preserve sorted document order",
-        "It converts positions into source character offsets"
+        "It gives a restart point for skipping into the delta stream",
+        "It makes every gap inside the block equal to zero",
+        "It removes the need to keep document IDs in sorted order",
+        "It converts token positions into source character offsets"
       ],
       "answerIndex": 0,
       "difficulty": "challenge"
@@ -64,10 +64,10 @@
       "topic": "Delta (Gap) Encoding of Postings",
       "question": "Why can random external document IDs hurt gap compression?",
       "options": [
-        "They guarantee every term posting is locally dense",
-        "They destroy locality that could create small consecutive differences",
-        "They make document IDs strictly increasing within each list",
-        "They reduce every ID to a seven-bit integer"
+        "They guarantee that every term posting is locally dense",
+        "They destroy the locality that produces small gaps",
+        "They prevent the postings list from being sorted at all",
+        "They force every gap into a fixed seven-bit width"
       ],
       "answerIndex": 1,
       "difficulty": "challenge"
@@ -100,10 +100,10 @@
       "topic": "Variable-Byte Encoding",
       "question": "Why does integer 130 require two variable-byte payload groups?",
       "options": [
-        "It equals 1 times 128 plus 2",
-        "Every integer above 64 requires four bytes",
-        "It contains two decimal digits after normalization",
-        "The first group stores the document frequency"
+        "It equals 1 times 128 plus a remainder of 2",
+        "Every integer above 64 needs at least four bytes",
+        "Its decimal digits are split across two groups",
+        "The first group stores the term's document frequency"
       ],
       "answerIndex": 0,
       "difficulty": "balanced"
@@ -112,10 +112,10 @@
       "topic": "Variable-Byte Encoding",
       "question": "What is a main advantage of variable-byte over one fixed block width?",
       "options": [
-        "It stores every integer in exactly one byte",
-        "A large outlier uses more bytes without widening every neighbor",
-        "It provides constant-time random access to every encoded integer",
-        "It removes the marker bit and uses all eight bits as payload"
+        "It stores every integer in exactly one byte-aligned slot",
+        "A large outlier uses more bytes without widening its neighbors",
+        "It gives constant-time random access to any encoded integer",
+        "It drops the marker bit and uses all eight bits as payload"
       ],
       "answerIndex": 1,
       "difficulty": "balanced"
@@ -125,8 +125,8 @@
       "question": "Why is random access into a raw variable-byte gap stream difficult?",
       "options": [
         "Every byte independently stores one absolute document ID",
-        "The stream contains no terminal markers",
-        "A byte offset may be mid-integer and prior gaps determine absolute IDs",
+        "The stream carries no terminal markers to align against",
+        "A byte offset can land mid-integer, and prior gaps set the IDs",
         "Variable-byte values are always stored in descending order"
       ],
       "answerIndex": 2,
@@ -136,10 +136,10 @@
       "topic": "Variable-Byte Encoding",
       "question": "How should a decoder handle a malformed sequence with no terminal byte?",
       "options": [
-        "Continue reading indefinitely until storage ends",
+        "Continue reading indefinitely until the storage ends",
         "Treat the incomplete value as document ID zero",
-        "Reverse the continuation convention automatically",
-        "Fail within a bounded length to prevent overflow or runaway reads"
+        "Reverse the continuation convention and retry the read",
+        "Fail within a bounded length to prevent runaway reads"
       ],
       "answerIndex": 3,
       "difficulty": "challenge"
@@ -148,10 +148,10 @@
       "topic": "Postings Compression vs Parquet Encodings",
       "question": "What principle do postings and Parquet encodings share?",
       "options": [
-        "Transform structured values to low-entropy residuals before compact coding",
-        "Store every value as an uncompressed fixed-width string",
-        "Avoid sorting because it makes differences smaller",
-        "Use one codec regardless of access pattern"
+        "Transform values into low-entropy residuals before coding",
+        "Store every value as an uncompressed fixed-width string field",
+        "Avoid sorting, because ordering makes differences larger",
+        "Use one general codec regardless of the access pattern"
       ],
       "answerIndex": 0,
       "difficulty": "core"
@@ -162,7 +162,7 @@
       "options": [
         "Plain string encoding",
         "Delta binary packing",
-        "Boolean dictionary removal",
+        "Dictionary index encoding",
         "Nested repetition levels"
       ],
       "answerIndex": 1,
@@ -172,10 +172,10 @@
       "topic": "Postings Compression vs Parquet Encodings",
       "question": "Why do postings codecs emphasize restart points and skips?",
       "options": [
-        "Search always decompresses the complete index for one query",
-        "Postings never require selective traversal",
-        "Interactive scoring needs to jump without decoding all preceding values",
-        "Parquet row groups contain no metadata for pruning"
+        "Search decompresses the complete index for every query",
+        "Postings lists never require any selective traversal",
+        "Interactive scoring must jump without decoding earlier values",
+        "Parquet row groups carry no metadata that enables pruning"
       ],
       "answerIndex": 2,
       "difficulty": "balanced"
@@ -184,9 +184,9 @@
       "topic": "Postings Compression vs Parquet Encodings",
       "question": "How does Parquet typically consume encoded data?",
       "options": [
-        "One random bit per file with no column selection",
+        "One value at a time with no column selection at all",
         "A complete object decompressed for every single row key",
-        "A linked postings node for each query term",
+        "One postings list traversed for each query term",
         "Selected column pages decoded into vectorized batches"
       ],
       "answerIndex": 3,
@@ -196,10 +196,10 @@
       "topic": "Postings Compression vs Parquet Encodings",
       "question": "Why might a hot postings list reject a slightly smaller whole-stream Zstd representation?",
       "options": [
-        "It can harm selective skipping and add critical-path decode latency",
-        "General-purpose compression always expands every integer stream",
-        "Postings are never read during interactive queries",
-        "Whole-stream compression guarantees constant-time access to any posting"
+        "It can harm selective skipping and add decode latency",
+        "General-purpose compression expands every integer stream",
+        "Postings lists are never read during an interactive query",
+        "Whole-stream compression gives constant-time access to a posting"
       ],
       "answerIndex": 0,
       "difficulty": "challenge"
@@ -208,9 +208,9 @@
       "topic": "Postings Compression vs Parquet Encodings",
       "question": "What is the right evaluation metric for either compression system?",
       "options": [
-        "Maximum ratio without measuring any query or scan",
-        "Bytes and work avoided relative to decode CPU under the real access pattern",
-        "The number of codec names supported by the file format",
+        "Maximum ratio, measured without any query or scan",
+        "Work avoided per unit of CPU under the real read pattern",
+        "The number of codec names the file format supports",
         "Compressed size measured only on uniform random integers"
       ],
       "answerIndex": 1,

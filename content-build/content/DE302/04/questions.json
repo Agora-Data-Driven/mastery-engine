@@ -3,168 +3,288 @@
     {
       "topic": "Pub/Sub: Topics, Subscriptions, and Delivery Guarantees",
       "question": "What does a Pub/Sub topic receive?",
-      "options": ["Messages from publishers", "Acknowledgements from every sink only", "Dataflow worker disks", "Database transaction logs"],
-      "answerIndex": 0,
+      "options": [
+        "Acknowledgements returned by each subscriber once its processing has completed",
+        "Change events read directly from a source database's transaction log by the service",
+        "Messages that publishers send to it, which every attached subscription then copies",
+        "The offsets each consumer group has committed while reading the stream in order"
+      ],
+      "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Pub/Sub: Topics, Subscriptions, and Delivery Guarantees",
       "question": "Why create separate subscriptions for analytics and alerting?",
-      "options": ["To make them compete for messages", "Each application receives and acknowledges its own delivery stream", "Topics support only one consumer", "Subscriptions remove retention"],
-      "answerIndex": 1,
+      "options": [
+        "Each application then receives every message and tracks its own acknowledgements",
+        "A topic holds only one subscription, so a second consumer needs a second topic",
+        "Separate subscriptions let the two applications share one cursor over the topic",
+        "Separate subscriptions load-balance the same messages across both applications"
+      ],
+      "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Pub/Sub: Topics, Subscriptions, and Delivery Guarantees",
       "question": "What should a standard at-least-once subscriber assume?",
-      "options": ["Acknowledgements are unnecessary", "Messages are globally ordered", "A message can be redelivered", "Every external effect is transactional"],
-      "answerIndex": 2,
-      "difficulty": "balanced"
-    },
-    {
-      "topic": "Pub/Sub: Topics, Subscriptions, and Delivery Guarantees",
-      "question": "What scope supports Pub/Sub exactly-once delivery?",
-      "options": ["Every push endpoint globally", "All external database effects", "Duplicate application publishes", "Supported pull subscriptions within the documented regional scope"],
+      "options": [
+        "That messages arrive exactly once, so a sink can safely apply each one blindly",
+        "That messages arrive in publish order, so a later message supersedes an earlier",
+        "That acknowledging before processing is safe, since the deadline extends itself",
+        "That a message can be redelivered, so its sink has to be idempotent"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Pub/Sub: Topics, Subscriptions, and Delivery Guarantees",
+      "question": "What scope supports Pub/Sub exactly-once delivery?",
+      "options": [
+        "Push subscriptions delivering to any HTTPS endpoint, in every region worldwide",
+        "Pull subscriptions, within the regional scope the service documents for it",
+        "Every external database write the subscriber performs after it reads a message",
+        "Duplicate publishes an application makes of the same business event to a topic"
+      ],
+      "answerIndex": 1,
+      "difficulty": "balanced"
+    },
+    {
+      "topic": "Pub/Sub: Topics, Subscriptions, and Delivery Guarantees",
       "question": "Why can one ordering key become a bottleneck?",
-      "options": ["Its messages must make ordered progress and cannot exploit independent-key parallelism", "Ordering keys disable publishing", "Every key uses a separate topic", "Acknowledgements delete the topic"],
+      "options": [
+        "Its messages must progress in order, so they cannot use the parallelism other keys get",
+        "Enabling an ordering key disables publishing to the topic from other publishers",
+        "Every ordering key is assigned a separate topic, so a hot key exhausts topic quota",
+        "An ordering key forces every subscription on the topic to share one acknowledgement"
+      ],
       "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Pub/Sub: Topics, Subscriptions, and Delivery Guarantees",
       "question": "Why does exactly-once delivery not make a database write and acknowledgement one transaction?",
-      "options": ["Database writes have no IDs", "The external database is outside Pub/Sub's acknowledgement transaction boundary", "Exactly-once uses push only", "Pub/Sub cannot redeliver messages"],
-      "answerIndex": 1,
+      "options": [
+        "Because the subscriber acknowledges before the write, so the order is always wrong",
+        "Because exactly-once is only offered on push subscriptions, which cannot write rows",
+        "Because the external database sits outside the boundary Pub/Sub can commit over",
+        "Because database writes carry no message ID for Pub/Sub to match to an ack"
+      ],
+      "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Dataflow in Production: Autoscaling and Streaming Jobs",
       "question": "What programming model does Dataflow execute?",
-      "options": ["Kafka Streams only", "SQL stored procedures only", "Apache Beam pipelines", "Datastream configurations"],
-      "answerIndex": 2,
+      "options": [
+        "Kafka Streams topologies, submitted as jobs to a managed broker cluster",
+        "Apache Beam pipelines, in both bounded batch and unbounded streaming modes",
+        "SQL stored procedures scheduled against the warehouse on a fixed interval",
+        "Datastream configurations describing a source, a destination, and its objects"
+      ],
+      "answerIndex": 1,
       "difficulty": "core"
     },
     {
       "topic": "Dataflow in Production: Autoscaling and Streaming Jobs",
       "question": "What does Streaming Engine do?",
-      "options": ["Turns streaming into batch", "Disables state", "Moves all source databases", "Offloads streaming execution and state work into the Dataflow service backend"],
+      "options": [
+        "Rewrites a streaming pipeline into equivalent batch jobs run on a fixed schedule",
+        "Removes per-key state limits so a hot key no longer constrains a pipeline's throughput",
+        "Replicates the source database into the pipeline so workers read from local disk",
+        "Moves streaming execution and state off worker VMs into the Dataflow backend"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Dataflow in Production: Autoscaling and Streaming Jobs",
       "question": "Why might Dataflow not scale up despite backlog?",
-      "options": ["The stage has insufficient parallelism, such as a hot key or limited source", "Autoscaling ignores backlog always", "Workers cannot process streams", "Streaming Engine requires one worker"],
+      "options": [
+        "The stage has too little parallelism, from a hot key or too few source partitions to split",
+        "Autoscaling reacts only to worker CPU, so a backlog with idle CPU is invisible to it",
+        "Streaming jobs are pinned to one worker unless Streaming Engine is turned off first",
+        "Backlog is measured in event time, so it never triggers a horizontal scaling decision"
+      ],
       "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Dataflow in Production: Autoscaling and Streaming Jobs",
       "question": "Which metric best reveals stale event-time results?",
-      "options": ["Worker name count", "Watermark or data freshness lag", "Pipeline source code size", "Output column count"],
-      "answerIndex": 1,
+      "options": [
+        "Worker CPU utilization averaged across the pool over the last several minutes",
+        "The count of failed bundles the job has retried since it was last restarted",
+        "Watermark progress and data freshness, which track how far event time has advanced",
+        "Throughput per stage in elements per second, compared against the source's rate"
+      ],
+      "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Dataflow in Production: Autoscaling and Streaming Jobs",
       "question": "CPU is low, backlog is high, and one key owns most records. What is the likely remedy?",
-      "options": ["Increase maximum workers indefinitely", "Disable monitoring", "Fix hot-key design or shard the work", "Change every event timestamp"],
-      "answerIndex": 2,
+      "options": [
+        "Raise the maximum worker count so autoscaling can add capacity for the backlog",
+        "Turn off Streaming Engine so state returns to the workers' own persistent disks",
+        "Shift the window from event time to processing time so the watermark can advance",
+        "Reshape the hot key or shard it, so the work can spread across more workers"
+      ],
+      "answerIndex": 3,
       "difficulty": "challenge"
     },
     {
       "topic": "Dataflow in Production: Autoscaling and Streaming Jobs",
       "question": "Why should external API calls inside Dataflow use stable idempotency keys?",
-      "options": ["APIs cannot time out", "Workers never retry", "Keys change event time", "A retried bundle can repeat the side effect"],
-      "answerIndex": 3,
+      "options": [
+        "Because an API client created per element would otherwise exhaust the worker's memory",
+        "Because a retried bundle repeats the call, and the key lets the API absorb the repeat",
+        "Because Dataflow rejects any transform whose output is not deterministic per element",
+        "Because the watermark cannot advance past a bundle that has an outstanding API call"
+      ],
+      "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Datastream for Managed CDC",
       "question": "What is Datastream designed to provide?",
-      "options": ["Managed change data capture and replication", "General Beam transformation logic", "Interactive dashboard caching", "Vector nearest-neighbor search"],
+      "options": [
+        "Managed change data capture and replication into supported destinations",
+        "A managed runner that executes arbitrary Beam transforms over change events",
+        "An in-memory cache that accelerates dashboard queries over replicated tables",
+        "A message bus whose subscriptions each receive an independent copy of events"
+      ],
       "answerIndex": 0,
       "difficulty": "core"
     },
     {
       "topic": "Datastream for Managed CDC",
       "question": "What is needed for log-based source capture?",
-      "options": ["Only a table name", "Database-specific logging, permissions, connectivity, and retention", "A BI Engine reservation", "A Pub/Sub ordering key"],
-      "answerIndex": 1,
+      "options": [
+        "A destination table that already matches the source schema column for column",
+        "An ordering key on the source table so that changes arrive in commit order downstream",
+        "Source-specific logging enabled, plus permissions, connectivity, and log retention",
+        "A Dataflow job in the same region to relay the change events to the destination"
+      ],
+      "answerIndex": 2,
       "difficulty": "core"
     },
     {
       "topic": "Datastream for Managed CDC",
       "question": "What must meet at a consistent boundary during stream creation?",
-      "options": ["Two dashboards", "Two vector indexes", "Initial snapshot and ongoing source changes", "BI Engine and Dataflow"],
-      "answerIndex": 2,
+      "options": [
+        "The source schema and the destination schema, once both have been validated",
+        "The initial backfill snapshot and the ongoing stream of source changes",
+        "The source log retention window and the destination's own retention policy",
+        "The Datastream private connection and the customer's VPN or Interconnect link"
+      ],
+      "answerIndex": 1,
       "difficulty": "balanced"
     },
     {
       "topic": "Datastream for Managed CDC",
       "question": "Which workload is outside Datastream's primary role?",
-      "options": ["Replicate database changes", "Land CDC in a destination", "Backfill source tables", "Run arbitrary stateful Beam business transforms"],
+      "options": [
+        "Backfilling a source table before its ongoing change stream begins to flow",
+        "Replicating committed inserts, updates, and deletes from a supported source",
+        "Landing a change stream in Cloud Storage as a durable record of every edit",
+        "Applying stateful business deduplication and windowed aggregation to changes"
+      ],
       "answerIndex": 3,
       "difficulty": "balanced"
     },
     {
       "topic": "Datastream for Managed CDC",
       "question": "What can happen if an outage exceeds source log retention?",
-      "options": ["The stream may need a new snapshot or recovery procedure", "Every change remains available forever", "The destination becomes authoritative automatically", "Schema evolution stops"],
-      "answerIndex": 0,
+      "options": [
+        "The stream resumes from the destination's newest row and skips the missing edits",
+        "The source begins retaining logs indefinitely until the stream has caught up again",
+        "The stream may need a fresh snapshot, because the changes it needs are gone",
+        "The destination becomes the system of record until the source is repaired"
+      ],
+      "answerIndex": 2,
       "difficulty": "challenge"
     },
     {
       "topic": "Datastream for Managed CDC",
       "question": "Why is a running stream status insufficient proof of correctness?",
-      "options": ["Running means no data is processed", "Tables can lag or diverge, so keys and business totals need reconciliation", "Status never includes errors", "Datastream cannot capture updates"],
-      "answerIndex": 1,
+      "options": [
+        "Individual tables can lag or diverge, so keys and totals still need reconciling",
+        "A running status means the backfill has finished and no changes are flowing yet",
+        "Stream status is computed hourly, so it lags the true state by up to an hour",
+        "Status reports only connectivity, never whether the source has logging enabled"
+      ],
+      "answerIndex": 0,
       "difficulty": "challenge"
     },
     {
       "topic": "Kafka vs Pub/Sub: An Awareness-Level Comparison",
       "question": "What is a central Kafka abstraction?",
-      "options": ["Subscriptions without partitions", "Managed Dataflow stages", "Partitioned ordered logs with consumer offsets", "Object-table metadata"],
-      "answerIndex": 2,
-      "difficulty": "core"
-    },
-    {
-      "topic": "Kafka vs Pub/Sub: An Awareness-Level Comparison",
-      "question": "What operational responsibility does Pub/Sub primarily remove?",
-      "options": ["Consumer idempotency", "Schema evolution", "Business ordering", "Broker, partition-capacity, and service infrastructure management"],
+      "options": [
+        "Subscriptions that each receive an independent copy of every published message",
+        "Ordering keys that request ordered delivery without any partition provisioning",
+        "Managed stages whose parallelism the runner adjusts from backlog and throughput",
+        "Partitioned, ordered logs whose offsets each consumer group commits for itself"
+      ],
       "answerIndex": 3,
       "difficulty": "core"
     },
     {
       "topic": "Kafka vs Pub/Sub: An Awareness-Level Comparison",
+      "question": "What operational responsibility does Pub/Sub primarily remove?",
+      "options": [
+        "Writing consumers that stay correct when the same message is delivered twice",
+        "Running brokers and sizing partitions, since Google scales the service itself",
+        "Defining the schema contract that every publisher and consumer must agree on",
+        "Deciding which business events have to be processed in a strict relative order"
+      ],
+      "answerIndex": 1,
+      "difficulty": "core"
+    },
+    {
+      "topic": "Kafka vs Pub/Sub: An Awareness-Level Comparison",
       "question": "How does Kafka normally provide ordering?",
-      "options": ["Within each partition", "Globally across every cluster", "Through BigQuery slots", "By document ID only"],
-      "answerIndex": 0,
+      "options": [
+        "Globally across the whole cluster, since brokers share one commit sequence",
+        "Per consumer group, since each group replays the log in its own committed order",
+        "Within a partition, with a record's key deciding which partition it lands in",
+        "Per topic, since a topic's records are appended to a single ordered log file"
+      ],
+      "answerIndex": 2,
       "difficulty": "balanced"
     },
     {
       "topic": "Kafka vs Pub/Sub: An Awareness-Level Comparison",
       "question": "Why is migration more than translating producer APIs?",
-      "options": ["Both systems have identical semantics", "Ordering, retention, replay, transactions, compaction, and consumers must be remapped", "Messages cannot move", "Kafka has no connectors"],
-      "answerIndex": 1,
+      "options": [
+        "Ordering, retention, replay, transactions, and compaction all have to be remapped",
+        "Both systems expose partitions and offsets, so only the client library name changes",
+        "Message payloads must be re-encoded, since Pub/Sub rejects any binary content",
+        "Consumer groups translate directly to subscriptions, so only monitoring must change"
+      ],
+      "answerIndex": 0,
       "difficulty": "balanced"
     },
     {
       "topic": "Kafka vs Pub/Sub: An Awareness-Level Comparison",
       "question": "What is a key distinction between Kafka transactions and Pub/Sub exactly-once delivery?",
-      "options": ["They are identical", "Kafka has no delivery guarantees", "Pub/Sub exactly-once is subscription delivery behavior, not a general external-system transaction", "Kafka transactions apply to BigQuery only"],
-      "answerIndex": 2,
+      "options": [
+        "Kafka transactions cover any external sink, while Pub/Sub covers only BigQuery",
+        "Pub/Sub's guarantee is about delivery, not a transaction over external systems",
+        "Kafka offers no delivery guarantee at all, so consumers must deduplicate by hand",
+        "Pub/Sub's guarantee spans the subscriber's database write, while Kafka's does not"
+      ],
+      "answerIndex": 1,
       "difficulty": "challenge"
     },
     {
       "topic": "Kafka vs Pub/Sub: An Awareness-Level Comparison",
       "question": "What is the soundest selection criterion?",
-      "options": ["Always choose the managed service", "Always choose partitions", "Choose the newest product", "Match guarantees, ecosystem, ownership, recovery, throughput, locality, and total cost to the workload"],
+      "options": [
+        "Choose the managed service, since operations always dominate total cost of ownership",
+        "Choose the system with more partitions, since parallelism decides throughput",
+        "Choose whichever product the team has already deployed somewhere else",
+        "Match guarantees, ownership, recovery, locality, and total cost to the workload"
+      ],
       "answerIndex": 3,
       "difficulty": "challenge"
     }

@@ -1,0 +1,493 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The As-Of Join</button>
+  <button class="viz-tab" data-viz-tab="2">2. Two Clocks Again</button>
+  <button class="viz-tab" data-viz-tab="3">3. Leakage Audit</button>
+  <button class="viz-tab" data-viz-tab="4">4. Splitting Honestly</button>
+  <button class="viz-tab" data-viz-tab="5">5. Same Number, Different Truth</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The As-Of Join</h2>
+  <p class="vz-lede"><b>Feature Pipelines</b> insisted every feature carries an as-of timestamp. Here is
+    what it is for: a join that answers <em>what did we know then</em>, not <em>what do we know now</em>.
+    Switch the join and watch a March example get July's answer. <b>Like asking what the weather was on the
+    day of the picnic, not what it is outside right now.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Join type">
+    <button id="v1-now" aria-pressed="true">join on entity_id only</button>
+    <button id="v1-asof" aria-pressed="false">as-of join on prediction_time</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v1-sql" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v1-tl" id="v1-tl"></div>
+    <div class="v1-out" id="v1-out"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The same rule reaches reference data. Currency conversion must use the rate available
+    at prediction time; taxonomies, risk lists, model-derived embeddings and business rules all need
+    <b>versioned snapshots</b>. A single unversioned lookup table leaks even when every event feature is
+    correct — which is why a leakage audit that only covers features finds nothing.</p>
+
+  <style>
+    .v1-tl{position:relative;height:78px;border:1.5px solid var(--viz-line);border-radius:8px;background:var(--viz-bg);
+      margin-bottom:13px;overflow:hidden}
+    .v1-ver{position:absolute;top:8px;height:20px;border-radius:4px;display:flex;align-items:center;
+      justify-content:center;font-size:10px;font-weight:800;color:#fff}
+    .v1-ex{position:absolute;top:38px;transform:translateX(-50%);text-align:center}
+    .v1-dot{width:11px;height:11px;border-radius:50%;background:var(--viz-violet);margin:0 auto;border:2px solid var(--viz-bg)}
+    .v1-lbl{font-size:9.5px;font-weight:700;color:var(--viz-violet);white-space:nowrap;margin-top:3px}
+    .v1-out table{width:100%;border-collapse:collapse;font-size:12px;font-family:ui-monospace,Consolas,monospace}
+    .v1-out th{text-align:left;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      border-bottom:1.5px solid var(--viz-line);padding:0 6px 5px 0;font-family:inherit}
+    .v1-out td{padding:7px 6px 7px 0;border-bottom:1px solid var(--viz-line)}
+    .v1-out td.v1-bad{color:var(--viz-red);font-weight:700}
+    .v1-out td.v1-good{color:var(--viz-green);font-weight:700}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var asof = false;
+    var bN = document.getElementById('v1-now'), bA = document.getElementById('v1-asof');
+    var sql = document.getElementById('v1-sql'), tl = document.getElementById('v1-tl');
+    var out = document.getElementById('v1-out'), why = document.getElementById('v1-why');
+
+    // timeline 0..100 = Jan 1 .. Jul 31
+    var VERSIONS = [
+      { v:'60,000', from:0, to:36, colour:'var(--viz-accent)' },
+      { v:'75,000', from:36, to:100, colour:'var(--viz-violet)' }
+    ];
+    var EXAMPLES = [
+      { id:'app-118', at:22, label:'Mar 10', truth:'60,000' },
+      { id:'app-204', at:52, label:'May 02', truth:'75,000' }
+    ];
+
+    function render(){
+      bN.setAttribute('aria-pressed', asof ? 'false' : 'true');
+      bA.setAttribute('aria-pressed', asof ? 'true' : 'false');
+      sql.innerHTML = asof
+        ? 'SELECT e.application_id, e.prediction_time, d.income\nFROM   examples e\nJOIN   dim_customer d\n  ON   d.customer_id = e.customer_id\n  AND  d.effective_from &lt;= e.prediction_time\n  AND  e.prediction_time &lt;  d.effective_to      -- ← the as-of condition'
+        : 'SELECT e.application_id, e.prediction_time, d.income\nFROM   examples e\nJOIN   dim_customer d\n  ON   d.customer_id = e.customer_id\nWHERE  d.is_current                             -- ← "what we know now"';
+
+      tl.innerHTML = VERSIONS.map(function(v){
+        return '<div class="v1-ver" style="left:' + v.from + '%;width:' + (v.to - v.from) + '%;background:' + v.colour + '">income ' + v.v + '</div>';
+      }).join('') + EXAMPLES.map(function(e){
+        return '<div class="v1-ex" style="left:' + e.at + '%"><div class="v1-dot"></div><div class="v1-lbl">' + e.label + '</div></div>';
+      }).join('') +
+      '<div style="position:absolute;left:4px;bottom:4px;font-size:9px;color:var(--viz-muted)">Jan 1</div>' +
+      '<div style="position:absolute;right:4px;bottom:4px;font-size:9px;color:var(--viz-muted)">Jul 31 — training runs here</div>';
+
+      out.innerHTML = '<table><thead><tr><th>example</th><th>prediction_time</th><th>income joined</th><th></th></tr></thead><tbody>' +
+        EXAMPLES.map(function(e){
+          var got = asof ? e.truth : '75,000';
+          var right = got === e.truth;
+          return '<tr><td>' + e.id + '</td><td>' + e.label + '</td>' +
+            '<td class="' + (right ? 'v1-good' : 'v1-bad') + '">' + got + '</td>' +
+            '<td style="color:' + (right ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (right ? '✓ what was known then' : '✕ the FUTURE value') + '</td></tr>';
+        }).join('') + '</tbody></table>';
+
+      why.innerHTML = asof
+        ? '<b style="color:var(--viz-green)">Each example gets the version that was in effect at its own cutoff.</b>' +
+          'This is <b>SCD Type 2 used as a join condition</b>: <code>effective_from &lt;= prediction_time &lt; effective_to</code>. Half-open, so a prediction made exactly at the boundary matches one version and only one. ' +
+          '<br><br>Event windows need the same care: <code>purchase_count_30d</code> for a prediction at noon on March 10 covers <code>[Feb 8 noon, Mar 10 noon)</code>, assuming the current event itself is excluded. ' +
+          '<b>Write the interval and the endpoint convention down</b> — off-by-one leakage is the most common kind, and it is invisible in a query that reads perfectly.' +
+          '<br><br>The general form starts from labelled examples <code>(entity_id, prediction_time)</code> and selects the latest feature record whose availability timestamp is <em>not after</em> the prediction time — a ROW_NUMBER ordered descending, or a native as-of join.'
+        : '<b style="color:var(--viz-red)">The March application is trained against July’s income.</b>' +
+          'The customer earned 60,000 when the decision was made. The model is being taught that applications like this one came from someone earning 75,000 — and at serving time it will meet the real thing and behave differently. ' +
+          '<br><br>Note there is no error and no NULL: this is an ordinary, correct-looking warehouse join that answers <em>what is known now</em>. ' +
+          '<br><br>The other failure mode of joining on the key alone is worth seeing too: without <code>is_current</code>, the join returns <b>one row per feature version</b>, so a single example silently becomes several training rows with contradictory values.';
+    }
+    bN.addEventListener('click', function(){ asof = false; render(); });
+    bA.addEventListener('click', function(){ asof = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Two Clocks Again</h2>
+  <p class="vz-lede">A fact can be <em>about</em> 09:00 and only <em>reach you</em> at 14:00. A prediction
+    at 11:00 could not have used it, however early its event time. Drag the prediction moment.
+    <b>Like a letter dated Monday that arrives Thursday: it was true on Monday and you did not know it.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-t">Prediction at <span id="v2-tl">11:00</span></label>
+    <input type="range" id="v2-t" min="8" max="18" value="11" step="1" aria-label="Prediction hour">
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v2-h">And the policy this forces on late arrivals</h4>
+    <div class="v2-pol" id="v2-pol"></div>
+  </div>
+  <p class="vz-note">Bitemporal sources make this explicit: valid time is when a fact was true in the world,
+    system time is when you learned it. To reproduce a February prediction, use the <b>system-known</b>
+    timeline — training on later-corrected truth is a different experiment, legitimate to run and dishonest
+    to deploy against.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-rows{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-r.is-in{border-color:var(--viz-green)}
+    .v2-r.is-out{opacity:.45}
+    .v2-r.is-trap{border-color:var(--viz-red)}
+    .v2-v{margin-left:auto;font-size:10.5px;font-weight:800;font-family:inherit;letter-spacing:.03em}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-h{margin:0 0 9px;font-size:13px}
+    .v2-pol{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var FACTS = [
+      { n:'lab result A', ev:9,  av:9,  val:'4.2' },
+      { n:'lab result B', ev:9,  av:14, val:'6.8' },
+      { n:'vitals',       ev:10, av:10, val:'ok' },
+      { n:'lab result C', ev:12, av:12, val:'3.1' },
+      { n:'note',         ev:13, av:17, val:'text' }
+    ];
+    var s = document.getElementById('v2-t'), tl = document.getElementById('v2-tl');
+    var rows = document.getElementById('v2-rows'), why = document.getElementById('v2-why');
+
+    function render(){
+      var t = Number(s.value);
+      tl.textContent = String(t).padStart(2, '0') + ':00';
+      var trap = 0, ok = 0;
+      rows.innerHTML = FACTS.map(function(f){
+        var byEvent = f.ev <= t, byAvail = f.av <= t;
+        if (byEvent && !byAvail) trap += 1;
+        if (byAvail) ok += 1;
+        var cls = byAvail ? 'is-in' : (byEvent ? 'is-trap' : 'is-out');
+        var verdict = byAvail ? '✓ usable' : (byEvent ? '✕ NOT YET AVAILABLE' : '· hasn’t happened');
+        var col = byAvail ? 'var(--viz-green)' : (byEvent ? 'var(--viz-red)' : 'var(--viz-muted)');
+        return '<div class="v2-r ' + cls + '"><span>' + f.n + '</span>' +
+          '<span>event ' + String(f.ev).padStart(2, '0') + ':00</span>' +
+          '<span>available ' + String(f.av).padStart(2, '0') + ':00</span>' +
+          '<span class="v2-v" style="color:' + col + '">' + verdict + '</span></div>';
+      }).join('');
+
+      why.innerHTML = trap
+        ? '<b style="color:var(--viz-red)">' + trap + ' fact' + (trap === 1 ? '' : 's') + ' would be included by event time and must not be.</b>' +
+          'Lab result B describes a specimen collected at 09:00 and only reached the application at 14:00. Filtering on <b>event time</b> gives this prediction a value it could not possibly have had — ' +
+          'and the feature will look perfectly reasonable in the training set, because the event time really is earlier. ' +
+          '<br><br>The fix is structural: <b>store both event time and ingestion or availability time</b>, and filter by the <b>serving availability boundary</b>. Only ' + ok + ' of ' + FACTS.length + ' facts are legitimately usable here.'
+        : '<b style="color:var(--viz-green)">At this moment the two clocks agree — every available fact has also happened.</b>' +
+          'Drag to 11:00 or 12:00 and watch a fact whose event time has passed but whose availability time has not. That gap is where the leak lives, and it is invisible if you only stored one timestamp.';
+    }
+    s.addEventListener('input', render);
+    render();
+
+    document.getElementById('v2-pol').innerHTML =
+      'If serving would not have seen an event by the cutoff, the historically recomputed feature should <b>exclude it even after it arrives</b> — which is only possible because ingestion time was retained. ' +
+      '<br><br>Train on corrected event-time truth instead and the model sees <b>cleaner data than production will ever have</b>, so its offline score overestimates what it can do. ' +
+      'That is a real and common way for an honest-looking pipeline to produce an optimistic model. ' +
+      '<br><br>The same care applies to precomputed daily snapshots: they simplify the join and reduce temporal precision, so a <b>noon prediction joined to end-of-day features is wrong</b> unless the snapshot represents the previous completed day.';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Leakage Audit</h2>
+  <p class="vz-lede">Run each feature through one question: <b>could the production system obtain this exact
+    value, with this freshness and this logic, before making the prediction?</b> Tap a feature.
+    <b>Like checking whether a witness could actually have seen what they described.</b></p>
+
+  <div class="v3-list" id="v3-list"></div>
+
+  <div class="vz-card">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v3-h">Checks that expose common shortcuts</h4>
+    <div class="v3-checks" id="v3-checks"></div>
+  </div>
+  <p class="vz-note">These tests do not prove the absence of leakage — they expose the usual shapes. The
+    governing test stays counterfactual, and it can rule a feature out <b>even when it is genuinely
+    causally related and sitting in today's warehouse.</b></p>
+
+  <style>
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-f{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-f[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-nm{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-v{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;border-radius:999px;
+      padding:2px 9px;border:1.5px solid;white-space:nowrap}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-h{margin:0 0 9px;font-size:13px}
+    .v3-checks{display:flex;flex-direction:column;gap:7px}
+    .v3-c{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v3-c b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var FEATS = [
+      { n:'ticket_priority_at_creation', ok:true,
+        why:['Clean. Known before the prediction, by construction.',
+          'It is the value the field held <em>at the moment the ticket was created</em>, which is exactly when the model scores. Nothing about the outcome can have touched it.'] },
+      { n:'final_resolution_team', ok:false,
+        why:['Leaks. The label’s generation process assigns it.',
+          'Highly predictive of whether a ticket escalates — because the escalation is often <b>what caused that team to be assigned</b>. Current-row extraction gives every historical ticket its final team, so the model learns the outcome rather than predicting it. ' +
+          '<br><br>The repair is not to drop the concept but to use <b>the team known at ticket creation</b>, or at the intended scoring time. Same column, different temporal slice, completely different feature.'] },
+      { n:'transactions_last_30_days  (window ends at dataset build time)', ok:false,
+        why:['Leaks, and this one hides in code that looks right.',
+          'The window is anchored to the <b>dataset build date</b> rather than to each example’s cutoff. For a January example that means including December — and, worse, events that happened <em>after</em> its label was determined. ' +
+          '<br><br><b>Parameterise every window by the example cutoff, never a global run date.</b> The feature name is identical either way, which is precisely why this survives review.'] },
+      { n:'account_status  (updated only after default)', ok:false,
+        why:['Leaks indirectly — the most common shape in practice.',
+          'It is not the label, it does not mention the label, and it is updated by a downstream process that only runs <em>because</em> the label happened. Every value is legitimate; the timing is not. ' +
+          '<br><br>Classify every feature by source, event time, availability time, computation window, and <b>whether label generation can affect it</b>. That fourth column is what catches this one.'] },
+      { n:'category_target_encoding  (mean label per category)', ok:false,
+        why:['Leaks the answer directly, using the row’s own target.',
+          'Encoding a category with its average label, computed over all rows including this one, hands the model a smoothed copy of the target. ' +
+          '<br><br>Use <b>out-of-fold estimates</b> for training rows and training-only statistics for validation, with <b>smoothing for rare categories</b> — otherwise a category with a single observation becomes a near-perfect feature.'] },
+      { n:'normalisation mean fitted on the full dataset', ok:false,
+        why:['Leaks the validation distribution, quietly.',
+          'Means, vocabularies, imputation values and feature selection are all <b>learned</b> from data, so fitting them on everything lets validation information reach the training fold. ' +
+          '<br><br>Fit learned preprocessing on the training fold only, <b>persist it with the model</b>, and apply it unchanged to validation, test and production. The effect is largest on small datasets, which is exactly where the shortcut is most tempting.'] },
+      { n:'non-churner sampled from customers who survived a year', ok:false,
+        why:['Leaks through the sampling, not the columns.',
+          'Every feature can be perfectly clean and the dataset still be dishonest: the <b>selection of negatives used future survival</b>. ' +
+          '<br><br>Define an observation window and a label window, require sufficient follow-up for positives <em>and</em> negatives, and exclude examples near the dataset end whose labels are not yet mature.'] }
+    ];
+    var sel = 0;
+    var list = document.getElementById('v3-list'), why = document.getElementById('v3-why');
+    function render(){
+      list.innerHTML = FEATS.map(function(f, i){
+        var c = f.ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<button class="v3-f" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span class="v3-nm">' + f.n + '</span>' +
+          '<span class="v3-v" style="color:' + c + ';border-color:' + c + '">' + (f.ok ? 'CLEAN' : 'LEAKS') + '</span></button>';
+      }).join('');
+      [].slice.call(list.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var f = FEATS[sel];
+      why.innerHTML = '<b style="color:' + (f.ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + f.why[0] + '</b>' + f.why[1];
+    }
+    render();
+
+    document.getElementById('v3-checks').innerHTML = [
+      ['shuffle the labels', 'Performance should <b>collapse to chance</b>. If it does not, the model is learning something about the rows themselves rather than the target.'],
+      ['train on identifiers and timestamps alone', 'Any real signal here is a <b>dataset artifact</b> — ordering, ID ranges correlated with outcome, or a build process that grouped positives together.'],
+      ['compare a feature’s distribution before and after the outcome', 'A feature that shifts sharply at the outcome moment is being written by the label’s own process.'],
+      ['remove the dominant feature and measure the drop', 'An implausibly dominant feature, or an offline score far above domain expectations, <b>deserves investigation rather than celebration</b>. The size of the drop tells you what the model was really using.']
+    ].map(function(c){ return '<div class="v3-c"><b>' + c[0] + '</b>' + c[1] + '</div>'; }).join('');
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Splitting Honestly</h2>
+  <p class="vz-lede">A random split assumes rows are independent. Repeated customers and near-duplicate
+    sessions make that false, and the optimism it buys survives every review. Switch the split.
+    <b>Like testing a student on questions they have already seen with the numbers changed.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Split strategy">
+    <button id="v4-rand" aria-pressed="true">random rows</button>
+    <button id="v4-time" aria-pressed="false">temporal</button>
+    <button id="v4-group" aria-pressed="false">group by entity</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-grid" id="v4-grid"></div>
+    <div class="v4-stats" id="v4-stats"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The two strategies answer different questions and are not alternatives.
+    <b>Temporal</b> asks "will this work on next month's data", which is the deployment question.
+    <b>Group</b> asks "will this work on a customer it has never seen", which is the memorisation
+    question. Where both risks exist, you need both constraints.</p>
+
+  <style>
+    .v4-grid{display:grid;grid-template-columns:repeat(12,1fr);gap:3px;margin-bottom:13px}
+    .v4-c{height:22px;border-radius:3px;display:flex;align-items:center;justify-content:center;
+      font-size:8.5px;font-weight:800;color:#fff}
+    .v4-stats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-leg{display:flex;gap:12px;font-size:11px;font-weight:700;margin-bottom:10px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    // 36 rows: entity id (6 customers, 6 rows each), time index 0..35
+    var ROWS = [];
+    for (var i = 0; i < 36; i++) ROWS.push({ i:i, ent:i % 6, t:i });
+    var mode = 'rand';
+    var B = { rand:document.getElementById('v4-rand'), time:document.getElementById('v4-time'), group:document.getElementById('v4-group') };
+    var grid = document.getElementById('v4-grid'), stats = document.getElementById('v4-stats'), why = document.getElementById('v4-why');
+
+    function assign(r){
+      if (mode === 'time') return r.t >= 26 ? 'test' : 'train';
+      if (mode === 'group') return r.ent >= 4 ? 'test' : 'train';
+      return ((r.i * 7 + 3) % 10) >= 7 ? 'test' : 'train';   // deterministic pseudo-random
+    }
+    function render(){
+      Object.keys(B).forEach(function(k){ B[k].setAttribute('aria-pressed', k === mode ? 'true' : 'false'); });
+      var trainEnts = {}, testEnts = {}, trainMaxT = -1, testMinT = 99;
+      ROWS.forEach(function(r){
+        var s = assign(r);
+        if (s === 'train') { trainEnts[r.ent] = 1; trainMaxT = Math.max(trainMaxT, r.t); }
+        else { testEnts[r.ent] = 1; testMinT = Math.min(testMinT, r.t); }
+      });
+      var shared = Object.keys(testEnts).filter(function(e){ return trainEnts[e]; });
+      var overlap = trainMaxT >= testMinT;
+
+      grid.innerHTML = ROWS.map(function(r){
+        var s = assign(r);
+        var bad = (s === 'test' && trainEnts[r.ent] && mode !== 'group');
+        var bg = s === 'test' ? (bad ? 'var(--viz-red)' : 'var(--viz-violet)') : 'var(--viz-accent)';
+        return '<div class="v4-c" style="background:' + bg + '" title="entity ' + r.ent + '">c' + r.ent + '</div>';
+      }).join('');
+
+      stats.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">train</span>' +
+        '<span class="v4-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">test</span>' +
+        '<span class="v4-pill" style="color:' + (shared.length ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (shared.length ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+          shared.length + ' entit' + (shared.length === 1 ? 'y' : 'ies') + ' in BOTH sets</span>' +
+        '<span class="v4-pill" style="color:' + (overlap ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (overlap ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+          (overlap ? 'time ranges overlap' : 'test is strictly later') + '</span>';
+
+      why.innerHTML = mode === 'rand'
+        ? '<b style="color:var(--viz-red)">Both leaks at once: the same customers appear on both sides, and later rows train while earlier rows test.</b>' +
+          'Near-duplicate sessions, repeated customers and future events all cross the boundary. The evaluation is optimistic in the one way that is hardest to catch — <b>the numbers look great and the code looks fine.</b> ' +
+          '<br><br>Random splitting is correct only when rows really are independent. It is worth writing down why you believe that before relying on it.'
+        : mode === 'time'
+          ? '<b style="color:var(--viz-green)">Train on earlier periods, evaluate on later ones — the deployment shape.</b>' +
+            'This mirrors what actually happens in production: the model is fitted on the past and asked about the future, so the evaluation includes <b>drift</b> rather than assuming it away. ' +
+            '<br><br>Note the entities still repeat across the split. That is fine when memorising a customer is not the risk, and it is not fine when it is — which is what the third option is for.'
+          : '<b style="color:var(--viz-green)">No entity appears on both sides, so memorisation cannot inflate the score.</b>' +
+            'Use it when the same entity, session or document family recurs and the model could simply recognise it — retrieval evaluation sets are full of this, where near-duplicate documents make a test query trivially answerable from a training document. ' +
+            '<br><br>The time ranges still overlap here, so this split alone does not answer the drift question.';
+    }
+    Object.keys(B).forEach(function(k){ B[k].addEventListener('click', function(){ mode = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Same Number, Different Truth</h2>
+  <p class="vz-lede">Offline says 100. Online says 100. That is not parity. Tap each kind of skew and see
+    what shared code does and does not fix. <b>Like two clocks showing the same time, one of which stopped
+    three days ago.</b></p>
+
+  <div class="v5-list" id="v5-list"></div>
+
+  <div class="vz-card">
+    <div class="v5-cmp" id="v5-cmp"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">And when exact parity is genuinely impossible, <b>train for the serving reality</b>:
+    simulate the online delay, the missingness, the quantisation or the approximation in the historical
+    features. A slightly less accurate model trained on deployable signals is worth more than a
+    high-scoring one that depends on truth production cannot obtain.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-k{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v5-k[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-fix{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;white-space:nowrap}
+    .v5-cmp{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+    .v5-side{flex:1 1 148px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7}
+    .v5-side h5{margin:0 0 5px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);font-family:inherit}
+    .v5-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var KINDS = [
+      { t:'two implementations of one definition', fix:'SHARED CODE FIXES IT',
+        off:'-- training SQL\nSUM(amount) FILTER (\n  WHERE ts >= now - 30d\n)', on:'// serving service\nsum(txns\n  .filter(t => t.ts > cutoff30))\n// ...and > vs >= ',
+        why:['The case a feature registry actually solves.',
+          'One definition as code, with sources, transformation, keys, timestamp logic, null policy, type, owner and versions recorded. Batch materialises history; serving retrieves current values <b>under the same contract</b>. ' +
+          '<br><br>"Same definition" is a stronger claim than "matching column names", and that difference is the whole reason the registry exists.'] },
+      { t:'different schedules and lateness visibility', fix:'SHARED CODE DOES NOT FIX IT',
+        off:'daily batch, run at 02:10\nsees corrected late data\n(48h lateness horizon closed)', on:'updates per event\nsees only what has arrived\nno correction pass',
+        why:['Identical code, different lifecycles, different values.',
+          'The batch job waits out its lateness horizon and therefore sees events the online path never had. <b>The data lifecycle must match, not just the function source</b> — which is why "we share the transformation" is a necessary and insufficient answer. ' +
+          '<br><br>The same category covers numeric types: one environment on double precision and another on something narrower produces small, persistent, real disagreements.'] },
+      { t:'freshness gap', fix:'NEEDS A MAX-AGE POLICY',
+        off:'balance = 100\nas_of = prediction time', on:'balance = 100\nas_of = 3 days ago',
+        why:['Numerically equal and not equivalent.',
+          'The values match, so an equality-based parity test passes — and the serving value is three days stale, which may make it unreliable for exactly the decisions that matter. ' +
+          '<br><br><b>Freshness is part of the value.</b> Define a maximum age per feature and the behaviour when it is exceeded: fail closed, fall back to a default, fetch synchronously, or use a reduced model.'] },
+      { t:'default-value skew', fix:'NEEDS ONE CANONICAL POLICY',
+        off:'missing history → NULL', on:'missing history → 0',
+        why:['The model reads those two as different things — and it is right to.',
+          'Especially when <b>missingness is itself predictive</b>: NULL says "no history", 0 says "no activity", and those are different customers. ' +
+          '<br><br>Persist an <b>explicit missing indicator</b>, or pick one canonical default policy and test it end to end. Offline SQL and online code will not converge on this by accident.'] },
+      { t:'version skew during rollout', fix:'BIND MODEL TO FEATURE VERSION',
+        off:'trained on definition V3', on:'serving fetches "latest" → V4',
+        why:['The model receives definitions it never trained on.',
+          'The symptom looks exactly like model drift — accuracy falls with no code change — and the cause is a rollout that moved the features without moving the model. ' +
+          '<br><br><b>Bind the model artifact to compatible feature versions</b>, support parallel materialisations during migration, switch model and features coherently, then retire old versions after the rollback window.'] }
+    ];
+    var sel = 0;
+    var list = document.getElementById('v5-list'), cmp = document.getElementById('v5-cmp'), why = document.getElementById('v5-why');
+    function render(){
+      list.innerHTML = KINDS.map(function(k, i){
+        var c = k.fix.indexOf('DOES NOT') > -1 ? 'var(--viz-red)' : (k.fix.indexOf('SHARED') > -1 ? 'var(--viz-green)' : 'var(--viz-amber)');
+        return '<button class="v5-k" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span>' + k.t + '</span><span class="v5-fix" style="color:' + c + '">' + k.fix + '</span></button>';
+      }).join('');
+      [].slice.call(list.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var k = KINDS[sel];
+      cmp.innerHTML = '<div class="v5-side"><h5>offline / training</h5>' + k.off.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div>' +
+                      '<div class="v5-side"><h5>online / serving</h5>' + k.on.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div>';
+      why.innerHTML = '<b>' + k.why[0] + '</b>' + k.why[1] +
+        '<br><br><span style="color:var(--viz-muted)">The end-to-end invariant: for a captured prediction identity and timestamp, the historical pipeline should reproduce <b>the values and versions the model actually received</b>, within declared tolerances and availability rules. ' +
+        'Parity tests compute both paths on identical captured inputs; shadow logging samples real predictions and reconstructs them offline. Monitor availability, freshness, drift, null rates and parity <b>by model version</b> — model-performance degradation is a late signal.</span>';
+    }
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>
