@@ -17,32 +17,35 @@ const App = (() => {
       if (q === '1' || q === 'assistant') sessionStorage.setItem('embed', '1');
       else if (q === '0') sessionStorage.removeItem('embed');
       if (sessionStorage.getItem('embed') === '1') document.documentElement.classList.add('embed');
-      // Assistant-only (?embed=assistant) and edit-actions (?actions=1) are the Coach iframe's mode.
-      // Derive them from THIS document's URL ONLY — NEVER sessionStorage. Same-origin iframes (the
-      // Coach AND the Academy) share one sessionStorage under a single top-level page, so persisting
-      // these would flip the Academy tab into the assistant too (the "stuck in the chat" bug).
+      // Assistant-only (?embed=assistant) is the Coach iframe's mode. Derive it from THIS
+      // document's URL ONLY — NEVER sessionStorage. Same-origin iframes (the Coach AND the
+      // Academy) share one sessionStorage under a single top-level page, so persisting it would
+      // flip the Academy tab into the assistant too (the "stuck in the chat" bug).
       sessionStorage.removeItem('embedAssistant'); sessionStorage.removeItem('coachActions'); // clear leaked keys
       if (q === 'assistant') document.documentElement.classList.add('assistant-only');
-      if (new URLSearchParams(location.search).get('actions') === '1') document.documentElement.classList.add('coach-actions');
     } catch { /* private mode / no storage — embed styling is cosmetic, never block boot */ }
   })();
   const assistantOnly = () => document.documentElement.classList.contains('assistant-only');
-  // Coach edit-actions are on only when the host enabled them (this iframe's ?actions=1) AND we're
-  // inside a host frame that can execute them. URL/class-derived, never shared storage.
-  const coachActionsEnabled = () => {
-    try { return document.documentElement.classList.contains('coach-actions') && window.parent && window.parent !== window; }
-    catch { return false; }
-  };
   // Whether we're embedded in someone else's frame at all (Sentinel's Coach/Academy/pinned tabs)
-  // vs running top-level as mastery-engine's own first-party Study Assistant.
+  // vs running top-level as mastery-engine's own first-party Study Assistant. This is the ONE
+  // gate on PROFILE edit proposals — a host is what executes them, so without one there is
+  // nowhere for a proposal to go. Sent up as `hostFrame`; the server gates on it (gemini.js
+  // assistantActionBlock).
+  //
+  // 🔴 `?actions=1` on the Coach FAB's src does NOT gate this and never has in any shipped
+  // revision: its reader here was a `coachActionsEnabled()` nothing called, so the Professional /
+  // Philosophical / Spiritual tabs — which never set the param — have always been able to propose
+  // profile edits. Removed 2026-08-10 rather than revived, because reviving it would have taken
+  // that working capability away from the tabs that are now the only door to the assistant on
+  // their pages (Sentinel's Coach FAB is suppressed there). The trust boundary is the HOST's
+  // listener: it origin-checks the sender, whitelists every op, and needs a human Approve tap.
   const inHostFrame = () => { try { return !!(window.parent && window.parent !== window); } catch { return true; } };
   // Engine-only actions (propose to park/restore a Mastery Engine section) always run same-origin
   // against the signed-in learner's OWN engine - there's no cross-origin execution involved, so
-  // unlike PROFILE edits (which need an actual host to carry them out - gated by hostFrame below)
-  // there's nothing here to gate on frame/embed context. Always on: whether this is Sentinel's
-  // Coach FAB, its Professional/Academy tab (an iframe too, just without ?actions=1), or a
-  // standalone tab - narrowing this to "only when NOT in any host frame" was the bug: ordinary
-  // day-to-day usage IS inside Sentinel's Professional tab, which never sets ?actions=1.
+  // unlike PROFILE edits there's nothing here to gate on frame/embed context. Always on: whether
+  // this is Sentinel's Coach FAB, its Professional/Academy tab (an iframe too), or a standalone
+  // tab - narrowing this to "only when NOT in any host frame" was the bug: ordinary day-to-day
+  // usage IS inside Sentinel's Professional tab.
   const engineActionsEnabled = () => true;
   // Which mode a signed-in user LANDS on. Sentinel's Academy passes ?home=quiz so the tab opens
   // straight into the course/quiz builder (progress now lives in Sentinel's Development hub), instead
@@ -4398,7 +4401,10 @@ const App = (() => {
       syncConvoUi();
       // Reflect saved toggle state so the checkboxes aren't stuck unchecked.
       const wc = $('asstWebChk'); if (wc) wc.checked = webAccessOn();
-      const cc = $('asstCoachChk'); if (cc) cc.checked = coachOn();
+      // Coach mode is forced on in the Coach frame (see coachOn) — render it as the fixed fact it
+      // is, rather than as a live toggle whose flips silently change nothing.
+      const cc = $('asstCoachChk');
+      if (cc) { cc.checked = coachOn(); cc.disabled = assistantOnly(); }
     }
   }
 
@@ -6707,8 +6713,15 @@ const App = (() => {
   function webAccessOn() { return localStorage.getItem('assistant.web') === '1'; }
   function onWebAccessChange(chk) { localStorage.setItem('assistant.web', chk && chk.checked ? '1' : '0'); }
   // Coach mode: ground answers in the learner's progress + curriculum + transcripts and
-  // recommend a personalised study path. Heavier per turn, so it's opt-in. Default off.
-  function coachOn() { return localStorage.getItem('assistant.coach') === '1'; }
+  // recommend a personalised study path. Heavier per turn (a catalog + transcript read every
+  // turn), so in this app it's opt-in. Default off.
+  //
+  // ALWAYS ON in the ?embed=assistant frame — that frame IS Sentinel's global Coach, and it is
+  // the one surface with no engine screen behind it (assistantContext() has nothing to report),
+  // so the progress digest and the "Suggested path to drill this" footer are the whole of what it
+  // can add over a plain chat. Left to the toggle, a button labelled "Your Coach" shipped without
+  // any of it unless the learner had opened the panel's settings and found the checkbox.
+  function coachOn() { return assistantOnly() || localStorage.getItem('assistant.coach') === '1'; }
   function onCoachChange(chk) { localStorage.setItem('assistant.coach', chk && chk.checked ? '1' : '0'); }
   function convoActive() { return convoOn() && !$('assistantPanel')?.classList.contains('hidden'); }
   function assistantMicBtn() { return document.querySelector('#assistantPanel .chat-input .me-mic'); }

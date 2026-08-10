@@ -257,15 +257,30 @@ Sentinel embeds this app and reads from it:
 
 | Direction | Mechanism |
 |---|---|
-| Sentinel → ME (UI) | `<iframe src="…?embed=1">` — Academy tab. `?embed=assistant&actions=1` — Coach FAB. |
+| Sentinel → ME (UI) | `<iframe src="…?embed=1">` — Professional / Philosophical / Spiritual tabs. `?embed=assistant` — Coach FAB. |
 | Sentinel → ME (data) | `GET /api/internal/enrollment-progress`, **HMAC-signed** (`verifyInternalSig`, [server.js:3619](../server.js#L3619)) |
 | ME → Sentinel | `lib/sentinel.js` fetches the people roster for the admin enrollment UI |
 | Shared identity | `ag_sso` cookie signed with `SSO_SECRET` (Secret Manager: `platform-sso-key`) |
 
 **Embed mode matters in the frontend.** `?embed=1` is remembered in `sessionStorage`;
-`?embed=assistant` and `?actions=1` are deliberately **URL-only, never persisted**, because
-same-origin iframes share one `sessionStorage` and persisting them flipped the Academy tab into
-the assistant (the "stuck in the chat" bug). See [public/app.js:8–35](../public/app.js#L8).
+`?embed=assistant` is deliberately **URL-only, never persisted**, because same-origin iframes
+share one `sessionStorage` and persisting it flipped the Academy tab into the assistant (the
+"stuck in the chat" bug). See [public/app.js:8–33](../public/app.js#L8).
+
+🔴 **There is ONE assistant, and "Coach" is a door into it, not a second system.** The Coach FAB
+frames THIS app's `#assistantPanel` with the chrome hidden; "Coach mode" is a toggle on that same
+panel. Same routes, same persona, same `assistantChats` store. Two consequences:
+
+- **Sentinel suppresses its Coach FAB on any page that already embeds the engine** (its
+  `ENGINE_PAGES`), because the engine's own dock is a strict superset there — it proposes the
+  same profile edits *and* can see the learner's screen. One door per page.
+- **Coach mode is forced ON in the `?embed=assistant` frame** (`coachOn()`): that frame has no
+  engine screen behind it, so the progress digest and the study-path footer are the whole of what
+  it adds. Elsewhere it stays the opt-in toggle — full grounding costs a catalog + transcript read
+  every turn.
+
+`?actions=1` was **removed 2026-08-10**: its reader here was never called, so profile-edit
+proposals have always been gated on `hostFrame` alone.
 
 ---
 
