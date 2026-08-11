@@ -1,0 +1,949 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:34px}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Slice To Slope</button>
+  <button class="viz-tab" data-viz-tab="2">2. Partials To Gradient</button>
+  <button class="viz-tab" data-viz-tab="3">3. Unit Vector Rule</button>
+  <button class="viz-tab" data-viz-tab="4">4. Cooling Fastest</button>
+  <button class="viz-tab" data-viz-tab="5">5. Hessian Decides</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Slice To Slope</h2>
+  <p class="vz-lede"><b>Derivative as slope and rate of change</b> measured the slope of a curve, and
+    <b>Tangent lines and linear approximations</b> laid a straight line along it. A surface has no single
+    slope — but freeze one input and it hands you back a curve you already know how to differentiate.
+    Choose which input to freeze, then walk the point along.
+    <b>Like slicing a loaf: every cut face is a flat outline you can trace with one finger.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="which input to freeze">
+    <button id="v1-mode-x" aria-pressed="true">hold y fixed · vary x</button>
+    <button id="v1-mode-y" aria-pressed="false">hold x fixed · vary y</button>
+  </div>
+
+  <div class="v1-row">
+    <div class="v1-map" id="v1-map"></div>
+    <div class="v1-plot" id="v1-plot"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-x">x = <span id="v1-xl">1.00</span></label>
+    <input class="vz-range" type="range" id="v1-x" min="-1.6" max="1.6" step="0.05" value="1" aria-label="x coordinate of the point">
+    <label class="vz-lab" for="v1-y">y = <span id="v1-yl">1.00</span></label>
+    <input class="vz-range" type="range" id="v1-y" min="-1.6" max="1.6" step="0.05" value="1" aria-label="y coordinate of the point">
+    <div class="vz-mono" id="v1-out" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The whole lesson stands on this one move. A partial derivative introduces no new
+    limit and no new rule — it is the ordinary derivative of the ordinary curve you get by holding the
+    other inputs still. Everything that follows is bookkeeping about how many of these slopes you keep
+    and what you do with them once you have them.</p>
+
+  <style>
+    .v1-row{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap}
+    .v1-map{flex:0 0 108px}
+    .v1-plot{flex:1 1 190px;min-width:180px}
+  </style>
+  <script>
+  (function(){
+    var mode = 'x';
+    var bX = document.getElementById('v1-mode-x'), bY = document.getElementById('v1-mode-y');
+    var sX = document.getElementById('v1-x'), sY = document.getElementById('v1-y');
+    var lX = document.getElementById('v1-xl'), lY = document.getElementById('v1-yl');
+    var map = document.getElementById('v1-map'), plot = document.getElementById('v1-plot');
+    var out = document.getElementById('v1-out'), why = document.getElementById('v1-why');
+    var LO = -1.6, HI = 1.6;
+
+    function f(x, y){ return x * x * x * y * y; }
+    function fx(x, y){ return 3 * x * x * y * y; }
+    function fy(x, y){ return 2 * x * x * x * y; }
+    function n(v){ return isFinite(v) ? (Math.abs(v) < 0.0005 ? '0.000' : v.toFixed(3)) : 'n/a'; }
+
+    function render(){
+      var x0 = Number(sX.value), y0 = Number(sY.value);
+      if (!isFinite(x0)) x0 = 0;
+      if (!isFinite(y0)) y0 = 0;
+      lX.textContent = x0.toFixed(2);
+      lY.textContent = y0.toFixed(2);
+      bX.setAttribute('aria-pressed', mode === 'x' ? 'true' : 'false');
+      bY.setAttribute('aria-pressed', mode === 'y' ? 'true' : 'false');
+
+      var N = 72, pts = [], maxAbs = 0, i, t, v;
+      for (i = 0; i <= N; i++) {
+        t = LO + (HI - LO) * i / N;
+        v = mode === 'x' ? f(t, y0) : f(x0, t);
+        if (!isFinite(v)) v = 0;
+        pts.push([t, v]);
+        if (Math.abs(v) > maxAbs) maxAbs = Math.abs(v);
+      }
+      if (!(maxAbs > 0.000001)) maxAbs = 1;
+
+      var W = 320, H = 180, PAD = 16, MID = H / 2;
+      function px(u){ return PAD + (u - LO) / (HI - LO) * (W - 2 * PAD); }
+      function py(u){
+        var r = MID - u / maxAbs * (MID - PAD);
+        if (!isFinite(r)) r = MID;
+        return Math.max(3, Math.min(H - 3, r));
+      }
+
+      var d = '';
+      for (i = 0; i < pts.length; i++) {
+        d += (i ? ' L ' : 'M ') + px(pts[i][0]).toFixed(1) + ' ' + py(pts[i][1]).toFixed(1);
+      }
+
+      var t0 = mode === 'x' ? x0 : y0;
+      var v0 = f(x0, y0);
+      var m = mode === 'x' ? fx(x0, y0) : fy(x0, y0);
+      if (!isFinite(m)) m = 0;
+      var tA = Math.max(LO, t0 - 0.55), tB = Math.min(HI, t0 + 0.55);
+      var vA = v0 + m * (tA - t0), vB = v0 + m * (tB - t0);
+      var sliceLabel = mode === 'x' ? 't, ' + y0.toFixed(2) : x0.toFixed(2) + ', t';
+      var axis = mode === 'x' ? 'x' : 'y';
+
+      plot.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" style="display:block;width:100%;height:auto" role="img" aria-label="the slice curve and its tangent line">' +
+        '<line x1="' + PAD + '" y1="' + MID + '" x2="' + (W - PAD) + '" y2="' + MID + '" style="stroke:var(--viz-line);stroke-width:1"/>' +
+        '<line x1="' + px(t0).toFixed(1) + '" y1="8" x2="' + px(t0).toFixed(1) + '" y2="' + (H - 8) + '" style="stroke:var(--viz-line);stroke-width:1;stroke-dasharray:3 3"/>' +
+        '<path d="' + d + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.5"/>' +
+        '<line x1="' + px(tA).toFixed(1) + '" y1="' + py(vA).toFixed(1) + '" x2="' + px(tB).toFixed(1) + '" y2="' + py(vB).toFixed(1) + '" style="stroke:var(--viz-amber);stroke-width:2.6"/>' +
+        '<circle cx="' + px(t0).toFixed(1) + '" cy="' + py(v0).toFixed(1) + '" r="4.5" style="fill:var(--viz-red)"/>' +
+        '<text x="6" y="13" style="fill:var(--viz-muted);font-size:10px">curve z = f(' + sliceLabel + ')</text>' +
+        '<text x="6" y="' + (H - 5) + '" style="fill:var(--viz-amber);font-size:10px">tangent line, slope = ' + n(m) + '</text>' +
+        '<text x="' + (W - 6) + '" y="' + (H - 5) + '" text-anchor="end" style="fill:var(--viz-muted);font-size:10px">' + axis + ' along this axis</text>' +
+        '</svg>';
+
+      var MW = 120;
+      function mx(u){ return 12 + (u - LO) / (HI - LO) * (MW - 24); }
+      function my(u){ return MW - 12 - (u - LO) / (HI - LO) * (MW - 24); }
+      map.innerHTML =
+        '<svg viewBox="0 0 ' + MW + ' ' + MW + '" style="display:block;width:100%;height:auto" role="img" aria-label="where the cut sits in the x y plane">' +
+        '<rect x="12" y="12" width="' + (MW - 24) + '" height="' + (MW - 24) + '" style="fill:none;stroke:var(--viz-line);stroke-width:1"/>' +
+        (mode === 'x'
+          ? '<line x1="12" y1="' + my(y0).toFixed(1) + '" x2="' + (MW - 12) + '" y2="' + my(y0).toFixed(1) + '" style="stroke:var(--viz-accent);stroke-width:2"/>'
+          : '<line x1="' + mx(x0).toFixed(1) + '" y1="12" x2="' + mx(x0).toFixed(1) + '" y2="' + (MW - 12) + '" style="stroke:var(--viz-accent);stroke-width:2"/>') +
+        '<circle cx="' + mx(x0).toFixed(1) + '" cy="' + my(y0).toFixed(1) + '" r="3.5" style="fill:var(--viz-red)"/>' +
+        '<text x="2" y="9" style="fill:var(--viz-muted);font-size:8.5px">' +
+        (mode === 'x' ? 'cut along y = ' + y0.toFixed(2) : 'cut along x = ' + x0.toFixed(2)) + '</text>' +
+        '<text x="2" y="' + (MW - 2) + '" style="fill:var(--viz-muted);font-size:8.5px">the x-y plane</text>' +
+        '</svg>';
+
+      var h = 0.001;
+      var fd = mode === 'x'
+        ? (f(x0 + h, y0) - f(x0, y0)) / h
+        : (f(x0, y0 + h) - f(x0, y0)) / h;
+      out.innerHTML =
+        'f(x, y) = x^3 y^2        two inputs, ONE output\n' +
+        'f(' + x0.toFixed(2) + ', ' + y0.toFixed(2) + ') = ' + n(v0) + '\n' +
+        '∂f/∂x = 3x^2 y^2 = ' + n(fx(x0, y0)) + '        (y frozen: y^2 is a constant)\n' +
+        '∂f/∂y = 2x^3 y   = ' + n(fy(x0, y0)) + '        (x frozen: x^3 is a constant)\n' +
+        'limit check on this slice, h = 0.001 : ' + n(fd) + '  vs rule ' + n(m) + '\n' +
+        'tangent plane  z = ' + n(v0) + ' + ' + n(fx(x0, y0)) + '(x - ' + x0.toFixed(2) + ') + ' + n(fy(x0, y0)) + '(y - ' + y0.toFixed(2) + ')';
+
+      why.innerHTML = '<b>Two slices, and the plane is already fixed.</b>' +
+        'Holding y at ' + y0.toFixed(2) + ' turns the surface into the curve drawn above, and its slope at the marked point is the partial derivative <b>∂f/∂x = ' + n(fx(x0, y0)) + '</b>. Holding x instead gives the other curve and <b>∂f/∂y = ' + n(fy(x0, y0)) + '</b>. ' +
+        'Those two tangent lines pass through the same point and are not parallel — and two intersecting lines fix exactly one plane. That is why two numbers are enough to pin down the tangent plane, no matter how the surface twists.' +
+        '<br><br>Nothing new is happening in the calculus. With y frozen, y^2 = ' + n(y0 * y0) + ' is just a constant multiplier, and the power rule finishes the job. Note the trap: 3x^2 y is <em>not</em> ∂f/∂x — it differentiated the frozen letter too.';
+    }
+
+    sX.addEventListener('input', render);
+    sY.addEventListener('input', render);
+    bX.addEventListener('click', function(){ mode = 'x'; render(); });
+    bY.addEventListener('click', function(){ mode = 'y'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Partials To Gradient</h2>
+  <p class="vz-lede">Two slopes are two numbers. Stack them and they become a <em>vector</em> with a
+    direction on the map: the way uphill. Move the point and watch the two bars swing, the arrow turn,
+    and the arrow stay square to the contour it is standing on.
+    <b>Like a compass needle on a hillside: it does not care where you came from, only which way is up.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="choose a function">
+    <button id="v2-fa" aria-pressed="true">f = x^3 y^2</button>
+    <button id="v2-fb" aria-pressed="false">f = x^2 + 2y^2</button>
+    <button id="v2-fc" aria-pressed="false">f = x^2 - y^2</button>
+  </div>
+
+  <div class="v2-row">
+    <div class="v2-map" id="v2-map"></div>
+    <div class="v2-bars" id="v2-bars"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-x">x = <span id="v2-xl">1.00</span></label>
+    <input class="vz-range" type="range" id="v2-x" min="-2" max="2" step="0.05" value="1" aria-label="x coordinate of the point">
+    <label class="vz-lab" for="v2-y">y = <span id="v2-yl">1.00</span></label>
+    <input class="vz-range" type="range" id="v2-y" min="-2" max="2" step="0.05" value="1" aria-label="y coordinate of the point">
+    <div class="vz-mono" id="v2-out" style="margin-top:10px"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The gradient is a <b>vector</b>, one component per input — not a single number
+    measuring curvature and not a matrix of second derivatives. Sizes are the giveaway in an exam
+    question: a function of two variables has a gradient with two entries and a Hessian with four.</p>
+
+  <style>
+    .v2-row{display:flex;gap:11px;align-items:flex-start;margin-bottom:12px;flex-wrap:wrap}
+    .v2-map{flex:1 1 190px;min-width:170px}
+    .v2-bars{flex:1 1 150px;min-width:150px;display:flex;flex-direction:column;gap:11px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:6px}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v2-track{position:relative;height:14px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{position:absolute;top:0;bottom:0;border-radius:4px}
+    .v2-track u{position:absolute;top:0;bottom:0;left:50%;width:1px;background:var(--viz-bg);text-decoration:none}
+    .v2-sub{font-size:10.5px;color:var(--viz-muted);margin-top:4px}
+  </style>
+  <script>
+  (function(){
+    var FUNCS = [
+      { label: 'f = x^3 y^2', dx: '3x^2 y^2', dy: '2x^3 y',
+        f: function(x, y){ return x * x * x * y * y; },
+        gx: function(x, y){ return 3 * x * x * y * y; },
+        gy: function(x, y){ return 2 * x * x * x * y; } },
+      { label: 'f = x^2 + 2y^2', dx: '2x', dy: '4y',
+        f: function(x, y){ return x * x + 2 * y * y; },
+        gx: function(x, y){ return 2 * x; },
+        gy: function(x, y){ return 4 * y; } },
+      { label: 'f = x^2 - y^2', dx: '2x', dy: '-2y',
+        f: function(x, y){ return x * x - y * y; },
+        gx: function(x, y){ return 2 * x; },
+        gy: function(x, y){ return -2 * y; } }
+    ];
+    var cur = 0;
+    var btns = [document.getElementById('v2-fa'), document.getElementById('v2-fb'), document.getElementById('v2-fc')];
+    var sX = document.getElementById('v2-x'), sY = document.getElementById('v2-y');
+    var lX = document.getElementById('v2-xl'), lY = document.getElementById('v2-yl');
+    var map = document.getElementById('v2-map'), bars = document.getElementById('v2-bars');
+    var out = document.getElementById('v2-out'), why = document.getElementById('v2-why');
+    var LO = -2, HI = 2, G = 20, S = 220, PAD = 10;
+
+    function n(v){ return isFinite(v) ? (Math.abs(v) < 0.0005 ? '0.000' : v.toFixed(3)) : 'n/a'; }
+
+    function arrow(x1, y1, x2, y2, col, w){
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      if (!(L > 0.001) || !isFinite(L)) return '';
+      var ux = dx / L, uy = dy / L;
+      var hx = x2 - ux * 9, hy = y2 - uy * 9, nx = -uy * 5, ny = ux * 5;
+      return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + hx.toFixed(1) + '" y2="' + hy.toFixed(1) + '" style="stroke:' + col + ';stroke-width:' + w + '"/>' +
+        '<polygon points="' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' ' + (hx + nx).toFixed(1) + ',' + (hy + ny).toFixed(1) + ' ' + (hx - nx).toFixed(1) + ',' + (hy - ny).toFixed(1) + '" style="fill:' + col + '"/>';
+    }
+
+    function render(){
+      var F = FUNCS[cur];
+      var x0 = Number(sX.value), y0 = Number(sY.value);
+      if (!isFinite(x0)) x0 = 0;
+      if (!isFinite(y0)) y0 = 0;
+      lX.textContent = x0.toFixed(2);
+      lY.textContent = y0.toFixed(2);
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var vals = [], vmin = Infinity, vmax = -Infinity, i, j, v;
+      for (j = 0; j < G; j++) {
+        vals.push([]);
+        for (i = 0; i < G; i++) {
+          v = F.f(LO + (HI - LO) * (i + 0.5) / G, LO + (HI - LO) * (j + 0.5) / G);
+          if (!isFinite(v)) v = 0;
+          vals[j].push(v);
+          if (v < vmin) vmin = v;
+          if (v > vmax) vmax = v;
+        }
+      }
+      var span = vmax - vmin;
+      if (!(span > 0.000000001)) span = 1;
+      var cell = (S - 2 * PAD) / G, cells = '', band, op;
+      for (j = 0; j < G; j++) {
+        for (i = 0; i < G; i++) {
+          band = Math.floor((vals[j][i] - vmin) / span * 6);
+          if (band > 5) band = 5;
+          if (band < 0) band = 0;
+          op = 0.06 + band * 0.13;
+          cells += '<rect x="' + (PAD + i * cell).toFixed(1) + '" y="' + (PAD + (G - 1 - j) * cell).toFixed(1) +
+            '" width="' + (cell + 0.7).toFixed(1) + '" height="' + (cell + 0.7).toFixed(1) +
+            '" style="fill:var(--viz-accent);opacity:' + op.toFixed(2) + '"/>';
+        }
+      }
+
+      function px(u){ return PAD + (u - LO) / (HI - LO) * (S - 2 * PAD); }
+      function py(u){ return S - PAD - (u - LO) / (HI - LO) * (S - 2 * PAD); }
+      var gx = F.gx(x0, y0), gy = F.gy(x0, y0);
+      if (!isFinite(gx)) gx = 0;
+      if (!isFinite(gy)) gy = 0;
+      var mag = Math.sqrt(gx * gx + gy * gy);
+      var ax = px(x0), ay = py(y0), deco = '';
+      if (mag > 0.000001) {
+        var ux = gx / mag, uy = gy / mag, LP = 46;
+        deco += '<line x1="' + (ax + uy * 40).toFixed(1) + '" y1="' + (ay + ux * 40).toFixed(1) +
+          '" x2="' + (ax - uy * 40).toFixed(1) + '" y2="' + (ay - ux * 40).toFixed(1) +
+          '" style="stroke:var(--viz-green);stroke-width:2;stroke-dasharray:4 3"/>';
+        deco += arrow(ax, ay, ax + ux * LP, ay - uy * LP, 'var(--viz-red)', 2.8);
+        deco += '<text x="6" y="13" style="fill:var(--viz-red);font-size:10px">solid arrow: ∇f, steepest ascent</text>';
+        deco += '<text x="6" y="25" style="fill:var(--viz-green);font-size:10px">dashed line: level curve, zero change</text>';
+      } else {
+        deco += '<text x="6" y="13" style="fill:var(--viz-amber);font-size:10px">∇f = (0, 0) here: flat, no uphill</text>';
+      }
+
+      map.innerHTML =
+        '<svg viewBox="0 0 ' + S + ' ' + S + '" style="display:block;width:100%;height:auto" role="img" aria-label="contour map with the gradient arrow">' +
+        cells +
+        '<rect x="' + PAD + '" y="' + PAD + '" width="' + (S - 2 * PAD) + '" height="' + (S - 2 * PAD) + '" style="fill:none;stroke:var(--viz-line);stroke-width:1"/>' +
+        deco +
+        '<circle cx="' + ax.toFixed(1) + '" cy="' + ay.toFixed(1) + '" r="4.5" style="fill:var(--viz-ink)"/>' +
+        '<text x="' + (S - 6) + '" y="' + (S - 6) + '" text-anchor="end" style="fill:var(--viz-muted);font-size:9.5px">darker band = larger f</text>' +
+        '</svg>';
+
+      var maxv = Math.max(Math.abs(gx), Math.abs(gy), 0.000001);
+      function bar(name, val){
+        var frac = Math.max(-1, Math.min(1, val / maxv));
+        if (!isFinite(frac)) frac = 0;
+        var w = Math.abs(frac) * 50, left = frac < 0 ? 50 - w : 50;
+        var col = frac < 0 ? 'var(--viz-violet)' : 'var(--viz-green)';
+        var word = Math.abs(val) < 0.0005 ? 'zero — flat this way'
+          : (val < 0 ? 'negative — f falls this way' : 'positive — f rises this way');
+        return '<div class="v2-b"><h6><span>' + name + '</span><b>' + n(val) + '</b></h6>' +
+          '<div class="v2-track"><i style="left:' + left.toFixed(1) + '%;width:' + Math.max(1.5, w).toFixed(1) + '%;background:' + col + '"></i><u></u></div>' +
+          '<div class="v2-sub">' + word + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('∂f/∂x  = ' + F.dx, gx) +
+        bar('∂f/∂y  = ' + F.dy, gy) +
+        '<div class="v2-b"><h6><span>‖∇f‖ (rate uphill)</span><b>' + n(mag) + '</b></h6>' +
+        '<div class="v2-sub">length of the arrow = how fast f climbs in its own direction</div></div>';
+
+      var uxs = mag > 0.000001 ? n(gx / mag) : 'n/a';
+      var uys = mag > 0.000001 ? n(gy / mag) : 'n/a';
+      out.innerHTML =
+        F.label + '        point (' + x0.toFixed(2) + ', ' + y0.toFixed(2) + ')   f = ' + n(F.f(x0, y0)) + '\n' +
+        '∇f = (∂f/∂x, ∂f/∂y) = (' + n(gx) + ', ' + n(gy) + ')\n' +
+        '‖∇f‖ = ' + n(mag) + '   steepest ASCENT unit heading = (' + uxs + ', ' + uys + ')\n' +
+        'steepest DESCENT heading = -∇f/‖∇f‖ = (' + (mag > 0.000001 ? n(-gx / mag) : 'n/a') + ', ' + (mag > 0.000001 ? n(-gy / mag) : 'n/a') + ')';
+
+      why.innerHTML = '<b>Assembling, then reading, the arrow.</b>' +
+        'The two bars are the same two numbers panel 1 produced by slicing. Written as the pair ∇f = (' + n(gx) + ', ' + n(gy) + ') they stop being slopes and start being a heading on the map: <b>the gradient points along steepest ascent</b>, and its length ' + n(mag) + ' is the climb rate in that direction. So <b>-∇f</b> is steepest descent — the direction to move to decrease f fastest in one tiny step. That single fact is why gradients are central to machine learning: they give the direction for optimisation steps like gradient descent.' +
+        '<br><br>Watch the dashed line: it is always at right angles to the arrow, and it runs along a contour. Move that way and f does not change at all. "Perpendicular to the gradient" therefore means <em>no change</em> — never descent, which is the distractor this panel exists to kill.' +
+        '<br><br>Try f = x^2 - y^2 at the origin: both partials vanish, the arrow disappears, and there is no uphill. A zero gradient is what a critical point <em>is</em> — and panel 5 is about telling those apart.';
+    }
+
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ cur = i; render(); }); });
+    sX.addEventListener('input', render);
+    sY.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Unit Vector Rule</h2>
+  <p class="vz-lede">A directional derivative is the rate of change as you set off in a chosen direction,
+    and it is one dot product — <em>with a unit vector</em>. Stretch the direction arrow and watch the
+    honest answer refuse to move while the careless one balloons.
+    <b>Like asking how steep a road is: the answer is the same whether you measure one metre of it or
+    three.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="direction presets">
+    <button id="v3-p0" aria-pressed="false">u = (0, 3)</button>
+    <button id="v3-pa" aria-pressed="false">steepest ascent</button>
+    <button id="v3-pd" aria-pressed="false">steepest descent</button>
+    <button id="v3-pz" aria-pressed="false">no change</button>
+  </div>
+
+  <div id="v3-svg" style="margin-bottom:12px"></div>
+  <div id="v3-dial"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-th">direction angle θ = <span id="v3-thl">90°</span></label>
+    <input class="vz-range" type="range" id="v3-th" min="0" max="359" step="1" value="90" aria-label="direction angle in degrees">
+    <label class="vz-lab" for="v3-len">length of the vector you were handed = <span id="v3-lenl">3.0</span></label>
+    <input class="vz-range" type="range" id="v3-len" min="0.5" max="3" step="0.5" value="3" aria-label="length of the direction vector">
+    <label class="vz-lab" for="v3-gx">gradient component ∂f/∂x = <span id="v3-gxl">3.0</span></label>
+    <input class="vz-range" type="range" id="v3-gx" min="-6" max="6" step="0.5" value="3" aria-label="x component of the gradient">
+    <label class="vz-lab" for="v3-gy">gradient component ∂f/∂y = <span id="v3-gyl">4.0</span></label>
+    <input class="vz-range" type="range" id="v3-gy" min="-6" max="6" step="0.5" value="4" aria-label="y component of the gradient">
+    <div class="vz-mono" id="v3-out" style="margin-top:10px"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Every "which way should I move" question is this cosine in disguise. The answer is
+    bounded by plus and minus the gradient's length, it is largest along the gradient, most negative
+    opposite it, and exactly zero at right angles — and a direction that is not a unit vector answers a
+    different question entirely.</p>
+
+  <style>
+    .v3-dial{margin:0 0 12px}
+    .v3-track{position:relative;height:18px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{position:absolute;top:0;bottom:0;border-radius:5px}
+    .v3-track u{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--viz-bg);text-decoration:none}
+    .v3-ends{display:flex;justify-content:space-between;font-size:10.5px;color:var(--viz-muted);margin-top:4px;
+      font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var sGx = document.getElementById('v3-gx'), lGx = document.getElementById('v3-gxl');
+    var sGy = document.getElementById('v3-gy'), lGy = document.getElementById('v3-gyl');
+    var sTh = document.getElementById('v3-th'), lTh = document.getElementById('v3-thl');
+    var sLn = document.getElementById('v3-len'), lLn = document.getElementById('v3-lenl');
+    var box = document.getElementById('v3-svg'), dial = document.getElementById('v3-dial');
+    var out = document.getElementById('v3-out'), why = document.getElementById('v3-why');
+    var p0 = document.getElementById('v3-p0'), pa = document.getElementById('v3-pa');
+    var pd = document.getElementById('v3-pd'), pz = document.getElementById('v3-pz');
+    var DEG = Math.PI / 180;
+
+    function n(v){ return isFinite(v) ? (Math.abs(v) < 0.0005 ? '0.000' : v.toFixed(3)) : 'n/a'; }
+    function pad(s, w){ s = String(s); while (s.length < w) s += ' '; return s; }
+
+    function arrow(x1, y1, x2, y2, col, w, dash){
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      if (!(L > 0.001) || !isFinite(L)) return '';
+      var ux = dx / L, uy = dy / L;
+      var hx = x2 - ux * 9, hy = y2 - uy * 9, nx = -uy * 5, ny = ux * 5;
+      return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + hx.toFixed(1) + '" y2="' + hy.toFixed(1) +
+        '" style="stroke:' + col + ';stroke-width:' + w + (dash ? ';stroke-dasharray:5 3' : '') + '"/>' +
+        '<polygon points="' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' ' + (hx + nx).toFixed(1) + ',' + (hy + ny).toFixed(1) + ' ' + (hx - nx).toFixed(1) + ',' + (hy - ny).toFixed(1) + '" style="fill:' + col + '"/>';
+    }
+
+    function gradAngle(){
+      var gx = Number(sGx.value), gy = Number(sGy.value);
+      if (Math.abs(gx) < 0.0000001 && Math.abs(gy) < 0.0000001) return 0;
+      return (Math.atan2(gy, gx) / DEG + 360) % 360;
+    }
+    function setDir(deg, len){
+      sTh.value = String(Math.round(((deg % 360) + 360) % 360));
+      sLn.value = String(len);
+      render();
+    }
+
+    function render(){
+      var gx = Number(sGx.value), gy = Number(sGy.value);
+      var th = Number(sTh.value), L = Number(sLn.value);
+      if (!isFinite(gx)) gx = 0;
+      if (!isFinite(gy)) gy = 0;
+      if (!isFinite(th)) th = 0;
+      if (!isFinite(L) || L <= 0) L = 1;
+      lGx.textContent = gx.toFixed(1);
+      lGy.textContent = gy.toFixed(1);
+      lTh.textContent = th + '°';
+      lLn.textContent = L.toFixed(1);
+
+      var c = Math.cos(th * DEG), s = Math.sin(th * DEG);
+      var ux = L * c, uy = L * s;
+      var mag = Math.sqrt(gx * gx + gy * gy);
+      var D = gx * c + gy * s;
+      var raw = gx * ux + gy * uy;
+      var wrongB = mag > 0.000001 ? raw / mag : NaN;
+      var cosPhi = mag > 0.000001 ? D / mag : 0;
+      if (cosPhi > 1) cosPhi = 1;
+      if (cosPhi < -1) cosPhi = -1;
+      var phi = Math.acos(cosPhi) / DEG;
+
+      var CX = 92, CY = 92, R = 62, W = 300, H = 190;
+      var deco = '';
+      deco += '<circle cx="' + CX + '" cy="' + CY + '" r="' + R + '" style="fill:none;stroke:var(--viz-line);stroke-width:1;stroke-dasharray:3 3"/>';
+      deco += '<line x1="' + (CX - R - 12) + '" y1="' + CY + '" x2="' + (CX + R + 12) + '" y2="' + CY + '" style="stroke:var(--viz-line);stroke-width:1"/>';
+      deco += '<line x1="' + CX + '" y1="' + (CY - R - 12) + '" x2="' + CX + '" y2="' + (CY + R + 12) + '" style="stroke:var(--viz-line);stroke-width:1"/>';
+      if (mag > 0.000001) {
+        deco += arrow(CX, CY, CX + (gx / mag) * R, CY - (gy / mag) * R, 'var(--viz-red)', 2.8, false);
+      }
+      deco += arrow(CX, CY, CX + c * L * 26, CY - s * L * 26, 'var(--viz-violet)', 2.4, true);
+      deco += arrow(CX, CY, CX + c * R, CY - s * R, 'var(--viz-green)', 2.8, false);
+      deco += '<text x="' + (W - 6) + '" y="16" text-anchor="end" style="fill:var(--viz-red);font-size:10.5px">∇f (solid, red)</text>';
+      deco += '<text x="' + (W - 6) + '" y="32" text-anchor="end" style="fill:var(--viz-violet);font-size:10.5px">u as handed to you (dashed)</text>';
+      deco += '<text x="' + (W - 6) + '" y="48" text-anchor="end" style="fill:var(--viz-green);font-size:10.5px">û, normalised to the circle</text>';
+      deco += '<text x="' + (W - 6) + '" y="70" text-anchor="end" style="fill:var(--viz-muted);font-size:10.5px">angle between them φ = ' + (isFinite(phi) ? phi.toFixed(1) : '0.0') + '°</text>';
+      deco += '<text x="' + (W - 6) + '" y="86" text-anchor="end" style="fill:var(--viz-muted);font-size:10.5px">cos φ = ' + n(cosPhi) + '</text>';
+      deco += '<text x="' + (W - 6) + '" y="108" text-anchor="end" style="fill:var(--viz-ink);font-size:12px;font-weight:700">Dû f = ' + n(D) + '</text>';
+      deco += '<text x="4" y="' + (H - 5) + '" style="fill:var(--viz-muted);font-size:9.5px">the dashed circle is length 1 — every honest heading ends on it</text>';
+      box.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="display:block;width:100%;height:auto" role="img" aria-label="gradient, the given direction vector and its normalised version on the unit circle">' + deco + '</svg>';
+
+      var frac = mag > 0.000001 ? D / mag : 0;
+      if (!isFinite(frac)) frac = 0;
+      var w = Math.abs(frac) * 50, left = frac < 0 ? 50 - w : 50;
+      var col = frac < 0 ? 'var(--viz-green)' : 'var(--viz-red)';
+      var word = Math.abs(D) < 0.0005 ? 'flat: f does not change'
+        : (D < 0 ? 'f DECREASES this way' : 'f INCREASES this way');
+      dial.innerHTML = '<div class="v3-dial"><div class="v3-track">' +
+        '<i style="left:' + left.toFixed(1) + '%;width:' + Math.max(1.5, w).toFixed(1) + '%;background:' + col + '"></i><u></u></div>' +
+        '<div class="v3-ends"><span>-‖∇f‖ = ' + n(-mag) + '</span><span>' + word + '</span><span>+‖∇f‖ = ' + n(mag) + '</span></div></div>';
+
+      out.innerHTML =
+        pad('∇f', 22) + '= (' + n(gx) + ', ' + n(gy) + ')   ‖∇f‖ = ' + n(mag) + '\n' +
+        pad('u  as handed to you', 22) + '= (' + n(ux) + ', ' + n(uy) + ')   ‖u‖  = ' + n(L) + '\n' +
+        pad('û  = u/‖u‖', 22) + '= (' + n(c) + ', ' + n(s) + ')   length 1\n' +
+        '\n' +
+        pad('Dû f = ∇f · û', 22) + '= ' + n(D) + '   ← the directional derivative\n' +
+        pad('∇f · u  (not unit)', 22) + '= ' + n(raw) + '   x  scales with ‖u‖, so not a rate\n' +
+        pad('(∇f · u)/‖∇f‖', 22) + '= ' + n(wrongB) + '   x  normalised the WRONG vector\n' +
+        '\n' +
+        '‖∇f‖ cos φ = ' + n(mag) + ' × ' + n(cosPhi) + ' = ' + n(D) + '   (same answer, second route)';
+
+      var head;
+      if (mag <= 0.000001) {
+        head = '<b>The gradient is zero, so every direction gives 0.</b>You are at a critical point: flat to first order in every heading. Which way the surface actually bends there is panel 5’s question, not this one.';
+      } else if (phi < 12) {
+        head = '<b>You are pointing along ∇f: steepest ascent, and Dû f has hit its ceiling of +‖∇f‖.</b>No heading can beat ' + n(mag) + ' per unit of distance, because cos φ cannot exceed 1.';
+      } else if (phi > 168) {
+        head = '<b>You are pointing along -∇f: steepest descent, the floor at -‖∇f‖.</b>This is the best single small step toward lower values — it decreases f the most <em>per unit of distance moved</em>. Not a route to the minimum, and not valid once you have moved far.';
+      } else if (Math.abs(cosPhi) < 0.08) {
+        head = '<b>Square to the gradient: Dû f = 0, so f does not change at all.</b>You are travelling along a level curve. This is the option that looks like descent and is not.';
+      } else {
+        head = '<b>Anywhere in between, Dû f = ‖∇f‖ cos φ = ' + n(D) + '.</b>The cosine does all the work: swing φ from 0° to 180° and the rate slides smoothly from +' + n(mag) + ' through 0 down to -' + n(mag) + '.';
+      }
+      why.innerHTML = head +
+        '<br><br><b>Now drag the length slider.</b> The green arrow and Dû f do not move, because a direction is a heading, not a distance. The un-normalised dot product does move: at the default ∇f = (3, 4) with u = (0, 3) it reads 12, which is the change over three units of travel rather than a rate. Divide by ‖∇f‖ = 5 instead and you get 12/5 = 2.4 — the right arithmetic applied to the wrong vector. The honest answer is 4.';
+    }
+
+    [sGx, sGy, sTh, sLn].forEach(function(el){ el.addEventListener('input', render); });
+    p0.addEventListener('click', function(){ setDir(90, 3); });
+    pa.addEventListener('click', function(){ setDir(gradAngle(), 1); });
+    pd.addEventListener('click', function(){ setDir(gradAngle() + 180, 1); });
+    pz.addEventListener('click', function(){ setDir(gradAngle() + 90, 1); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Cooling Fastest</h2>
+  <p class="vz-lede">A room with two heaters, temperature T(x, y). Stand somewhere, choose a heading and
+    a step length, and compare what the tangent plane predicted with what the room actually did. The
+    negative gradient wins every time — over a small enough step.
+    <b>Like backing away from a bonfire: the quickest relief is straight away from it, and only for the
+    first pace.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="pick the best direction">
+    <button id="v4-best" aria-pressed="false">point me the coolest way</button>
+    <button id="v4-hot" aria-pressed="false">point me the warmest way</button>
+  </div>
+
+  <div id="v4-map" style="margin-bottom:12px"></div>
+  <div id="v4-rank" style="margin-bottom:12px"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-th">heading θ = <span id="v4-thl">0°</span></label>
+    <input class="vz-range" type="range" id="v4-th" min="0" max="355" step="5" value="0" aria-label="heading in degrees">
+    <label class="vz-lab" for="v4-h">step length = <span id="v4-hl">0.50</span> m</label>
+    <input class="vz-range" type="range" id="v4-h" min="0.05" max="3" step="0.05" value="0.5" aria-label="step length in metres">
+    <label class="vz-lab" for="v4-x">you are at x = <span id="v4-xl">1.00</span></label>
+    <input class="vz-range" type="range" id="v4-x" min="-5" max="5" step="0.25" value="1" aria-label="x position in the room">
+    <label class="vz-lab" for="v4-y">you are at y = <span id="v4-yl">0.50</span></label>
+    <input class="vz-range" type="range" id="v4-y" min="-5" max="5" step="0.25" value="0.5" aria-label="y position in the room">
+    <div class="vz-mono" id="v4-out" style="margin-top:10px"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Two boundaries on the claim, and both are examinable. The negative gradient is best
+    <b>per unit of distance</b> — not per step of some fixed shape — and it is best <b>only at the point
+    where the gradient was evaluated</b>. Take a long enough step and it can walk you straight past the
+    cool patch and back into the other heater.</p>
+
+  <style>
+    .v4-rankbar{position:relative;height:18px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-rankbar i{position:absolute;top:0;bottom:0;border-radius:5px}
+    .v4-rankbar u{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--viz-bg);text-decoration:none}
+    .v4-ends{display:flex;justify-content:space-between;font-size:10.5px;color:var(--viz-muted);margin-top:4px;
+      font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var sTh = document.getElementById('v4-th'), lTh = document.getElementById('v4-thl');
+    var sH = document.getElementById('v4-h'), lH = document.getElementById('v4-hl');
+    var sX = document.getElementById('v4-x'), lX = document.getElementById('v4-xl');
+    var sY = document.getElementById('v4-y'), lY = document.getElementById('v4-yl');
+    var bBest = document.getElementById('v4-best'), bHot = document.getElementById('v4-hot');
+    var map = document.getElementById('v4-map'), rank = document.getElementById('v4-rank');
+    var out = document.getElementById('v4-out'), why = document.getElementById('v4-why');
+    var DEG = Math.PI / 180, LO = -5, HI = 5;
+
+    function e1(x, y){ return Math.exp(-(((x - 2.5) * (x - 2.5) + (y - 1.5) * (y - 1.5)) / 3)); }
+    function e2(x, y){ return Math.exp(-(((x + 2) * (x + 2) + (y + 2) * (y + 2)) / 4)); }
+    function T(x, y){ return 20 + 9 * e1(x, y) + 5 * e2(x, y); }
+    function Tx(x, y){ return 9 * e1(x, y) * (-2 * (x - 2.5) / 3) + 5 * e2(x, y) * (-2 * (x + 2) / 4); }
+    function Ty(x, y){ return 9 * e1(x, y) * (-2 * (y - 1.5) / 3) + 5 * e2(x, y) * (-2 * (y + 2) / 4); }
+    function n(v){ return isFinite(v) ? (Math.abs(v) < 0.0005 ? '0.000' : v.toFixed(3)) : 'n/a'; }
+    function pad(s, w){ s = String(s); while (s.length < w) s += ' '; return s; }
+
+    function arrow(x1, y1, x2, y2, col, w, dash){
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      if (!(L > 0.001) || !isFinite(L)) return '';
+      var ux = dx / L, uy = dy / L;
+      var hx = x2 - ux * 9, hy = y2 - uy * 9, nx = -uy * 5, ny = ux * 5;
+      return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + hx.toFixed(1) + '" y2="' + hy.toFixed(1) +
+        '" style="stroke:' + col + ';stroke-width:' + w + (dash ? ';stroke-dasharray:5 3' : '') + '"/>' +
+        '<polygon points="' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' ' + (hx + nx).toFixed(1) + ',' + (hy + ny).toFixed(1) + ' ' + (hx - nx).toFixed(1) + ',' + (hy - ny).toFixed(1) + '" style="fill:' + col + '"/>';
+    }
+
+    function render(){
+      var th = Number(sTh.value), h = Number(sH.value);
+      var x0 = Number(sX.value), y0 = Number(sY.value);
+      if (!isFinite(th)) th = 0;
+      if (!isFinite(h) || h <= 0) h = 0.5;
+      if (!isFinite(x0)) x0 = 0;
+      if (!isFinite(y0)) y0 = 0;
+      lTh.textContent = th + '°';
+      lH.textContent = h.toFixed(2);
+      lX.textContent = x0.toFixed(2);
+      lY.textContent = y0.toFixed(2);
+
+      var c = Math.cos(th * DEG), s = Math.sin(th * DEG);
+      var gx = Tx(x0, y0), gy = Ty(x0, y0);
+      if (!isFinite(gx)) gx = 0;
+      if (!isFinite(gy)) gy = 0;
+      var mag = Math.sqrt(gx * gx + gy * gy);
+      var D = gx * c + gy * s;
+      var best = -mag;
+      var eff = mag > 0.000001 ? D / mag : 0;
+      var T0 = T(x0, y0);
+      var T1 = T(x0 + h * c, y0 + h * s);
+      var predicted = D * h;
+      var actual = T1 - T0;
+      var err = actual - predicted;
+
+      var G = 24, S = 230, PAD = 10, i, j, v, vals = [], vmin = Infinity, vmax = -Infinity;
+      for (j = 0; j < G; j++) {
+        vals.push([]);
+        for (i = 0; i < G; i++) {
+          v = T(LO + (HI - LO) * (i + 0.5) / G, LO + (HI - LO) * (j + 0.5) / G);
+          if (!isFinite(v)) v = 20;
+          vals[j].push(v);
+          if (v < vmin) vmin = v;
+          if (v > vmax) vmax = v;
+        }
+      }
+      var span = vmax - vmin;
+      if (!(span > 0.000000001)) span = 1;
+      var cell = (S - 2 * PAD) / G, cells = '', band, op;
+      for (j = 0; j < G; j++) {
+        for (i = 0; i < G; i++) {
+          band = Math.floor((vals[j][i] - vmin) / span * 6);
+          if (band > 5) band = 5;
+          if (band < 0) band = 0;
+          op = 0.05 + band * 0.14;
+          cells += '<rect x="' + (PAD + i * cell).toFixed(1) + '" y="' + (PAD + (G - 1 - j) * cell).toFixed(1) +
+            '" width="' + (cell + 0.7).toFixed(1) + '" height="' + (cell + 0.7).toFixed(1) +
+            '" style="fill:var(--viz-red);opacity:' + op.toFixed(2) + '"/>';
+        }
+      }
+      function px(u){ return PAD + (u - LO) / (HI - LO) * (S - 2 * PAD); }
+      function py(u){ return S - PAD - (u - LO) / (HI - LO) * (S - 2 * PAD); }
+      var ax = px(x0), ay = py(y0), deco = '';
+      if (mag > 0.000001) {
+        deco += arrow(ax, ay, ax + (gx / mag) * 40, ay - (gy / mag) * 40, 'var(--viz-red)', 2.6, false);
+        deco += arrow(ax, ay, ax - (gx / mag) * 40, ay + (gy / mag) * 40, 'var(--viz-green)', 2.4, true);
+      }
+      var stepPx = (h / (HI - LO)) * (S - 2 * PAD);
+      deco += arrow(ax, ay, ax + c * stepPx, ay - s * stepPx, 'var(--viz-violet)', 3, false);
+      map.innerHTML =
+        '<svg viewBox="0 0 ' + S + ' ' + S + '" style="display:block;width:100%;height:auto" role="img" aria-label="the room, its heat map, the gradient and your step">' +
+        cells +
+        '<rect x="' + PAD + '" y="' + PAD + '" width="' + (S - 2 * PAD) + '" height="' + (S - 2 * PAD) + '" style="fill:none;stroke:var(--viz-line);stroke-width:1"/>' +
+        deco +
+        '<circle cx="' + ax.toFixed(1) + '" cy="' + ay.toFixed(1) + '" r="4" style="fill:var(--viz-ink)"/>' +
+        '<text x="' + (PAD + 3) + '" y="' + (PAD + 12) + '" style="fill:var(--viz-red);font-size:9.5px">solid red: ∇T, warmer</text>' +
+        '<text x="' + (PAD + 3) + '" y="' + (PAD + 24) + '" style="fill:var(--viz-green);font-size:9.5px">dashed green: -∇T, coolest heading</text>' +
+        '<text x="' + (PAD + 3) + '" y="' + (PAD + 36) + '" style="fill:var(--viz-violet);font-size:9.5px">thick violet: your step</text>' +
+        '<text x="' + (S - PAD - 3) + '" y="' + (S - PAD - 4) + '" text-anchor="end" style="fill:var(--viz-muted);font-size:9.5px">darker shading = warmer</text>' +
+        '</svg>';
+
+      var frac = Math.max(-1, Math.min(1, eff));
+      var w = Math.abs(frac) * 50, left = frac < 0 ? 50 - w : 50;
+      var col = frac < 0 ? 'var(--viz-green)' : 'var(--viz-red)';
+      var pct = Math.round(Math.abs(frac) * 100);
+      var verdict = mag <= 0.000001 ? 'nowhere to go: ∇T = 0 here'
+        : (frac < -0.999 ? 'perfect: 100% of the best possible cooling'
+          : (frac < 0 ? pct + '% of the best possible cooling rate'
+            : (Math.abs(frac) < 0.02 ? 'zero: you are walking a level curve' : 'this heading WARMS you')));
+      rank.innerHTML = '<div class="v4-rankbar">' +
+        '<i style="left:' + left.toFixed(1) + '%;width:' + Math.max(1.5, w).toFixed(1) + '%;background:' + col + '"></i><u></u></div>' +
+        '<div class="v4-ends"><span>coolest ' + n(best) + ' °C/m</span><span>' + verdict + '</span><span>warmest +' + n(mag) + ' °C/m</span></div>';
+
+      out.innerHTML =
+        pad('T at your feet', 26) + '= ' + n(T0) + ' °C\n' +
+        pad('∇T = (∂T/∂x, ∂T/∂y)', 26) + '= (' + n(gx) + ', ' + n(gy) + ')\n' +
+        pad('‖∇T‖', 26) + '= ' + n(mag) + ' °C per metre\n' +
+        pad('û (your heading)', 26) + '= (' + n(c) + ', ' + n(s) + ')\n' +
+        pad('Dû T = ∇T · û', 26) + '= ' + n(D) + ' °C per metre\n' +
+        pad('best possible = -‖∇T‖', 26) + '= ' + n(best) + ' °C per metre\n' +
+        '\n' +
+        pad('tangent plane predicts ΔT', 26) + '= Dû T × step = ' + n(predicted) + ' °C\n' +
+        pad('the room actually gives ΔT', 26) + '= ' + n(actual) + ' °C\n' +
+        pad('error of the linear guess', 26) + '= ' + n(err) + ' °C';
+
+      var head;
+      if (mag <= 0.000001) {
+        head = '<b>∇T = 0: you are standing at a critical point of the temperature field.</b>Every heading gives a first-order rate of zero, so no direction is better than any other for a tiny step.';
+      } else if (eff < -0.995) {
+        head = '<b>Straight down the negative gradient — the best single small step there is.</b>' +
+          'It cools you at ' + n(-best) + ' °C per metre, and no other heading reaches that number. That is the exact claim: <em>the largest decrease per unit of distance moved</em>.';
+      } else if (eff > 0.995) {
+        head = '<b>You are walking straight up ∇T — the fastest possible way to get warmer.</b>The gradient points at steepest increase, which is why cooling wants the minus sign in front of it.';
+      } else if (Math.abs(eff) < 0.03) {
+        head = '<b>Perpendicular to ∇T: the rate is zero, so this is a contour of the room.</b>Walk this way as far as you like and the temperature holds — it is not a cooling direction, it is a no-change direction.';
+      } else if (eff < 0) {
+        head = '<b>Cooling, but at only ' + pct + '% of the best rate.</b>Every heading in the half-plane facing away from the heater cools you; only one of them cools you fastest, and cos φ measures how much of that you are collecting.';
+      } else {
+        head = '<b>This heading warms you at ' + n(D) + ' °C per metre.</b>Any direction within 90° of ∇T has a positive dot product with it, and that is all "warmer" means.';
+      }
+      why.innerHTML = head +
+        '<br><br><b>Now shrink the step.</b> At ' + h.toFixed(2) + ' m the tangent plane predicts ' + n(predicted) + ' °C and the room delivers ' + n(actual) + ' °C, an error of ' + n(err) + '. Drag the step toward 0.05 m and the two collapse onto each other; drag it to 3 m and the prediction can be wildly wrong — and a step along -∇T can even end up warmer than where you started. ' +
+        'The gradient is a statement about the <em>instant</em> you are in, borrowed from the tangent plane of panel 1. Turning it into a repeated step with a chosen size is what the next lesson calls gradient descent, and choosing that size is what it calls the learning rate.';
+    }
+
+    [sTh, sH, sX, sY].forEach(function(el){ el.addEventListener('input', render); });
+    bBest.addEventListener('click', function(){
+      var gx = Tx(Number(sX.value), Number(sY.value)), gy = Ty(Number(sX.value), Number(sY.value));
+      if (!isFinite(gx) || !isFinite(gy) || (Math.abs(gx) < 0.0000001 && Math.abs(gy) < 0.0000001)) return;
+      var a = (Math.atan2(-gy, -gx) / DEG + 360) % 360;
+      sTh.value = String(Math.round(a / 5) * 5 % 360);
+      render();
+    });
+    bHot.addEventListener('click', function(){
+      var gx = Tx(Number(sX.value), Number(sY.value)), gy = Ty(Number(sX.value), Number(sY.value));
+      if (!isFinite(gx) || !isFinite(gy) || (Math.abs(gx) < 0.0000001 && Math.abs(gy) < 0.0000001)) return;
+      var a = (Math.atan2(gy, gx) / DEG + 360) % 360;
+      sTh.value = String(Math.round(a / 5) * 5 % 360);
+      render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Hessian Decides</h2>
+  <p class="vz-lede">A zero gradient says "critical point" and nothing more. The second derivatives say
+    which kind. Move the coefficients of f = a·x^2 + b·y^2 + c·x·y and watch the curvature curve, its two
+    extremes — the eigenvalues — and the verdict change together.
+    <b>Like a skateboard park: a bowl holds you, a hump throws you off, and a saddle does both depending
+    on which way you roll.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="preset surfaces">
+    <button id="v5-pq" aria-pressed="true">2x^2 + 3y^2 - xy</button>
+    <button id="v5-ps" aria-pressed="false">x^2 - y^2</button>
+    <button id="v5-pm" aria-pressed="false">-2x^2 - y^2 + xy</button>
+  </div>
+
+  <div class="v5-row">
+    <div class="v5-half" id="v5-map"></div>
+    <div class="v5-half" id="v5-curve"></div>
+  </div>
+  <div id="v5-out" style="margin:10px 0 12px"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-a">a (coefficient of x^2) = <span id="v5-al">2.0</span></label>
+    <input class="vz-range" type="range" id="v5-a" min="-4" max="4" step="0.5" value="2" aria-label="coefficient a">
+    <label class="vz-lab" for="v5-b">b (coefficient of y^2) = <span id="v5-bl">3.0</span></label>
+    <input class="vz-range" type="range" id="v5-b" min="-4" max="4" step="0.5" value="3" aria-label="coefficient b">
+    <label class="vz-lab" for="v5-c">c (coefficient of xy) = <span id="v5-cl">-1.0</span></label>
+    <input class="vz-range" type="range" id="v5-c" min="-6" max="6" step="0.5" value="-1" aria-label="coefficient c">
+    <div class="vz-mono" id="v5-mat" style="margin-top:10px"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The one-variable test asked a single question, f''(x) &gt; 0. In many variables
+    curvature depends on the direction you leave in, so the honest generalisation is a question about
+    <b>every</b> direction at once — and the eigenvalues of the Hessian are exactly the best and worst
+    cases. All positive is the bowl; all negative is the dome; one of each is the saddle.</p>
+
+  <style>
+    .v5-row{display:flex;gap:11px;flex-wrap:wrap;align-items:flex-start}
+    .v5-half{flex:1 1 165px;min-width:155px}
+    .v5-pills{display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var sA = document.getElementById('v5-a'), lA = document.getElementById('v5-al');
+    var sB = document.getElementById('v5-b'), lB = document.getElementById('v5-bl');
+    var sC = document.getElementById('v5-c'), lC = document.getElementById('v5-cl');
+    var pQ = document.getElementById('v5-pq'), pS = document.getElementById('v5-ps'), pM = document.getElementById('v5-pm');
+    var map = document.getElementById('v5-map'), curve = document.getElementById('v5-curve');
+    var out = document.getElementById('v5-out'), mat = document.getElementById('v5-mat'), why = document.getElementById('v5-why');
+    var DEG = Math.PI / 180, TOL = 0.000001;
+
+    function n(v){ return isFinite(v) ? (Math.abs(v) < 0.0005 ? '0.000' : v.toFixed(3)) : 'n/a'; }
+    function pad(s, w){ s = String(s); while (s.length < w) s += ' '; return s; }
+    function lpad(s, w){ s = String(s); while (s.length < w) s = ' ' + s; return s; }
+    function signed(v, dp){
+      if (!isFinite(v)) return '+ n/a';
+      return (v < 0 ? '- ' : '+ ') + Math.abs(v).toFixed(dp);
+    }
+    function pill(text, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + text + '</span>';
+    }
+
+    function render(){
+      var a = Number(sA.value), b = Number(sB.value), c = Number(sC.value);
+      if (!isFinite(a)) a = 0;
+      if (!isFinite(b)) b = 0;
+      if (!isFinite(c)) c = 0;
+      lA.textContent = a.toFixed(1);
+      lB.textContent = b.toFixed(1);
+      lC.textContent = c.toFixed(1);
+      pQ.setAttribute('aria-pressed', (a === 2 && b === 3 && c === -1) ? 'true' : 'false');
+      pS.setAttribute('aria-pressed', (a === 1 && b === -1 && c === 0) ? 'true' : 'false');
+      pM.setAttribute('aria-pressed', (a === -2 && b === -1 && c === 1) ? 'true' : 'false');
+
+      var fxx = 2 * a, fyy = 2 * b, fxy = c;
+      var tr = fxx + fyy, det = fxx * fyy - fxy * fxy;
+      var disc = tr * tr - 4 * det;
+      if (!(disc > 0)) disc = 0;
+      var sq = Math.sqrt(disc);
+      var l1 = (tr + sq) / 2, l2 = (tr - sq) / 2;
+      if (!isFinite(l1)) l1 = 0;
+      if (!isFinite(l2)) l2 = 0;
+
+      var kind, shape, verdict, col;
+      if (Math.abs(l1) <= TOL || Math.abs(l2) <= TOL) {
+        kind = 'singular (an eigenvalue is 0)';
+        shape = 'flat along one direction';
+        verdict = 'TEST INCONCLUSIVE';
+        col = 'var(--viz-amber)';
+      } else if (l1 > 0 && l2 > 0) {
+        kind = 'positive definite (all eigenvalues > 0)';
+        shape = 'concave up — a bowl in every direction';
+        verdict = 'LOCAL MINIMUM';
+        col = 'var(--viz-green)';
+      } else if (l1 < 0 && l2 < 0) {
+        kind = 'negative definite (all eigenvalues < 0)';
+        shape = 'concave down — a dome in every direction';
+        verdict = 'LOCAL MAXIMUM';
+        col = 'var(--viz-violet)';
+      } else {
+        kind = 'indefinite (eigenvalues of both signs)';
+        shape = 'up one way, down another';
+        verdict = 'SADDLE POINT';
+        col = 'var(--viz-red)';
+      }
+
+      var LO = -2, HI = 2, G = 18, S = 170, PAD = 8, i, j, v;
+      var vals = [], vmin = Infinity, vmax = -Infinity;
+      function f(x, y){ return a * x * x + b * y * y + c * x * y; }
+      for (j = 0; j < G; j++) {
+        vals.push([]);
+        for (i = 0; i < G; i++) {
+          v = f(LO + (HI - LO) * (i + 0.5) / G, LO + (HI - LO) * (j + 0.5) / G);
+          if (!isFinite(v)) v = 0;
+          vals[j].push(v);
+          if (v < vmin) vmin = v;
+          if (v > vmax) vmax = v;
+        }
+      }
+      var big = Math.max(Math.abs(vmin), Math.abs(vmax));
+      if (!(big > 0.000000001)) big = 1;
+      var cell = (S - 2 * PAD) / G, cells = '', op, fill;
+      for (j = 0; j < G; j++) {
+        for (i = 0; i < G; i++) {
+          v = vals[j][i];
+          op = 0.06 + Math.min(1, Math.abs(v) / big) * 0.62;
+          fill = v < 0 ? 'var(--viz-violet)' : 'var(--viz-accent)';
+          cells += '<rect x="' + (PAD + i * cell).toFixed(1) + '" y="' + (PAD + (G - 1 - j) * cell).toFixed(1) +
+            '" width="' + (cell + 0.7).toFixed(1) + '" height="' + (cell + 0.7).toFixed(1) +
+            '" style="fill:' + fill + ';opacity:' + op.toFixed(2) + '"/>';
+        }
+      }
+      map.innerHTML =
+        '<svg viewBox="0 0 ' + S + ' ' + (S + 16) + '" style="display:block;width:100%;height:auto" role="img" aria-label="contour bands of the surface around its critical point">' +
+        cells +
+        '<rect x="' + PAD + '" y="' + PAD + '" width="' + (S - 2 * PAD) + '" height="' + (S - 2 * PAD) + '" style="fill:none;stroke:var(--viz-line);stroke-width:1"/>' +
+        '<circle cx="' + (S / 2) + '" cy="' + (S / 2) + '" r="4" style="fill:var(--viz-ink)"/>' +
+        '<text x="' + (S / 2 + 7) + '" y="' + (S / 2 + 4) + '" style="fill:var(--viz-ink);font-size:9.5px">critical point (0, 0)</text>' +
+        '<text x="2" y="' + (S + 12) + '" style="fill:var(--viz-muted);font-size:9px">accent = f above 0, violet = f below 0</text>' +
+        '</svg>';
+
+      var CW = 190, CH = 170, CP = 22;
+      var M = Math.max(Math.abs(l1), Math.abs(l2), 0.5) * 1.2;
+      function cx(deg){ return CP + deg / 180 * (CW - CP - 6); }
+      function cy(k){
+        var r = (CH - 30) / 2 + 6 - k / M * ((CH - 30) / 2);
+        if (!isFinite(r)) r = (CH - 30) / 2 + 6;
+        return Math.max(4, Math.min(CH - 20, r));
+      }
+      var d = '', th, cc, ss, k;
+      for (i = 0; i <= 90; i++) {
+        th = i * 2;
+        cc = Math.cos(th * DEG);
+        ss = Math.sin(th * DEG);
+        k = fxx * cc * cc + 2 * fxy * cc * ss + fyy * ss * ss;
+        if (!isFinite(k)) k = 0;
+        d += (i ? ' L ' : 'M ') + cx(th).toFixed(1) + ' ' + cy(k).toFixed(1);
+      }
+      curve.innerHTML =
+        '<svg viewBox="0 0 ' + CW + ' ' + CH + '" style="display:block;width:100%;height:auto" role="img" aria-label="curvature in each direction, with the two eigenvalues as its extremes">' +
+        '<line x1="' + CP + '" y1="' + cy(0).toFixed(1) + '" x2="' + (CW - 6) + '" y2="' + cy(0).toFixed(1) + '" style="stroke:var(--viz-line);stroke-width:1"/>' +
+        '<line x1="' + CP + '" y1="' + cy(l1).toFixed(1) + '" x2="' + (CW - 6) + '" y2="' + cy(l1).toFixed(1) + '" style="stroke:var(--viz-green);stroke-width:1;stroke-dasharray:4 3"/>' +
+        '<line x1="' + CP + '" y1="' + cy(l2).toFixed(1) + '" x2="' + (CW - 6) + '" y2="' + cy(l2).toFixed(1) + '" style="stroke:var(--viz-amber);stroke-width:1;stroke-dasharray:4 3"/>' +
+        '<path d="' + d + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.5"/>' +
+        '<text x="2" y="11" style="fill:var(--viz-muted);font-size:9px">curvature ûᵀHû</text>' +
+        '<text x="' + (CW - 6) + '" y="' + (cy(l1) - 3).toFixed(1) + '" text-anchor="end" style="fill:var(--viz-green);font-size:9px">λ max = ' + n(l1) + '</text>' +
+        '<text x="' + (CW - 6) + '" y="' + (cy(l2) + 10).toFixed(1) + '" text-anchor="end" style="fill:var(--viz-amber);font-size:9px">λ min = ' + n(l2) + '</text>' +
+        '<text x="2" y="' + (cy(0) - 3).toFixed(1) + '" style="fill:var(--viz-muted);font-size:9px">0</text>' +
+        '<text x="' + CP + '" y="' + (CH - 4) + '" style="fill:var(--viz-muted);font-size:9px">direction angle 0° → 180°</text>' +
+        '</svg>';
+
+      out.innerHTML = '<div class="v5-pills">' +
+        pill(verdict, col) +
+        pill('det H = ' + n(det), det > TOL ? 'var(--viz-green)' : (Math.abs(det) <= TOL ? 'var(--viz-amber)' : 'var(--viz-red)')) +
+        pill('trace H = ' + n(tr), 'var(--viz-muted)') +
+        pill('f_xy = ' + n(fxy) + (Math.abs(fxy) > TOL ? ' (not zero!)' : ''), 'var(--viz-muted)') +
+        '</div>';
+
+      mat.innerHTML =
+        'f(x, y) = ' + a.toFixed(1) + 'x^2 ' + signed(b, 1) + 'y^2 ' + signed(c, 1) + 'xy\n' +
+        'f_x = ' + n(2 * a) + 'x ' + signed(c, 3) + 'y      f_y = ' + n(2 * b) + 'y ' + signed(c, 3) + 'x\n' +
+        '\n' +
+        'H = [ f_xx  f_xy ]   =   [ ' + lpad(n(fxx), 7) + '  ' + lpad(n(fxy), 7) + ' ]\n' +
+        '    [ f_yx  f_yy ]       [ ' + lpad(n(fxy), 7) + '  ' + lpad(n(fyy), 7) + ' ]\n' +
+        '\n' +
+        pad('eigenvalues', 22) + 'λ1 = ' + n(l1) + '   λ2 = ' + n(l2) + '\n' +
+        pad('two-variable test', 22) + 'D = f_xx·f_yy - f_xy^2 = ' + n(det) + ', f_xx = ' + n(fxx) + '\n' +
+        pad('classification', 22) + kind + '\n' +
+        pad('local shape', 22) + shape + '\n' +
+        pad('verdict', 22) + verdict;
+
+      why.innerHTML = '<b>The curve on the right is the whole idea.</b>' +
+        'It plots ûᵀHû, the curvature you feel leaving the critical point along the heading û, for every heading from 0° to 180°. Its highest point is λ max = ' + n(l1) + ' and its lowest is λ min = ' + n(l2) + ' — <b>the eigenvalues of the Hessian are literally the best and worst curvature available</b>. So "all eigenvalues positive" is the same sentence as "the curve never dips below zero", which is the same sentence as "concave up in every direction".' +
+        '<br><br>Right now the surface is <b>' + kind + '</b>, ' + shape + ', so the critical point is a <b>' + verdict + '</b>. The Hessian here is constant because f is quadratic — the same matrix everywhere, which is why one check settles the whole surface. For a general f you would recompute H at each critical point.' +
+        '<br><br>Two habits worth building. The mixed partial f_xy = ' + n(fxy) + ' is under no obligation to be zero; it just says the inputs interact, and it is what tilts the bowl. And the two-variable shortcut D = f_xx·f_yy - f_xy^2 is not a different test: the determinant is the product of the eigenvalues, so D &gt; 0 with f_xx &gt; 0 is exactly "both positive".';
+    }
+
+    [sA, sB, sC].forEach(function(el){ el.addEventListener('input', render); });
+    pQ.addEventListener('click', function(){ sA.value = '2'; sB.value = '3'; sC.value = '-1'; render(); });
+    pS.addEventListener('click', function(){ sA.value = '1'; sB.value = '-1'; sC.value = '0'; render(); });
+    pM.addEventListener('click', function(){ sA.value = '-2'; sB.value = '-1'; sC.value = '1'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

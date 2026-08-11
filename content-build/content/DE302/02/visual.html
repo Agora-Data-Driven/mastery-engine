@@ -1,0 +1,605 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two Planes, One Query</button>
+  <button class="viz-tab" data-viz-tab="2">2. Pruning The Partitions</button>
+  <button class="viz-tab" data-viz-tab="3">3. Cluster Key Order</button>
+  <button class="viz-tab" data-viz-tab="4">4. Baseline Versus Burst</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Break-Even Line</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two Planes, One Query</h2>
+  <p class="vz-lede"><b>The Workload-Driven Storage Decision Matrix</b> sent every OLAP branch here, past
+    <b>Cloud SQL vs AlloyDB vs Spanner</b> and <b>Firestore vs Bigtable vs Memorystore</b>. Those all size
+    <em>one box</em> that holds storage and compute together. BigQuery splits them: Colossus holds the bytes,
+    Dremel rents you slots. Add concurrent workloads and watch the difference.
+    <b>Like a restaurant that owns its kitchen versus one that hires as many chefs as tonight needs.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Architecture">
+    <button id="v1-coupled" aria-pressed="false">one coupled box (Lesson 01)</button>
+    <button id="v1-split" aria-pressed="true">two planes (BigQuery)</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v1-planes" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Concurrent workloads: <span id="v1-nl">2</span></label>
+    <input type="range" id="v1-n" min="1" max="4" value="2" step="1" aria-label="Concurrent workloads">
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">The separation is <b>AlloyDB's disaggregated storage taken to its extreme</b>, and it cuts
+    both ways. Scans and joins over huge tables are elastic and cheap; single-row updates are structurally
+    wrong here — DML exists, but each statement is a distributed job, not an indexed write. That is the
+    matrix's OLTP branch still pointing somewhere else.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;white-space:nowrap}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Slot demands are illustrative but ordered like the lesson's reservation example:
+    // the nightly ETL is the SLA-bound one, ad-hoc is the runaway.
+    var WORK = [
+      { n:'nightly ETL pipeline', need:300 },
+      { n:'BI dashboards',        need:120 },
+      { n:'ad-hoc data science',  need:200 },
+      { n:'weekend backfill',     need:250 }
+    ];
+    var BOX = 400;            // a single coupled server's whole capacity
+    var split = true;
+    var bC = document.getElementById('v1-coupled'), bS = document.getElementById('v1-split');
+    var planes = document.getElementById('v1-planes');
+    var s = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+
+    var COUPLED_ART = [
+      'ONE MACHINE  (Cloud SQL / AlloyDB / Spanner shape)',
+      '┌──────────────────────────────────────────┐',
+      '│  CPU + RAM   ....... 400 units, fixed    │',
+      '│  attached storage .. grows WITH the box  │',
+      '└──────────────────────────────────────────┘',
+      'add bytes  → you must also buy compute',
+      'add a user → they share the same 400 units'
+    ];
+    var SPLIT_ART = [
+      'TWO PLANES, JOINED BY THE JUPITER NETWORK',
+      '┌── storage plane ─────────────────────────┐',
+      '│  Colossus  ·  Capacitor columnar format  │',
+      '│  passive, cheap, petabytes, no compute   │',
+      '└──────────────────────────────────────────┘',
+      '                  ↕  petabit-scale network',
+      '┌── compute plane ─────────────────────────┐',
+      '│  Dremel worker pool  ·  unit = 1 SLOT    │',
+      '│  ≈ 1 vCPU + memory, rented per query     │',
+      '└──────────────────────────────────────────┘',
+      'add bytes  → compute unchanged (loading is free)',
+      'add a user → their own slots, from the pool'
+    ];
+
+    function render(){
+      bC.setAttribute('aria-pressed', split ? 'false' : 'true');
+      bS.setAttribute('aria-pressed', split ? 'true' : 'false');
+      planes.innerHTML = (split ? SPLIT_ART : COUPLED_ART).join('\n');
+
+      var n = Number(s.value);
+      nl.textContent = n;
+      var live = WORK.slice(0, n);
+      var demand = live.reduce(function(a, w){ return a + w.need; }, 0);
+      var starved = 0;
+
+      bars.innerHTML = live.map(function(w){
+        var got = split ? w.need : Math.round(BOX * (w.need / demand));
+        var ok = got >= w.need;
+        if (!ok) starved += 1;
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        var mark = ok ? '✓ served' : '✗ starved';
+        return '<div class="v1-b"><h6><span>' + w.n + '</span>' +
+          '<b style="color:' + col + '">' + got + ' / ' + w.need + ' slots ' + mark + '</b></h6>' +
+          '<div class="v1-track"><i style="width:' + Math.round(got / w.need * 100) + '%;background:' + col + '"></i></div>' +
+          '<div class="v1-sub">' + (split
+            ? 'Own allocation. Nothing another workload does changes this number.'
+            : 'Shares one fixed 400-unit box with ' + (n - 1) + ' other workload' + (n === 2 ? '' : 's') + '.') +
+          '</div></div>';
+      }).join('');
+
+      why.innerHTML = split
+        ? '<b style="color:var(--viz-green)">Separate compute allocations, one shared copy of the data.</b>' +
+          'Every workload reads the same tables in Colossus and gets its <em>own</em> slots from the Dremel pool, so total demand of <b>' + demand + ' slots</b> is simply provisioned. ' +
+          'The analyst\'s runaway query cannot starve the nightly pipeline — which is exactly the concern Lesson 01 raised and could not solve inside one box. ' +
+          '<br><br>Storage scales by adding bytes, compute by adding slots, and <b>the two never contend</b>: you can hold petabytes and pay no compute at all until someone queries, and loading data carries no compute charge. There are no indexes to build and nothing to vacuum.'
+        : '<b style="color:' + (starved ? 'var(--viz-red)' : 'var(--viz-amber)') + '">' +
+          (starved ? starved + ' of ' + n + ' workload' + (starved === 1 ? '' : 's') + ' starved.' : 'Fits — for now.') + '</b>' +
+          'Demand is <b>' + demand + '</b> units against a fixed <b>400</b>, so each workload gets a share, not what it asked for. ' +
+          'This is the shape every option in the Lesson 01 relational and NoSQL rows has: capacity is a property of the instance, and the only lever is a bigger instance. ' +
+          '<br><br>It is also why growing the DATA forces you to grow the COMPUTE — the disk is attached to the box. Flip the toggle to see the split that removes both problems.';
+    }
+    bC.addEventListener('click', function(){ split = false; render(); });
+    bS.addEventListener('click', function(){ split = true; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Pruning The Partitions</h2>
+  <p class="vz-lede">A 730 GB events table, partitioned daily over two years — about <b>1 GB per day</b>. Each
+    square below is one partition. Drag the window, then change the <em>shape</em> of the filter and watch
+    pruning switch off entirely. <b>Like a filing cabinet with a drawer per day: you open seven, unless you
+    describe the date in a way the clerk can't resolve until he's opened all 730.</b></p>
+
+  <div class="v2-list" id="v2-list">
+    <button class="v2-f" id="v2-f0" aria-pressed="true">WHERE event_date BETWEEN '2026-07-01' AND …</button>
+    <button class="v2-f" id="v2-f1" aria-pressed="false">WHERE DATE(other_ts) = event_date</button>
+    <button class="v2-f" id="v2-f2" aria-pressed="false">WHERE event_date IN (SELECT d FROM cal)</button>
+    <button class="v2-f" id="v2-f3" aria-pressed="false">no filter · require_partition_filter = true</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-days">Days in the filter window: <span id="v2-daysl">7</span> of 730</label>
+    <input type="range" id="v2-days" min="1" max="730" value="7" step="1" aria-label="Days in the filter window">
+    <div class="v2-grid" id="v2-grid"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Two operational levers ride on partitions, and both are exam answers.
+    <b>require_partition_filter</b> rejects any query that omits the filter — the budget guardrail you just
+    triggered. <b>Partition expiration</b> auto-deletes partitions older than N days: lifecycle management
+    inside the warehouse, the same idea as the <b>GCS Storage Classes and Lifecycle Management</b> rules from
+    Lesson 01, applied to table segments instead of objects.</p>
+
+  <style>
+    .v2-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-f{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.4;display:flex;align-items:center}
+    .v2-f[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-grid{margin-top:14px;display:grid;grid-template-columns:repeat(30,1fr);gap:1px;
+      border:1.5px solid var(--viz-line);border-radius:8px;padding:5px;background:var(--viz-bg)}
+    .v2-c{height:5px;border-radius:1px;background:var(--viz-line)}
+    .v2-c.is-scan{background:var(--viz-red)}
+    .v2-c.is-hit{background:var(--viz-green)}
+    .v2-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DAYS = 730, GB_PER_DAY = 1, RATE = 6.25;   // $ per TiB scanned, early-2026 list
+    var cur = 0;
+    var SHAPES = [
+      { prunes:true,  why:['A constant range — the case pruning was built for.',
+        'The planner can resolve <code>event_date</code> against literals <b>before a single slot reads a byte</b>, so it eliminates every partition outside the window. A query parameter works identically; what matters is that the value is known at planning time. ' +
+        '<br><br>Note what this is NOT doing: no index, no extra structure. The partitions are physically separate segments, and the planner simply declines to open most of them.'] },
+      { prunes:false, why:['Wrapped in a function of ANOTHER column — pruning is off.',
+        'The partition column is now compared to something the planner cannot evaluate until it has read rows. It cannot prove which partitions can match, so it keeps them all: <b>730 GB scanned, full price, silently</b>. ' +
+        '<br><br>This is the single most common way a partitioned table behaves like an unpartitioned one. Nothing errors, nothing warns; the bill is 100× and the query plan looks ordinary.'] },
+      { prunes:false, why:['Joined to another table\'s values — also off.',
+        'Same reason: the set of dates lives in <code>cal</code> and is only known once that table is read. Generally no pruning. If you know the dates, pass them as literals or parameters instead — the difference between the two spellings of the same intent is the whole bill.'] },
+      { prunes:false, rejected:true, why:['Rejected before it runs — and that is the feature.',
+        '<code>require_partition_filter = true</code> makes BigQuery refuse any query that omits a filter on the partitioning column. Zero bytes scanned, zero dollars, one error message. ' +
+        '<br><br>It is the cheapest guardrail in the lesson: the accidental full scan is caught at planning time rather than discovered on the invoice.'] }
+    ];
+    var list = document.getElementById('v2-list'), s = document.getElementById('v2-days');
+    var lab = document.getElementById('v2-daysl'), grid = document.getElementById('v2-grid');
+    var stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+    var btns = [document.getElementById('v2-f0'), document.getElementById('v2-f1'),
+                document.getElementById('v2-f2'), document.getElementById('v2-f3')];
+
+    function render(){
+      var n = Number(s.value);
+      lab.textContent = n;
+      var sh = SHAPES[cur];
+      btns.forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+
+      var scannedDays = sh.rejected ? 0 : (sh.prunes ? n : DAYS);
+      var cells = '';
+      for (var i = 0; i < DAYS; i++) {
+        var wanted = i < n;
+        var readIt = i < scannedDays;
+        cells += '<div class="v2-c ' + (readIt ? (wanted ? 'is-hit' : 'is-scan') : '') + '"></div>';
+      }
+      grid.innerHTML = cells;
+
+      var gb = scannedDays * GB_PER_DAY;
+      var cost = gb / 1024 * RATE;
+      var cut = Math.round((1 - gb / (DAYS * GB_PER_DAY)) * 100);
+      var good = sh.prunes || sh.rejected;
+      var c = good ? 'var(--viz-green)' : 'var(--viz-red)';
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">' + gb + ' GB scanned of 730</span>' +
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">$' + cost.toFixed(2) + ' on-demand</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+          (sh.rejected ? 'QUERY REJECTED' : cut + '% of bytes skipped') + '</span>';
+
+      why.innerHTML = '<b>' + sh.why[0] + '</b>' +
+        (sh.prunes
+          ? '<span style="color:var(--viz-muted)">' + n + ' partition' + (n === 1 ? '' : 's') + ' opened, ' + (DAYS - n) + ' never touched. At 7 days that is ~7 GB instead of 730 GB — a <b>99% cut in cost AND in slot-time</b>.</span><br><br>'
+          : '<span style="color:var(--viz-muted)">The day slider is now decoration: every partition is read whatever window you asked for.</span><br><br>') +
+        sh.why[1] +
+        '<br><br><b>The ceiling that shapes the design:</b> a table caps out around <b>10,000 partitions</b>, which is why partitioning by a high-cardinality column such as <code>user_id</code> is wrong by construction — that column belongs in CLUSTER BY, which is visual 3.';
+    }
+    btns.forEach(function(b, j){ b.addEventListener('click', function(){ cur = j; render(); }); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Cluster Key Order</h2>
+  <p class="vz-lede">Inside one day's 1 GB partition of
+    <code>PARTITION BY DATE(event_ts) CLUSTER BY customer_id, event_type</code>, the rows are sorted into
+    blocks whose min/max the engine checks before reading. Tick which columns your WHERE clause actually
+    touches. <b>Like a phone book sorted by surname then first name: surname narrows it instantly, first
+    name alone makes you read every page.</b></p>
+
+  <div class="v3-list" id="v3-list">
+    <button class="v3-f" id="v3-f0" aria-pressed="true">WHERE customer_id = 'C-91' &nbsp;(first key)</button>
+    <button class="v3-f" id="v3-f1" aria-pressed="false">WHERE event_type = 'purchase' &nbsp;(second key only)</button>
+    <button class="v3-f" id="v3-f2" aria-pressed="false">WHERE customer_id = 'C-91' AND event_type = 'purchase'</button>
+    <button class="v3-f" id="v3-f3" aria-pressed="false">WHERE amount &gt; 500 &nbsp;(neither key)</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-blocks" id="v3-blocks"></div>
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">When to reach for which: <b>partition</b> when you need guaranteed, estimable pruning,
+    per-segment lifecycle, or filter enforcement; <b>cluster</b> when cardinality is high or several filter
+    columns matter; <b>skip both</b> under roughly 1 GB, where metadata overhead outweighs the skipping and
+    many tiny partitions actually slow queries down. BigQuery re-clusters in the background automatically and
+    free as loads and streaming inserts dirty the sort order — you never schedule it.</p>
+
+  <style>
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-f{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.4;display:flex;align-items:center}
+    .v3-f[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-blocks{display:grid;grid-template-columns:repeat(20,1fr);gap:2px}
+    .v3-bk{height:12px;border-radius:2px;background:var(--viz-line)}
+    .v3-bk.is-read{background:var(--viz-red)}
+    .v3-key{margin-top:9px;font-size:11px;color:var(--viz-muted);line-height:1.5}
+    .v3-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var BLOCKS = 100, MB_PER_BLOCK = 10;   // one 1 GB daily partition, 100 blocks of 10 MB
+    var cur = 0;
+    var CASES = [
+      { read:4, label:'first cluster key',
+        why:['Prefix filters prune hard.',
+          'Rows are sorted by <code>customer_id</code> first, so one customer\'s rows sit in a handful of adjacent blocks. Every other block\'s min/max provably excludes <code>C-91</code> and is skipped. This is the case clustering exists for: a <b>high-cardinality</b> column that could never be a partition key.'] },
+      { read:55, label:'second key only',
+        why:['The second key alone helps far less.',
+          'Sorting is lexicographic: <code>customer_id</code> then <code>event_type</code>. Filtering only on <code>event_type</code> is asking the phone book for everyone called "Sam" — the purchases are scattered across every customer\'s stretch of blocks, so roughly half survive their min/max test. ' +
+          '<br><br>Cluster keys benefit filters <b>in order</b>, prefix-first. Put the column you filter on most often first, and remember the cap: <b>up to four</b>.'] },
+      { read:3, label:'both keys, in order',
+        why:['Best case: the full prefix.',
+          'Both predicates line up with the sort order, so the surviving blocks are the intersection — three blocks, 30 MB of a 1 GB partition. Stacked on top of visual 2\'s date pruning, the same query against the untouched 730 GB table reads <b>0.03 GB</b>.'] },
+      { read:100, label:'neither key',
+        why:['No cluster key in the filter, no block skipping.',
+          '<code>amount</code> is not a cluster key, so its values are unordered across blocks and every block\'s min/max overlaps. The whole partition is read. The machinery ran perfectly and pruned nothing — which is what "clustering did not help" always means: the filter and the sort order disagree.'] }
+    ];
+    var blocks = document.getElementById('v3-blocks'), stats = document.getElementById('v3-stats');
+    var why = document.getElementById('v3-why');
+    var btns = [document.getElementById('v3-f0'), document.getElementById('v3-f1'),
+                document.getElementById('v3-f2'), document.getElementById('v3-f3')];
+
+    function render(){
+      var c = CASES[cur];
+      btns.forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+
+      var h = '';
+      for (var i = 0; i < BLOCKS; i++) h += '<div class="v3-bk ' + (i < c.read ? 'is-read' : '') + '"></div>';
+      blocks.innerHTML = h +
+        '<div class="v3-key" style="grid-column:1 / -1">100 blocks of 10 MB · ' +
+        '<b style="color:var(--viz-red)">filled = read</b> · empty = skipped on block min/max</div>';
+
+      var mb = c.read * MB_PER_BLOCK;
+      var good = c.read <= 10;
+      var col = good ? 'var(--viz-green)' : (c.read >= 100 ? 'var(--viz-red)' : 'var(--viz-amber)');
+      stats.innerHTML =
+        '<span class="v3-pill" style="color:' + col + ';border-color:' + col + '">' + c.read + ' of 100 blocks read = ' + mb + ' MB</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">dry-run estimate: 1,000 MB</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + c.label + '</span>';
+
+      why.innerHTML = '<b>' + c.why[0] + '</b>' + c.why[1] +
+        '<br><br><b style="display:inline;font-size:12.5px">Watch the two pills disagree.</b> Block pruning is decided at <em>run time</em>, so the dry-run number stays at the full 1,000 MB however much you actually skip: for a clustered table the estimate is an <b>upper bound</b> and you may be billed less. Partition pruning is the opposite — it is reflected in the estimate up front. That asymmetry is a favourite exam trap.';
+    }
+    btns.forEach(function(b, j){ b.addEventListener('click', function(){ cur = j; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Baseline Versus Burst</h2>
+  <p class="vz-lede">Under capacity pricing, slots are the scarce thing and a <b>reservation</b> is how you
+    hand them out. Pick one of the three from the lesson, then drive demand at it: baseline slots are always
+    billed, autoscaled slots bill per second only while provisioned, and anything past <em>max</em> queues.
+    <b>Like staffing a shop: some staff on permanent contract, some on call, and a queue at the door when
+    both run out.</b></p>
+
+  <div class="v4-list" id="v4-list">
+    <button class="v4-r" id="v4-r0" aria-pressed="true">etl-reservation &nbsp;· baseline 500 · max 500</button>
+    <button class="v4-r" id="v4-r1" aria-pressed="false">bi-reservation &nbsp;· baseline 100 · max 300</button>
+    <button class="v4-r" id="v4-r2" aria-pressed="false">adhoc-reservation &nbsp;· baseline 0 · max 200</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-d">Slots demanded right now: <span id="v4-dl">150</span></label>
+    <input type="range" id="v4-d" min="0" max="700" value="150" step="10" aria-label="Slots demanded">
+    <div class="v4-bar" id="v4-bar"></div>
+    <div class="v4-stats" id="v4-stats"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">The tiers sit above all of this: <b>Standard</b> for basic ad-hoc analytics with no
+    commitments, <b>Enterprise</b> as the production tier (materialized-view smart tuning, BigQuery ML,
+    fine-grained security), <b>Enterprise Plus</b> for the compliance ceiling — multi-region disaster
+    recovery and higher assurance controls. A <b>commitment</b> is a separate thing again: optional one- or
+    three-year prepayment at a discount. Editions, reservations and commitments are three different nouns and
+    distractors swap them freely.</p>
+
+  <style>
+    .v4-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center}
+    .v4-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bar{margin-top:15px;display:flex;height:26px;border-radius:7px;overflow:hidden;background:var(--viz-line)}
+    .v4-seg{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;
+      color:var(--viz-bg);letter-spacing:.02em;white-space:nowrap;overflow:hidden}
+    .v4-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var RES = [
+      { n:'etl-reservation',   base:500, max:500, role:'SLA-bound nightly pipelines' },
+      { n:'bi-reservation',    base:100, max:300, role:'dashboards' },
+      { n:'adhoc-reservation', base:0,   max:200, role:'data scientists' }
+    ];
+    var RATE = 0.05;          // $ per slot-hour, mid-point of the $0.04-0.06 Editions range
+    var HOURS = 730;          // hours in a month
+    var cur = 0;
+    var s = document.getElementById('v4-d'), lab = document.getElementById('v4-dl');
+    var bar = document.getElementById('v4-bar'), stats = document.getElementById('v4-stats');
+    var why = document.getElementById('v4-why');
+    var btns = [document.getElementById('v4-r0'), document.getElementById('v4-r1'), document.getElementById('v4-r2')];
+
+    function render(){
+      var r = RES[cur], d = Number(s.value);
+      lab.textContent = d;
+      btns.forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+
+      var served  = Math.min(d, r.max);
+      var scaled  = Math.max(0, served - r.base);
+      var idle    = Math.max(0, r.base - d);
+      var queued  = Math.max(0, d - r.max);
+      var span    = 700;
+      function seg(w, col, txt){
+        return w <= 0 ? '' : '<div class="v4-seg" style="width:' + (w / span * 100) + '%;background:' + col + '">' + (w / span > 0.11 ? txt : '') + '</div>';
+      }
+      bar.innerHTML =
+        seg(Math.min(served, r.base), 'var(--viz-accent)', 'baseline ' + Math.min(served, r.base)) +
+        seg(scaled, 'var(--viz-green)', 'autoscaled ' + scaled) +
+        seg(idle, 'var(--viz-violet)', 'idle ' + idle) +
+        seg(queued, 'var(--viz-red)', 'QUEUED ' + queued);
+
+      var monthly = (r.base + scaled) * RATE * HOURS;
+      var qcol = queued ? 'var(--viz-red)' : 'var(--viz-green)';
+      stats.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">baseline ' + r.base + ' · always billed</span>' +
+        '<span class="v4-pill" style="color:var(--viz-green);border-color:var(--viz-green)">autoscaled ' + scaled + ' · billed per second</span>' +
+        '<span class="v4-pill" style="color:' + qcol + ';border-color:' + qcol + '">' + (queued ? queued + ' slots QUEUED' : 'nothing queued') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">≈ $' + Math.round(monthly).toLocaleString() + '/mo if sustained</span>';
+
+      var head, body;
+      if (queued) {
+        head = '<b style="color:var(--viz-red)">Past max — the excess waits.</b>';
+        body = r.n + ' is capped at <b>' + r.max + '</b> slots, so ' + queued + ' slots\' worth of work queues. ' +
+          'That is the whole point of the cap: ' + (cur === 2
+            ? 'the data scientists\' runaway Monday queries exhaust <em>their own</em> 200 slots and wait, and the ETL pipelines never notice.'
+            : 'a reservation cannot expand into another team\'s capacity.') +
+          '<br><br>Under capacity pricing an inefficient query costs <em>time</em>, not money — the opposite of on-demand, where it costs money and no time at all.';
+      } else if (idle) {
+        head = '<b style="color:var(--viz-violet)">' + idle + ' baseline slots idle — and billed.</b>';
+        body = 'Baseline is allocated whether or not you use it, so this is the cost of latency consistency: the slots are pre-warmed and a query starts instantly. ' +
+          'The waste is not total, though — <b>idle-slot sharing</b> lets other reservations in the same admin project borrow unused baseline or committed slots, and the owner reclaims them instantly on demand. ' +
+          '<br><br>Experts set the baseline from the <b>P50 of sustained usage</b> and let autoscaling absorb the P95.';
+      } else {
+        head = '<b style="color:var(--viz-green)">Autoscaling is carrying ' + scaled + ' slots above the baseline.</b>';
+        body = 'BigQuery adds slots in increments between baseline and max as queued work demands, and bills them <b>per second only while provisioned</b>. ' +
+          (r.base === 0
+            ? 'A baseline of <b>0</b> with max ' + r.max + ' is entirely legitimate: nothing is paid at idle and burst capacity appears when queries arrive. The cost is a brief scale-up lag, plus per-second autoscale billing that can exceed a commitment\'s rate if you sustain it.'
+            : 'The baseline of ' + r.base + ' keeps steady traffic on pre-warmed slots; the ' + scaled + ' above it appear and disappear with the load.');
+      }
+      why.innerHTML = head + body +
+        '<br><br><b style="display:inline;font-size:12.5px">Why reservations exist at all:</b> to <em>isolate workloads from each other</em> — the concern Lesson 01 raised about analytics starving production, solved organizationally rather than by buying a bigger machine. You create the pool in an admin project and <b>assign</b> it to projects, folders or the whole org.';
+    }
+    btns.forEach(function(b, j){ b.addEventListener('click', function(){ cur = j; render(); }); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Break-Even Line</h2>
+  <p class="vz-lede">Two dials on one query against a <b>2 TB table of 40 equal columns</b>, daily
+    partitioned over 365 days — then the same organisation's whole month, priced both ways. On-demand bills
+    <b>bytes processed</b> at $6.25/TiB; capacity bills <b>slot-hours</b> and ignores bytes entirely.
+    <b>Like a taxi meter versus a leased car: one charges per mile, the other charges whether you drive or
+    not.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v5-lab" for="v5-cols">Columns selected: <span id="v5-colsl">4</span> of 40</label>
+    <input type="range" id="v5-cols" min="1" max="40" value="4" step="1" aria-label="Columns selected">
+    <label class="v5-lab" for="v5-days" style="margin-top:12px">Days in the partition filter:
+      <span id="v5-daysl">30</span> of 365</label>
+    <input type="range" id="v5-days" min="1" max="365" value="30" step="1" aria-label="Days in the partition filter">
+    <div class="v5-q" id="v5-q"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-vol">Organisation scans per month:
+      <span id="v5-voll">400 TiB</span></label>
+    <input type="range" id="v5-vol" min="0" max="30" value="12" step="1" aria-label="Monthly scan volume">
+    <div class="v5-cmp" id="v5-cmp"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Traps worth memorising: <code>LIMIT 10</code> does <b>not</b> reduce bytes scanned — the
+    scan happens before the limit; billing rounds up a <b>10 MB minimum per table referenced</b>; the first
+    <b>1 TiB per month is free</b>; and clustered-table estimates are upper bounds. Storage is the quieter
+    half — about $0.02/GB/month active, dropping to roughly half for anything untouched by <em>writes</em>
+    for 90 days (reads do not reset the clock). Per-job <code>total_bytes_processed</code> and
+    <code>total_slot_ms</code> in <code>INFORMATION_SCHEMA.JOBS</code> tell you who is spending it.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-q{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-q b{font-family:ui-monospace,Consolas,monospace}
+    .v5-eq{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted);
+      margin-top:7px;line-height:1.7;white-space:pre-wrap}
+    .v5-cmp{margin-top:15px;display:flex;flex-direction:column;gap:10px}
+    .v5-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:nowrap}
+    .v5-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TABLE_TB = 2, NCOLS = 40, NDAYS = 365, RATE = 6.25;   // $ per TiB
+    var CAP_LO = 3000, CAP_HI = 4500;                          // 100 baseline slots, $/month
+    var VOLS = [1,2,5,10,20,40,60,100,150,200,300,320,400,500,700,900,1200,1600,2048,3000,
+                4096,6144,8192,10240,15360,20480,30720,40960,51200,71680,102400];  // TiB/month
+    var cols = document.getElementById('v5-cols'), colsl = document.getElementById('v5-colsl');
+    var days = document.getElementById('v5-days'), daysl = document.getElementById('v5-daysl');
+    var q = document.getElementById('v5-q');
+    var vol = document.getElementById('v5-vol'), voll = document.getElementById('v5-voll');
+    var cmp = document.getElementById('v5-cmp'), why = document.getElementById('v5-why');
+
+    function tib(t){ return t >= 1024 ? (t / 1024).toFixed(1) + ' PiB' : t + ' TiB'; }
+
+    function renderQuery(){
+      var c = Number(cols.value), d = Number(days.value);
+      colsl.textContent = c; daysl.textContent = d;
+      var tb = TABLE_TB * (c / NCOLS) * (d / NDAYS);
+      var gb = tb * 1000;
+      var cost = tb * 1000 / 1024 * RATE;
+      var full = TABLE_TB * RATE;                 // SELECT * with no date filter
+      var ratio = Math.round(full / Math.max(cost, 0.0001));
+      var col = c >= 36 && d >= 330 ? 'var(--viz-red)' : (cost < 1 ? 'var(--viz-green)' : 'var(--viz-amber)');
+      q.innerHTML =
+        '<span style="color:' + col + ';font-weight:800;font-size:13px">' +
+          (gb >= 1000 ? (gb / 1000).toFixed(2) + ' TB' : gb.toFixed(1) + ' GB') + ' processed → $' + cost.toFixed(2) + '</span>' +
+        '<div class="v5-eq">2 TB × ' + c + '/40 columns × ' + d + '/365 days\n' +
+        '   = ' + (gb >= 1000 ? (gb / 1000).toFixed(2) + ' TB' : gb.toFixed(1) + ' GB') +
+        '  →  ' + (tb * 1000 / 1024).toFixed(3) + ' TiB × $6.25  =  $' + cost.toFixed(2) + '</div>' +
+        '<div style="margin-top:9px">Same question as <code>SELECT *</code> with no date filter: 2 TiB → <b style="color:var(--viz-red)">$' + full.toFixed(2) + '</b>' +
+        (ratio > 1 ? ', a <b>' + ratio + '×</b> ratio produced entirely by column selection and partition pruning.' : ' — which is what you are asking for right now.') + '</div>' +
+        '<div style="margin-top:9px;color:var(--viz-muted)">A <b>dry run</b> (<code>bq query --dry_run</code>, or the console estimate) returns exactly this byte count without executing. That is the number to reason from, and it is the number <code>maximum_bytes_billed</code> compares against before failing the query rather than over-billing it.</div>';
+    }
+
+    function renderModel(){
+      var t = VOLS[Number(vol.value)];
+      voll.textContent = tib(t);
+      var od = Math.max(0, t - 1) * RATE;          // first 1 TiB/month free
+      var span = Math.max(od, CAP_HI) * 1.05;
+      function bar(name, lo, hi, c, sub){
+        var w = hi / span * 100;
+        return '<div class="v5-b"><h6><span>' + name + '</span><b style="color:' + c + '">' +
+          (lo === hi ? '$' + Math.round(lo).toLocaleString() : '$' + lo.toLocaleString() + '–' + hi.toLocaleString()) +
+          ' /mo</b></h6><div class="v5-track"><i style="width:' + Math.max(1, Math.min(100, w)) + '%;background:' + c + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+      }
+      var odWins = od < CAP_LO;
+      cmp.innerHTML =
+        bar('on-demand · bytes processed', Math.round(od), Math.round(od),
+            odWins ? 'var(--viz-green)' : 'var(--viz-red)',
+            tib(t) + ' scanned, first 1 TiB free, at $6.25/TiB. Pruning discipline cuts this directly.') +
+        bar('capacity · 100 baseline slots', CAP_LO, CAP_HI,
+            odWins ? 'var(--viz-red)' : 'var(--viz-green)',
+            '100 slots × ~$0.04–0.06 per slot-hour. Flat, whatever you scan.');
+
+      why.innerHTML = odWins
+        ? '<b style="color:var(--viz-green)">Stay on-demand.</b>' +
+          'At ' + tib(t) + ' a month the meter reads about <b>$' + Math.round(od).toLocaleString() + '</b>, under the floor of a 100-slot reservation. On-demand suits <b>spiky, low-volume, unpredictable</b> usage: you pay only when querying, and every byte you prune away is money back. ' +
+          '<br><br>The risk here is a runaway scan, so the guardrails are <code>maximum_bytes_billed</code>, <code>require_partition_filter</code> and custom quotas. Note also that on-demand compute is a <em>transient</em> pool — historically up to about 2,000 slots per project, with no guarantee.'
+        : '<b style="color:var(--viz-green)">Capacity wins, and it stops being close.</b>' +
+          'At ' + tib(t) + ' a month on-demand is about <b>$' + Math.round(od).toLocaleString() + '</b>; reservations running the same workloads cost a fraction of it, and the bill becomes flat and predictable. Capacity suits <b>sustained, heavy or budget-capped</b> usage. ' +
+          '<br><br>The risk flips with the model: on-demand\'s danger is a runaway scan, capacity\'s is <em>queueing</em> — mitigated with autoscaling headroom and workload-isolated reservations (visual 4). Under capacity an inefficient query costs time, not money.';
+    }
+
+    cols.addEventListener('input', renderQuery);
+    days.addEventListener('input', renderQuery);
+    vol.addEventListener('input', renderModel);
+    renderQuery();
+    renderModel();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

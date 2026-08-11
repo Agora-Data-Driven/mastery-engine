@@ -1,0 +1,873 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 132px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+.vz-read{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Equation To Graph</button>
+  <button class="viz-tab" data-viz-tab="2">2. Pick The Piece</button>
+  <button class="viz-tab" data-viz-tab="3">3. Inner Then Outer</button>
+  <button class="viz-tab" data-viz-tab="4">4. Domain Of The Chain</button>
+  <button class="viz-tab" data-viz-tab="5">5. Round Trip Check</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Equation To Graph</h2>
+  <p class="vz-lede">Absolute value equations already had you split |x - 2| = 5 into two cases. Here is the
+    same split as a picture: |x - a| is a <em>function</em> with a V-shaped graph, and solving is asking where
+    that V reaches the height c. Drag both and watch the two cases appear, merge, and vanish.
+    <b>Like asking who lives exactly five minutes from the station — two houses, one on each side.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already taught — an equation</h5><div class="vz-mono">|x - 2| = 5
+  x - 2 =  5   ->  x =  7
+  x - 2 = -5   ->  x = -3</div></div>
+    <div class="v1-half"><h5>this lesson — a function</h5><div class="vz-mono">f(x) = |x - 2|
+  f(x) = x - 2   for x >= 2
+  f(x) = 2 - x   for x <  2</div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v1-a">centre a = <b><span id="v1-al">2</span></b> &nbsp; in f(x) = |x - a|</label>
+    <input class="vz-range" type="range" id="v1-a" min="-6" max="6" value="2" step="1" aria-label="Centre a">
+    <label class="vz-lab" for="v1-c">height c = <b><span id="v1-cl">5</span></b> &nbsp; in |x - a| = c</label>
+    <input class="vz-range" type="range" id="v1-c" min="-3" max="9" value="5" step="1" aria-label="Height c">
+
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="vz-read" id="v1-read"></div>
+    <div class="vz-mono" id="v1-alg" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-presets"></div>
+  </div>
+
+  <p class="vz-note">Read the V as a distance meter: its height above the axis is how far x is from a, and a
+    distance is never negative — which is why the whole graph sits on or above the axis and why a negative c
+    has nothing to intersect. Every claim about |x| in this lesson is that one sentence in disguise:
+    <b>|-7| = 7 because -7 sits seven units from zero</b>, not because anything was squared or negated.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v1-a'), C = document.getElementById('v1-c');
+    var al = document.getElementById('v1-al'), cl = document.getElementById('v1-cl');
+    var plot = document.getElementById('v1-plot'), read = document.getElementById('v1-read');
+    var alg = document.getElementById('v1-alg'), why = document.getElementById('v1-why');
+    var pres = document.getElementById('v1-presets');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function par(v){ return v < 0 ? '(' + v + ')' : String(v); }
+
+    function render(){
+      var a = Number(A.value), c = Number(C.value);
+      if (!isFinite(a)) a = 0;
+      if (!isFinite(c)) c = 0;
+      al.textContent = a; cl.textContent = c;
+
+      var XLO = -11, XHI = 11, YLO = -3, YHI = 11, W = 300, H = 210;
+      function px(v){ return (v - XLO) / (XHI - XLO) * W; }
+      function py(v){ return H - (v - YLO) / (YHI - YLO) * H; }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The V graph of the absolute value function cut by a horizontal line">';
+      for (var g = -10; g <= 10; g += 2) {
+        svg += '<line x1="' + px(g) + '" y1="0" x2="' + px(g) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+      }
+      for (var g2 = -2; g2 <= 10; g2 += 2) {
+        svg += '<line x1="0" y1="' + py(g2) + '" x2="' + W + '" y2="' + py(g2) + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+      }
+      svg += '<line x1="0" y1="' + py(0) + '" x2="' + W + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += '<line x1="' + px(0) + '" y1="0" x2="' + px(0) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+
+      // the two branches, drawn separately so the piecewise rule is visible as two rules
+      var leftPts = [], rightPts = [];
+      for (var x = XLO; x <= XHI + 0.001; x += 0.5) {
+        var y = Math.min(Math.abs(x - a), YHI);
+        if (x <= a) leftPts.push(px(x).toFixed(1) + ',' + py(y).toFixed(1));
+        if (x >= a) rightPts.push(px(x).toFixed(1) + ',' + py(y).toFixed(1));
+      }
+      svg += '<polyline points="' + leftPts.join(' ') + '" style="fill:none;stroke:var(--viz-violet);stroke-width:2.6"></polyline>';
+      svg += '<polyline points="' + rightPts.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.6"></polyline>';
+      svg += '<text x="' + px(a - 6.4) + '" y="' + py(7.4) + '" style="font-size:10px;fill:var(--viz-violet);font-weight:700">a - x  (x &lt; a)</text>';
+      svg += '<text x="' + px(a + 1.2) + '" y="' + py(7.4) + '" style="font-size:10px;fill:var(--viz-accent);font-weight:700">x - a  (x &gt;= a)</text>';
+
+      var sols = [];
+      if (c > 0) sols = [a - c, a + c];
+      else if (c === 0) sols = [a];
+
+      if (c >= YLO && c <= YHI) {
+        var lineCol = c < 0 ? 'var(--viz-red)' : 'var(--viz-green)';
+        svg += '<line x1="0" y1="' + py(c) + '" x2="' + W + '" y2="' + py(c) +
+          '" style="stroke:' + lineCol + ';stroke-width:2;stroke-dasharray:6 4"></line>';
+        svg += '<text x="4" y="' + (py(c) - 5) + '" style="font-size:10px;fill:' + lineCol + ';font-weight:800">y = ' + c + '</text>';
+      }
+      sols.forEach(function(s){
+        if (s < XLO || s > XHI) return;
+        svg += '<line x1="' + px(s) + '" y1="' + py(c) + '" x2="' + px(s) + '" y2="' + py(0) +
+          '" style="stroke:var(--viz-green);stroke-width:1.4;stroke-dasharray:3 3"></line>';
+        svg += '<circle cx="' + px(s) + '" cy="' + py(c) + '" r="5" style="fill:var(--viz-green)"></circle>';
+        svg += '<text x="' + px(s) + '" y="' + (py(0) + 14) + '" text-anchor="middle" style="font-size:10.5px;fill:var(--viz-green);font-weight:800">x = ' + n(s) + '</text>';
+      });
+      svg += '<circle cx="' + px(a) + '" cy="' + py(0) + '" r="4" style="fill:var(--viz-amber)"></circle>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var cnt = sols.length;
+      var ccol = cnt === 2 ? 'var(--viz-green)' : (cnt === 1 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      read.innerHTML =
+        pill('vertex at (' + a + ', 0)', 'var(--viz-amber)') +
+        pill(cnt + ' solution' + (cnt === 1 ? '' : 's'), ccol) +
+        pill(cnt ? 'x = ' + sols.map(n).join('  or  x = ') : 'no real x', ccol);
+
+      alg.textContent = c < 0
+        ? '|x - ' + par(a) + '| = ' + c + '\n' +
+          '  the left side is a DISTANCE, so it is never negative\n' +
+          '  no case to split -> no solutions'
+        : c === 0
+          ? '|x - ' + par(a) + '| = 0\n' +
+            '  the two cases collapse: x - ' + par(a) + ' = 0 and x - ' + par(a) + ' = -0\n' +
+            '  x = ' + a + '   (one solution, at the vertex)'
+          : '|x - ' + par(a) + '| = ' + c + '\n' +
+            '  case 1   x - ' + par(a) + ' =  ' + c + '   ->  x = ' + n(a + c) + '\n' +
+            '  case 2   x - ' + par(a) + ' = -' + c + '   ->  x = ' + n(a - c) + '\n' +
+            '  check    |' + n(a + c) + ' - ' + par(a) + '| = ' + c + '   and   |' + n(a - c) + ' - ' + par(a) + '| = ' + c;
+
+      why.innerHTML = c < 0
+        ? '<b style="color:var(--viz-red)">A negative height cannot be reached, so there are no solutions.</b>' +
+          'The whole V sits on or above the axis, because every output is a distance from a. The dashed line at ' +
+          'y = ' + c + ' never touches it, and no amount of case-splitting will change that — this is the one ' +
+          'situation where writing the two cases anyway produces two answers that both fail the check. ' +
+          '<br><br>Always sanity-check the right-hand side <em>before</em> splitting.'
+        : c === 0
+          ? '<b style="color:var(--viz-amber)">At the vertex the two cases merge into one answer.</b>' +
+            'x - ' + par(a) + ' = 0 and x - ' + par(a) + ' = -0 are the same equation, so the two branches meet at ' +
+            'the single point x = ' + a + '. This is the boundary between two solutions and none. ' +
+            '<br><br>Notice the vertex is also where the piecewise rule switches lines: it belongs to the ' +
+            'x >= a branch, because that is the branch whose condition includes equality.'
+          : '<b style="color:var(--viz-green)">Two branches, two crossings, two solutions.</b>' +
+            'The left branch is the rule a - x and the right branch is x - a — one function, two rules, which is ' +
+            'exactly what "piecewise" means. The line y = ' + c + ' cuts each branch once, at x = ' + n(a - c) +
+            ' and x = ' + n(a + c) + ', and those are ' + c + ' units either side of the vertex a = ' + a + '. ' +
+            '<br><br><b style="display:inline">Where the classic mistake comes from:</b> the split happens around the ' +
+            'right-hand side, not around a. With |x - 2| = 5 the cases are x - 2 = 5 and x - 2 = -5, giving 7 and -3 — ' +
+            'not 3 and -7, which is what you get by negating the 2 instead of the 5. Drag c to 0 and then below it to ' +
+            'watch the solution count fall from 2 to 1 to 0.';
+    }
+
+    var PRESETS = [
+      { t:'|x - 2| = 5',    a:2,  c:5 },
+      { t:'plain |x|, c = 3', a:0,  c:3 },
+      { t:'c = 0 (one root)', a:2,  c:0 },
+      { t:'c = -3 (none)',   a:2,  c:-3 },
+      { t:'|x + 4| = 6',     a:-4, c:6 }
+    ];
+    PRESETS.forEach(function(p){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.t;
+      b.addEventListener('click', function(){ A.value = p.a; C.value = p.c; render(); });
+      pres.appendChild(b);
+    });
+    [A, C].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Pick The Piece</h2>
+  <p class="vz-lede">A piecewise function applies different rules on different parts of the domain, so
+    evaluating it is always two steps: choose the rule the input qualifies for, then substitute. Slide the
+    input and watch the active rule light up.
+    <b>Like a postage table: you find your weight band first, and only then read a price.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which piecewise function">
+    <button type="button" id="v2-fa" aria-pressed="true">|x| as two rules</button>
+    <button type="button" id="v2-fb" aria-pressed="false">three rules, one curved</button>
+    <button type="button" id="v2-fc" aria-pressed="false">a step, with a boundary</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-x">input x = <b><span id="v2-xl">-3</span></b></label>
+    <input class="vz-range" type="range" id="v2-x" min="-8" max="10" value="-3" step="1" aria-label="Input x">
+
+    <div class="v2-rules" id="v2-rules"></div>
+    <div class="vz-plot" id="v2-plot"></div>
+    <div class="vz-read" id="v2-read"></div>
+    <div class="vz-mono" id="v2-trace" style="margin-top:10px"></div>
+    <div class="vz-why" id="v2-why"></div>
+    <div class="vz-pre" id="v2-presets"></div>
+  </div>
+
+  <p class="vz-note">Two structural rules keep a piecewise definition legal, and both are visible above. The
+    conditions must not <b>overlap</b> — an input matching two rules would have two outputs, and a function is
+    allowed only one — and between them they should <b>cover</b> every input you intend to accept, or the
+    function is simply undefined there. Boundaries are where this is decided: x >= 0 gives 0 to the first rule,
+    x > 0 gives it to the second.</p>
+
+  <style>
+    .v2-rules{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+    .v2-r{display:flex;align-items:center;gap:10px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px 11px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      min-height:44px;line-height:1.4}
+    .v2-r.is-on{border-color:var(--viz-green);border-width:2px}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var X = document.getElementById('v2-x'), xl = document.getElementById('v2-xl');
+    var bA = document.getElementById('v2-fa'), bB = document.getElementById('v2-fb'), bC = document.getElementById('v2-fc');
+    var rules = document.getElementById('v2-rules'), plot = document.getElementById('v2-plot');
+    var read = document.getElementById('v2-read'), trace = document.getElementById('v2-trace');
+    var why = document.getElementById('v2-why'), pres = document.getElementById('v2-presets');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    var SETS = {
+      a: { name:'|x| as two rules',
+        pieces:[
+          { cond:'x < 0',  expr:'-x', ask:'is x < 0 ?',  test:function(x){ return x < 0; },  lo:-8, hi:0,  f:function(x){ return -x; } },
+          { cond:'x >= 0', expr:'x',  ask:'is x >= 0 ?', test:function(x){ return x >= 0; }, lo:0,  hi:10, f:function(x){ return x; } }
+        ],
+        note:'This IS the absolute value function. The second rule looks like it makes things negative and does the opposite: at x = -3 it returns -(-3) = 3.' },
+      b: { name:'three rules, one curved',
+        pieces:[
+          { cond:'x < -2',        expr:'4',   ask:'is x < -2 ?',        test:function(x){ return x < -2; },            lo:-8, hi:-2, f:function(){ return 4; } },
+          { cond:'-2 <= x <= 2',  expr:'x^2', ask:'is -2 <= x <= 2 ?',  test:function(x){ return x >= -2 && x <= 2; }, lo:-2, hi:2,  f:function(x){ return x * x; } },
+          { cond:'x > 2',         expr:'2x',  ask:'is x > 2 ?',         test:function(x){ return x > 2; },             lo:2,  hi:10, f:function(x){ return 2 * x; } }
+        ],
+        note:'Nothing here is restricted to straight lines: the middle rule is a parabola. The pieces happen to meet at both boundaries, so this one is continuous.' },
+      c: { name:'a step, with a boundary',
+        pieces:[
+          { cond:'x < 2',       expr:'0',  ask:'is x < 2 ?',      test:function(x){ return x < 2; },           lo:-8, hi:2,  f:function(){ return 0; } },
+          { cond:'2 <= x < 6',  expr:'5',  ask:'is 2 <= x < 6 ?', test:function(x){ return x >= 2 && x < 6; }, lo:2,  hi:6,  f:function(){ return 5; } },
+          { cond:'x >= 6',      expr:'12', ask:'is x >= 6 ?',     test:function(x){ return x >= 6; },          lo:6,  hi:10, f:function(){ return 12; } }
+        ],
+        note:'A shipping charge: free under 2 kg, 5 from 2 kg, 12 from 6 kg. The jumps are real — this function is not continuous, and it is still perfectly well defined.' }
+    };
+    var key = 'a';
+
+    function pick(set, x){
+      for (var i = 0; i < set.pieces.length; i++) { if (set.pieces[i].test(x)) return i; }
+      return -1;
+    }
+
+    function render(){
+      var x = Number(X.value);
+      if (!isFinite(x)) x = 0;
+      xl.textContent = x;
+      bA.setAttribute('aria-pressed', key === 'a' ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', key === 'b' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', key === 'c' ? 'true' : 'false');
+
+      var set = SETS[key];
+      var idx = pick(set, x);
+      var val = idx === -1 ? NaN : set.pieces[idx].f(x);
+
+      rules.innerHTML = set.pieces.map(function(p, i){
+        var on = i === idx;
+        var col = on ? 'var(--viz-green)' : 'var(--viz-muted)';
+        return '<div class="v2-r' + (on ? ' is-on' : '') + '"><span>f(x) = ' + p.expr + '</span><span>for ' + p.cond + '</span>' +
+          '<span class="v2-tag" style="color:' + col + '">' + (on ? 'ACTIVE for x = ' + x : 'not used here') + '</span></div>';
+      }).join('');
+
+      // y-range from the pieces themselves, so every set frames itself
+      var ys = [];
+      set.pieces.forEach(function(p){
+        for (var t = p.lo; t <= p.hi + 0.001; t += 0.25) { var v = p.f(t); if (isFinite(v)) ys.push(v); }
+      });
+      var YLO = Math.min.apply(null, ys.concat([0])) - 2;
+      var YHI = Math.max.apply(null, ys.concat([1])) + 2;
+      if (!isFinite(YLO) || !isFinite(YHI) || YHI - YLO < 1) { YLO = -2; YHI = 10; }
+
+      var XLO = -9, XHI = 11, W = 300, H = 210;
+      function px(v){ return (v - XLO) / (XHI - XLO) * W; }
+      function py(v){ return H - (v - YLO) / (YHI - YLO) * H; }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The piecewise graph with the active rule highlighted">';
+      for (var g = -8; g <= 10; g += 2) {
+        svg += '<line x1="' + px(g) + '" y1="0" x2="' + px(g) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+      }
+      svg += '<line x1="0" y1="' + py(0) + '" x2="' + W + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += '<line x1="' + px(0) + '" y1="0" x2="' + px(0) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      set.pieces.forEach(function(p, i){
+        var pts = [];
+        for (var t = p.lo; t <= p.hi + 0.001; t += 0.25) {
+          var v = p.f(t);
+          if (isFinite(v)) pts.push(px(t).toFixed(1) + ',' + py(v).toFixed(1));
+        }
+        if (!pts.length) return;
+        var col = i === idx ? 'var(--viz-green)' : 'var(--viz-muted)';
+        var wid = i === idx ? 3.2 : 1.8;
+        svg += '<polyline points="' + pts.join(' ') + '" style="fill:none;stroke:' + col + ';stroke-width:' + wid + '"></polyline>';
+      });
+      if (isFinite(val)) {
+        svg += '<line x1="' + px(x) + '" y1="' + py(0) + '" x2="' + px(x) + '" y2="' + py(val) +
+          '" style="stroke:var(--viz-accent);stroke-width:1.4;stroke-dasharray:3 3"></line>';
+        svg += '<circle cx="' + px(x) + '" cy="' + py(val) + '" r="5.5" style="fill:var(--viz-accent)"></circle>';
+        svg += '<text x="' + px(x) + '" y="' + (py(val) - 9) + '" text-anchor="middle" style="font-size:10.5px;fill:var(--viz-accent);font-weight:800">(' + x + ', ' + n(val) + ')</text>';
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      read.innerHTML = idx === -1
+        ? pill('f(' + x + ') is undefined here', 'var(--viz-red)')
+        : pill('rule ' + (idx + 1) + ' of ' + set.pieces.length, 'var(--viz-green)') +
+          pill('f(' + x + ') = ' + n(val), 'var(--viz-accent)');
+
+      var lines = ['x = ' + x];
+      set.pieces.forEach(function(p, i){
+        var hit = p.test(x);
+        lines.push('  ' + p.ask + (hit ? '   YES' : '   no') + (hit && i === idx ? '   <- use f(x) = ' + p.expr : ''));
+      });
+      lines.push(idx === -1 ? '  no rule matches -> undefined' : '  f(' + x + ') = ' + set.pieces[idx].expr.replace(/x/g, '(' + x + ')') + ' = ' + n(val));
+      trace.textContent = lines.join('\n');
+
+      var atBoundary = set.pieces.some(function(p){ return Math.abs(x - p.lo) < 1e-9 && p.lo > -8; });
+      why.innerHTML = idx === -1
+        ? '<b style="color:var(--viz-red)">No rule claims this input, so the function has no value here.</b>' +
+          'That is a real possibility with piecewise definitions, and it is not an error in the arithmetic — it is a ' +
+          'statement about the domain. ' + set.note
+        : atBoundary
+          ? '<b style="color:var(--viz-amber)">You are standing exactly on a boundary — the conditions decide who owns it.</b>' +
+            'At x = ' + x + ' only rule ' + (idx + 1) + ' fires, because its condition (' + set.pieces[idx].cond +
+            ') is the one written with the equals sign. Change >= to > and the value at this single point would jump to a ' +
+            'different rule, or vanish entirely if no rule picked it up. ' +
+            '<br><br>This is why the conditions are read as carefully as the formulas. ' + set.note
+          : '<b style="color:var(--viz-green)">Choose the rule first, then substitute — never the other way round.</b>' +
+            'x = ' + x + ' satisfies ' + set.pieces[idx].cond + ', so the machine runs f(x) = ' + set.pieces[idx].expr +
+            ' and returns ' + n(val) + '. The other ' + (set.pieces.length - 1) + ' rule' + (set.pieces.length === 2 ? '' : 's') +
+            ' are genuinely irrelevant at this input — substituting into one of them is the single most common wrong answer. ' +
+            '<br><br>' + set.note;
+    }
+
+    var PRESETS = [
+      { t:'f(-3) on |x|',   k:'a', x:-3 },
+      { t:'f(3) on |x|',    k:'a', x:3 },
+      { t:'x = 0 boundary', k:'a', x:0 },
+      { t:'curved middle',  k:'b', x:-1 },
+      { t:'step at x = 2',  k:'c', x:2 },
+      { t:'step at x = 6',  k:'c', x:6 }
+    ];
+    PRESETS.forEach(function(p){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.t;
+      b.addEventListener('click', function(){ key = p.k; X.value = p.x; render(); });
+      pres.appendChild(b);
+    });
+    bA.addEventListener('click', function(){ key = 'a'; render(); });
+    bB.addEventListener('click', function(){ key = 'b'; render(); });
+    bC.addEventListener('click', function(){ key = 'c'; render(); });
+    X.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Inner Then Outer</h2>
+  <p class="vz-lede">(f o g)(x) means f(g(x)): g runs first, f runs on what comes out. Nothing is added and
+    nothing is multiplied. Feed a number in, swap the order, and watch the answer change.
+    <b>Like a factory line: paint then dry is not the same product as dry then paint.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Composition order">
+    <button type="button" id="v3-fg" aria-pressed="true">(f o g)(x) = f(g(x))</button>
+    <button type="button" id="v3-gf" aria-pressed="false">(g o f)(x) = g(f(x))</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-pair">function pair</label>
+    <div class="vz-pre" id="v3-pairs" style="margin-top:0"></div>
+    <label class="vz-lab" for="v3-x">input x = <b><span id="v3-xl">2</span></b></label>
+    <input class="vz-range" type="range" id="v3-x" min="-6" max="8" value="2" step="1" aria-label="Input x">
+    <input type="hidden" id="v3-pair" value="0">
+
+    <div class="v3-chain" id="v3-chain"></div>
+    <div class="vz-read" id="v3-read"></div>
+    <div class="vz-mono" id="v3-sym" style="margin-top:10px"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">The symbolic version is the same move done with a letter instead of a number: replace
+    every x in the outer rule with the whole inner expression, brackets and all. With f(x) = 2x + 1 and
+    g(x) = x^2 that gives <b>2(x^2) + 1 = 2x^2 + 1</b> — and dropping the brackets to write (2x)^2 + 1 is a
+    different function entirely, which is exactly what one of the distractors is.</p>
+
+  <style>
+    .v3-chain{margin-top:14px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    .v3-box{flex:1 1 92px;min-height:52px;border:2px solid var(--viz-accent);border-radius:11px;padding:7px 9px;
+      background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:center;
+      display:flex;flex-direction:column;justify-content:center;gap:2px}
+    .v3-box b{font-size:13px}
+    .v3-val{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:800;
+      color:var(--viz-green);text-align:center;min-width:52px}
+    .v3-arrow{flex:0 0 auto;color:var(--viz-muted);font-weight:800}
+  </style>
+  <script>
+  (function(){
+    var X = document.getElementById('v3-x'), xl = document.getElementById('v3-xl');
+    var PI = document.getElementById('v3-pair'), pairs = document.getElementById('v3-pairs');
+    var bFG = document.getElementById('v3-fg'), bGF = document.getElementById('v3-gf');
+    var chain = document.getElementById('v3-chain'), read = document.getElementById('v3-read');
+    var sym = document.getElementById('v3-sym'), why = document.getElementById('v3-why');
+    var fFirst = false;   // false => f o g (g runs first)
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function sub(expr, v){ return expr.replace(/x/g, '(' + v + ')'); }
+
+    var PAIRS = [
+      { t:'x-4 & 3x',   f:'x - 4', g:'3x',  F:function(x){ return x - 4; },  G:function(x){ return 3 * x; },
+        fg:'3x - 4', gf:'3(x - 4) = 3x - 12' },
+      { t:'2x+1 & x^2', f:'2x + 1', g:'x^2', F:function(x){ return 2 * x + 1; }, G:function(x){ return x * x; },
+        fg:'2(x^2) + 1 = 2x^2 + 1', gf:'(2x + 1)^2' },
+      { t:'3x & x/3',   f:'3x',    g:'x/3', F:function(x){ return 3 * x; },  G:function(x){ return x / 3; },
+        fg:'3(x/3) = x', gf:'(3x)/3 = x' },
+      { t:'x+5 & x-5',  f:'x + 5', g:'x - 5', F:function(x){ return x + 5; }, G:function(x){ return x - 5; },
+        fg:'(x - 5) + 5 = x', gf:'(x + 5) - 5 = x' }
+    ];
+
+    function render(){
+      var x = Number(X.value);
+      if (!isFinite(x)) x = 0;
+      var pi = Number(PI.value);
+      if (!isFinite(pi) || pi < 0 || pi >= PAIRS.length) pi = 0;
+      var P = PAIRS[pi];
+      xl.textContent = x;
+      bFG.setAttribute('aria-pressed', fFirst ? 'false' : 'true');
+      bGF.setAttribute('aria-pressed', fFirst ? 'true' : 'false');
+      [].slice.call(pairs.children).forEach(function(b, i){
+        b.style.borderStyle = i === pi ? 'solid' : 'dashed';
+        b.style.borderColor = i === pi ? 'var(--viz-accent)' : 'var(--viz-line)';
+      });
+
+      var innerName = fFirst ? 'f' : 'g';
+      var outerName = fFirst ? 'g' : 'f';
+      var innerExpr = fFirst ? P.f : P.g;
+      var outerExpr = fFirst ? P.g : P.f;
+      var innerFn = fFirst ? P.F : P.G;
+      var outerFn = fFirst ? P.G : P.F;
+
+      var mid = innerFn(x);
+      var out = isFinite(mid) ? outerFn(mid) : NaN;
+      var otherMid = fFirst ? P.G(x) : P.F(x);
+      var other = isFinite(otherMid) ? (fFirst ? P.F(otherMid) : P.G(otherMid)) : NaN;
+
+      chain.innerHTML =
+        '<div class="v3-val">x = ' + x + '</div>' +
+        '<div class="v3-arrow">-&gt;</div>' +
+        '<div class="v3-box"><span style="color:var(--viz-muted)">INNER, runs first</span><b>' + innerName + '(x) = ' + innerExpr + '</b></div>' +
+        '<div class="v3-arrow">-&gt;</div>' +
+        '<div class="v3-val">' + n(mid) + '</div>' +
+        '<div class="v3-arrow">-&gt;</div>' +
+        '<div class="v3-box"><span style="color:var(--viz-muted)">OUTER, runs second</span><b>' + outerName + '(x) = ' + outerExpr + '</b></div>' +
+        '<div class="v3-arrow">-&gt;</div>' +
+        '<div class="v3-val">' + n(out) + '</div>';
+
+      var label = '(' + outerName + ' o ' + innerName + ')';
+      read.innerHTML =
+        pill(label + '(' + x + ') = ' + n(out), 'var(--viz-green)') +
+        pill('the other order gives ' + n(other), Math.abs(out - other) < 1e-9 ? 'var(--viz-muted)' : 'var(--viz-red)') +
+        pill('never ' + n(P.F(x) + P.G(x)) + ' (that is f + g)', 'var(--viz-muted)');
+
+      sym.textContent =
+        'f(x) = ' + P.f + '        g(x) = ' + P.g + '\n' +
+        'step 1   ' + innerName + '(' + x + ') = ' + sub(innerExpr, x) + ' = ' + n(mid) + '\n' +
+        'step 2   ' + outerName + '(' + n(mid) + ') = ' + sub(outerExpr, n(mid)) + ' = ' + n(out) + '\n' +
+        'symbolic (f o g)(x) = ' + P.fg + '\n' +
+        '         (g o f)(x) = ' + P.gf;
+
+      var same = isFinite(out) && isFinite(other) && Math.abs(out - other) < 1e-9;
+      why.innerHTML = same
+        ? '<b style="color:var(--viz-accent)">Both orders agree here — and that is the exception worth noticing.</b>' +
+          'For this pair the two compositions return the same thing at x = ' + x + '. That is not composition being ' +
+          'commutative in general; it is a hint that these two functions <em>undo</em> each other, which is what ' +
+          'visual 5 turns into a formal test. ' +
+          '<br><br>Try the first pair to see the usual behaviour: with f(x) = x - 4 and g(x) = 3x at x = 2, the two ' +
+          'orders give -6 and 2.'
+        : '<b style="color:var(--viz-red)">Order changes the answer: ' + n(out) + ' one way, ' + n(other) + ' the other.</b>' +
+          'The label reads right to left — in ' + label + ', ' + innerName + ' is the inner function and runs first, ' +
+          'even though it is written second. So the machine is fed ' + x + ', hands ' + n(mid) + ' to ' + outerName +
+          ', and only then produces ' + n(out) + '. ' +
+          '<br><br><b style="display:inline">Two things composition is not:</b> it is not f(x) + g(x) = ' +
+          n(P.F(x) + P.G(x)) + ' and not f(x) &middot; g(x) = ' + n(P.F(x) * P.G(x)) + '. Both of those combine the ' +
+          'outputs; composition feeds one output in as the next input, which is why the intermediate value in the ' +
+          'middle of the chain exists at all.';
+    }
+
+    PAIRS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.t;
+      b.addEventListener('click', function(){ PI.value = i; render(); });
+      pairs.appendChild(b);
+    });
+    bFG.addEventListener('click', function(){ fFirst = false; render(); });
+    bGF.addEventListener('click', function(){ fFirst = true; render(); });
+    X.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Domain Of The Chain</h2>
+  <p class="vz-lede">A composite is defined at x only if two gates open: x must be legal for the inner
+    function, and its output must be legal for the outer one. Slide x along the line and watch the second gate
+    do most of the work.
+    <b>Like a connecting flight: your first leg has to land somewhere the second leg actually departs from.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which composite">
+    <button type="button" id="v4-p0" aria-pressed="true">sqrt(x) o (x-1)</button>
+    <button type="button" id="v4-p1" aria-pressed="false">1/x o (x-3)</button>
+    <button type="button" id="v4-p2" aria-pressed="false">1/x o sqrt(x)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-x">input x = <b><span id="v4-xl">2</span></b></label>
+    <input class="vz-range" type="range" id="v4-x" min="-6" max="8" value="2" step="0.5" aria-label="Input x">
+
+    <div class="vz-plot" id="v4-line"></div>
+    <div class="v4-gates" id="v4-gates"></div>
+    <div class="vz-read" id="v4-read"></div>
+    <div class="vz-mono" id="v4-trace" style="margin-top:10px"></div>
+    <div class="vz-why" id="v4-why"></div>
+    <div class="vz-pre" id="v4-presets"></div>
+  </div>
+
+  <p class="vz-note">Notice which answer the machinery does <em>not</em> give. For sqrt(x) composed with
+    x - 1 the domain is x >= 1, not x >= 0 — x >= 0 is the domain of sqrt on its own, and the requirement has
+    to be dragged back through the inner function before it means anything about x. That translation step is
+    the whole skill here, and it is why the condition is stated as <b>g(x) must lie in the domain of f</b>
+    rather than as a rule about x.</p>
+
+  <style>
+    .v4-gates{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+    .v4-g{display:flex;align-items:center;gap:10px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px 11px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      min-height:44px;line-height:1.4}
+    .v4-g.is-ok{border-color:var(--viz-green)}
+    .v4-g.is-no{border-color:var(--viz-red)}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var X = document.getElementById('v4-x'), xl = document.getElementById('v4-xl');
+    var b0 = document.getElementById('v4-p0'), b1 = document.getElementById('v4-p1'), b2 = document.getElementById('v4-p2');
+    var line = document.getElementById('v4-line'), gates = document.getElementById('v4-gates');
+    var read = document.getElementById('v4-read'), trace = document.getElementById('v4-trace');
+    var why = document.getElementById('v4-why'), pres = document.getElementById('v4-presets');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : 'undefined'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    var CASES = [
+      { key:'sqrt(x) o (x-1)', fName:'f(x) = sqrt(x)', gName:'g(x) = x - 1',
+        gDom:'every real number', fDom:'x >= 0',
+        gOK:function(){ return true; }, G:function(x){ return x - 1; },
+        fOK:function(u){ return u >= 0; }, F:function(u){ return Math.sqrt(u); },
+        answer:'x >= 1', inSet:function(x){ return x >= 1; },
+        chain:'need g(x) >= 0  ->  x - 1 >= 0  ->  x >= 1',
+        trap:'The tempting wrong answer is x >= 0, which is the domain of sqrt itself. The subtraction inside g shifts the requirement one unit right.' },
+      { key:'1/x o (x-3)', fName:'f(x) = 1/x', gName:'g(x) = x - 3',
+        gDom:'every real number', fDom:'x not equal to 0',
+        gOK:function(){ return true; }, G:function(x){ return x - 3; },
+        fOK:function(u){ return u !== 0; }, F:function(u){ return 1 / u; },
+        answer:'every x except x = 3', inSet:function(x){ return x !== 3; },
+        chain:'need g(x) not 0  ->  x - 3 not 0  ->  x not 3',
+        trap:'A single forbidden output creates a single forbidden input, and it is not at 0 — it is wherever g sends you to 0.' },
+      { key:'1/x o sqrt(x)', fName:'f(x) = 1/x', gName:'g(x) = sqrt(x)',
+        gDom:'x >= 0', fDom:'x not equal to 0',
+        gOK:function(x){ return x >= 0; }, G:function(x){ return Math.sqrt(x); },
+        fOK:function(u){ return isFinite(u) && u !== 0; }, F:function(u){ return 1 / u; },
+        answer:'x > 0', inSet:function(x){ return x > 0; },
+        chain:'gate 1: x >= 0     gate 2: sqrt(x) not 0  ->  x not 0     together: x > 0',
+        trap:'Here BOTH gates bite. Gate one removes the negatives, gate two removes the single point 0, and the answer is the intersection.' }
+    ];
+    var ci = 0;
+
+    function render(){
+      var x = Number(X.value);
+      if (!isFinite(x)) x = 0;
+      xl.textContent = x;
+      [b0, b1, b2].forEach(function(b, i){ b.setAttribute('aria-pressed', i === ci ? 'true' : 'false'); });
+
+      var C = CASES[ci];
+      var g1 = C.gOK(x);
+      var mid = g1 ? C.G(x) : NaN;
+      var g2 = g1 && isFinite(mid) && C.fOK(mid);
+      var out = g2 ? C.F(mid) : NaN;
+
+      var XLO = -7, XHI = 9, W = 300, H = 74;
+      function px(v){ return (v - XLO) / (XHI - XLO) * W; }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="A number line shading the inputs where the composite is defined">';
+      // shade the domain by sampling, so the picture always matches inSet
+      for (var t = XLO; t < XHI; t += 0.25) {
+        var ok = C.inSet(Math.round((t + 0.125) * 1000) / 1000);
+        svg += '<rect x="' + px(t) + '" y="26" width="' + (px(t + 0.25) - px(t) + 0.6) + '" height="16" style="fill:' +
+          (ok ? 'var(--viz-green)' : 'var(--viz-red)') + ';opacity:' + (ok ? '.55' : '.28') + '"></rect>';
+      }
+      svg += '<line x1="0" y1="42" x2="' + W + '" y2="42" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      for (var g = -6; g <= 8; g += 2) {
+        svg += '<line x1="' + px(g) + '" y1="38" x2="' + px(g) + '" y2="46" style="stroke:var(--viz-line);stroke-width:1.4"></line>';
+        svg += '<text x="' + px(g) + '" y="60" text-anchor="middle" style="font-size:9.5px;fill:var(--viz-muted)">' + g + '</text>';
+      }
+      svg += '<circle cx="' + px(x) + '" cy="34" r="6" style="fill:var(--viz-accent)"></circle>';
+      svg += '<text x="' + px(x) + '" y="18" text-anchor="middle" style="font-size:10.5px;font-weight:800;fill:var(--viz-accent)">x = ' + x + '</text>';
+      svg += '<text x="4" y="' + (H - 2) + '" style="font-size:10px;fill:var(--viz-green);font-weight:700">green = defined</text>';
+      svg += '<text x="' + (W - 4) + '" y="' + (H - 2) + '" text-anchor="end" style="font-size:10px;fill:var(--viz-red);font-weight:700">red = not defined</text>';
+      svg += '</svg>';
+      line.innerHTML = svg;
+
+      function row(title, detail, ok){
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v4-g ' + (ok ? 'is-ok' : 'is-no') + '"><span>' + title + '</span><span>' + detail + '</span>' +
+          '<span class="v4-tag" style="color:' + col + '">' + (ok ? 'OPEN' : 'SHUT') + '</span></div>';
+      }
+      gates.innerHTML =
+        row('gate 1', 'x is in the domain of g (' + C.gDom + ')', g1) +
+        row('gate 2', 'g(x) = ' + n(mid) + ' is in the domain of f (' + C.fDom + ')', g2);
+
+      read.innerHTML =
+        pill('domain of the composite: ' + C.answer, 'var(--viz-violet)') +
+        pill(g2 ? 'f(g(' + x + ')) = ' + n(out) : 'f(g(' + x + ')) is undefined', g2 ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      trace.textContent =
+        C.fName + '        ' + C.gName + '\n' +
+        'step 1   g(' + x + ') = ' + n(mid) + '\n' +
+        'step 2   can f accept ' + n(mid) + ' ?  ' + (g2 ? 'yes' : 'NO — ' + C.fDom + ' is violated') + '\n' +
+        'step 3   ' + (g2 ? 'f(' + n(mid) + ') = ' + n(out) : 'no value exists at x = ' + x) + '\n' +
+        'general  ' + C.chain;
+
+      why.innerHTML = g2
+        ? '<b style="color:var(--viz-green)">Both gates open, so the composite has a value here.</b>' +
+          'The inner function turns x = ' + x + ' into ' + n(mid) + ', and ' + n(mid) + ' is something f is willing to ' +
+          'accept, so the chain completes at ' + n(out) + '. The reason gate 2 exists at all is simply that ' +
+          '<b style="display:inline">f must be able to accept g(x) as its input</b> — not because g has to be ' +
+          'invertible, and not because f and g are related in any way. ' +
+          '<br><br>' + C.trap
+        : '<b style="color:var(--viz-red)">A gate is shut, so the composite has no value at x = ' + x + '.</b>' +
+          (g1
+            ? 'x itself was fine — g happily returned ' + n(mid) + '. It is the second gate that closed: ' + n(mid) +
+              ' is not something f can take, because f requires ' + C.fDom + '. The input was legal and the ' +
+              '<em>intermediate</em> value was not.'
+            : 'This one fails at the first gate: x = ' + x + ' is not even in the domain of g (' + C.gDom + '), so ' +
+              'there is no output to hand onwards.') +
+          '<br><br>Slide toward the green band and watch the exact crossing point — that boundary is the answer to ' +
+          '"what is the domain of the composite". ' + C.trap;
+    }
+
+    var PRESETS = [
+      { t:'x = 2 (works)',  c:0, x:2 },
+      { t:'x = 1 (edge)',   c:0, x:1 },
+      { t:'x = 0.5 (fails)', c:0, x:0.5 },
+      { t:'hole at x = 3',  c:1, x:3 },
+      { t:'both gates bite', c:2, x:0 }
+    ];
+    PRESETS.forEach(function(p){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.t;
+      b.addEventListener('click', function(){ ci = p.c; X.value = p.x; render(); });
+      pres.appendChild(b);
+    });
+    [b0, b1, b2].forEach(function(b, i){ b.addEventListener('click', function(){ ci = i; render(); }); });
+    X.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Round Trip Check</h2>
+  <p class="vz-lede">Two functions are inverses when both round trips land back where they started:
+    f(g(x)) = x and g(f(x)) = x, on suitable domains. Pick a candidate, slide the input, and see which
+    candidates survive both trips.
+    <b>Like a key and a lock: turning one way then the other has to leave the door exactly as you found it.</b></p>
+
+  <div class="vz-pre" id="v5-pairs" style="margin-top:0"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v5-x">input x = <b><span id="v5-xl">7</span></b></label>
+    <input class="vz-range" type="range" id="v5-x" min="-6" max="9" value="7" step="1" aria-label="Input x">
+    <input type="hidden" id="v5-pair" value="0">
+
+    <div class="v5-trips" id="v5-trips"></div>
+    <div class="vz-read" id="v5-read"></div>
+    <div class="vz-mono" id="v5-sym" style="margin-top:10px"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">The one-to-one requirement is what the "suitable domains" clause is protecting. A
+    function is invertible on a set only if every output there comes from exactly one input — so x^2 over all
+    real numbers cannot be inverted, because 3 and -3 both land on 9 and the return trip would have to split
+    in two. Restrict the domain to x >= 0 and sqrt genuinely becomes its inverse. <b>Restricting the domain is
+    not a technicality; it is what makes the inverse exist.</b></p>
+
+  <style>
+    .v5-trips{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+    .v5-t{border:2px solid var(--viz-line);border-radius:11px;padding:10px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6}
+    .v5-t.is-ok{border-color:var(--viz-green)}
+    .v5-t.is-no{border-color:var(--viz-red)}
+    .v5-hd{display:flex;align-items:center;gap:8px;margin-bottom:4px}
+    .v5-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var X = document.getElementById('v5-x'), xl = document.getElementById('v5-xl');
+    var PI = document.getElementById('v5-pair'), pairs = document.getElementById('v5-pairs');
+    var trips = document.getElementById('v5-trips'), read = document.getElementById('v5-read');
+    var sym = document.getElementById('v5-sym'), why = document.getElementById('v5-why');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : 'undefined'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    var PAIRS = [
+      { t:'2x-1 & (x+1)/2', f:'2x - 1', g:'(x + 1)/2',
+        F:function(x){ return 2 * x - 1; }, G:function(x){ return (x + 1) / 2; },
+        fg:'f(g(x)) = 2((x+1)/2) - 1 = (x + 1) - 1 = x',
+        gf:'g(f(x)) = ((2x - 1) + 1)/2 = 2x/2 = x',
+        verdict:'inverses' },
+      { t:'2x-1 & (x-1)/2', f:'2x - 1', g:'(x - 1)/2',
+        F:function(x){ return 2 * x - 1; }, G:function(x){ return (x - 1) / 2; },
+        fg:'f(g(x)) = 2((x-1)/2) - 1 = (x - 1) - 1 = x - 2',
+        gf:'g(f(x)) = ((2x - 1) - 1)/2 = x - 1',
+        verdict:'not inverses' },
+      { t:'3x & x/3', f:'3x', g:'x/3',
+        F:function(x){ return 3 * x; }, G:function(x){ return x / 3; },
+        fg:'f(g(x)) = 3(x/3) = x',
+        gf:'g(f(x)) = (3x)/3 = x',
+        verdict:'inverses' },
+      { t:'x+5 & x-5', f:'x + 5', g:'x - 5',
+        F:function(x){ return x + 5; }, G:function(x){ return x - 5; },
+        fg:'f(g(x)) = (x - 5) + 5 = x',
+        gf:'g(f(x)) = (x + 5) - 5 = x',
+        verdict:'inverses' },
+      { t:'x^2 & sqrt(x)', f:'x^2', g:'sqrt(x)',
+        F:function(x){ return x * x; }, G:function(x){ return x < 0 ? NaN : Math.sqrt(x); },
+        fg:'f(g(x)) = (sqrt(x))^2 = x     but only for x >= 0',
+        gf:'g(f(x)) = sqrt(x^2) = |x|     which is not x when x < 0',
+        verdict:'only on x >= 0' }
+    ];
+
+    function render(){
+      var x = Number(X.value);
+      if (!isFinite(x)) x = 0;
+      var pi = Number(PI.value);
+      if (!isFinite(pi) || pi < 0 || pi >= PAIRS.length) pi = 0;
+      var P = PAIRS[pi];
+      xl.textContent = x;
+      [].slice.call(pairs.children).forEach(function(b, i){
+        b.style.borderStyle = i === pi ? 'solid' : 'dashed';
+        b.style.borderColor = i === pi ? 'var(--viz-accent)' : 'var(--viz-line)';
+      });
+
+      var g1 = P.G(x), fg = isFinite(g1) ? P.F(g1) : NaN;
+      var f1 = P.F(x), gf = isFinite(f1) ? P.G(f1) : NaN;
+      var okFG = isFinite(fg) && Math.abs(fg - x) < 1e-9;
+      var okGF = isFinite(gf) && Math.abs(gf - x) < 1e-9;
+
+      function trip(title, a, mid, b, endV, ok){
+        return '<div class="v5-t ' + (ok ? 'is-ok' : 'is-no') + '">' +
+          '<div class="v5-hd"><b>' + title + '</b>' +
+          '<span class="v5-tag" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (ok ? 'returns x  OK' : 'does NOT return x') + '</span></div>' +
+          x + '  -&gt;  [ ' + a + ' ]  -&gt;  ' + n(mid) + '  -&gt;  [ ' + b + ' ]  -&gt;  ' + n(endV) +
+          '<br><span style="color:var(--viz-muted)">wanted ' + x + ', got ' + n(endV) + '</span></div>';
+      }
+      trips.innerHTML =
+        trip('trip 1 &nbsp; f(g(x))', P.g, g1, P.f, fg, okFG) +
+        trip('trip 2 &nbsp; g(f(x))', P.f, f1, P.g, gf, okGF);
+
+      var both = okFG && okGF;
+      read.innerHTML =
+        pill('f(g(' + x + ')) = ' + n(fg), okFG ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill('g(f(' + x + ')) = ' + n(gf), okGF ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill(both ? 'both trips return x' : 'the test FAILS at x = ' + x, both ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      sym.textContent =
+        'f(x) = ' + P.f + '        g(x) = ' + P.g + '\n' +
+        P.fg + '\n' +
+        P.gf + '\n' +
+        'verdict  ' + P.verdict;
+
+      why.innerHTML = P.verdict === 'not inverses'
+        ? '<b style="color:var(--viz-red)">A candidate that undoes the steps in the wrong order.</b>' +
+          'f multiplies by 2 and THEN subtracts 1, so its inverse must add 1 and THEN divide by 2 — the operations ' +
+          'come off in reverse, like taking off shoes after socks. This candidate divides first, so it lands two ' +
+          'short at every input: f(g(x)) = x - 2. ' +
+          '<br><br>Notice how cheap the test is compared with guessing: one substitution, and any candidate that ' +
+          'does not simplify to a bare x is finished.'
+        : P.verdict === 'only on x >= 0'
+          ? '<b style="color:var(--viz-amber)">One trip passes, the other only on part of the line.</b>' +
+            'f(g(x)) = (sqrt(x))^2 = x wherever sqrt is defined, which looks like a pass. But the return trip is ' +
+            'g(f(x)) = sqrt(x^2) = |x|, and at x = -4 that is 4, not -4. Slide x below zero and watch trip 2 break. ' +
+            '<br><br>This is exactly why the definition demands <b style="display:inline">both</b> compositions, and ' +
+            'why it says "on suitable domains": x^2 is not one-to-one over all real numbers, so it has no inverse ' +
+            'there at all. Restricted to x >= 0 it is one-to-one, and then sqrt really is its inverse.'
+          : '<b style="color:var(--viz-green)">Both round trips return the input untouched, so these are inverses.</b>' +
+            'Trip 1 sends ' + x + ' through g to ' + n(g1) + ' and back through f to ' + n(fg) + '; trip 2 goes the ' +
+            'other way round and also lands on ' + n(gf) + '. Every operation in f is undone by the matching ' +
+            'operation in g, in reverse order. ' +
+            '<br><br><b style="display:inline">What this test is not:</b> it is not asking whether f(x) = g(x) — at ' +
+            'x = ' + x + ' those are ' + n(f1) + ' and ' + n(g1) + ', and they differ. It is not about equal slopes ' +
+            'and not about identical graphs either; an inverse’s graph is the original reflected across the ' +
+            'line y = x, which is a different picture, not the same one.';
+    }
+
+    PAIRS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.t;
+      b.addEventListener('click', function(){ PI.value = i; render(); });
+      pairs.appendChild(b);
+    });
+    X.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

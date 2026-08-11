@@ -1,0 +1,623 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Symptom To Layer</button>
+  <button class="viz-tab" data-viz-tab="2">2. Chain Of Custody</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Binding Stage</button>
+  <button class="viz-tab" data-viz-tab="4">4. Tokens In Tokens Out</button>
+  <button class="viz-tab" data-viz-tab="5">5. Defending The Choice</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Symptom To Layer</h2>
+  <p class="vz-lede">On the left, the backbone you already built: <b>Source-to-Serving Data Flow</b> from
+    ingestion to the RAG endpoint, with the observability, cost and backfill lessons hanging off it. On the
+    right, the only question operations ever asks: <em>which layer caused this?</em> Tap a symptom and watch
+    the suspects narrow. <b>Like a doctor with a symptom and a body: the pain is where you feel it, the
+    cause is somewhere else.</b></p>
+
+  <div class="v1-strip" id="v1-strip"></div>
+
+  <div class="v1-syms" id="v1-syms"></div>
+  <div class="vz-card">
+    <div class="v1-count" id="v1-count"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Checks run in <b>cost order</b>: dashboards first, direct index queries second, log
+    archaeology last. The table above is the whole curriculum compressed into a lookup — and the discipline
+    it enforces is negative, not positive: before touching any layer, name the evidence that would convict
+    it, and refuse to spend effort on layers the evidence has already cleared.</p>
+
+  <style>
+    .v1-strip{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:13px;padding:9px;border:1.5px solid var(--viz-line);
+      border-radius:10px;background:var(--viz-bg)}
+    .v1-chip{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;font-weight:700;border-radius:7px;
+      padding:6px 7px;border:1.5px solid var(--viz-line);color:var(--viz-muted);line-height:1.2}
+    .v1-chip.is-suspect{border-color:var(--viz-red);color:var(--viz-red)}
+    .v1-chip.is-clear{opacity:.5;border-style:dashed}
+    .v1-syms{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-tier{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted);
+      text-transform:uppercase;flex:0 0 auto}
+    .v1-count{font-size:11.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace;
+      color:var(--viz-accent);margin-bottom:9px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The backbone from lesson 01, drawn left to right, plus the two edge layers a
+    // leak can hide in. Suspects are marked with a "?" as well as a colour.
+    var STAGES = [
+      { k:'gateway', n:'Gateway' }, { k:'ingest', n:'Ingestion' }, { k:'lake', n:'Lake' },
+      { k:'parse', n:'Parse + Chunk' }, { k:'build', n:'Index build' }, { k:'cache', n:'Cache' },
+      { k:'retrieve', n:'Retrieval' }, { k:'filter', n:'Filters' }, { k:'rerank', n:'Rerank' },
+      { k:'ground', n:'Grounding' }, { k:'gen', n:'Generation' }, { k:'resp', n:'Response' }
+    ];
+    var SYMS = [
+      { s:'Wrong but fluent answer', tier:'dashboard', layers:['ground','retrieve','gen'],
+        check:'Claim verification and context recall on that query',
+        why:'It splits three ways and each way has its own cheap check. <b>Grounding</b>: verify the claims against the context that was actually supplied. <b>Retrieval</b>: context recall on that exact query — was the evidence ever fetched? <b>Generation</b>: does the response address the question that was asked at all? Fluency is not evidence of any of the three.' },
+      { s:'Document missing from answers', tier:'index query', layers:['ingest','parse','build','retrieve','filter','rerank'],
+        check:'Walk the chain of custody',
+        why:'Six layers can each swallow a document, so you walk them in order: did it land in raw, did it survive parsing into silver, does any chunk contain the fact, does that chunk rank when the index is queried directly, did ACL or metadata filters remove it, did the reranker order it out. Visual 2 is that walk with real numbers.' },
+      { s:'Answers are stale', tier:'dashboard', layers:['ingest','lake','build'],
+        check:'Per-stage watermarks',
+        why:'This is the freshness chain, and it is read off the <b>per-stage watermarks</b> you already instrument — ingestion lag, pipeline lag, index visibility. The stage whose watermark stopped moving is the answer, and no other layer needs to be opened.' },
+      { s:'Answers are slow', tier:'dashboard', layers:['retrieve','rerank','gen'],
+        check:'Latency decomposition',
+        why:'Three stages own the budget and exactly one of them is binding at any moment. Decompose into p50 and p95 per stage before proposing anything: visual 3 shows how three of four plausible fixes usually target a stage that never moved.' },
+      { s:'Cross-tenant leak', tier:'logs', layers:['gateway','filter','cache','resp'],
+        check:'Which layer saw the foreign tenant context',
+        why:'The question is not "is isolation broken" but <b>which layer saw the foreign tenant context</b>: the gateway that injects it, the filter that enforces it, a cache keyed without it, or a response that escaped re-verification. This is the one symptom whose first check is log archaeology, because the evidence is per-request.' },
+      { s:'Quality dropped after a change', tier:'dashboard', layers:['lake','build','gen'],
+        check:'Timestamp alignment and canaries',
+        why:'The three families from the observability lesson: <b>data drift</b> in the corpus, an <b>index defect</b> from a build, or a <b>model change</b>. Align the timestamp of the drop with the deployment log and re-run the golden set — a canary that is still green while production is not points away from the index and toward the query-presentation layer. That is exactly how Spanish queries returning English documents resolved to a rewriter prompt that had dropped its language-preservation instruction: one diff, one check.' }
+    ];
+    var strip = document.getElementById('v1-strip');
+    var syms = document.getElementById('v1-syms');
+    var why = document.getElementById('v1-why');
+    var count = document.getElementById('v1-count');
+
+    function show(i){
+      var sym = SYMS[i];
+      [].slice.call(syms.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      strip.innerHTML = STAGES.map(function(st){
+        var hot = sym.layers.indexOf(st.k) >= 0;
+        return '<span class="v1-chip ' + (hot ? 'is-suspect' : 'is-clear') + '">' +
+          (hot ? '? ' : '') + st.n + '</span>';
+      }).join('');
+      count.textContent = sym.layers.length + ' of ' + STAGES.length + ' layers still in play  ·  first check: ' + sym.check;
+      why.innerHTML = '<b>' + sym.s + '</b>' + sym.why;
+    }
+    SYMS.forEach(function(sym, i){
+      var b = document.createElement('button');
+      b.className = 'v1-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + sym.s + '</span><span class="v1-tier">' + sym.tier + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      syms.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Chain Of Custody</h2>
+  <p class="vz-lede">Users report that the new refund policy never appears in answers. One trace ID, seven
+    checks, and every one of them either clears a layer or convicts it. Step through it and watch the suspect
+    list shrink. <b>Like tracking a parcel: you do not guess where it went, you read the last scan that
+    still shows it.</b></p>
+
+  <div class="v2-sus" id="v2-sus"></div>
+  <div class="v2-steps" id="v2-steps"></div>
+
+  <div class="vz-card">
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The whole walk cost minutes and the fix is an afternoon of depth and context-k tuning.
+    The plausible wrong move — <b>re-embedding the corpus</b> — costs a week and changes nothing, because
+    the evidence was reaching the system the entire time. Mis-triage is how that week gets spent.</p>
+
+  <style>
+    .v2-sus{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:12px}
+    .v2-c{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;font-weight:700;border-radius:7px;
+      padding:6px 7px;border:1.5px solid var(--viz-line);color:var(--viz-muted)}
+    .v2-c.is-open{border-color:var(--viz-amber);color:var(--viz-amber)}
+    .v2-c.is-clear{opacity:.45;border-style:dashed;text-decoration:line-through}
+    .v2-c.is-guilty{border-color:var(--viz-red);color:var(--viz-red)}
+    .v2-steps{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+    .v2-b{flex:1 1 44px;min-width:44px;min-height:44px;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:800;font-size:13px}
+    .v2-b[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v2-hd{font-size:13px;font-weight:800;margin-bottom:5px}
+    .v2-res{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.55;
+      padding:9px 10px;border-radius:9px;background:var(--viz-bg);border:1.5px solid var(--viz-line);margin-bottom:10px}
+    .v2-vd{font-size:10.5px;font-weight:800;letter-spacing:.04em;margin-bottom:8px}
+    .v2-why{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var SUS = [
+      { k:'ingest', n:'Ingestion' }, { k:'parse', n:'Parsing' }, { k:'chunk', n:'Chunking' },
+      { k:'rank', n:'Index rank' }, { k:'filter', n:'ACL / filters' }, { k:'rerank', n:'Rerank position' },
+      { k:'budget', n:'Context budget' }
+    ];
+    var STEPS = [
+      { t:'Follow one failing query', res:'trace_id from the answer contract → the full stage-by-stage record',
+        vd:'nothing cleared yet', vk:'open', clears:[], guilty:[],
+        why:'The contract every component agreed to is what makes this possible at all: one identifier, carried end to end, so a single failing query can be walked instead of a whole corpus being suspected. All seven layers are still in play.' },
+      { t:'Check raw landing', res:'refund-policy.pdf  ·  arrived Monday 09:00', vd:'ingestion cleared', vk:'clear',
+        clears:['ingest'], guilty:[],
+        why:'The document is in the lake, at a known time. Ingestion did its job — and note the cost tier: this was a dashboard read, the cheapest check available.' },
+      { t:'Check the parsed document in silver', res:'parsed document present  ·  intact', vd:'parsing cleared', vk:'clear',
+        clears:['parse'], guilty:[],
+        why:'Parsing is the classic swallower — a scanned page, a table that becomes gibberish, a PDF that yields empty text. Not here. Two layers down.' },
+      { t:'Search the chunk text', res:'the policy sentence is present inside a chunk', vd:'chunking cleared — 2 minutes elapsed', vk:'clear',
+        clears:['chunk'], guilty:[],
+        why:'The fact exists, as text, in a chunk that exists. <b>Three layers eliminated in two minutes</b>, and everything upstream of the index is now off the table — which is precisely the evidence that makes re-embedding the wrong move.' },
+      { t:'Query the index directly', res:'"refund policy extension"  →  the chunk ranks 34', vd:'the chunk IS retrievable', vk:'clear',
+        clears:['filter'], guilty:[],
+        why:'It comes back, so no ACL or metadata filter removed it. But 34 is deep, and depth is the thread to pull: the question is now whether rank 34 survives fusion into the rerank set.' },
+      { t:'Read funnel attrition', res:'BM25 34  ·  dense 180  →  fused ≈ 46  ·  rerank depth 50', vd:'it enters the rerank set', vk:'clear',
+        clears:['rank'], guilty:[],
+        why:'Reciprocal fusion puts it at roughly 46, inside the depth of 50 — by four places. The evidence reached the reranker. Retrieval is cleared, and the funnel is the only instrument that could have shown it.' },
+      { t:'Read rerank position and the context budget', res:'reranker orders it 11th  ·  context budget admits 8', vd:'LAYER FOUND', vk:'guilty',
+        clears:[], guilty:['rerank','budget'],
+        why:'Eleventh, into a context that takes eight. The document was three places from being in the answer for the whole incident. <b>Layer found: context budget and rerank position</b> — not retrieval, not ingestion. The fix is an afternoon of depth and context-k tuning; the fix nobody needed was a week of re-embedding.' }
+    ];
+    var sus = document.getElementById('v2-sus'), steps = document.getElementById('v2-steps'), why = document.getElementById('v2-why');
+
+    function show(i){
+      [].slice.call(steps.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      var cleared = {}, guilty = {};
+      for (var s = 0; s <= i; s++) {
+        STEPS[s].clears.forEach(function(k){ cleared[k] = 1; });
+        STEPS[s].guilty.forEach(function(k){ guilty[k] = 1; });
+      }
+      var open = 0;
+      sus.innerHTML = SUS.map(function(x){
+        if (guilty[x.k]) return '<span class="v2-c is-guilty">✗ ' + x.n + '</span>';
+        if (cleared[x.k]) return '<span class="v2-c is-clear">' + x.n + '</span>';
+        open += 1;
+        return '<span class="v2-c is-open">? ' + x.n + '</span>';
+      }).join('');
+      var st = STEPS[i];
+      var col = st.vk === 'guilty' ? 'var(--viz-red)' : (st.vk === 'clear' ? 'var(--viz-green)' : 'var(--viz-muted)');
+      why.innerHTML = '<div class="v2-hd">Check ' + (i + 1) + '. ' + st.t + '</div>' +
+        '<div class="v2-res">' + st.res + '</div>' +
+        '<div class="v2-vd" style="color:' + col + '">' + st.vd.toUpperCase() +
+        '  ·  ' + open + ' layer' + (open === 1 ? '' : 's') + ' still open</div>' + st.why;
+    }
+    STEPS.forEach(function(st, i){
+      var b = document.createElement('button');
+      b.className = 'v2-b';
+      b.setAttribute('aria-pressed', 'false');
+      b.setAttribute('aria-label', 'Check ' + (i + 1) + ': ' + st.t);
+      b.textContent = String(i + 1);
+      b.addEventListener('click', function(){ show(i); });
+      steps.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Binding Stage</h2>
+  <p class="vz-lede">Three real slowdowns. Pick one, read what each stage actually measured, then spend your
+    week on a fix — and see whether it buys anything. Work on a stage that never moved returns exactly zero.
+    <b>Like widening a road that is not the traffic jam.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Scenario" id="v3-seg"></div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <div class="v3-title" id="v3-title"></div>
+    <div class="v3-meas" id="v3-meas"></div>
+    <div class="v3-bind" id="v3-bind"></div>
+  </div>
+
+  <div class="v3-fixes" id="v3-fixes"></div>
+  <div class="vz-card">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">One more phenomenon belongs in every latency review: <b>queueing</b>. A stage's p95
+    includes time spent waiting for a worker, not just working — so a stage whose p50 is flat while its p95
+    climbs is <b>saturated, not slow</b>, and the answer is capacity or admission control, not optimisation.
+    The three scenarios here are algorithmic; plenty of real incidents are a reranker pool one replica short
+    at peak.</p>
+
+  <style>
+    .v3-title{font-size:13px;font-weight:800;margin-bottom:10px;line-height:1.4}
+    .v3-meas{display:flex;flex-direction:column;gap:5px;margin-bottom:11px}
+    .v3-m{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.4}
+    .v3-m.is-moved{border-color:var(--viz-red)}
+    .v3-mk{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;font-family:inherit;flex:0 0 auto}
+    .v3-bind{font-size:11.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace;
+      border:1.5px solid var(--viz-accent);color:var(--viz-accent);border-radius:999px;padding:5px 11px;display:inline-block}
+    .v3-fixes{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-f{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v3-f[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-st{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted);
+      text-transform:uppercase;flex:0 0 auto}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SCEN = [
+      { k:'A', tab:'A · creeping p95', binding:'retrieval',
+        title:'End-to-end p95 climbed from 3.8 s to 6.1 s over two weeks.',
+        meas:[
+          ['retrieval p95', '0.45 s → 1.9 s', true],
+          ['rerank p95', 'flat', false],
+          ['time to first token', 'flat', false]
+        ],
+        cause:'The corpus grew forty percent, the ANN probe count was never revisited, and candidates now fail ACL filters more often, forcing deeper fetches.' },
+      { k:'B', tab:'B · slow first token', binding:'prefill',
+        title:'Time to first token doubled right after a quality initiative.',
+        meas:[
+          ['retrieval p95', 'flat', false],
+          ['rerank p95', 'flat', false],
+          ['time to first token', '×2  ·  context 8 → 16 chunks  ·  input 4,000 → 9,000 tokens', true]
+        ],
+        cause:'Prefill cost tracks input size, so doubling the context doubled the wait before the first token appears.' },
+      { k:'C', tab:'C · long answers', binding:'decode',
+        title:'p95 sits at 12 s and decode dominates the budget.',
+        meas:[
+          ['retrieval p95', 'flat', false],
+          ['rerank p95', 'flat', false],
+          ['decode', 'dominates  ·  answers average 900 tokens', true]
+        ],
+        cause:'The prompt requests detailed explanations, so most of the budget is spent emitting tokens the reader did not ask for.' }
+    ];
+    var FIXES = [
+      { n:'Raise the ANN probe count', st:'retrieval' },
+      { n:'Shard by tenant to shrink each graph', st:'retrieval' },
+      { n:'Cache hot queries', st:'retrieval' },
+      { n:'Cut reranker depth', st:'rerank' },
+      { n:'Add a reranker replica', st:'rerank' },
+      { n:'Cut context from 16 chunks to 10', st:'prefill' },
+      { n:'Route simple query classes to a smaller model', st:'prefill' },
+      { n:'Cap output at 400 tokens and stream', st:'decode' }
+    ];
+    var HIT = {
+      'A|Raise the ANN probe count':'<b style="color:var(--viz-green)">Half of the actual resolution.</b>Probes are a retrieval lever and retrieval is what moved. <b>Sharding plus a probe increase restored retrieval p95 to 0.6 s</b> — from 1.9 s, and the end-to-end number followed.',
+      'A|Shard by tenant to shrink each graph':'<b style="color:var(--viz-green)">The other half, and the structural one.</b>Sharding shrinks each graph so the same probe budget covers a larger fraction of it. Combined with the probe increase, <b>retrieval p95 came back to 0.6 s</b>. Note the reversal condition it implies for the design review: if retrieval p95 crosses 800 ms again, shard further.',
+      'A|Cache hot queries':'<b style="color:var(--viz-green)">Right stage, real lever, not the one that fixed this.</b>Hot-query caching is in retrieval\'s lever set alongside probe depth, pruning and sharding — but a corpus that grew forty percent is not a cache-miss problem. The resolution was sharding plus a probe increase, retrieval back to <b>0.6 s</b>.',
+      'B|Cut context from 16 chunks to 10':'<b style="color:var(--viz-green)">The fix, and it keeps the quality.</b>Chunk count returns to 10 with a <b>reranker score threshold</b> doing the filtering that raw volume was doing, and chunk wrappers are stripped of redundant metadata. Input tokens fall back toward 4,000 and prefill falls with them. Every change still passes the faithfulness and relevance gates — a latency fix that spends quality is a trade, not a fix.',
+      'B|Route simple query classes to a smaller model':'<b style="color:var(--viz-green)">Right stage, and part of the real resolution.</b>Model routing is a generation lever alongside context size and prompt compression: simple classes go to a smaller model, hard ones keep the big one. It shipped together with the context cut, and both cleared the quality gates before release.',
+      'C|Cap output at 400 tokens and stream':'<b style="color:var(--viz-green)">Decode is binding, and the output budget is its lever.</b>Concise-by-default generation with user-expandable detail, a <b>400-token cap</b>, and streaming that puts the first token at <b>1.5 s</b>. Perceived latency collapses while total compute barely changes — which is the point: the user was waiting on tokens they were never going to read.'
+    };
+    var seg = document.getElementById('v3-seg'), title = document.getElementById('v3-title');
+    var meas = document.getElementById('v3-meas'), bind = document.getElementById('v3-bind');
+    var fixes = document.getElementById('v3-fixes'), why = document.getElementById('v3-why');
+    var cur = 0, pick = -1;
+
+    function verdict(sc, fx){
+      if (fx.st === sc.binding) {
+        return HIT[sc.k + '|' + fx.n] || '<b style="color:var(--viz-green)">Right stage.</b>This is the stage the decomposition flagged, so effort spent here shows up for the user.';
+      }
+      var gen = { prefill:1, decode:1 };
+      if (gen[fx.st] && gen[sc.binding]) {
+        return '<b style="color:var(--viz-amber)">Right stage, wrong end of it.</b>Generation has two halves and they answer to different numbers: <b>time to first token tracks tokens IN</b> (context size, prompt compression, routing) and <b>decode tracks tokens OUT</b> (the output budget). Scenario ' + sc.k + ' is binding on ' + sc.binding + ', so a lever on the other half moves almost nothing. Distinguishing these two is most of what separates a real diagnosis from a plausible one.';
+      }
+      return '<b style="color:var(--viz-red)">Zero user-visible gain.</b>' + fx.st.charAt(0).toUpperCase() + fx.st.slice(1) +
+        ' did not move in this scenario, so improving it buys nothing at all — the binding stage is <b>' + sc.binding + '</b>. ' +
+        'In scenario A, three of the four plausible fixes targeted stages that were flat; that is the normal ratio, and it is the entire argument for measuring first. ' +
+        'Budget at p95, and re-run the decomposition after every change, because the bottleneck always moves to wherever you just made room.';
+    }
+    function render(){
+      var sc = SCEN[cur];
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+      title.textContent = sc.title;
+      meas.innerHTML = sc.meas.map(function(m){
+        return '<div class="v3-m ' + (m[2] ? 'is-moved' : '') + '"><span>' + m[0] + '</span><span>' + m[1] + '</span>' +
+          '<span class="v3-mk" style="color:' + (m[2] ? 'var(--viz-red)' : 'var(--viz-muted)') + '">' +
+          (m[2] ? '▲ MOVED' : '— FLAT') + '</span></div>';
+      }).join('');
+      bind.textContent = 'BINDING STAGE: ' + sc.binding;
+      [].slice.call(fixes.children).forEach(function(b, j){ b.setAttribute('aria-pressed', pick === j ? 'true' : 'false'); });
+      why.innerHTML = pick < 0
+        ? '<b>' + sc.cause + '</b>Now pick a fix above. The method is invariant: decompose into stages, measure p50 and p95 per stage, identify the one binding stage, apply that stage\'s levers, and re-verify.'
+        : verdict(sc, FIXES[pick]);
+    }
+    SCEN.forEach(function(sc, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = sc.tab;
+      b.addEventListener('click', function(){ cur = i; pick = -1; render(); });
+      seg.appendChild(b);
+    });
+    FIXES.forEach(function(fx, i){
+      var b = document.createElement('button');
+      b.className = 'v3-f';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + fx.n + '</span><span class="v3-st">' + fx.st + '</span>';
+      b.addEventListener('click', function(){ pick = i; render(); });
+      fixes.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Tokens In Tokens Out</h2>
+  <p class="vz-lede">Generation is two problems wearing one name. Prefill answers to the tokens you send in;
+    decode answers to the tokens you ask for back. Drag both and watch which number you were actually paying.
+    <b>Like a phone call: how long you wait for someone to pick up, versus how long they talk.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v4-lab" for="v4-chunks">Context: <span id="v4-cl">16 chunks</span> in the prompt</label>
+    <input type="range" id="v4-chunks" min="6" max="16" value="16" step="1" aria-label="Context chunks in the prompt">
+    <div class="v4-bars" id="v4-in"></div>
+    <button class="v4-tog" id="v4-thr" aria-pressed="false">reranker score threshold: OFF</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v4-lab" for="v4-out">Answer length: <span id="v4-ol">900 tokens</span></label>
+    <input type="range" id="v4-out" min="200" max="900" value="900" step="50" aria-label="Average answer length in tokens">
+    <div class="v4-bars" id="v4-dec"></div>
+    <button class="v4-tog" id="v4-str" aria-pressed="false">streaming: OFF</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The second lever on prefill is not the slider: <b>chunk wrappers stripped of redundant
+    metadata</b> shrink the same 10 chunks. And note what scenario C actually bought — capping output and
+    streaming collapsed <em>perceived</em> latency while total compute barely changed. Perceived latency is
+    a real number to the user and an almost free one to you.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bars{margin-top:13px;display:flex;flex-direction:column;gap:9px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-sub{font-size:10.5px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v4-tog{margin-top:13px;width:100%;min-height:44px;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px}
+    .v4-tog[aria-pressed="true"]{border-color:var(--viz-green);color:var(--viz-green)}
+    .v4-pills{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+    .v4-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{font-size:12.5px;line-height:1.6;padding-top:11px;border-top:1px dashed var(--viz-line)}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Anchored on the two measured points in the incident: 8 chunks = 4,000 input
+    // tokens, 16 chunks = 9,000. Everything between is straight-line interpolation.
+    var sC = document.getElementById('v4-chunks'), lC = document.getElementById('v4-cl');
+    var sO = document.getElementById('v4-out'), lO = document.getElementById('v4-ol');
+    var inB = document.getElementById('v4-in'), decB = document.getElementById('v4-dec');
+    var thr = document.getElementById('v4-thr'), str = document.getElementById('v4-str');
+    var pills = document.getElementById('v4-pills'), why = document.getElementById('v4-why');
+    var threshold = false, streaming = false;
+
+    function bar(t, val, pct, col, sub){
+      return '<div class="v4-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + val + '</b></h6>' +
+        '<div class="v4-track"><i style="width:' + Math.max(2, Math.min(100, pct)) + '%;background:' + col + '"></i></div>' +
+        '<div class="v4-sub">' + sub + '</div></div>';
+    }
+    function render(){
+      var ch = Number(sC.value), out = Number(sO.value);
+      var tokIn = Math.round(4000 + (ch - 8) * 625);
+      var ttft = tokIn / 4000;                 // prefill tracks input size
+      var decode = 12 * (out / 900);           // 900 tokens measured at a 12 s p95
+      var first = streaming ? 1.5 : decode;
+
+      lC.textContent = ch + ' chunks';
+      lO.textContent = out.toLocaleString() + ' tokens';
+
+      var inCol = tokIn >= 8000 ? 'var(--viz-red)' : (tokIn > 5500 ? 'var(--viz-amber)' : 'var(--viz-green)');
+      inB.innerHTML =
+        bar('tokens IN (prompt)', tokIn.toLocaleString(), tokIn / 9000 * 100, inCol,
+          ch === 8 ? 'Measured anchor: 8 chunks = 4,000 input tokens.'
+            : ch === 16 ? 'Measured anchor: 16 chunks = 9,000 input tokens — and time to first token doubled.'
+            : 'Interpolated between the two measured points, 8 chunks = 4,000 and 16 chunks = 9,000.') +
+        bar('time to first token', '×' + ttft.toFixed(2), ttft / 2.25 * 100, inCol,
+          'Prefill cost tracks input size, so this multiplier is the prompt, not the model.');
+
+      var decCol = decode >= 9 ? 'var(--viz-red)' : (decode >= 6 ? 'var(--viz-amber)' : 'var(--viz-green)');
+      decB.innerHTML =
+        bar('decode time', decode.toFixed(1) + ' s', decode / 12 * 100, decCol,
+          out === 900 ? 'Measured: answers averaging 900 tokens put p95 at 12 s with decode dominating.'
+            : 'Decode is roughly linear in tokens out; 900 tokens measured at 12 s.') +
+        bar('time until the user sees ANYTHING', first.toFixed(1) + ' s', first / 12 * 100,
+          streaming ? 'var(--viz-green)' : decCol,
+          streaming ? 'Streaming puts the first token at 1.5 s regardless of how long the answer runs.'
+            : 'Without streaming the user waits for the whole answer before seeing a character.');
+
+      thr.setAttribute('aria-pressed', threshold ? 'true' : 'false');
+      thr.textContent = 'reranker score threshold: ' + (threshold ? 'ON' : 'OFF');
+      str.setAttribute('aria-pressed', streaming ? 'true' : 'false');
+      str.textContent = 'streaming: ' + (streaming ? 'ON' : 'OFF');
+
+      var quality = ch >= 16 ? { c:'var(--viz-green)', t:'quality: raw volume' }
+        : (threshold ? { c:'var(--viz-green)', t:'quality: gates pass' } : { c:'var(--viz-amber)', t:'quality: unguarded cut' });
+      pills.innerHTML =
+        '<span class="v4-pill" style="color:' + inCol + ';border-color:' + inCol + '">prefill ×' + ttft.toFixed(2) + '</span>' +
+        '<span class="v4-pill" style="color:' + decCol + ';border-color:' + decCol + '">decode ' + decode.toFixed(1) + ' s</span>' +
+        '<span class="v4-pill" style="color:' + quality.c + ';border-color:' + quality.c + '">' + quality.t + '</span>';
+
+      var head, body;
+      if (ch < 16 && !threshold) {
+        head = '<b style="color:var(--viz-amber)">You just cut context without replacing what it was doing.</b>';
+        body = 'Raw volume was the filter: sixteen chunks got the right evidence into the prompt by brute force. Turn the <b>reranker score threshold</b> on and the filtering is done on quality instead of quantity — that is how the real fix took chunk count back to <b>10</b> and still passed the faithfulness and relevance gates. A latency fix that spends quality is a trade, not a fix.';
+      } else if (ch <= 10 && threshold && out <= 400 && streaming) {
+        head = '<b style="color:var(--viz-green)">This is the shipped configuration.</b>';
+        body = 'Ten chunks behind a reranker score threshold, a 400-token cap with user-expandable detail, and streaming. Prefill is back near its 4,000-token baseline, decode is a third of what it was, and the first token lands at 1.5 s. Total compute barely changed on the decode side — the win was refusing to make the user wait for tokens they were not going to read.';
+      } else if (decode >= 9) {
+        head = '<b style="color:var(--viz-red)">Decode is dominating.</b>';
+        body = 'At 900 tokens per answer the model spends the budget writing, and no retrieval or rerank lever touches it. The output budget is the lever: concise by default, expandable on request, capped at 400 tokens — and stream, so the wait becomes 1.5 s instead of the full answer.';
+      } else {
+        head = '<b>Two independent dials, two different diagnoses.</b>';
+        body = 'Time to first token tracks tokens <em>in</em>; decode tracks tokens <em>out</em>. A scenario where TTFT doubled and decode is flat is a prompt-size problem; one where p95 is 12 s with a normal TTFT is an output-budget problem. Naming which half moved is the whole diagnosis.';
+      }
+      why.innerHTML = head + body;
+    }
+    sC.addEventListener('input', render);
+    sO.addEventListener('input', render);
+    thr.addEventListener('click', function(){ threshold = !threshold; render(); });
+    str.addEventListener('click', function(){ streaming = !streaming; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Defending The Choice</h2>
+  <p class="vz-lede">A reviewer asks why the system is built this way. Pick the challenge, then flip between
+    the two answers you could give — and watch the reviewer's checklist respond. <b>Like the difference
+    between "I like this restaurant" and "it is open, it is nine minutes away, and it seats twelve".</b></p>
+
+  <div class="v5-qs" id="v5-qs"></div>
+
+  <div class="vz-seg" role="group" aria-label="Answer style">
+    <button id="v5-pref" aria-pressed="true">answer from preference</button>
+    <button id="v5-eng" aria-pressed="false">answer from constraints</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v5-ans" id="v5-ans"></div>
+  </div>
+  <div class="vz-card">
+    <div class="v5-hd">reviewer's checklist</div>
+    <div class="v5-list" id="v5-list"></div>
+  </div>
+  <p class="vz-note">Every defense ends the same way: with the condition that would <b>reverse</b> it. If
+    multilingual traffic crosses thirty percent, re-embed on the newer model. If retrieval p95 crosses
+    800 milliseconds, shard. A decision defended by preference is opinion; defended by constraints,
+    measurements and reversal conditions, it is engineering — and the backbone, in the end, is not the
+    diagram from lesson one but the set of decisions you can defend this way.</p>
+
+  <style>
+    .v5-qs{display:flex;flex-direction:column;gap:6px;margin-bottom:13px}
+    .v5-q{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.4}
+    .v5-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-ans{font-size:12.5px;line-height:1.6}
+    .v5-ans b.v5-t{display:block;font-size:13px;margin-bottom:4px}
+    .v5-row{margin-top:10px;padding-top:9px;border-top:1px dashed var(--viz-line)}
+    .v5-k{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      display:block;margin-bottom:3px}
+    .v5-hd{font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);margin-bottom:9px}
+    .v5-list{display:flex;flex-direction:column;gap:5px}
+    .v5-i{display:flex;align-items:center;gap:9px;font-size:11.5px;line-height:1.4}
+    .v5-m{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-weight:800;font-size:11px;width:74px}
+  </style>
+  <script>
+  (function(){
+    var QS = [
+      { q:'Why not drop the index and use long context?',
+        weak:'Long context is too expensive and we already built retrieval.',
+        cons:'Two million chunks. Per-query input cost multiplies by twenty or more; prefill takes seconds; freshness becomes snapshot-bound; needle recall degrades as context length grows.',
+        rej:'The corpus does not fit in a prompt, and the three costs of pretending it does — money, latency and staleness — are each measurable and each unacceptable at this traffic.',
+        rev:'Long context is admitted where it wins: nightly whole-corpus synthesis, where there is no per-query multiplier and no freshness requirement.' },
+      { q:'Why RRF instead of learned fusion?',
+        weak:'RRF is the standard choice and it works fine for us.',
+        cons:'No labels exist to train a merger on. Ranks do not drift when either retriever\'s model is swapped. The reranker already owns final ordering.',
+        rej:'The fraction of a point a learned merger might add does not pay for a training pipeline and its permanent maintenance at this team size.',
+        rev:'The fusion stage is a contract boundary, so a learned fusion can replace RRF later without touching either retriever. The decision is reversible by construction.' },
+      { q:'Why per-tenant namespaces instead of per-tenant indexes?',
+        weak:'Namespaces are simpler and we have not had a leak.',
+        cons:'Three hundred tenants. Per-index operations — builds, backfills, rebuild-and-swap, monitoring — are unsupportable at that count. The isolation analysis places namespaces mid-spectrum.',
+        rej:'Dedicated indexes buy isolation the compensating controls already provide: gateway-injected tenant context plus response-layer re-verification close the gap.',
+        rev:'A documented graduation path to dedicated indexes for regulated tenants, requiring no schema change.' },
+      { q:'Why is quarterly re-embedding not the policy?',
+        weak:'Quarterly felt too often and nobody was asking for it.',
+        cons:'A rebuild costs real money and real risk, and the calendar cannot know when it is worth paying.',
+        rej:'The triggers are evidence, not dates: a golden-set gain, measured drift, a corpus shape change. A date-driven rebuild pays the cost whether or not the evidence exists.',
+        rev:'If multilingual traffic crosses thirty percent, re-embed on the newer model. The backfill playbook makes event-driven rebuilds safe enough to wait for evidence.' },
+      { q:'Why one transform codebase for batch and streaming?',
+        weak:'Rewriting the streaming path would take too long.',
+        cons:'Streaming efficiency is genuinely lost by sharing the batch transform. That cost is real and it was accepted deliberately.',
+        rej:'Two parse logics produce two chunk sets from the same document, and the divergence is discovered during an incident with the index in an unknown state. The split costs correctness you cannot see until it matters.',
+        rev:'If streaming-path compute cost ever exceeds the incident budget it protects, the split gets re-proposed — with a conformance test suite as the price of admission.' }
+    ];
+    var CHECK = [
+      'constraints listed explicitly', 'alternatives considered with rejection reasons',
+      'blast radius bounded', 'rollback rehearsed', 'observability named', 'unit cost computed'
+    ];
+    var qs = document.getElementById('v5-qs'), ans = document.getElementById('v5-ans'), list = document.getElementById('v5-list');
+    var bP = document.getElementById('v5-pref'), bE = document.getElementById('v5-eng');
+    var cur = 0, eng = false;
+
+    function render(){
+      var x = QS[cur];
+      [].slice.call(qs.children).forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+      bP.setAttribute('aria-pressed', eng ? 'false' : 'true');
+      bE.setAttribute('aria-pressed', eng ? 'true' : 'false');
+
+      ans.innerHTML = eng
+        ? '<b class="v5-t" style="color:var(--viz-green)">Engineering — it survives the review.</b>' +
+          '<div class="v5-row"><span class="v5-k">constraint set</span>' + x.cons + '</div>' +
+          '<div class="v5-row"><span class="v5-k">rejection reason for the alternative</span>' + x.rej + '</div>' +
+          '<div class="v5-row"><span class="v5-k">reversal / admission condition</span>' + x.rev + '</div>'
+        : '<b class="v5-t" style="color:var(--viz-red)">Preference — it loses the review.</b>' +
+          '<div class="v5-row">&ldquo;' + x.weak + '&rdquo;</div>' +
+          '<div class="v5-row"><span class="v5-k">why it fails</span>It may even be true. But it names no constraint, cites no measurement, gives the alternative no rejection reason, and states no condition that would change the decision — so a reviewer cannot audit it, and next year nobody can tell whether it still holds.</div>';
+
+      list.innerHTML = CHECK.map(function(c){
+        var ok = eng;
+        return '<div class="v5-i"><span class="v5-m" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (ok ? '✓ stated' : '✗ absent') + '</span><span>' + c + '</span></div>';
+      }).join('');
+    }
+    QS.forEach(function(x, i){
+      var b = document.createElement('button');
+      b.className = 'v5-q';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = x.q;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      qs.appendChild(b);
+    });
+    bP.addEventListener('click', function(){ eng = false; render(); });
+    bE.addEventListener('click', function(){ eng = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

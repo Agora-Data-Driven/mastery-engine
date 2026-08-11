@@ -1,0 +1,709 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. One Dot Product, N Times</button>
+  <button class="viz-tab" data-viz-tab="2">2. The nprobe Dial</button>
+  <button class="viz-tab" data-viz-tab="3">3. Walking The Layers</button>
+  <button class="viz-tab" data-viz-tab="4">4. Ninety-Six Bytes</button>
+  <button class="viz-tab" data-viz-tab="5">5. Pick An Operating Point</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. One Dot Product, N Times</h2>
+  <p class="vz-lede"><b>Dual-Tower Architecture</b> made a single comparison cheap — one dot product of two
+    768-dimensional vectors — and <b>Similarity Metrics</b> fixed what "nearest" means. Neither said how many
+    comparisons a query costs. Drag the corpus and watch the same cheap operation become the whole bill.
+    <b>Like a phone call: one is nothing, ten million is a call centre.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side">
+      <h5>already yours</h5>
+      <p>one query vector · one document vector<br><b>768 multiply-adds</b><br>the tower comparison</p>
+    </div>
+    <div class="v1-arrow">×N</div>
+    <div class="v1-side v1-new">
+      <h5>this lesson</h5>
+      <p>one query vector · <b>every</b> indexed vector<br><b>768 × N multiply-adds</b><br>the search problem</p>
+    </div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="What is being scored">
+    <button id="v1-live" aria-pressed="true">1 live query</button>
+    <button id="v1-gt" aria-pressed="false">2,000 held-out ground-truth queries</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Corpus: <span id="v1-nl">10,000,000 vectors</span> × 768 dims, float32</label>
+    <input type="range" id="v1-n" min="0" max="7" value="5" step="1" aria-label="Corpus size">
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Notice what does <em>not</em> happen as you drag: nothing gets asymptotically stupid.
+    Matrix multiplication is superbly optimised and accelerators make exact search viable at real scale.
+    The problem is only that cost and latency grow <b>directly</b> with the corpus — which is why the fix is
+    never a faster loop, it is <b>not scoring most of the vectors at all</b>.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:8px;align-items:stretch;margin-bottom:14px;flex-wrap:wrap}
+    .v1-side{flex:1 1 128px;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 11px;
+      background:var(--viz-surface)}
+    .v1-side.v1-new{border-color:var(--viz-accent)}
+    .v1-side h5{margin:0 0 6px;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-side p{margin:0;font-size:12px;line-height:1.6}
+    .v1-arrow{align-self:center;font-family:ui-monospace,Consolas,monospace;font-weight:800;font-size:13px;
+      color:var(--viz-accent)}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;text-align:right}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.5}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var D = 768;
+    var SIZES = [1e3, 1e4, 1e5, 1e6, 5e6, 1e7, 5e7, 1e8];
+    var gt = false;
+    var s = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+    var bLive = document.getElementById('v1-live'), bGt = document.getElementById('v1-gt');
+
+    function group(n){ return Math.round(n).toLocaleString('en-US'); }
+    function big(n){
+      if (!isFinite(n) || n <= 0) return '0';
+      if (n >= 1e12) return (n / 1e12).toFixed(2) + ' trillion';
+      if (n >= 1e9) return (n / 1e9).toFixed(2) + ' billion';
+      if (n >= 1e6) return (n / 1e6).toFixed(2) + ' million';
+      return group(n);
+    }
+    function bytes(b){
+      if (!isFinite(b) || b <= 0) return '0 B';
+      if (b >= 1e9) return (b / 1e9).toFixed(2) + ' GB';
+      if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB';
+      return (b / 1e3).toFixed(0) + ' kB';
+    }
+    function bar(t, val, frac, col, sub){
+      var w = Math.max(1, Math.min(100, Math.round(frac * 100)));
+      return '<div class="v1-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + val + '</b></h6>' +
+        '<div class="v1-track"><i style="width:' + w + '%;background:' + col + '"></i></div>' +
+        '<div class="v1-sub">' + sub + '</div></div>';
+    }
+
+    function render(){
+      bLive.setAttribute('aria-pressed', gt ? 'false' : 'true');
+      bGt.setAttribute('aria-pressed', gt ? 'true' : 'false');
+      var N = SIZES[Number(s.value)] || SIZES[0];
+      var q = gt ? 2000 : 1;
+      nl.textContent = group(N) + ' vectors';
+
+      var mult = N * D * q;
+      var store = N * D * 4;
+      var maxMult = 1e8 * D * (gt ? 2000 : 1);
+      var maxStore = 1e8 * D * 4;
+
+      bars.innerHTML =
+        bar(q === 1 ? 'coordinate multiplications, one query' : 'coordinate multiplications, 2,000 queries',
+            big(mult), mult / maxMult, 'var(--viz-red)',
+            group(N) + ' vectors × 768 dims' + (q === 1 ? '' : ' × 2,000 queries') +
+            '. Selecting the top k adds work on top, but these dense comparisons dominate.') +
+        bar('float32 storage, before IDs and index structures', bytes(store), store / maxStore, 'var(--viz-violet)',
+            group(N) + ' × 768 × 4 bytes. This number does not depend on how many queries you run — it is the resident cost of simply having the corpus.');
+
+      var verdict;
+      if (N <= 1e5) {
+        verdict = '<b style="color:var(--viz-green)">Exact search is very likely the right answer here.</b>' +
+          'Approximation carries training, build, drift and complexity of its own, so <b>no fixed corpus size automatically requires it</b>. ' +
+          'Tens of thousands of vectors, heavily filtered small partitions, offline jobs, or hardware that batches many queries efficiently are all legitimately exact.';
+      } else if (N < 1e7) {
+        verdict = '<b style="color:var(--viz-amber)">The judgment zone — it depends on the workload, not the count.</b>' +
+          'Filters, batching and accelerator time can all keep exact search viable here. What decides it is the per-query budget and the concurrency, not the number on the slider.';
+      } else {
+        verdict = '<b style="color:var(--viz-red)">At ten million 768-dim vectors: 7.68 billion multiplications and 30.72 GB.</b>' +
+          'Both grow linearly with the corpus, so every doubling doubles the bill. This is where an approximate index earns its complexity — by <em>avoiding</em> most of these comparisons.';
+      }
+      verdict += '<br><br>' + (gt
+        ? '<b style="color:var(--viz-accent)">This is the exact BASELINE, and you still need it.</b>' +
+          'Exact search does not disappear; it becomes the instrument. It establishes ground-truth neighbors for an evaluation subset, and <b>ANN recall@k</b> — of the exact top-k, what fraction did the approximate search return? — is measured against exactly this. ' +
+          'Note it is affordable offline for a few thousand held-out queries even when serving the entire corpus exactly would not be. Freeze the corpus snapshot, model version, metric and tie-breaking rule, or later builds are not comparable.'
+        : 'Switch to the ground-truth sweep above to see the other half of the story: the same arithmetic, run offline, is what makes any ANN number meaningful.');
+      why.innerHTML = verdict;
+    }
+    s.addEventListener('input', render);
+    bLive.addEventListener('click', function(){ gt = false; render(); });
+    bGt.addEventListener('click', function(){ gt = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The nprobe Dial</h2>
+  <p class="vz-lede">IVF is your k-means, used as a router: centroids partition the space, every vector joins a
+    posting list, and a query scans only the nearest cells. Move the two dials and watch how little of the
+    corpus you actually touch — and where that goes wrong. <b>Like a filing room of labelled drawers: you open
+    the two or three that could hold it, not all thousand.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Number of lists" id="v2-lists"></div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-nprobe">nprobe: <span id="v2-nprobel">10</span> cells probed</label>
+    <input type="range" id="v2-nprobe" min="1" max="50" value="10" step="1" aria-label="Number of cells probed">
+    <div class="v2-grid" id="v2-grid"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Where the query lands" id="v2-bound" style="margin-top:12px"></div>
+  <div class="vz-card"><div class="v2-why" id="v2-why"></div></div>
+
+  <p class="vz-note">The list count is a build-time decision and it is wrong in both directions: too few leaves
+    large scans, too many gives tiny cells, expensive centroid selection, sparse training and maintenance
+    complexity. And centroids inherit whatever you trained them on — <b>a distribution shift creates
+    overloaded or semantically poor cells</b>, which shows up as recall that varies by segment rather than
+    falling overall. Monitor list-size imbalance, probe counts, recall by segment, and the fraction of results
+    removed by post-filtering.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-grid{margin-top:14px;display:grid;grid-template-columns:repeat(20,1fr);gap:2px}
+    .v2-c{aspect-ratio:1;border-radius:2px;background:var(--viz-line)}
+    .v2-c.is-probed{background:var(--viz-accent)}
+    .v2-c.is-true{background:var(--viz-green)}
+    .v2-c.is-miss{background:var(--viz-red)}
+    .v2-stats{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 1000000;
+    var LISTS = [
+      { l:'100 lists', k:100 }, { l:'1,000 lists', k:1000 },
+      { l:'10,000 lists', k:10000 }, { l:'100,000 lists', k:100000 }
+    ];
+    var PLACE = [
+      { l:'query inside a cell', boundary:false },
+      { l:'query on a cell boundary', boundary:true }
+    ];
+    var li = 1, pi = 0;
+    var listsEl = document.getElementById('v2-lists'), boundEl = document.getElementById('v2-bound');
+    var s = document.getElementById('v2-nprobe'), lab = document.getElementById('v2-nprobel');
+    var grid = document.getElementById('v2-grid'), stats = document.getElementById('v2-stats');
+    var why = document.getElementById('v2-why');
+
+    function num(n){ return Math.round(n).toLocaleString('en-US'); }
+
+    function render(){
+      [].slice.call(listsEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === li ? 'true' : 'false'); });
+      [].slice.call(boundEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === pi ? 'true' : 'false'); });
+
+      var K = LISTS[li].k;
+      var boundary = PLACE[pi].boundary;
+      var nprobe = Math.min(Number(s.value), K);
+      lab.textContent = nprobe + (nprobe === 1 ? ' cell probed' : ' cells probed');
+
+      var perList = N / K;                         // K is never 0
+      var cands = perList * nprobe;
+      var pct = (nprobe / K) * 100;
+      var total = cands + K;                       // candidate scans plus centroid comparisons
+      var missed = boundary && nprobe < 2;
+
+      // 200 squares stand for the whole space; light up the probed fraction.
+      var CELLS = 200;
+      var lit = Math.max(1, Math.min(CELLS, Math.round(nprobe / K * CELLS)));
+      var h = '';
+      for (var i = 0; i < CELLS; i++) {
+        var cls = 'v2-c';
+        if (i < lit) cls += ' is-probed';
+        if (i === 1) cls += missed ? ' is-miss' : ' is-true';   // where the true neighbor lives
+        h += '<div class="' + cls + '"></div>';
+      }
+      grid.innerHTML = h;
+
+      var pctTxt = pct >= 1 ? pct.toFixed(1) + '%' : pct.toFixed(2) + '%';
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + num(perList) + ' vectors per list</span>' +
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + num(cands) + ' candidates scanned</span>' +
+        '<span class="v2-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">+ ' + num(K) + ' centroid comparisons</span>' +
+        '<span class="v2-pill" style="color:' + (pct < 5 ? 'var(--viz-green)' : 'var(--viz-amber)') + ';border-color:' + (pct < 5 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' + pctTxt + ' of the corpus</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + num(total) + ' comparisons in total</span>';
+
+      var head, body;
+      if (missed) {
+        head = '<b style="color:var(--viz-red)">MISS — the true neighbor is in the cell next door.</b>';
+        body = 'The query lies almost equally between centroids A and B, so it is assigned to A while its true closest vector was assigned to <b>B</b>. Probing one cell is fast and brittle: this is the entire characteristic failure of IVF, and it is a property of the <em>boundary</em>, not of the data. ' +
+          'Push nprobe to 2 and the miss is repaired — the same query, the same index, one more list scanned.';
+      } else if (boundary) {
+        head = '<b style="color:var(--viz-green)">Repaired — probing ' + nprobe + ' cells covers both sides of the boundary.</b>';
+        body = 'A larger nprobe increases the chance of visiting the cell that actually contains a true neighbor, and performs proportionally more comparisons. That is the whole trade, and it is the one dial you can turn at query time without rebuilding anything.';
+      } else {
+        head = '<b style="color:var(--viz-accent)">' + num(cands) + ' candidates instead of ' + num(N) + '.</b>';
+        body = 'With 1,000,000 vectors evenly spread over 1,000 cells, one list holds about 1,000 vectors, so probing 10 examines roughly 10,000 — <b>about one percent of the corpus</b> — plus the centroid comparisons. ' +
+          'Note the second term: at ' + num(K) + ' lists you pay ' + num(K) + ' centroid comparisons on <em>every</em> query before scanning a single candidate. That is why more lists stops paying.';
+      }
+      why.innerHTML = head + body +
+        '<br><br>The even spread is a convenience of the example. <b>Real distributions are rarely even</b>, and vector clusters can be badly skewed, so one list can hold ten times its share and the average tells you nothing about the tail.';
+    }
+
+    LISTS.forEach(function(o, j){
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = o.l; b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ li = j; render(); });
+      listsEl.appendChild(b);
+    });
+    PLACE.forEach(function(o, j){
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = o.l; b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ pi = j; render(); });
+      boundEl.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Walking The Layers</h2>
+  <p class="vz-lede">HNSW replaces partitions with shortcuts. Upper layers hold few nodes and give long jumps;
+    the bottom layer holds every node and gives local detail. Step the walk, then change the frontier width and
+    watch the same walk end somewhere else. <b>Like flying to the country, then the city, then walking the last
+    street.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="efSearch" id="v3-ef"></div>
+
+  <div class="vz-card">
+    <div id="v3-stage"></div>
+    <div class="v3-nav">
+      <button id="v3-prev" type="button">‹ back</button>
+      <span class="v3-step" id="v3-step">step 1 of 7</span>
+      <button id="v3-next" type="button">step ›</button>
+    </div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note"><b>M</b> (how many neighbor connections each node keeps) and <b>efConstruction</b> (the
+    breadth used while finding a new node's neighbors) are baked into the graph at build time — more links
+    improve navigability and recall and cost memory and build work. Only <b>efSearch</b> moves at query time,
+    which is why it is the dial in every sweep table. HNSW buys strong low-latency recall with no centroid
+    training phase; it pays in graph memory beyond the raw vectors, expensive construction, deletion and churn
+    maintenance, and metadata filtering that can send traversal through many disallowed nodes.</p>
+
+  <style>
+    .v3-nav{display:flex;align-items:center;gap:9px;margin-top:12px}
+    .v3-nav button{min-height:44px;flex:1 1 90px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v3-nav button[disabled]{opacity:.4}
+    .v3-step{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted);flex:0 0 auto}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-cap{font-size:10px;letter-spacing:.06em;text-transform:uppercase;fill:var(--viz-muted)}
+  </style>
+  <script>
+  (function(){
+    var EF = [
+      { l:'efSearch 20', frontier:1, recall:'0.91', ms:'8 ms' },
+      { l:'efSearch 80', frontier:3, recall:'0.975', ms:'21 ms' },
+      { l:'efSearch 200', frontier:6, recall:'0.992', ms:'48 ms' }
+    ];
+    // x positions on a 348-wide viewBox. Layer 0 holds all of them.
+    var X = { A:20, B:48, C:76, D:104, E:132, F:160, G:188, H:216, J:244, K:272, M:300, N:328 };
+    var L2 = ['A','F','M'], L1 = ['A','C','F','H','M'], L0 = Object.keys(X);
+    // Bottom-layer edges. M and N are ADJACENT ON SCREEN but NOT connected — that is the trap.
+    var E0 = [['A','B'],['B','C'],['C','D'],['D','E'],['E','F'],['F','G'],['G','H'],['H','J'],['J','K'],['K','M'],['K','N']];
+    var E1 = [['A','C'],['C','F'],['F','H'],['H','M']];
+    var E2 = [['A','F'],['F','M']];
+    var QX = 336;
+    var Y = { 2:30, 1:96, 0:162 };
+
+    var STEPS = [
+      { layer:2, at:'A', path:['A'], why:['Enter at the top layer.',
+        'The upper layers contain progressively fewer nodes and exist purely to provide <b>long jumps</b>. Entry is a single fixed node, so no centroid selection and no training run happens before the search — that is the structural difference from IVF.'] },
+      { layer:2, at:'F', path:['A','F'], why:['Greedy hop: A → F.',
+        'Starting at node A, the query is closer to A\'s neighbor F, so the walk moves there. Each hop is a local decision — score the current node\'s neighbors, move to the best one — and nothing global is ever consulted.'] },
+      { layer:2, at:'M', path:['A','F','M'], why:['Greedy hop: F → M.',
+        'Then to F\'s neighbor M. Instead of checking every point between A and the target, <b>graph edges create shortcuts</b> — the same navigable-links idea that makes a well-connected network small.'] },
+      { layer:1, at:'M', path:['A','F','M'], why:['Descend to the middle layer at M.',
+        'No progress is lost on the way down: the walk restarts from the node it ended on, but now with a denser neighborhood to choose from. Each descent trades reach for resolution.'] },
+      { layer:0, at:'M', path:['A','F','M'], why:['Descend to the bottom layer, which holds every node.',
+        'This layer supplies the detailed local navigation. The query sits just to the right of M — and the true nearest neighbor is <b>N</b>, one pixel further along.'] },
+      { layer:0, at:'M', path:['A','F','M'], expand:true, why:['Score M\'s neighbors — and none of them is better.',
+        'M is connected to K, not to N. Geometric adjacency is <em>not</em> graph adjacency: N is right there on screen and unreachable in one hop. A purely greedy walk stops here, at a local neighborhood that looks good but is not globally best.'] },
+      { layer:0, at:'N', path:['A','F','M','K','N'], final:true, why:['The frontier decides what happens next.',
+        'A candidate frontier keeps several near-best nodes rather than one, so K survives even though it scored worse than M — and expanding K finds N. Widen the frontier and the risk of stopping early falls; it never reaches zero. Disconnected or weakly connected regions, aggressive parameter settings and unusual filtered subsets all still cause misses.'] }
+    ];
+
+    var ei = 1, si = 0;
+    var efEl = document.getElementById('v3-ef'), stage = document.getElementById('v3-stage');
+    var prev = document.getElementById('v3-prev'), next = document.getElementById('v3-next');
+    var stepLbl = document.getElementById('v3-step'), why = document.getElementById('v3-why');
+
+    function narrow(){ return EF[ei].frontier <= 1; }
+    function lastIdx(){ return narrow() ? STEPS.length - 2 : STEPS.length - 1; }
+
+    function svg(st){
+      var o = '<svg viewBox="0 0 348 200" width="100%" role="img" aria-label="Layered graph walk">';
+      [2,1,0].forEach(function(L){
+        var nodes = L === 2 ? L2 : (L === 1 ? L1 : L0);
+        var edges = L === 2 ? E2 : (L === 1 ? E1 : E0);
+        var dim = L !== st.layer;
+        o += '<line x1="8" y1="' + (Y[L] + 16) + '" x2="340" y2="' + (Y[L] + 16) + '" stroke="var(--viz-line)" stroke-width="1" stroke-dasharray="2 3"/>';
+        o += '<text class="v3-cap" x="8" y="' + (Y[L] - 14) + '">layer ' + L + (L === 0 ? ' · all nodes' : '') + '</text>';
+        edges.forEach(function(e){
+          o += '<line x1="' + X[e[0]] + '" y1="' + Y[L] + '" x2="' + X[e[1]] + '" y2="' + Y[L] + '" stroke="var(--viz-line)" stroke-width="' + (dim ? 1 : 2) + '"/>';
+        });
+        nodes.forEach(function(n){
+          var here = !dim && n === st.at;
+          var onPath = !dim && st.path.indexOf(n) >= 0;
+          var frontier = !dim && st.expand && (n === 'K');
+          var fill = here ? 'var(--viz-accent)' : (frontier ? 'var(--viz-amber)' : (onPath ? 'var(--viz-violet)' : 'var(--viz-surface)'));
+          var stroke = here ? 'var(--viz-accent)' : (frontier ? 'var(--viz-amber)' : 'var(--viz-line)');
+          o += '<circle cx="' + X[n] + '" cy="' + Y[L] + '" r="' + (here ? 8 : 6) + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5" opacity="' + (dim ? 0.35 : 1) + '"/>';
+          o += '<text x="' + X[n] + '" y="' + (Y[L] - 12) + '" text-anchor="middle" font-size="9" font-weight="700" fill="var(--viz-muted)" opacity="' + (dim ? 0.35 : 1) + '">' + n + '</text>';
+        });
+      });
+      // the query, and the true nearest neighbour
+      o += '<circle cx="' + QX + '" cy="' + (Y[0] + 26) + '" r="4" fill="var(--viz-green)"/>';
+      o += '<text x="' + (QX - 4) + '" y="' + (Y[0] + 42) + '" text-anchor="end" font-size="9" font-weight="700" fill="var(--viz-green)">query · true nearest = N</text>';
+      return o + '</svg>';
+    }
+
+    function render(){
+      [].slice.call(efEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === ei ? 'true' : 'false'); });
+      if (si > lastIdx()) si = lastIdx();
+      if (si < 0) si = 0;
+      var st = STEPS[si];
+      stage.innerHTML = svg(st);
+      stepLbl.textContent = 'step ' + (si + 1) + ' of ' + (lastIdx() + 1);
+      prev.disabled = si === 0;
+      next.disabled = si === lastIdx();
+
+      var cfg = EF[ei];
+      var tail;
+      if (si === lastIdx() && narrow()) {
+        tail = '<br><br><b style="color:var(--viz-red)">Ends at M — the true nearest N is never visited.</b>' +
+          'With the narrowest frontier the walk keeps one candidate, so the moment no neighbor improves on M it is finished. ' +
+          '<span style="color:var(--viz-muted)">' + cfg.l + ' · ANN recall@10 ' + cfg.recall + ' · p95 ' + cfg.ms + '</span> — the missing 0.09 of recall is exactly this shape of failure, one query at a time.';
+      } else if (si === lastIdx()) {
+        tail = '<br><br><b style="color:var(--viz-green)">Ends at N — the frontier carried K through.</b>' +
+          '<span style="color:var(--viz-muted)">' + cfg.l + ' · ANN recall@10 ' + cfg.recall + ' · p95 ' + cfg.ms + '</span>. Raising efSearch usually improves recall and always costs latency; visual 5 is where that becomes a decision.';
+      } else {
+        tail = '<br><br><span style="color:var(--viz-muted)">Current setting: ' + cfg.l + ' — frontier keeps ' + cfg.frontier + ' candidate' + (cfg.frontier === 1 ? '' : 's') + ' · ANN recall@10 ' + cfg.recall + ' · p95 ' + cfg.ms + '</span>';
+      }
+      why.innerHTML = '<b>' + st.why[0] + '</b>' + st.why[1] + tail;
+    }
+
+    EF.forEach(function(o, j){
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = o.l; b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ ei = j; render(); });
+      efEl.appendChild(b);
+    });
+    prev.addEventListener('click', function(){ si -= 1; render(); });
+    next.addEventListener('click', function(){ si += 1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Ninety-Six Bytes</h2>
+  <p class="vz-lede">Product quantization splits a vector into subvectors and replaces each one with the ID of a
+    learned centroid. Choose how many pieces and how big each codebook is, and watch the code size, the lookup
+    table and the distortion move against each other. <b>Like describing a face by picking a nose, a chin and a
+    hairstyle from numbered catalogues — a few small numbers instead of a photograph.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Codebook size" id="v4-bits"></div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-m">Subspaces: <span id="v4-ml">96</span> groups of 8 dimensions</label>
+    <input type="range" id="v4-m" min="0" max="10" value="6" step="1" aria-label="Number of subspaces">
+    <div class="v4-split" id="v4-split"></div>
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-stats" id="v4-stats"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">PQ almost never travels alone: <b>IVF narrows the searched cells and PQ compresses and
+    rapidly scores their contents</b>, then the best approximate candidates are <b>reranked</b> against original
+    full-precision vectors stored elsewhere — quality recovered, main index still compact. And PQ assumes the
+    chosen subspaces can be quantized usefully, so poorly balanced dimensions waste capacity; rotations such as
+    optimized product quantization redistribute variance more favourably before the split.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-split{margin-top:14px;display:flex;gap:2px;flex-wrap:wrap;min-height:20px}
+    .v4-sub{height:18px;border-radius:2px;background:var(--viz-violet);opacity:.85;flex:0 0 auto}
+    .v4-bars{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-stats{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var D = 768, RAW = D * 4;                 // 3,072 bytes of float32
+    var MS = [8, 16, 24, 32, 48, 64, 96, 128, 192, 256, 384];
+    var BITS = [
+      { l:'16 codewords (4 bits)', b:4 }, { l:'64 codewords (6 bits)', b:6 },
+      { l:'256 codewords (8 bits)', b:8 }, { l:'1024 codewords (10 bits)', b:10 }
+    ];
+    var bi = 2;
+    var bitsEl = document.getElementById('v4-bits');
+    var s = document.getElementById('v4-m'), lab = document.getElementById('v4-ml');
+    var split = document.getElementById('v4-split'), bars = document.getElementById('v4-bars');
+    var stats = document.getElementById('v4-stats'), why = document.getElementById('v4-why');
+
+    function num(n){ return Math.round(n).toLocaleString('en-US'); }
+    function bar(t, val, frac, col, sub){
+      var w = Math.max(1, Math.min(100, Math.round(frac * 100)));
+      return '<div class="v4-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + val + '</b></h6>' +
+        '<div class="v4-track"><i style="width:' + w + '%;background:' + col + '"></i></div>' +
+        '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.5">' + sub + '</div></div>';
+    }
+
+    function render(){
+      [].slice.call(bitsEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === bi ? 'true' : 'false'); });
+      var m = MS[Number(s.value)] || MS[0];
+      var bits = BITS[bi].b;
+      var book = Math.pow(2, bits);
+      var subDim = D / m;                       // every value in MS divides 768
+      var codeBytes = (m * bits) / 8;
+      var ratio = codeBytes > 0 ? RAW / codeBytes : 0;
+      var table = m * book;
+      var mem = codeBytes * 1e7 / 1e9;          // 10,000,000 vectors, in GB
+
+      lab.textContent = m + ' groups of ' + subDim + ' dimension' + (subDim === 1 ? '' : 's');
+
+      var shown = Math.min(m, 96);
+      var w = Math.max(2, Math.floor(300 / shown) - 2);
+      split.innerHTML = Array.from({ length: shown }, function(){
+        return '<div class="v4-sub" style="width:' + w + 'px"></div>';
+      }).join('') + (m > shown ? '<span style="font-size:11px;color:var(--viz-muted);align-self:center;margin-left:6px">… ' + (m - shown) + ' more</span>' : '');
+
+      bars.innerHTML =
+        bar('original float32 vector', num(RAW) + ' bytes', 1, 'var(--viz-red)',
+            '768 dimensions × 4 bytes. At 10,000,000 vectors that is 30.72 GB resident.') +
+        bar('product-quantized code', (codeBytes % 1 === 0 ? num(codeBytes) : codeBytes.toFixed(1)) + ' bytes',
+            codeBytes / RAW, 'var(--viz-green)',
+            m + ' subspace' + (m === 1 ? '' : 's') + ' × ' + bits + ' bits each. At 10,000,000 vectors: ' + mem.toFixed(2) + ' GB.');
+
+      stats.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-green);border-color:var(--viz-green)">' + ratio.toFixed(1) + '× smaller</span>' +
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + num(table) + ' table entries per query</span>' +
+        '<span class="v4-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + m + ' lookups + ' + Math.max(0, m - 1) + ' adds per candidate</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">2^' + (m * bits) + ' reconstructions</span>';
+
+      var head, body;
+      if (m === 96 && bits === 8) {
+        head = '<b style="color:var(--viz-green)">The canonical configuration.</b>';
+        body = 'A 768-dimensional vector split into 96 groups of 8 dimensions, each group with 256 centroids. Selecting one of 256 codewords costs log2(256) = 8 bits, so each group needs exactly <b>one byte</b>: 96 bytes instead of 3,072, a <b>32-fold reduction</b> before overhead. ';
+      } else if (subDim >= 48) {
+        head = '<b style="color:var(--viz-red)">Too few subspaces — heavy distortion.</b>';
+        body = 'Each codeword now has to stand in for <b>' + subDim + ' whole dimensions</b>, chosen from only ' + num(book) + ' options. Compression error arises because every original subvector is replaced by its nearest codeword, and here the nearest codeword is a long way off. The code is tiny and the distances are unreliable. ';
+      } else if (table >= 100000) {
+        head = '<b style="color:var(--viz-amber)">The lookup table is becoming the work.</b>';
+        body = 'You are computing ' + num(table) + ' partial distances <em>per query</em> before scoring a single candidate. More subspaces or larger codebooks reduce distortion but use larger codes, tables, or training work — and past some point the per-query table build dominates the scan it was meant to accelerate. ';
+      } else {
+        head = '<b style="color:var(--viz-accent)">' + ratio.toFixed(1) + '× smaller, ' + num(table) + ' table entries.</b>';
+        body = 'Each of the ' + m + ' subspaces gets its own k-means codebook of ' + num(book) + ' centroids, trained separately. The Cartesian product of those codebooks represents 2^' + (m * bits) + ' distinct reconstructions while storing only ' + num(m * book) + ' centroids — an enormous set without one centroid per combination. ';
+      }
+      why.innerHTML = head + body +
+        '<br><br><b style="display:inline;color:var(--viz-accent)">Asymmetric distance computation keeps the query uncompressed.</b> ' +
+        'For each subspace, build a table of distances between the query subvector and every codeword — ' + num(table) + ' entries, computed <em>once</em> per query. A database code is then scored by summing the table entries its bytes address: <b>' + m + ' lookups and ' + Math.max(0, m - 1) + ' additions</b>, against 768 floating-point multiplications for the raw vector. Compression pays twice — in bandwidth and in compute.';
+    }
+
+    BITS.forEach(function(o, j){
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = o.l; b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ bi = j; render(); });
+      bitsEl.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Pick An Operating Point</h2>
+  <p class="vz-lede">Recall, latency and memory are one budget with three claims on it. Set the candidate
+    stage's latency budget, decide whether vectors are stored raw or quantized, and count your replicas — the
+    configuration falls out of the objective, not out of the table. <b>Like packing for a flight: weight,
+    space and what you actually need, and you cannot maximise all three.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-budget">Candidate-stage p95 budget: <span id="v5-budgetl">25 ms</span></label>
+    <input type="range" id="v5-budget" min="5" max="60" value="25" step="1" aria-label="Latency budget in milliseconds">
+    <div class="v5-rows" id="v5-rows"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Vector storage" id="v5-pq" style="margin-top:12px"></div>
+  <div class="vz-seg" role="group" aria-label="Serving replicas" id="v5-rep"></div>
+
+  <div class="vz-card">
+    <div class="v5-mem" id="v5-mem"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Tune end to end, and remember what the recall column is not. <b>ANN recall measures
+    agreement with exact vector search; relevance recall measures whether useful documents reach the candidate
+    set.</b> Going from 0.98 to 0.995 may have no measurable relevance gain if the lost vector neighbors were
+    redundant — and may matter greatly when each query has one unique relevant document. If a reranker needs
+    100 candidates, ask whether ANN search reliably supplies useful documents within those 100, not whether the
+    first ten approximate neighbors equal the exact first ten. Keep exact-search regression queries so an index
+    upgrade cannot silently exchange relevance for speed.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-rows{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v5-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      min-height:44px;box-sizing:border-box}
+    .v5-r.is-out{opacity:.42;border-style:dashed}
+    .v5-r.is-pick{border-color:var(--viz-green)}
+    .v5-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit;text-align:right}
+    .v5-mem{display:flex;flex-direction:column;gap:8px}
+    .v5-m h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-m h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v5-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden;display:flex}
+    .v5-track i{display:block;height:100%}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { ef:20, recall:0.91, ms:8 },
+      { ef:80, recall:0.975, ms:21 },
+      { ef:200, recall:0.992, ms:48 }
+    ];
+    var STORE = [{ l:'raw float32 vectors', gb:30.72 }, { l:'PQ codes, 96 bytes', gb:0.96 }];
+    var REPS = [{ l:'1 replica', n:1 }, { l:'2 replicas', n:2 }, { l:'3 replicas', n:3 }];
+    var sti = 0, ri = 0;
+    var s = document.getElementById('v5-budget'), lab = document.getElementById('v5-budgetl');
+    var rowsEl = document.getElementById('v5-rows'), pqEl = document.getElementById('v5-pq');
+    var repEl = document.getElementById('v5-rep'), memEl = document.getElementById('v5-mem');
+    var why = document.getElementById('v5-why');
+
+    function render(){
+      [].slice.call(pqEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === sti ? 'true' : 'false'); });
+      [].slice.call(repEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === ri ? 'true' : 'false'); });
+
+      var budget = Number(s.value);
+      lab.textContent = budget + ' ms';
+
+      var pick = -1;
+      ROWS.forEach(function(r, i){ if (r.ms <= budget) pick = i; });   // highest recall that still fits
+
+      rowsEl.innerHTML = ROWS.map(function(r, i){
+        var fits = r.ms <= budget;
+        var cls = !fits ? 'is-out' : (i === pick ? 'is-pick' : '');
+        var col = !fits ? 'var(--viz-red)' : (i === pick ? 'var(--viz-green)' : 'var(--viz-muted)');
+        var tag = !fits ? 'over budget' : (i === pick ? 'OPERATING POINT' : 'fits, lower recall');
+        return '<div class="v5-r ' + cls + '"><span>efSearch ' + r.ef + '</span>' +
+          '<span>recall@10 ' + r.recall.toFixed(3) + '</span><span>p95 ' + r.ms + ' ms</span>' +
+          '<span class="v5-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var base = STORE[sti].gb, reps = REPS[ri].n;
+      var vec = base * reps;
+      var MAXGB = 30.72 * 3;
+      var vecPct = Math.max(1, Math.min(100, vec / MAXGB * 100));
+      memEl.innerHTML =
+        '<div class="v5-m"><h6><span>vectors, resident across replicas</span>' +
+        '<b style="color:var(--viz-violet)">' + vec.toFixed(2) + ' GB</b></h6>' +
+        '<div class="v5-track"><i style="width:' + vecPct + '%;background:var(--viz-violet)"></i></div>' +
+        '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.5">' +
+        STORE[sti].l + ' × 10,000,000 × ' + reps + ' replica' + (reps === 1 ? '' : 's') +
+        '. Replication raises memory cost and buys availability.</div></div>' +
+        '<div class="v5-m"><h6><span>everything else that must be resident</span>' +
+        '<b style="color:var(--viz-amber)">not in that number</b></h6>' +
+        '<div class="v5-track"><i style="width:38%;background:var(--viz-amber)"></i>' +
+        '<i style="width:22%;background:var(--viz-line)"></i></div>' +
+        '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.5">' +
+        'HNSW graph edges (sized by M), IVF posting lists, IDs, metadata and transient build capacity. ' +
+        'A nominal 30 GB vector collection may need far more resident memory once these are counted.</div></div>';
+
+      var head, body;
+      if (pick < 0) {
+        head = '<b style="color:var(--viz-red)">Nothing in the sweep fits ' + budget + ' ms.</b>';
+        body = 'The honest response is not to pick the fastest row anyway — it is to change something structural: a smaller candidate set, a cheaper index, more shards, or a renegotiated budget. An operating point you cannot meet is not an operating point.';
+      } else if (ROWS[pick].ef === 80) {
+        head = '<b style="color:var(--viz-green)">efSearch 80 — recall 0.975 at 21 ms.</b>';
+        body = 'With a 25 ms candidate-stage budget this is the defensible point. Choosing 200 buys 0.017 of ANN recall and costs 48 ms, breaking the end-to-end objective; that is not a better index, it is a missed service objective with a nicer number attached.';
+      } else if (ROWS[pick].ef === 20) {
+        head = '<b style="color:var(--viz-amber)">efSearch 20 — recall 0.91 at 8 ms.</b>';
+        body = 'A strict budget is a legitimate reason to accept 0.91: an autocomplete path answering in single-digit milliseconds is exactly this row. The recall you gave up is real, so it belongs in the service objective, not hidden in a config file.';
+      } else {
+        head = '<b style="color:var(--viz-accent)">efSearch 200 — recall 0.992 at 48 ms.</b>';
+        body = 'Worth it only when the budget genuinely allows 48 ms in the candidate stage. There is no universal best setting; the same three rows give three different right answers depending on what the stage was promised.';
+      }
+      why.innerHTML = head + body +
+        '<br><br>Watch the two levers fight: <b>' + STORE[sti].l + '</b> holds ' + vec.toFixed(2) +
+        ' GB across ' + reps + ' replica' + (reps === 1 ? '' : 's') +
+        (sti === 1
+          ? ' — but stronger compression introduces distance error, so the recall column above would move <em>down</em> unless the top candidates are reranked on full-precision vectors.'
+          : ' — full precision, no quantization error, and the largest memory bill on the page.') +
+        ' Filters, updates and failures belong in the triangle too: aggressive tenant filters force over-fetching, incremental inserts degrade balance or graph quality, and build time decides how quickly a new embedding model can ship.';
+    }
+
+    STORE.forEach(function(o, j){
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = o.l; b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ sti = j; render(); });
+      pqEl.appendChild(b);
+    });
+    REPS.forEach(function(o, j){
+      var b = document.createElement('button');
+      b.type = 'button'; b.textContent = o.l; b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ ri = j; render(); });
+      repEl.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

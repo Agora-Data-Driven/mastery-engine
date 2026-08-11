@@ -1,0 +1,679 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25B8\A0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Precompute Or Scan</button>
+  <button class="viz-tab" data-viz-tab="2">2. Scan Search Or Probe</button>
+  <button class="viz-tab" data-viz-tab="3">3. Two Cursors Stepping</button>
+  <button class="viz-tab" data-viz-tab="4">4. Skew Picks The Plan</button>
+  <button class="viz-tab" data-viz-tab="5">5. Bytes Or Latency</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Precompute Or Scan</h2>
+  <p class="vz-lede">DE 401 asked <b>Precompute vs Compute-on-Read</b> and <b>Hot vs Cold Storage Tiering</b>
+    as judgment calls. This lesson supplies the arithmetic underneath them. One million chunk records, one
+    point lookup at a time — drag how many lookups the system will ever serve and watch which plan is
+    cheapest. <b>Like alphabetising a filing cabinet: absurd for one document, obvious by the hundredth.</b></p>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-q">Lookups served: <span id="v1-ql">1</span>
+      &nbsp;·&nbsp; n = 1,000,000 records</label>
+    <input type="range" id="v1-q" min="0" max="10" value="0" step="1" aria-label="Number of lookups served">
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The crossover is the whole point, and it is not a constant to memorise — it moves with
+    <b>n</b>, with how expensive one comparison is, and with how long the index stays valid. A persistent
+    search system sits far to the right of it, which is why it pays construction cost without arguing. A
+    one-off analytics question over a cold export sits far to the left, and building an index for it is
+    strictly wasted work.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:nowrap}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v1-win{font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v1-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 1000000;
+    var LOGN = Math.log(N) / Math.log(2);          // 19.93
+    var STEP = Math.ceil(LOGN);                    // 20 comparisons per binary search
+    var QS = [1, 2, 5, 10, 20, 50, 100, 1000, 10000, 100000, 1000000];
+
+    var s = document.getElementById('v1-q');
+    var ql = document.getElementById('v1-ql');
+    var bars = document.getElementById('v1-bars');
+    var why = document.getElementById('v1-why');
+
+    function commas(x){ return Math.round(x).toLocaleString(); }
+    // Log widths: the three plans differ by six orders of magnitude at the ends,
+    // so a linear bar would be a single full bar and two invisible slivers.
+    function width(v, max){
+      var d = Math.log(Math.max(max, 1) + 1);
+      if (!(d > 0)) return 2;
+      return Math.max(2, Math.round(Math.log(Math.max(v, 0) + 1) / d * 100));
+    }
+
+    function render(){
+      var q = QS[Number(s.value)] || 1;
+      ql.textContent = commas(q);
+
+      var plans = [
+        { k:'scan',  t:'scan every time',        v: q * N,
+          f:'q × n  =  ' + commas(q) + ' × 1,000,000',
+          sub:'No index, no sorting, O(1) extra space — and it answers any predicate at all, such as language = ’en’ AND token_count &lt; 300.' },
+        { k:'sort',  t:'sort once, binary search', v: N * LOGN + q * STEP,
+          f:'n log₂n + q·20  =  ' + commas(N * LOGN) + ' + ' + commas(q * STEP),
+          sub:'Sorting is the ≈ 19.9M up-front payment. Each lookup is then at most 20 comparisons, because 2²⁰ = 1,048,576 ≥ n — and range and successor queries still work.' },
+        { k:'hash',  t:'build a hash map, probe', v: N + q,
+          f:'n + q  =  1,000,000 + ' + commas(q) + '  (expected)',
+          sub:'Expected O(n) to build and expected O(1) per probe, paid for in bucket memory and in lost order: it cannot answer “all IDs from 700000 through 800000” at all.' }
+      ];
+
+      var best = plans[0];
+      plans.forEach(function(p){ if (p.v < best.v) best = p; });
+      var max = plans.reduce(function(a, p){ return Math.max(a, p.v); }, 1);
+
+      bars.innerHTML = plans.map(function(p){
+        var isBest = p === best;
+        var col = isBest ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v1-b">' +
+          '<h6><span>' + p.t + ' <span class="v1-win" style="color:' + col + '">' +
+            (isBest ? '◀ cheapest' : '') + '</span></span>' +
+            '<b style="color:' + col + '">' + commas(p.v) + ' ops</b></h6>' +
+          '<div class="v1-track"><i style="width:' + width(p.v, max) + '%;background:' + col + '"></i></div>' +
+          '<div class="v1-sub">' + p.f + '<br>' + p.sub + '</div></div>';
+      }).join('');
+
+      why.innerHTML = best.k === 'scan'
+        ? '<b style="color:var(--viz-amber)">Compute on read — building anything is a loss here.</b>' +
+          'With ' + commas(q) + ' lookup' + (q === 1 ? '' : 's') + ', sorting first costs O(n log n) and <em>then</em> O(log n) per query, which is more total work than a single O(n) pass. ' +
+          'The scan also needs nothing: no sorted order, no buckets, O(1) auxiliary space. Its worst case and its unsuccessful-search case are both n comparisons; a successful search for a uniformly distributed target averages (n+1)/2, still Θ(n). ' +
+          '<br><br>The scan stops being cheapest at about <b>q = 20</b>: solve q·n = n·log₂n + 20q, i.e. q(1,000,000 − 20) ≈ 19,931,569.'
+        : '<b style="color:var(--viz-green)">Precompute — the index has paid for itself.</b>' +
+          'Sort-then-search is O(n log n + q log n) against O(q·n) for repeated scanning, so the up-front cost amortises as q grows; the hash map is expected O(n) to build and expected O(1) per point lookup. ' +
+          'At ' + commas(q) + ' lookups the index costs ' + commas(best.v) + ' operations against ' + commas(q * N) + ' for rescanning — a factor of ' + (Math.round(q * N / Math.max(best.v, 1) * 10) / 10) + '×. ' +
+          '<br><br>This is exactly why persistent search systems pay construction cost: <b>one index serves many queries</b>. But note what the winner cannot do — the hash map has thrown away order, so every ranged or ordered question in the rest of this track needs the sorted structure instead.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Scan Search Or Probe</h2>
+  <p class="vz-lede">Three ways to find chunk ID <span class="vz-mono">734921</span>, and three different
+    <em>contracts</em>. Drag the collection size, then break the hash table's assumption and watch its
+    guarantee change from expected to worst case. <b>Like finding a house: walk the street, halve the
+    street numbers, or already know which door.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Hash key distribution">
+    <button id="v2-good" aria-pressed="true">well-distributed hash</button>
+    <button id="v2-bad" aria-pressed="false">every key collides</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-n">Records searched: <span id="v2-nl">1,000,000</span></label>
+    <input type="range" id="v2-n" min="0" max="6" value="5" step="1" aria-label="Number of records">
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">One more thing the bounds hide: <b>hashing costs time proportional to key length</b>.
+    Probing a cached 64-bit identifier and hashing a 2 MB string are not the same physical operation, however
+    identically they are written as O(1). Experts quote the guarantee precisely — expected or worst case,
+    and per what unit of key.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-rows{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v2-r h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-r h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:nowrap}
+    .v2-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%}
+    .v2-cap{margin-top:5px;display:flex;gap:5px;flex-wrap:wrap}
+    .v2-chip{font-size:10.5px;font-weight:700;border:1px solid var(--viz-line);border-radius:999px;padding:3px 8px}
+    .v2-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NS = [10, 100, 1000, 10000, 100000, 1000000, 10000000];
+    var good = true;
+    var s = document.getElementById('v2-n'), nl = document.getElementById('v2-nl');
+    var rows = document.getElementById('v2-rows'), why = document.getElementById('v2-why');
+    var bG = document.getElementById('v2-good'), bB = document.getElementById('v2-bad');
+
+    function commas(x){ return Math.round(x).toLocaleString(); }
+    function width(v, max){
+      var d = Math.log(Math.max(max, 1) + 1);
+      if (!(d > 0)) return 3;
+      return Math.max(3, Math.round(Math.log(Math.max(v, 0) + 1) / d * 100));
+    }
+    function caps(list){
+      return '<div class="v2-cap">' + list.map(function(c){
+        var ok = c[0];
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<span class="v2-chip" style="color:' + col + ';border-color:' + col + '">' +
+          (ok ? '✓ ' : '✗ ') + c[1] + '</span>';
+      }).join('') + '</div>';
+    }
+
+    function render(){
+      var n = NS[Number(s.value)] || 10;
+      nl.textContent = commas(n);
+      bG.setAttribute('aria-pressed', good ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', good ? 'false' : 'true');
+
+      var bin = Math.ceil(Math.log(n) / Math.log(2)) || 1;
+      var hash = good ? 1 : n;
+      var items = [
+        { t:'linear scan', v:n, f:'O(n) — worst case and unsuccessful search; (n+1)/2 on average',
+          c:[[true,'any predicate'],[true,'point lookup'],[true,'no preparation'],[false,'needs sorted data']] },
+        { t:'binary search', v:bin, f:'⌈log₂ ' + commas(n) + '⌉ = ' + bin + ' comparisons — needs a sorted, random-access array',
+          c:[[true,'point lookup'],[true,'range + successor'],[false,'arbitrary predicate'],[false,'unsorted input']] },
+        { t:'hash probe', v:hash,
+          f: good ? 'expected O(1): one hash, then ≈ one entry in the bucket'
+                  : 'worst case O(n): one bucket holds every key, so the probe degrades to a scan',
+          c:[[true,'point lookup'],[false,'range + successor'],[false,'ordered walk'],[false,'arbitrary predicate']] }
+      ];
+      var max = items.reduce(function(a, i){ return Math.max(a, i.v); }, 1);
+      var best = items[0];
+      items.forEach(function(i){ if (i.v < best.v) best = i; });
+
+      rows.innerHTML = items.map(function(it){
+        var col = it === best ? 'var(--viz-green)' : (it.v >= n ? 'var(--viz-red)' : 'var(--viz-amber)');
+        return '<div class="v2-r"><h6><span>' + it.t + (it === best ? ' <span style="color:' + col + ';font-size:10px;letter-spacing:.03em">◀ fewest</span>' : '') +
+          '</span><b style="color:' + col + '">' + commas(it.v) + (it.v === 1 ? ' comparison' : ' comparisons') + '</b></h6>' +
+          '<div class="v2-track"><i style="width:' + width(it.v, max) + '%;background:' + col + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45">' + it.f + '</div>' +
+          caps(it.c) + '</div>';
+      }).join('');
+
+      var head = n === 1000000
+        ? '<b>1,000,000 chunk records, one request for ID 734921.</b>An unsorted array scan may perform <b>734,922</b> equality checks. A sorted ID array needs at most <b>20</b> binary-search steps, because 2²⁰ = 1,048,576. A hash map at load factor 0.75 normally computes one hash and inspects roughly one entry. '
+        : '<b>Each structure answers a different question, not the same question faster.</b>';
+
+      why.innerHTML = head +
+        (good
+          ? 'The bounds above are the <em>expected</em> case for the hash table — well-distributed hash, controlled load factor, so the expected bucket population is constant. Press <b>every key collides</b> to see what that assumption is worth. '
+          : 'With every key in one bucket the table holds n entries on one chain: the probe walks it and lookup degrades to <b>O(n)</b>, exactly matching the scan it was supposed to beat. This is why calling a hash probe simply “O(1)” hides its collision assumptions. ') +
+        '<br><br>And notice the chips: the scan is the only structure that takes an <b>arbitrary predicate</b>, the sorted array is the only one that answers <b>the first ID at least 734921</b>, and the hash table trades both away for the fastest point lookup. ' +
+        'Big-O also omits constants, preprocessing and locality — on a tiny array a branchless scan can beat binary search outright, because it has no unpredictable branches and reads consecutive memory. Visual 5 is that story.';
+    }
+    bG.addEventListener('click', function(){ good = true; render(); });
+    bB.addEventListener('click', function(){ good = false; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Two Cursors Stepping</h2>
+  <p class="vz-lede">An AND query over an inverted index is this loop and nothing else. Step it and watch the
+    accounting proof happen: every iteration advances at least one cursor, no cursor ever moves backward, so
+    the total is at most m + n. <b>Like two people reading sorted guest lists aloud — whoever calls the
+    smaller name reads on.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the two postings lists">
+    <button id="v3-d0" aria-pressed="true">A and B from the guide</button>
+    <button id="v3-d1" aria-pressed="false">identical lists</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-lists" id="v3-lists"></div>
+    <div class="v3-act" id="v3-act"></div>
+    <div class="v3-out" id="v3-out"></div>
+    <div class="v3-meter" id="v3-meter"></div>
+    <div class="v3-ctrls">
+      <button class="v3-btn" id="v3-step">Step ▶</button>
+      <button class="v3-btn" id="v3-run">Run to end</button>
+      <button class="v3-btn" id="v3-reset">Reset</button>
+    </div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The O(m + n) bound is an <b>upper bound, not an instruction to decode both lists</b>. When
+    one cursor falls far behind, <b>galloping</b> — exponential search forward, then a binary search of the
+    bracketed range — or stored skip data can jump ahead. Those help on unequal or clustered lists without
+    touching the fundamental requirement: sorted order is what makes monotone progress possible at all.</p>
+
+  <style>
+    .v3-lists{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+    .v3-lrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .v3-nm{flex:0 0 auto;font-weight:800;font-size:11.5px;color:var(--viz-muted);width:20px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-c{min-width:32px;text-align:center;border:1.5px solid var(--viz-line);border-radius:7px;padding:5px 6px;
+      font-family:ui-monospace,Consolas,monospace;font-size:12px;background:var(--viz-bg)}
+    .v3-c.is-cur{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v3-c.is-done{opacity:.4;border-style:dashed}
+    .v3-c.is-hit{border-color:var(--viz-green);color:var(--viz-green);font-weight:800}
+    .v3-act{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5;
+      border:1.5px dashed var(--viz-line);border-radius:9px;padding:9px 10px;min-height:40px}
+    .v3-out{margin-top:10px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .v3-o{border:1.5px solid var(--viz-green);color:var(--viz-green);border-radius:7px;padding:3px 8px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-meter{margin-top:11px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace;color:var(--viz-muted)}
+    .v3-bar{height:11px;border-radius:4px;background:var(--viz-line);overflow:hidden;margin-top:5px}
+    .v3-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v3-ctrls{display:flex;gap:7px;margin-top:13px;flex-wrap:wrap}
+    .v3-btn{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v3-btn:disabled{opacity:.45}
+    .v3-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SETS = [
+      { A:[2,4,8,16,32], B:[1,2,8,9,32,40] },
+      { A:[1,2,3,4,5,6,7,8], B:[1,2,3,4,5,6,7,8] }
+    ];
+    var which = 0, at = 0, timer = null;
+    var lists = document.getElementById('v3-lists'), act = document.getElementById('v3-act');
+    var out = document.getElementById('v3-out'), meter = document.getElementById('v3-meter');
+    var why = document.getElementById('v3-why');
+    var bStep = document.getElementById('v3-step'), bRun = document.getElementById('v3-run');
+    var bReset = document.getElementById('v3-reset');
+    var b0 = document.getElementById('v3-d0'), b1 = document.getElementById('v3-d1');
+
+    // The trace is produced by RUNNING the algorithm, not by transcribing it,
+    // so the advance counters on screen are the real ones.
+    function trace(A, B){
+      var t = [], i = 0, j = 0, o = [], ia = 0, ja = 0;
+      t.push({ i:i, j:j, out:o.slice(), ia:ia, ja:ja, act:'Start. i = 0, j = 0, output empty.' });
+      while (i < A.length && j < B.length) {
+        var a = A[i], b = B[j], line;
+        if (a === b) { line = 'A[' + i + '] = B[' + j + '] = ' + a + '  →  emit ' + a + ', advance BOTH'; o.push(a); i++; j++; ia++; ja++; }
+        else if (a < b) { line = 'A[' + i + '] = ' + a + '  <  B[' + j + '] = ' + b + '  →  advance i'; i++; ia++; }
+        else { line = 'A[' + i + '] = ' + a + '  >  B[' + j + '] = ' + b + '  →  advance j'; j++; ja++; }
+        t.push({ i:i, j:j, out:o.slice(), ia:ia, ja:ja, act:line });
+      }
+      t.push({ i:i, j:j, out:o.slice(), ia:ia, ja:ja, done:true,
+        act:(i >= A.length ? 'A is exhausted' : 'B is exhausted') + '  →  stop. Nothing after this can match.' });
+      return t;
+    }
+
+    function chips(arr, cur, hits){
+      return arr.map(function(v, k){
+        var cls = 'v3-c';
+        if (hits.indexOf(v) !== -1 && k < cur) cls += ' is-hit';
+        else if (k < cur) cls += ' is-done';
+        if (k === cur) cls += ' is-cur';
+        return '<span class="' + cls + '">' + v + '</span>';
+      }).join('');
+    }
+
+    function render(){
+      var A = SETS[which].A, B = SETS[which].B;
+      var T = trace(A, B);
+      if (at >= T.length) at = T.length - 1;
+      var st = T[at];
+      var m = A.length, n = B.length, budget = m + n;
+
+      b0.setAttribute('aria-pressed', which === 0 ? 'true' : 'false');
+      b1.setAttribute('aria-pressed', which === 1 ? 'true' : 'false');
+
+      lists.innerHTML =
+        '<div class="v3-lrow"><span class="v3-nm">A</span>' + chips(A, st.i, st.out) +
+          '<span style="font-size:10.5px;color:var(--viz-muted);margin-left:4px">m = ' + m + '</span></div>' +
+        '<div class="v3-lrow"><span class="v3-nm">B</span>' + chips(B, st.j, st.out) +
+          '<span style="font-size:10.5px;color:var(--viz-muted);margin-left:4px">n = ' + n + '</span></div>';
+
+      act.textContent = st.act;
+      out.innerHTML = '<span>output:</span>' +
+        (st.out.length ? st.out.map(function(v){ return '<span class="v3-o">' + v + '</span>'; }).join('')
+                       : '<span style="color:var(--viz-muted);font-weight:400">(empty)</span>');
+
+      var used = st.ia + st.ja;
+      var pct = budget > 0 ? Math.min(100, Math.round(used / budget * 100)) : 0;
+      meter.innerHTML = 'advances charged: i ' + st.ia + '/' + m + '  ·  j ' + st.ja + '/' + n +
+        '  ·  total ' + used + ' of m + n = ' + budget +
+        '<div class="v3-bar"><i style="width:' + pct + '%"></i></div>';
+
+      bStep.disabled = at >= T.length - 1;
+      bRun.disabled = at >= T.length - 1;
+
+      var finished = at >= T.length - 1;
+      why.innerHTML = which === 0
+        ? '<b>' + (finished ? 'Done: output [' + st.out.join(', ') + '] in ' + used + ' advances.' : 'Charge every iteration to a cursor advance.') + '</b>' +
+          'Cursor i can advance at most m = ' + m + ' times and j at most n = ' + n + ' times, so there are at most <b>m + n = ' + budget + '</b> charges and the algorithm is <b>O(m + n)</b> in time and O(1) in auxiliary space beyond the output. ' +
+          'That is a proof by accounting, not an intuition — and it holds only because neither cursor ever moves backward, which is what sorted order buys. ' +
+          '<br><br>No document ID is revisited. Compare the alternative in visual 4: binary-searching every item of the shorter list into the longer one costs O(min(m,n)·log max(m,n)) instead.'
+        : '<b>' + (finished ? 'Every step matched: ' + st.out.length + ' results, ' + used + ' advances.' : 'Identical lists — every comparison is a match.') + '</b>' +
+          'This is the case that separates <em>traversal</em> cost from <em>output</em> cost. The merge is still O(m + n), and it is also the best any algorithm can do, because <b>producing or scoring the results costs at least Ω(output size)</b>. ' +
+          '<br><br>Scale it up: if both postings lists hold the same ten million IDs, ten million matches must be materialised and scored — Ω(10,000,000) — and no skipping technique, galloping or skip list avoids work proportional to a required output. Experts quote input traversal, output materialisation and downstream scoring separately rather than giving one bound for the whole query.';
+    }
+
+    function stop(){ if (timer) { clearTimeout(timer); timer = null; } }
+    function step(){
+      var T = trace(SETS[which].A, SETS[which].B);
+      if (at < T.length - 1) at += 1;
+      render();
+      return at < T.length - 1;
+    }
+    bStep.addEventListener('click', function(){ stop(); step(); });
+    bRun.addEventListener('click', function(){
+      stop();
+      (function tick(){ if (step()) timer = setTimeout(tick, 750); })();
+    });
+    bReset.addEventListener('click', function(){ stop(); at = 0; render(); });
+    b0.addEventListener('click', function(){ stop(); which = 0; at = 0; render(); });
+    b1.addEventListener('click', function(){ stop(); which = 1; at = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Skew Picks The Plan</h2>
+  <p class="vz-lede">Two bounds, and which one is smaller depends entirely on how unequal the lists are.
+    Drag the short list against a fixed ten-million-entry long one, then reorder a three-term query and watch
+    the intermediate result collapse. <b>Like checking ten names against the phone book versus reading the
+    phone book from A to Z.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v4-lab" for="v4-m">Shorter list m = <span id="v4-ml">10</span>
+      &nbsp;·&nbsp; longer list n = 10,000,000</label>
+    <input type="range" id="v4-m" min="0" max="9" value="1" step="1" aria-label="Length of the shorter postings list">
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Order of a three-term intersection">
+    <button id="v4-rare" aria-pressed="true">rarest list first (20)</button>
+    <button id="v4-long" aria-pressed="false">two longest first</button>
+  </div>
+  <div class="vz-card">
+    <div class="v4-plan" id="v4-plan"></div>
+  </div>
+  <p class="vz-note">This is the algorithmic reason <b>document frequency is a query-planning statistic</b>
+    and not merely a scoring one: an intersection can never be larger than its smallest input, so the rarest
+    term bounds everything downstream of it. Every query planner in the rest of the track keeps postings
+    lengths precisely so it can make this choice before touching data.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:nowrap}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-plan{font-size:12.5px;line-height:1.6}
+    .v4-stepr{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;margin-bottom:6px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit;white-space:nowrap}
+  </style>
+  <script>
+  (function(){
+    var N = 10000000;
+    var L = Math.ceil(Math.log(N) / Math.log(2));       // 24 comparisons per binary search
+    var MS = [1, 10, 100, 1000, 10000, 100000, 435000, 1000000, 5000000, 10000000];
+    var s = document.getElementById('v4-m'), ml = document.getElementById('v4-ml');
+    var bars = document.getElementById('v4-bars'), why = document.getElementById('v4-why');
+    var plan = document.getElementById('v4-plan');
+    var bR = document.getElementById('v4-rare'), bL = document.getElementById('v4-long');
+    var rare = true;
+
+    function commas(x){ return Math.round(x).toLocaleString(); }
+    function width(v, max){
+      var d = Math.log(Math.max(max, 1) + 1);
+      if (!(d > 0)) return 3;
+      return Math.max(3, Math.round(Math.log(Math.max(v, 0) + 1) / d * 100));
+    }
+
+    function renderSkew(){
+      var m = MS[Number(s.value)] || 1;
+      ml.textContent = commas(m);
+      var merge = m + N, probe = m * L;
+      var max = Math.max(merge, probe, 1);
+      var items = [
+        { t:'two-cursor merge', v:merge, f:'m + n = ' + commas(m) + ' + ' + commas(N) + ' cursor advances, read forward once' },
+        { t:'binary-search the long list', v:probe, f:'min(m,n) · ⌈log₂ max(m,n)⌉ = ' + commas(m) + ' × ' + L + ' comparisons, jumping around memory' }
+      ];
+      var best = merge <= probe ? items[0] : items[1];
+      bars.innerHTML = items.map(function(it){
+        var col = it === best ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v4-b"><h6><span>' + it.t +
+          (it === best ? ' <span style="color:' + col + ';font-size:10px;letter-spacing:.03em">◀ fewer ops</span>' : '') +
+          '</span><b style="color:' + col + '">' + commas(it.v) + '</b></h6>' +
+          '<div class="v4-track"><i style="width:' + width(it.v, max) + '%;background:' + col + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45">' + it.f + '</div></div>';
+      }).join('');
+
+      var ratio = Math.round(Math.max(merge, probe) / Math.max(Math.min(merge, probe), 1) * 10) / 10;
+      why.innerHTML = probe < merge
+        ? '<b style="color:var(--viz-green)">Skew favours probing the long list — ' + ratio + '× fewer operations.</b>' +
+          'At m = ' + commas(m) + ' the merge would traverse nearly all ' + commas(N) + ' entries of the long list to find a handful of matches, while ' + commas(m) + ' binary searches cost about ' + commas(probe) + ' comparisons. ' +
+          'The canonical case in the guide: m = 10 against n = 10,000,000 is roughly <b>233 comparisons</b> versus ten million advances. ' +
+          '<br><br>Watch the crossover, though: probing wins while m·log₂n &lt; m + n, i.e. below about <b>m = ' + commas(Math.round(N / Math.max(L - 1, 1))) + '</b>. Push the slider past it.'
+        : '<b style="color:var(--viz-green)">Balanced lists favour the merge — ' + ratio + '× fewer operations.</b>' +
+          'At m = ' + commas(m) + ' the merge costs ' + commas(merge) + ' cursor advances while repeated binary search costs ' + commas(probe) + ' comparisons — and those comparisons jump around memory, which visual 5 shows is the more expensive kind of work. ' +
+          'For m = n = 1,000,000 the figures are about 2,000,000 advances against 20,000,000 comparisons. ' +
+          '<br><br>Neither bound is “the” answer. Read m and n out of the question and compare m + n with min(m,n)·log₂max(m,n) numerically — that comparison <em>is</em> the exam question.';
+    }
+
+    function renderPlan(){
+      bR.setAttribute('aria-pressed', rare ? 'true' : 'false');
+      bL.setAttribute('aria-pressed', rare ? 'false' : 'true');
+      var rows, total, verdict, col;
+      if (rare) {
+        rows = [
+          ['1. probe the 20-entry list into 2,000,000', '20 × 21 ≈ 420 comparisons', '≤ 20 candidates'],
+          ['2. probe those ≤ 20 into 50,000', '20 × 16 ≈ 320 comparisons', '≤ 20 results']
+        ];
+        total = '≈ 740 operations';
+        verdict = 'Rarest first bounds everything downstream';
+        col = 'var(--viz-green)';
+      } else {
+        rows = [
+          ['1. merge 50,000 with 2,000,000', '≈ 2,050,000 cursor advances', 'large intermediate'],
+          ['2. intersect that with the 20-entry list', 'plus the intermediate scan', '≤ 20 results']
+        ];
+        total = '≈ 2,050,000+ operations';
+        verdict = 'The same final answer, built the expensive way';
+        col = 'var(--viz-red)';
+      }
+      plan.innerHTML =
+        '<div style="font-size:11.5px;color:var(--viz-muted);margin-bottom:8px">Three terms, postings lengths <b>20</b>, <b>50,000</b>, <b>2,000,000</b></div>' +
+        rows.map(function(r){
+          return '<div class="v4-stepr"><span>' + r[0] + '</span><span style="color:var(--viz-muted)">' + r[1] + '</span>' +
+            '<span class="v4-tag" style="color:' + col + '">' + r[2] + '</span></div>';
+        }).join('') +
+        '<div style="margin-top:9px;font-weight:800;font-size:12.5px;color:' + col + '">' +
+          (rare ? '✓ ' : '✗ ') + verdict + ' — ' + total + '</div>' +
+        '<div style="margin-top:8px;font-size:12.5px;line-height:1.6">' +
+          (rare
+            ? 'Starting with the 20-entry list yields <b>at most 20 candidates</b>, so every later membership check or intersection operates on that tiny set, whatever the other lists contain.'
+            : 'Intersecting the two long lists first scans roughly 2,050,000 entries and produces a large intermediate result — which the 20-entry list was about to destroy anyway. All of that work was spent computing rows that could not survive.') +
+        '</div>';
+    }
+
+    s.addEventListener('input', renderSkew);
+    bR.addEventListener('click', function(){ rare = true; renderPlan(); });
+    bL.addEventListener('click', function(){ rare = false; renderPlan(); });
+    renderSkew();
+    renderPlan();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Bytes Or Latency</h2>
+  <p class="vz-lede">Hardware moves <em>blocks</em>, not values: a cache miss fetches a whole 64-byte line.
+    So cost is not how many values you touch but whether nearby touches reuse the block already fetched.
+    Drag the number of lookups, then destroy the layout and watch a sequential loop stop being sequential.
+    <b>Like a supermarket: one trolley run down every aisle, or a separate drive home per item.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="How the 100 million IDs are laid out">
+    <button id="v5-arr" aria-pressed="true">contiguous array</button>
+    <button id="v5-ll" aria-pressed="false">linked-list nodes</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-q">Random lookups wanted: <span id="v5-ql">1</span>
+      &nbsp;·&nbsp; corpus = 100,000,000 32-bit IDs = 400 MB</label>
+    <input type="range" id="v5-q" min="0" max="9" value="0" step="1" aria-label="Number of random lookups">
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Storage magnifies every line of this. A 128 MB contiguous range from SSD or object
+    storage amortises request setup and reaches high throughput; thousands of tiny random reads pay latency
+    and request overhead each time. It is also why <b>compression can make you faster, not just smaller</b>:
+    if gap encoding halves postings bytes and decoding is cheap, fewer lines and pages move and the CPU
+    finishes sooner despite the extra arithmetic. The governing rule for the whole course — arrange
+    computation so each expensive block fetched supplies as much useful work as possible.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-rows{margin-top:16px;display:flex;flex-direction:column;gap:12px}
+    .v5-r h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-r h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:nowrap}
+    .v5-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+    .v5-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v5-line{margin-top:12px;display:flex;gap:2px;flex-wrap:wrap;align-items:center}
+    .v5-byte{width:9px;height:14px;border-radius:2px;background:var(--viz-line)}
+    .v5-byte.is-used{background:var(--viz-green)}
+    .v5-cap{font-size:11px;color:var(--viz-muted);margin-left:6px}
+    .v5-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var IDS = 100000000, IDB = 4, LINE = 64, BW = 20e9, MISS = 80e-9;
+    var SCAN_B = IDS * IDB;                 // 400,000,000 bytes
+    var SCAN_T = SCAN_B / BW;               // 0.02 s
+    var CHASE_T = IDS * MISS;               // 8 s
+    var CHASE_B = IDS * LINE;               // 6.4 GB of lines to use 400 MB of IDs
+    var QS = [1, 10, 100, 1000, 10000, 100000, 250000, 1000000, 10000000, 100000000];
+    var arr = true;
+    var s = document.getElementById('v5-q'), ql = document.getElementById('v5-ql');
+    var rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+    var bA = document.getElementById('v5-arr'), bL = document.getElementById('v5-ll');
+
+    function commas(x){ return Math.round(x).toLocaleString(); }
+    function fmtT(t){
+      if (!isFinite(t) || t < 0) return '—';
+      if (t < 1e-6) return (t * 1e9).toFixed(0) + ' ns';
+      if (t < 1e-3) return (t * 1e6).toFixed(1) + ' µs';
+      if (t < 1) return (t * 1e3).toFixed(1) + ' ms';
+      return t.toFixed(2) + ' s';
+    }
+    function fmtB(b){
+      if (!isFinite(b) || b < 0) return '—';
+      if (b < 1e3) return Math.round(b) + ' B';
+      if (b < 1e6) return (b / 1e3).toFixed(1) + ' KB';
+      if (b < 1e9) return (b / 1e6).toFixed(1) + ' MB';
+      return (b / 1e9).toFixed(2) + ' GB';
+    }
+    function width(v, max){
+      var d = Math.log(Math.max(max, 1e-9) * 1e9 + 1);
+      if (!(d > 0)) return 3;
+      return Math.max(3, Math.round(Math.log(Math.max(v, 0) * 1e9 + 1) / d * 100));
+    }
+    function lineViz(used, label){
+      var cells = '';
+      for (var k = 0; k < 16; k++) cells += '<span class="v5-byte' + (k < used ? ' is-used' : '') + '"></span>';
+      return '<div class="v5-line">' + cells +
+        '<span class="v5-cap">one 64-byte line · ' + label + '</span></div>';
+    }
+
+    function render(){
+      var q = QS[Number(s.value)] || 1;
+      ql.textContent = commas(q);
+      bA.setAttribute('aria-pressed', arr ? 'true' : 'false');
+      bL.setAttribute('aria-pressed', arr ? 'false' : 'true');
+
+      var seqT = arr ? SCAN_T : CHASE_T;
+      var seqB = arr ? SCAN_B : CHASE_B;
+      var seqTitle = arr ? 'walk all 100M IDs in one contiguous array' : 'walk all 100M linked-list nodes';
+      var seqSub = arr
+        ? 'Spatial locality: neighbours arrive in the same cache line, prefetchers recognise the stride and fetch ahead, and comparisons pipeline and vectorise. ' + fmtB(SCAN_B) + ' ÷ 20 GB/s = ' + fmtT(SCAN_T) + ', the pure byte-transfer floor.'
+        : 'Each node sits wherever the allocator put it, and its pointer must be resolved before the next address is even known — so prefetch is impossible and the walk is 100,000,000 dependent misses × 80 ns.';
+      var probT = q * MISS, probB = q * LINE;
+
+      var items = [
+        { t:seqTitle, v:seqT, b:seqB, sub:seqSub, seq:true },
+        { t:commas(q) + ' random probe' + (q === 1 ? '' : 's'), v:probT, b:probB,
+          sub:'Each probe may wait on a new cache line, translation, page or storage request, and of the 64 bytes fetched only the 4 you wanted are used. ' + commas(q) + ' × 80 ns = ' + fmtT(probT) + '.', seq:false }
+      ];
+      var max = Math.max(seqT, probT, 1e-9);
+      var best = seqT <= probT ? items[0] : items[1];
+
+      rows.innerHTML = items.map(function(it){
+        var col = it === best ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v5-r"><h6><span>' + it.t +
+          (it === best ? ' <span style="color:' + col + ';font-size:10px;letter-spacing:.03em">◀ faster</span>' : '') +
+          '</span><b style="color:' + col + '">' + fmtT(it.v) + '</b></h6>' +
+          '<div class="v5-track"><i style="width:' + width(it.v, max) + '%;background:' + col + '"></i></div>' +
+          '<div class="v5-sub">' + fmtB(it.b) + ' moved · ' + it.sub + '</div>' +
+          lineViz(it.seq && arr ? 16 : 1, it.seq && arr ? '16 of 16 IDs used' : '1 of 16 IDs used') +
+          '</div>';
+      }).join('');
+
+      why.innerHTML = !arr
+        ? '<b style="color:var(--viz-red)">“Sequential” describes the layout, not the loop.</b>' +
+          'The same forward walk over the same 100 million IDs now costs <b>' + fmtT(CHASE_T) + '</b> instead of ' + fmtT(SCAN_T) + ', and moves ' + fmtB(CHASE_B) + ' of cache lines to deliver ' + fmtB(SCAN_B) + ' of IDs. Nothing about the algorithm changed — only the data representation. ' +
+          '<br><br>This is why compact sorted postings win in retrieval: not merely because the two-cursor merge is linear, but because their layout turns that linear work into predictable sequential bandwidth instead of a chain of latency stalls. Object-heavy records add the same indirection over typed arrays.'
+        : (probT < seqT
+          ? '<b style="color:var(--viz-amber)">Sequential is not automatically best — and this is the exception that matters.</b>' +
+            'A scan that reads ' + fmtB(SCAN_B) + ' to answer ' + commas(q) + ' lookup' + (q === 1 ? '' : 's') + ' loses to a hash index whose few random pages are already cached: ' + fmtT(probT) + ' against ' + fmtT(SCAN_T) + '. ' +
+            'The choice is the product of <b>access count, access pattern, working-set size and reuse</b> — never one of those alone. ' +
+            '<br><br>Keep dragging: the winner flips at about <b>' + commas(Math.round(SCAN_T / MISS)) + ' lookups</b>, where 0.02 s of pure bandwidth finally undercuts one 80 ns stall each.'
+          : '<b style="color:var(--viz-green)">Past the crossover the bandwidth floor wins outright.</b>' +
+            commas(q) + ' scattered probes serialise ' + fmtT(probT) + ' of latency, while the whole 400 MB scan costs ' + fmtT(SCAN_T) + ' — a factor of ' + Math.round(probT / Math.max(SCAN_T, 1e-9)) + '×. ' +
+            'At the far end this is the guide’s headline number: 0.02 s against 8 s, a roughly <b>400-fold gap</b>, which is why a linear scan can beat an algorithm making far fewer but scattered accesses. ' +
+            '<br><br>Real processors overlap some misses, so treat 8 s as the serialised ceiling rather than a measurement — the order of magnitude is the point, and it survives the overlap.');
+    }
+    bA.addEventListener('click', function(){ arr = true; render(); });
+    bL.addEventListener('click', function(){ arr = false; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

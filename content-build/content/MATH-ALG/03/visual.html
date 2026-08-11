@@ -1,0 +1,797 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes. */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 120px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Lines Become Functions</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Function Machine</button>
+  <button class="viz-tab" data-viz-tab="3">3. Domain And Range</button>
+  <button class="viz-tab" data-viz-tab="4">4. Sign Versus Direction</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Inverse Mirror</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Lines Become Functions</h2>
+  <p class="vz-lede">Every line you drew in <b>Slope-intercept form</b> was already a function: one x goes in,
+    one y comes out. The test that says so is a vertical line — and it is the same test that throws a circle
+    out. Pick a relation and drag the sweep line across it. <b>Like a vending machine: one button must always
+    drop exactly one item, or nobody trusts the machine.</b></p>
+
+  <div class="v1-rels" id="v1-rels"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-x">sweep line at x = <b><span id="v1-xl">0</span></b></label>
+    <input class="vz-range" type="range" id="v1-x" min="-6" max="6" value="0" step="0.25"
+      aria-label="Position of the vertical sweep line">
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="v1-out" id="v1-out"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">Two outputs sharing one input is fatal; two inputs sharing one output is free. That
+    asymmetry is the whole definition, and it is why the <b>horizontal</b> line test asks a completely
+    different question — one this lesson only reaches in visual 5, about running the rule backwards.</p>
+
+  <style>
+    .v1-rels{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-rels button{flex:1 1 130px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 8px}
+    .v1-rels button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v1-out{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var VIEW = 6, W = 320, H = 210, L = 24, R = 10, T = 10, Bo = 20;
+    function px(x){ return L + (x + VIEW) / (2 * VIEW) * (W - L - R); }
+    function py(y){ return T + (VIEW - y) / (2 * VIEW) * (H - T - Bo); }
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+
+    // Every relation answers ONE question: given this x, which y come back?
+    var RELS = [
+      { t:'y = 2x + 1', tag:'lesson 02', fn:true,
+        ys:function(x){ return [2 * x + 1]; },
+        why:['<b style="color:var(--viz-green)">The line you already know — and it was a function all along.</b>',
+          'Slope-intercept form gives one output for every input by construction: substitute x, do one multiplication and one addition, get one number. Renaming y as f(x) changes nothing about the picture and everything about what you can say — you can now talk about the <em>rule</em> rather than about the pairs it produces.'] },
+      { t:'y = |x|', tag:'absolute value', fn:true,
+        ys:function(x){ return [Math.abs(x)]; },
+        why:['<b style="color:var(--viz-green)">A function, and the reason is the vertical line test.</b>',
+          'Not because it is symmetric about the y-axis, and not because it is defined piecewise — those are true and irrelevant. It qualifies because x = -3 returns 3 and only 3. Notice the outputs repeat: x = 3 also returns 3. Repeated <em>outputs</em> cost nothing.'] },
+      { t:'x² + y² = 25', tag:'circle', fn:false,
+        ys:function(x){ var r = 25 - x * x; if (r < 0) return []; if (r === 0) return [0]; var s = Math.sqrt(r); return [s, -s]; },
+        why:['<b style="color:var(--viz-red)">Not a function — one x, two y.</b>',
+          'At x = 0 the circle returns y = 5 and y = -5, so a rule cannot say which one it means. This has nothing to do with the radius staying constant, nothing to do with intercepts and nothing to do with slope: the failure is purely that some x maps to two y. Solving for y makes it visible — y = ±sqrt(25 - x²) is <em>two</em> formulas, and each one alone is a function.'] },
+      { t:'x = y²', tag:'sideways', fn:false,
+        ys:function(x){ if (x < 0) return []; if (x === 0) return [0]; var s = Math.sqrt(x); return [s, -s]; },
+        why:['<b style="color:var(--viz-red)">The parabola on its side fails too.</b>',
+          'x = 4 gives y = 2 and y = -2. Turn the page 90° and it is the perfectly respectable function y = x² — which is the first hint of visual 5: swapping the roles of x and y can destroy the one-output-per-input property, and that is exactly what forming an inverse does.'] },
+      { t:'x = 3', tag:'vertical line', fn:false, vert:3,
+        ys:null,
+        why:['<b style="color:var(--viz-red)">The extreme case: one x, every y.</b>',
+          'A vertical line IS the sweep line, so it meets it in infinitely many points. This is the shape the test is named after, and it is the one relation no reordering can rescue.'] },
+      { t:'table (1,4) (2,5) (2,7)', tag:'table', fn:false, pts:[[1, 4], [2, 5], [2, 7]],
+        why:['<b style="color:var(--viz-red)">The same failure, in a table.</b>',
+          'Scan the x column for a repeat whose y values disagree: x = 2 is paired with 5 and with 7. That is not a linear pair, not an inverse pair and not a valid function — it is simply two different outputs for one input. Had the table read (2,5) and (2,5) twice, it would be fine.'] }
+    ];
+
+    var cur = 0;
+    var rels = document.getElementById('v1-rels'), slider = document.getElementById('v1-x');
+    var xl = document.getElementById('v1-xl'), plot = document.getElementById('v1-plot');
+    var out = document.getElementById('v1-out'), why = document.getElementById('v1-why');
+
+    function outputsAt(rel, x){
+      if (rel.vert !== undefined) return Math.abs(x - rel.vert) < 0.2 ? { all:true, list:[] } : { all:false, list:[] };
+      if (rel.pts) {
+        return { all:false, list:rel.pts.filter(function(p){ return Math.abs(p[0] - x) < 0.2; }).map(function(p){ return p[1]; }) };
+      }
+      return { all:false, list:rel.ys(x).filter(function(v){ return isFinite(v); }) };
+    }
+
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var rel = RELS[cur], xv = Number(slider.value);
+      if (!isFinite(xv)) xv = 0;
+      xl.textContent = n(xv);
+      [].slice.call(rels.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The relation with a vertical sweep line">';
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      for (var t = -4; t <= 4; t += 2) {
+        if (t === 0) continue;
+        svg += '<text x="' + px(t) + '" y="' + (py(0) + 12) + '" text-anchor="middle" style="font-size:8.5px;fill:var(--viz-muted)">' + t + '</text>';
+        svg += '<text x="' + (px(0) - 6) + '" y="' + (py(t) + 3) + '" text-anchor="end" style="font-size:8.5px;fill:var(--viz-muted)">' + t + '</text>';
+      }
+
+      if (rel.vert !== undefined) {
+        svg += '<line x1="' + px(rel.vert) + '" y1="' + T + '" x2="' + px(rel.vert) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+      } else if (rel.pts) {
+        rel.pts.forEach(function(p){
+          svg += '<circle cx="' + px(p[0]) + '" cy="' + py(p[1]) + '" r="4.5" style="fill:var(--viz-accent)"></circle>';
+          svg += '<text x="' + (px(p[0]) + 7) + '" y="' + (py(p[1]) + 3) + '" style="font-size:8.5px;fill:var(--viz-muted)">(' + p[0] + ', ' + p[1] + ')</text>';
+        });
+      } else {
+        for (var i = 0; i <= 120; i++) {
+          var x = -VIEW + i * (2 * VIEW / 120);
+          rel.ys(x).forEach(function(y){
+            if (!isFinite(y) || Math.abs(y) > VIEW) return;
+            svg += '<circle cx="' + px(x).toFixed(1) + '" cy="' + py(y).toFixed(1) + '" r="1.6" style="fill:var(--viz-accent)"></circle>';
+          });
+        }
+      }
+
+      var res = outputsAt(rel, xv);
+      svg += '<line x1="' + px(xv) + '" y1="' + T + '" x2="' + px(xv) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-violet);stroke-width:2;stroke-dasharray:5 4"></line>';
+      var multi = res.all || res.list.length > 1;
+      var mcol = multi ? 'var(--viz-red)' : 'var(--viz-green)';
+      if (res.all) {
+        svg += '<rect x="' + (px(xv) - 4) + '" y="' + T + '" width="8" height="' + (H - T - Bo) + '" style="fill:var(--viz-red);opacity:.35"></rect>';
+      } else {
+        res.list.forEach(function(y){
+          if (!isFinite(y) || Math.abs(y) > VIEW) return;
+          svg += '<circle cx="' + px(xv) + '" cy="' + py(y) + '" r="5" style="fill:' + mcol + '"></circle>';
+        });
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var count = res.all ? 'infinitely many outputs' : (res.list.length + ' output' + (res.list.length === 1 ? '' : 's'));
+      var listed = res.all ? 'every y at once' : (res.list.length ? res.list.map(function(y){ return 'y = ' + n(y); }).join(' , ') : 'no y at all');
+      out.innerHTML =
+        pill('at x = ' + n(xv) + ' → ' + count, multi ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(listed, 'var(--viz-muted)') +
+        pill(rel.fn ? 'FUNCTION — passes the vertical line test' : 'NOT A FUNCTION — one input, more than one output',
+          rel.fn ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      why.innerHTML = rel.why[0] + rel.why[1] +
+        (multi ? '<br><br><b style="display:inline;color:var(--viz-red)">Right now the sweep line is cutting it more than once</b> — you are looking directly at the failure. Any single x that does this is enough; a relation does not get partial credit.' : '');
+    }
+
+    RELS.forEach(function(rel, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = rel.t + '<br><span style="font-size:9.5px;color:var(--viz-muted)">' + rel.tag + '</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      rels.appendChild(b);
+    });
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Function Machine</h2>
+  <p class="vz-lede">f(x) is not a product, it is an instruction: replace every x by whatever is handed in.
+    Drag the input and watch the substitution happen, next to the three answers the distractors are built
+    from. <b>Like a coffee machine: it does not care whether you feed it beans or bricks, it only ever runs
+    the same routine on what you put in.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which function">
+    <button type="button" id="v2-f1" aria-pressed="true">f(x) = 2x + 1</button>
+    <button type="button" id="v2-f2" aria-pressed="false">g(x) = x² − 4</button>
+    <button type="button" id="v2-f3" aria-pressed="false">h(x) = 1/(x − 2)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-a">input a = <b><span id="v2-al">3</span></b></label>
+    <input class="vz-range" type="range" id="v2-a" min="-6" max="8" value="3" step="1" aria-label="The input value a">
+    <label class="vz-lab" for="v2-h">shift h = <b><span id="v2-hl">2</span></b></label>
+    <input class="vz-range" type="range" id="v2-h" min="-4" max="4" value="2" step="1" aria-label="The shift h">
+    <div class="v2-eq vz-mono" id="v2-eq"></div>
+    <div class="vz-mono" id="v2-steps"></div>
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="vz-why" id="v2-why"></div>
+    <div class="vz-pre" id="v2-pre"></div>
+  </div>
+
+  <p class="vz-note">Every wrong row above is a real computation of something — just not of the thing that was
+    asked. That is why writing the substitution down with brackets, before simplifying, defends you: the
+    distractor stops being a plausible alternative and becomes an answer to a different question.</p>
+
+  <style>
+    .v2-eq{margin-top:8px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:15px;font-weight:700}
+    .v2-rows{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-r.is-ok{border-color:var(--viz-green)}
+    .v2-r.is-bad{border-color:var(--viz-amber);border-style:dashed}
+    .v2-val{margin-left:auto;font-weight:800}
+    .v2-mk{font-size:9.5px;font-weight:800;letter-spacing:.03em;font-family:inherit;flex:0 0 62px;text-align:right}
+  </style>
+  <script>
+  (function(){
+    var FNS = [
+      { key:'f', t:'f(x) = 2x + 1', f:function(x){ return 2 * x + 1; },
+        sub:function(a){ return '2(' + a + ') + 1'; }, ok:function(){ return true; },
+        why:'With f(x) = 2x + 1, f(a + h) = 2(a + h) + 1 = 2a + 2h + 1 while f(a) + h = 2a + 1 + h. Those two agree only when h = 0 — which is exactly why f(a + h) sits in the numerator of the difference quotient and f(a) + h sits nowhere at all.' },
+      { key:'g', t:'g(x) = x² − 4', f:function(x){ return x * x - 4; },
+        sub:function(a){ return '(' + a + ')² - 4'; }, ok:function(){ return true; },
+        why:'The brackets are load-bearing here. g(-2) = (-2)² - 4 = 4 - 4 = 0, but dropping them gives -2² - 4 = -4 - 4 = -8, which is a different computation with a different answer. Squaring kills the sign; negating afterwards does not.' },
+      { key:'h', t:'h(x) = 1/(x − 2)', f:function(x){ return 1 / (x - 2); },
+        sub:function(a){ return '1/((' + a + ') - 2)'; }, ok:function(a){ return a !== 2; },
+        why:'Evaluate the whole denominator first: h(5) = 1/(5 - 2) = 1/3. Not 3 (that is the denominator itself), not 1/5 (that is forgetting the -2). And at a = 2 the machine has nothing to return — the first sighting of a domain, which visual 3 takes apart.' }
+    ];
+    var cur = 0;
+    var bs = [document.getElementById('v2-f1'), document.getElementById('v2-f2'), document.getElementById('v2-f3')];
+    var A = document.getElementById('v2-a'), Hs = document.getElementById('v2-h');
+    var al = document.getElementById('v2-al'), hl = document.getElementById('v2-hl');
+    var eq = document.getElementById('v2-eq'), steps = document.getElementById('v2-steps');
+    var rows = document.getElementById('v2-rows'), why = document.getElementById('v2-why');
+    var pre = document.getElementById('v2-pre');
+
+    function n(v){
+      // "not defined" rather than a blank: h(2) has no value, and saying so is the lesson.
+      if (v === null || v === undefined || !isFinite(v)) return 'not defined';
+      var r = Math.round(v * 1000) / 1000;
+      return String(r);
+    }
+    function val(fn, x){ return fn.ok(x) ? fn.f(x) : null; }
+    function row(label, v, ok, mark){
+      return '<div class="v2-r ' + (ok ? 'is-ok' : 'is-bad') + '"><span>' + label + '</span>' +
+        '<span class="v2-val" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' + v + '</span>' +
+        '<span class="v2-mk" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' + mark + '</span></div>';
+    }
+
+    function render(){
+      var fn = FNS[cur], a = Number(A.value), h = Number(Hs.value);
+      if (!isFinite(a)) a = 0;
+      if (!isFinite(h)) h = 0;
+      al.textContent = a; hl.textContent = h;
+      bs.forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      var fa = val(fn, a), fah = val(fn, a + h), fneg = val(fn, -a);
+      eq.textContent = fn.t + '        ' + fn.key + '(' + a + ') = ' + n(fa);
+
+      steps.textContent =
+        'substitute the input for EVERY x\n' +
+        '  ' + fn.key + '(' + a + ') = ' + fn.sub(a) + '\n' +
+        '          = ' + n(fa) + (fa === null ? '   ← a = 2 is not an allowed input' : '');
+
+      rows.innerHTML =
+        row(fn.key + '(a + h) = ' + fn.key + '(' + (a + h) + ')', n(fah), true, 'correct') +
+        row(fn.key + '(a) + h', n(fa === null ? null : fa + h), false, 'not this') +
+        row(fn.key + '(a) · h', n(fa === null ? null : fa * h), false, 'not this') +
+        row(fn.key + '(-a) = ' + fn.key + '(' + (-a) + ')', n(fneg), true, 'correct') +
+        row('-' + fn.key + '(a)', n(fa === null ? null : -fa), false, 'not this') +
+        row(fn.key + '(a)   x left unchanged', n(fa), false, 'the error');
+
+      why.innerHTML = '<b>f(a + h) is one evaluation, at the input a + h.</b>' + fn.why +
+        '<br><br>The last row is the commonest mistake in the topic: asked for ' + fn.key + '(-x), people substitute in some places and leave x alone in others, which quietly computes ' + fn.key +
+        '(x) instead. At a = ' + a + ' that is ' + n(fa) + ' where the answer is ' + n(fneg) + '.';
+    }
+
+    var PRE = [
+      { t:'f(3) = 7', i:0, a:3, h:2 },
+      { t:'g(-2) = 0', i:1, a:-2, h:2 },
+      { t:'h(5) = 1/3', i:2, a:5, h:2 },
+      { t:'h(2) undefined', i:2, a:2, h:1 }
+    ];
+    PRE.forEach(function(p){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.t;
+      b.addEventListener('click', function(){ cur = p.i; A.value = p.a; Hs.value = p.h; render(); });
+      pre.appendChild(b);
+    });
+    bs.forEach(function(b, j){ b.addEventListener('click', function(){ cur = j; render(); }); });
+    [A, Hs].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Domain And Range</h2>
+  <p class="vz-lede">Two sets, two questions. The domain is what you are allowed to put in; the range is what
+    can actually come out. Drag a candidate input along the top line and a candidate output along the bottom
+    one, and the panel tests each against the real formula. <b>Like a passport queue: one gate checks whether
+    you may enter, the other checks whether anyone ever arrives there.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which function">
+    <button type="button" id="v3-a1" aria-pressed="true">1/(x − 3)</button>
+    <button type="button" id="v3-a2" aria-pressed="false">√(x − 2)</button>
+    <button type="button" id="v3-a3" aria-pressed="false">x²</button>
+    <button type="button" id="v3-a4" aria-pressed="false">2x + 1</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-x">candidate input x = <b><span id="v3-xl">3</span></b></label>
+    <input class="vz-range" type="range" id="v3-x" min="-6" max="8" value="3" step="0.5" aria-label="Candidate input">
+    <label class="vz-lab" for="v3-y">candidate output y = <b><span id="v3-yl">0</span></b></label>
+    <input class="vz-range" type="range" id="v3-y" min="-6" max="8" value="0" step="0.5" aria-label="Candidate output">
+    <div class="vz-plot" id="v3-lines"></div>
+    <div class="v3-verdicts" id="v3-verdicts"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">Only two things ever shrink a domain at this level: a denominator that hits zero, and an
+    even root of a negative. Everything else is allowed in. And when the boundary value itself is legal — x = 2
+    for the square root, y = 0 for x² — the inequality is <b>not</b> strict, which is the entire difference
+    between two of the answer choices you will be offered.</p>
+
+  <style>
+    .v3-verdicts{margin-top:11px;display:flex;flex-direction:column;gap:6px}
+    .v3-v{border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12px;line-height:1.5}
+    .v3-v b{font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 132, L = 20, R = 12;
+    var LOX = -6, HIX = 8;
+    function px(v){ return L + (Math.max(LOX, Math.min(HIX, v)) - LOX) / (HIX - LOX) * (W - L - R); }
+
+    var FNS = [
+      { t:'f(x) = 1/(x - 3)',
+        inDom:function(x){ return Math.abs(x - 3) > 1e-9; },
+        f:function(x){ return 1 / (x - 3); },
+        witness:function(y){ return Math.abs(y) < 1e-9 ? null : 3 + 1 / y; },
+        dom:'all real numbers except x = 3', ran:'all y except y = 0',
+        why:'x = 3 makes the denominator zero, and division by zero is not a small value — it is no value. So exactly one point is removed and the domain is <b>all real numbers except x = 3</b>: a single puncture, not the half-line x &lt; 3 and not the half-line x &gt; 3. Both of those answers appear as options and both throw away half the inputs that are perfectly legal.' },
+      { t:'f(x) = sqrt(x - 2)',
+        inDom:function(x){ return x - 2 >= -1e-9; },
+        f:function(x){ return Math.sqrt(x - 2); },
+        witness:function(y){ return y < -1e-9 ? null : y * y + 2; },
+        dom:'x ≥ 2', ran:'y ≥ 0',
+        why:'A real square root needs a non-negative radicand: x - 2 ≥ 0, so x ≥ 2. The endpoint belongs — sqrt(0) = 0 is perfectly defined — so the answer is x ≥ 2 and not x &gt; 2. Drag the input to exactly 2 and watch it pass.' },
+      { t:'f(x) = x²',
+        inDom:function(){ return true; },
+        f:function(x){ return x * x; },
+        witness:function(y){ return y < -1e-9 ? null : Math.sqrt(y); },
+        dom:'all real numbers', ran:'y ≥ 0',
+        why:'Every real number can be squared, so nothing is excluded from the domain. The range is the interesting half: a square is never negative, so no y &lt; 0 is ever produced, while every y ≥ 0 is produced by x = sqrt(y). Including y = 0 itself, from x = 0 — which is why the range is <b>y ≥ 0</b> and not y &gt; 0.' },
+      { t:'f(x) = 2x + 1',
+        inDom:function(){ return true; },
+        f:function(x){ return 2 * x + 1; },
+        witness:function(y){ return (y - 1) / 2; },
+        dom:'all real numbers', ran:'all real numbers',
+        why:'No denominator, no root: nothing to exclude either side. Every output is reachable because you can always solve back, x = (y - 1)/2 — the same rearrangement that turns into an inverse function in visual 5. A non-constant line is the case where both sets are everything.' }
+    ];
+
+    var cur = 0;
+    var bs = [document.getElementById('v3-a1'), document.getElementById('v3-a2'),
+              document.getElementById('v3-a3'), document.getElementById('v3-a4')];
+    var X = document.getElementById('v3-x'), Y = document.getElementById('v3-y');
+    var xl = document.getElementById('v3-xl'), yl = document.getElementById('v3-yl');
+    var box = document.getElementById('v3-lines'), verd = document.getElementById('v3-verdicts');
+    var why = document.getElementById('v3-why');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+
+    // Shade a line by TESTING the real predicate at 281 sample points. The samples
+    // are snapped to 2 decimals so that x = 3 is hit EXACTLY — otherwise floating
+    // point steps past the excluded point and the hole never appears.
+    function bands(test){
+      var out = [], start = null, step = (HIX - LOX) / 280;
+      for (var i = 0; i <= 280; i++) {
+        var v = Math.round((LOX + i * step) * 100) / 100, ok = !!test(v);
+        if (ok && start === null) start = v;
+        if (!ok && start !== null) { out.push([start, v - step]); start = null; }
+      }
+      if (start !== null) out.push([start, HIX]);
+      return out;
+    }
+
+    function render(){
+      var fn = FNS[cur], x = Number(X.value), y = Number(Y.value);
+      if (!isFinite(x)) x = 0;
+      if (!isFinite(y)) y = 0;
+      xl.textContent = n(x); yl.textContent = n(y);
+      bs.forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      var okX = !!fn.inDom(x);
+      var w = fn.witness(y);
+      var okY = w !== null && isFinite(w) && fn.inDom(w) && Math.abs(fn.f(w) - y) < 1e-6;
+
+      function axis(rowY, label, bandList, mark, ok, colOk, holes){
+        var s = '<text x="' + L + '" y="' + (rowY - 15) + '" style="font-size:9.5px;font-weight:700;fill:var(--viz-muted)">' + label + '</text>';
+        bandList.forEach(function(b){
+          var x1 = px(b[0]), x2 = px(b[1]);
+          if (x2 > x1) s += '<rect x="' + x1 + '" y="' + (rowY - 8) + '" width="' + (x2 - x1) + '" height="16" style="fill:var(--viz-green);opacity:.28"></rect>';
+        });
+        s += '<line x1="' + L + '" y1="' + rowY + '" x2="' + (W - R) + '" y2="' + rowY + '" style="stroke:var(--viz-line);stroke-width:2"></line>';
+        for (var t = -6; t <= 8; t += 2) {
+          s += '<line x1="' + px(t) + '" y1="' + (rowY - 4) + '" x2="' + px(t) + '" y2="' + (rowY + 4) + '" style="stroke:var(--viz-line);stroke-width:1.2"></line>';
+          s += '<text x="' + px(t) + '" y="' + (rowY + 16) + '" text-anchor="middle" style="font-size:8.5px;fill:var(--viz-muted)">' + t + '</text>';
+        }
+        (holes || []).forEach(function(h){
+          var hx = px((h[0] + h[1]) / 2);
+          s += '<circle cx="' + hx + '" cy="' + rowY + '" r="4" style="fill:var(--viz-bg);stroke:var(--viz-red);stroke-width:2"></circle>';
+          s += '<text x="' + hx + '" y="' + (rowY + 26) + '" text-anchor="middle" style="font-size:8.5px;font-weight:700;fill:var(--viz-red)">excluded</text>';
+        });
+        s += '<circle cx="' + px(mark) + '" cy="' + rowY + '" r="5.5" style="fill:' + (ok ? colOk : 'var(--viz-bg)') + ';stroke:' + (ok ? colOk : 'var(--viz-red)') + ';stroke-width:2"></circle>';
+        s += '<text x="' + px(mark) + '" y="' + (rowY - 11) + '" text-anchor="middle" style="font-size:9px;font-weight:700;fill:' + (ok ? colOk : 'var(--viz-red)') + '">' + (ok ? 'allowed' : 'blocked') + '</text>';
+        return s;
+      }
+      // An isolated excluded point is a HOLE, not an unshaded region — too thin to
+      // see as a gap in the band, so it gets its own open circle.
+      function narrowGaps(test){
+        return bands(function(v){ return !test(v); }).filter(function(b){ return b[1] - b[0] < 0.3; });
+      }
+      function inRangeAt(v){
+        var wv = fn.witness(v);
+        return wv !== null && isFinite(wv) && fn.inDom(wv) && Math.abs(fn.f(wv) - v) < 1e-6;
+      }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Domain line and range line">';
+      svg += axis(38, 'DOMAIN — possible inputs x', bands(fn.inDom), x, okX, 'var(--viz-accent)', narrowGaps(fn.inDom));
+      svg += axis(106, 'RANGE — possible outputs y', bands(inRangeAt), y, okY, 'var(--viz-violet)', narrowGaps(inRangeAt));
+      svg += '</svg>';
+      box.innerHTML = svg;
+
+      verd.innerHTML =
+        '<div class="v3-v" style="border-color:' + (okX ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          '<b>x = ' + n(x) + '</b> — ' + (okX
+            ? 'IN the domain, and f(' + n(x) + ') = <b>' + n(fn.f(x)) + '</b>.'
+            : 'NOT in the domain: the formula has no value to return here.') +
+          ' &nbsp;Domain = <b>' + fn.dom + '</b>.</div>' +
+        '<div class="v3-v" style="border-color:' + (okY ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          '<b>y = ' + n(y) + '</b> — ' + (okY
+            ? 'IN the range: it is produced by x = <b>' + n(w) + '</b>.'
+            : 'NOT in the range: no allowed input produces it.') +
+          ' &nbsp;Range = <b>' + fn.ran + '</b>.</div>';
+
+      why.innerHTML = '<b>' + fn.t + '</b>' + fn.why;
+    }
+
+    bs.forEach(function(b, j){ b.addEventListener('click', function(){ cur = j; render(); }); });
+    [X, Y].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Sign Versus Direction</h2>
+  <p class="vz-lede">Two questions that sound alike and are unrelated: <em>where is f below the axis</em>
+    (sign) and <em>where is f climbing</em> (direction). Drag the point and read both answers at once — they
+    disagree far more often than they agree. <b>Like a plane's altitude and its climb rate: you can be below
+    sea level and rising, or high up and falling.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which function">
+    <button type="button" id="v4-a1" aria-pressed="true">x² − 4</button>
+    <button type="button" id="v4-a2" aria-pressed="false">x² − 9</button>
+    <button type="button" id="v4-a3" aria-pressed="false">x³</button>
+    <button type="button" id="v4-a4" aria-pressed="false">−x² + 4x</button>
+    <button type="button" id="v4-a5" aria-pressed="false">−x² + 6x</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-x">point at x = <b><span id="v4-xl">1</span></b></label>
+    <input class="vz-range" type="range" id="v4-x" min="-5" max="7" value="1" step="0.25" aria-label="Point on the curve">
+    <div class="vz-plot" id="v4-plot"></div>
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-ints" id="v4-ints"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">The intervals under the picture are not stored anywhere — they are found by sampling the
+    real f and f' across the window, exactly the way you would find them by hand: factor for the sign
+    intervals, differentiate for the direction ones. And note x³, whose derivative is zero at a single point
+    and which is <b>increasing everywhere anyway</b>: one isolated flat instant does not interrupt a climb.</p>
+
+  <style>
+    .v4-pills{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-ints{margin-top:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75}
+    .v4-ints span{color:var(--viz-muted)}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 210, L = 26, R = 10, T = 10, Bo = 20;
+    var LOX = -5, HIX = 7, LOY = -12, HIY = 12;
+    function px(x){ return L + (x - LOX) / (HIX - LOX) * (W - L - R); }
+    function py(y){ return T + (HIY - y) / (HIY - LOY) * (H - T - Bo); }
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+
+    var FNS = [
+      { t:'f(x) = x² - 4', f:function(x){ return x * x - 4; }, d:function(x){ return 2 * x; },
+        dt:"f'(x) = 2x", note:'It factors as (x - 2)(x + 2), so it is negative exactly between its roots.' },
+      { t:'f(x) = x² - 9', f:function(x){ return x * x - 9; }, d:function(x){ return 2 * x; },
+        dt:"f'(x) = 2x", note:'Same shape, roots at ±3: negative exactly on the open interval between them.' },
+      { t:'f(x) = x³', f:function(x){ return x * x * x; }, d:function(x){ return 3 * x * x; },
+        dt:"f'(x) = 3x²", note:"f'(x) = 3x² is never negative and is zero only at the single point x = 0, so f increases through it. Increasing everywhere, yet negative on the whole left half — the two ideas are independent." },
+      { t:'f(x) = -x² + 4x', f:function(x){ return -x * x + 4 * x; }, d:function(x){ return -2 * x + 4; },
+        dt:"f'(x) = -2x + 4", note:"Solve -2x + 4 &gt; 0 to get x &lt; 2, so f increases on (-∞, 2) and falls after. The turning point is where f' changes sign, not where f does." },
+      { t:'f(x) = -x² + 6x', f:function(x){ return -x * x + 6 * x; }, d:function(x){ return -2 * x + 6; },
+        dt:"f'(x) = -2x + 6", note:"The same derivation with a 6: -2x + 6 &gt; 0 gives x &lt; 3, so f is increasing on (-∞, 3). Note it is also positive on (0, 6) — a different interval answering a different question." }
+    ];
+
+    var cur = 0;
+    var bs = [document.getElementById('v4-a1'), document.getElementById('v4-a2'), document.getElementById('v4-a3'),
+              document.getElementById('v4-a4'), document.getElementById('v4-a5')];
+    var X = document.getElementById('v4-x'), xl = document.getElementById('v4-xl');
+    var plot = document.getElementById('v4-plot'), pills = document.getElementById('v4-pills');
+    var ints = document.getElementById('v4-ints'), why = document.getElementById('v4-why');
+
+    function scan(test){
+      var out = [], start = null, step = (HIX - LOX) / 1200;
+      for (var i = 0; i <= 1200; i++) {
+        var x = LOX + i * step, ok = !!test(x);
+        if (ok && start === null) start = x;
+        if (!ok && start !== null) { out.push([start, x - step]); start = null; }
+      }
+      if (start !== null) out.push([start, HIX]);
+      // A single sample wide is not an interval: f'(0) = 0 for x³ would otherwise be
+      // reported as "decreasing on (0, 0)", which is the opposite of what it teaches.
+      return out.filter(function(b){ return b[1] - b[0] > step * 1.5; });
+    }
+    function fmt(list){
+      if (!list.length) return 'nowhere in this window';
+      return list.map(function(b){
+        var a = b[0] <= LOX + 1e-6 ? '-∞' : String(Math.round(b[0] * 10) / 10);
+        var c = b[1] >= HIX - 1e-6 ? '∞' : String(Math.round(b[1] * 10) / 10);
+        return '(' + a + ', ' + c + ')';
+      }).join('  ∪  ');
+    }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var fn = FNS[cur], x = Number(X.value);
+      if (!isFinite(x)) x = 0;
+      xl.textContent = n(x);
+      bs.forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      var neg = scan(function(t){ return fn.f(t) < 0; });
+      var pos = scan(function(t){ return fn.f(t) > 0; });
+      var inc = scan(function(t){ return fn.d(t) >= 0; });
+      var dec = scan(function(t){ return fn.d(t) <= 0; });
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The curve with negative stretches marked on the axis">';
+      neg.forEach(function(b){
+        svg += '<rect x="' + px(b[0]) + '" y="' + (py(0) - 5) + '" width="' + Math.max(1, px(b[1]) - px(b[0])) + '" height="10" style="fill:var(--viz-red);opacity:.32"></rect>';
+      });
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      for (var t = -4; t <= 6; t += 2) {
+        if (t === 0) continue;
+        svg += '<text x="' + px(t) + '" y="' + (py(0) + 12) + '" text-anchor="middle" style="font-size:8.5px;fill:var(--viz-muted)">' + t + '</text>';
+      }
+
+      var segs = [], curSeg = [];
+      for (var i = 0; i <= 240; i++) {
+        var xx = LOX + i * (HIX - LOX) / 240, yy = fn.f(xx);
+        if (isFinite(yy) && yy >= LOY && yy <= HIY) curSeg.push(px(xx).toFixed(1) + ',' + py(yy).toFixed(1));
+        else if (curSeg.length) { segs.push(curSeg); curSeg = []; }
+      }
+      if (curSeg.length) segs.push(curSeg);
+      segs.forEach(function(s){
+        svg += '<polyline points="' + s.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.5"></polyline>';
+      });
+
+      var fx = fn.f(x), dx = fn.d(x);
+      if (isFinite(fx) && fx >= LOY && fx <= HIY) {
+        svg += '<line x1="' + px(x) + '" y1="' + py(0) + '" x2="' + px(x) + '" y2="' + py(fx) + '" style="stroke:var(--viz-violet);stroke-width:1.5;stroke-dasharray:4 3"></line>';
+        svg += '<circle cx="' + px(x) + '" cy="' + py(fx) + '" r="5" style="fill:var(--viz-violet)"></circle>';
+        var slopeL = 1.1, x1 = x - slopeL, x2 = x + slopeL;
+        svg += '<line x1="' + px(x1) + '" y1="' + py(fx - dx * slopeL) + '" x2="' + px(x2) + '" y2="' + py(fx + dx * slopeL) + '" style="stroke:var(--viz-amber);stroke-width:2"></line>';
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      // &lt; and &gt; deliberately: these strings are written with innerHTML.
+      var signTxt = fx < 0 ? 'f(x) = ' + n(fx) + ' &lt; 0 — BELOW the axis' : (fx > 0 ? 'f(x) = ' + n(fx) + ' &gt; 0 — ABOVE the axis' : 'f(x) = 0 — ON the axis');
+      var signCol = fx < 0 ? 'var(--viz-red)' : (fx > 0 ? 'var(--viz-green)' : 'var(--viz-muted)');
+      var dirTxt = dx > 0 ? "f'(x) = " + n(dx) + ' &gt; 0 — INCREASING' : (dx < 0 ? "f'(x) = " + n(dx) + ' &lt; 0 — DECREASING' : "f'(x) = 0 — momentarily FLAT");
+      var dirCol = dx > 0 ? 'var(--viz-green)' : (dx < 0 ? 'var(--viz-red)' : 'var(--viz-amber)');
+      pills.innerHTML = pill('SIGN · ' + signTxt, signCol) + pill('DIRECTION · ' + dirTxt, dirCol);
+
+      function intLine(label, list){
+        return '<span>' + label + '</span>  ' + (list.length ? 'on  ' + fmt(list) : 'nowhere in this window') + '<br>';
+      }
+      ints.innerHTML = intLine('f(x) &lt; 0', neg) + intLine('f(x) &gt; 0', pos) +
+        intLine('increasing', inc) + intLine('decreasing', dec);
+
+      var agree = (fx < 0 && dx < 0) || (fx > 0 && dx > 0);
+      why.innerHTML = '<b>' + fn.t + ',  ' + fn.dt + '</b>' + fn.note +
+        '<br><br>At x = ' + n(x) + ' the two readings are <b>' + (fx < 0 ? 'negative' : (fx > 0 ? 'positive' : 'zero')) + '</b> and <b>' +
+        (dx > 0 ? 'increasing' : (dx < 0 ? 'decreasing' : 'flat')) + '</b>' +
+        (agree ? ' — they happen to point the same way here, which is exactly the coincidence that makes the confusion feel harmless. Drag a little and it breaks.'
+               : ' — different answers to different questions, at one single point. "Below the axis" says nothing about whether the curve is climbing.') +
+        '<br><br>Where the red band on the axis <em>ends</em>, f changes sign; a continuous function cannot get from negative to positive without passing through zero, so each of those endpoints is an <b>x-intercept</b> — not a minimum, and not an asymptote.';
+    }
+
+    bs.forEach(function(b, j){ b.addEventListener('click', function(){ cur = j; render(); }); });
+    X.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Inverse Mirror</h2>
+  <p class="vz-lede">An inverse swaps the roles of the inputs and the outputs, which on a graph is one single
+    move: reflect across the line y = x. Drag the point to watch (a, b) become (b, a), then drag the
+    horizontal line to find out whether the reflection is still a function. <b>Like a recipe read backwards:
+    fine for "add 3 eggs", hopeless for "bake until brown".</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which function">
+    <button type="button" id="v5-a1" aria-pressed="true">f(x) = 3x − 1</button>
+    <button type="button" id="v5-a2" aria-pressed="false">f(x) = x³</button>
+    <button type="button" id="v5-a3" aria-pressed="false">f(x) = x²</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-a">point at x = <b><span id="v5-al">3</span></b></label>
+    <input class="vz-range" type="range" id="v5-a" min="-4" max="4" value="3" step="0.25" aria-label="Point on the graph of f">
+    <label class="vz-lab" for="v5-k">horizontal test line y = <b><span id="v5-kl">9</span></b></label>
+    <input class="vz-range" type="range" id="v5-k" min="-9" max="9" value="9" step="0.5" aria-label="Height of the horizontal test line">
+    <div class="vz-plot" id="v5-plot"></div>
+    <div class="v5-pills" id="v5-pills"></div>
+    <div class="vz-mono" id="v5-read"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Read the arrow backwards and most inverse questions are already answered: if f(3) = 8
+    then f<sup>-1</sup>(8) = 3, with no algebra at all. And keep the notation straight —
+    f<sup>-1</sup> is the reversing rule, never the reciprocal 1/f.</p>
+
+  <style>
+    .v5-pills{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+    .v5-read{margin-top:10px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:12px}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 250, L = 26, R = 10, T = 10, Bo = 20, VIEW = 9.5;
+    function px(x){ return L + (x + VIEW) / (2 * VIEW) * (W - L - R); }
+    function py(y){ return T + (VIEW - y) / (2 * VIEW) * (H - T - Bo); }
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+
+    var FNS = [
+      { t:'f(x) = 3x - 1', f:function(x){ return 3 * x - 1; }, inv:'f⁻¹(x) = (x + 1)/3',
+        g:function(y){ return (y + 1) / 3; },
+        why:'Solve y = 3x - 1 for x: x = (y + 1)/3. That rearrangement IS the swap — x was the input and is now the output. Check it on the quiz value: f(3) = 8, and f⁻¹(8) = (8 + 1)/3 = 3. Same pair of numbers, read in the other direction.' },
+      { t:'f(x) = x³', f:function(x){ return x * x * x; }, inv:'f⁻¹(x) = cube root of x',
+        g:function(y){ return Math.cbrt(y); },
+        why:'x³ is strictly increasing (visual 4 showed why), so it never revisits an output and every horizontal line meets it exactly once. Strictly increasing ⇒ one-to-one ⇒ invertible. The mirror image is the cube-root curve, and it is a function.' },
+      { t:'f(x) = x²', f:function(x){ return x * x; }, inv:'no inverse function on all of R',
+        g:null,
+        why:'y = 9 is produced by x = 3 and by x = -3, so the horizontal line at 9 cuts the graph twice. Reflect that and you get one input with two outputs — the sideways parabola from visual 1, which fails the vertical line test. Restrict the domain to x ≥ 0 and it becomes one-to-one, with sqrt as its inverse.' }
+    ];
+
+    var cur = 0;
+    var bs = [document.getElementById('v5-a1'), document.getElementById('v5-a2'), document.getElementById('v5-a3')];
+    var A = document.getElementById('v5-a'), K = document.getElementById('v5-k');
+    var al = document.getElementById('v5-al'), kl = document.getElementById('v5-kl');
+    var plot = document.getElementById('v5-plot'), pills = document.getElementById('v5-pills');
+    var read = document.getElementById('v5-read'), why = document.getElementById('v5-why');
+
+    // Count solutions of f(x) = k by walking the curve. A sign change is a crossing;
+    // a run of near-zero values is a TOUCH (y = 0 against x², the vertex) and counts
+    // once — otherwise a tangent line reads as "meets it 0 times" while plainly
+    // touching, which is worse than useless on a test panel.
+    function hits(f, k){
+      var out = [], step = 8 / 1600, tol = 0.02, prev = null, run = null;
+      for (var i = 0; i <= 1600; i++) {
+        var x = -4 + i * step, c = f(x) - k;
+        if (!isFinite(c)) { prev = null; run = null; continue; }
+        if (Math.abs(c) <= tol) {
+          if (run === null) run = { best:Math.abs(c), at:x };
+          else if (Math.abs(c) < run.best) { run.best = Math.abs(c); run.at = x; }
+        } else if (run !== null) {
+          out.push(run.at); run = null;
+        } else if (prev !== null && (prev < 0) !== (c < 0)) {
+          out.push(x - step / 2);
+        }
+        prev = c;
+      }
+      if (run !== null) out.push(run.at);
+      return out;
+    }
+    function oneToOne(f){
+      for (var k = -9; k <= 9; k += 0.25) { if (hits(f, k).length > 1) return false; }
+      return true;
+    }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var fn = FNS[cur], a = Number(A.value), k = Number(K.value);
+      if (!isFinite(a)) a = 0;
+      if (!isFinite(k)) k = 0;
+      al.textContent = n(a); kl.textContent = n(k);
+      bs.forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      var fa = fn.f(a);
+      var roots = hits(fn.f, k);
+      var injective = oneToOne(fn.f);
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="A function, its mirror image in the line y = x, and a horizontal test line">';
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      svg += '<line x1="' + px(-VIEW) + '" y1="' + py(-VIEW) + '" x2="' + px(VIEW) + '" y2="' + py(VIEW) + '" style="stroke:var(--viz-muted);stroke-width:1.3;stroke-dasharray:5 4"></line>';
+      svg += '<text x="' + px(VIEW - 2.2) + '" y="' + (py(VIEW - 2.2) - 5) + '" style="font-size:9px;fill:var(--viz-muted)">y = x</text>';
+
+      function curve(map, col, dash){
+        var segs = [], cs = [];
+        for (var i = 0; i <= 300; i++) {
+          var t = -VIEW + i * (2 * VIEW / 300), p = map(t);
+          if (p && isFinite(p[0]) && isFinite(p[1]) && Math.abs(p[0]) <= VIEW && Math.abs(p[1]) <= VIEW) {
+            cs.push(px(p[0]).toFixed(1) + ',' + py(p[1]).toFixed(1));
+          } else if (cs.length) { segs.push(cs); cs = []; }
+        }
+        if (cs.length) segs.push(cs);
+        return segs.map(function(s){
+          return '<polyline points="' + s.join(' ') + '" style="fill:none;stroke:' + col + ';stroke-width:2.5' + (dash ? ';stroke-dasharray:6 4' : '') + '"></polyline>';
+        }).join('');
+      }
+      svg += curve(function(t){ return [t, fn.f(t)]; }, 'var(--viz-accent)', false);
+      svg += curve(function(t){ return [fn.f(t), t]; }, 'var(--viz-violet)', true);
+
+      svg += '<line x1="' + L + '" y1="' + py(k) + '" x2="' + (W - R) + '" y2="' + py(k) + '" style="stroke:' + (roots.length > 1 ? 'var(--viz-red)' : 'var(--viz-green)') + ';stroke-width:1.8"></line>';
+      roots.forEach(function(r){
+        if (Math.abs(r) <= VIEW) svg += '<circle cx="' + px(r) + '" cy="' + py(k) + '" r="4" style="fill:' + (roots.length > 1 ? 'var(--viz-red)' : 'var(--viz-green)') + '"></circle>';
+      });
+
+      if (isFinite(fa) && Math.abs(fa) <= VIEW) {
+        svg += '<line x1="' + px(a) + '" y1="' + py(fa) + '" x2="' + px(fa) + '" y2="' + py(a) + '" style="stroke:var(--viz-amber);stroke-width:1.3;stroke-dasharray:3 3"></line>';
+        svg += '<circle cx="' + px(a) + '" cy="' + py(fa) + '" r="5" style="fill:var(--viz-accent)"></circle>';
+        svg += '<circle cx="' + px(fa) + '" cy="' + py(a) + '" r="5" style="fill:var(--viz-violet)"></circle>';
+        svg += '<text x="' + (px(a) + 7) + '" y="' + (py(fa) - 5) + '" style="font-size:9px;fill:var(--viz-accent)">(' + n(a) + ', ' + n(fa) + ')</text>';
+        svg += '<text x="' + (px(fa) + 7) + '" y="' + (py(a) - 5) + '" style="font-size:9px;fill:var(--viz-violet)">(' + n(fa) + ', ' + n(a) + ')</text>';
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      pills.innerHTML =
+        pill('line y = ' + n(k) + ' meets f ' + roots.length + ' time' + (roots.length === 1 ? '' : 's'),
+          roots.length > 1 ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(injective ? 'ONE-TO-ONE — the inverse is a function' : 'NOT ONE-TO-ONE — the inverse is not a function',
+          injective ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill(fn.inv, 'var(--viz-violet)');
+
+      read.innerHTML = 'f(' + n(a) + ') = <b>' + n(fa) + '</b>' +
+        (injective && fn.g
+          ? ' &nbsp;⇒&nbsp; f⁻¹(' + n(fa) + ') = <b>' + n(fn.g(fa)) + '</b> &nbsp;— the same pair (' + n(a) + ', ' + n(fa) + ') read as (' + n(fa) + ', ' + n(a) + ').'
+          : (a === 0
+            ? ' &nbsp;— and f⁻¹ is not a function here. This one input is the exception: only x = 0 reaches this output, but its neighbours all pair up.'
+            : ' &nbsp;— but f⁻¹ is not a function here, so f⁻¹(' + n(fa) + ') has no single answer: both ' + n(a) + ' and ' + n(-a) + ' map to it.'));
+
+      why.innerHTML = '<b>' + fn.t + '</b>' + fn.why +
+        '<br><br>The dashed violet curve is the reflection of the solid one across y = x, drawn by plotting the very same sampled points with their coordinates swapped — nothing else was computed. Reflecting across y = 0 or x = 0 would flip the picture over an axis instead, which is a different transformation entirely and one of the standing distractors.';
+    }
+
+    bs.forEach(function(b, j){ b.addEventListener('click', function(){ cur = j; render(); }); });
+    [A, K].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

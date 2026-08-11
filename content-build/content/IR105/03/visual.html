@@ -1,0 +1,529 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Sum Versus Product</button>
+  <button class="viz-tab" data-viz-tab="2">2. Ranking By Likelihood</button>
+  <button class="viz-tab" data-viz-tab="3">3. One Missing Term</button>
+  <button class="viz-tab" data-viz-tab="4">4. Lambda Versus Mu</button>
+  <button class="viz-tab" data-viz-tab="5">5. How Much To Borrow</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Sum Versus Product</h2>
+  <p class="vz-lede"><b>The Assembled BM25 Formula</b> added per-term weights together. Query likelihood
+    <em>multiplies</em> per-term probabilities instead — and that single structural difference is the whole
+    reason smoothing exists. Drag the count of <code>timeout</code> in a 100-token document down to zero and
+    watch the two sides part company. <b>Like a team score: add up the players and one zero barely shows;
+    multiply them and one zero wipes out the team.</b></p>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-tf">Query <code>database timeout</code> &nbsp;·&nbsp; document of 100 tokens
+      &nbsp;·&nbsp; <code>database</code> appears 5 times &nbsp;·&nbsp; <code>timeout</code> appears
+      <span id="v1-tfl">2</span> times</label>
+    <input type="range" id="v1-tf" min="0" max="10" value="2" step="1" aria-label="Occurrences of timeout in the document">
+    <div class="v1-cols">
+      <div class="v1-c" id="v1-bm25"></div>
+      <div class="v1-c" id="v1-ql"></div>
+    </div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Both models reward the term and both divide by document length — <b>The Role of b</b> did
+    it with a tuned dial, <code>tf/|d|</code> does it by construction. The difference is not accuracy, it is
+    what happens at zero: a sum degrades, a product collapses. Everything in this lesson after this panel is
+    about repairing that collapse without throwing away the probabilistic model that caused it.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-cols{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+    .v1-c{flex:1 1 152px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+    .v1-c h5{margin:0 0 7px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-row{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11.5px;line-height:1.9}
+    .v1-tot{margin-top:7px;padding-top:7px;border-top:1px dashed var(--viz-line);font-weight:800}
+    .v1-track{height:12px;border-radius:4px;background:var(--viz-line);overflow:hidden;margin-top:7px}
+    .v1-track i{display:block;height:100%}
+    .v1-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var K1 = 1.2, LEN = 100, TF1 = 5;
+    var s = document.getElementById('v1-tf'), lab = document.getElementById('v1-tfl');
+    var bm = document.getElementById('v1-bm25'), ql = document.getElementById('v1-ql');
+    var why = document.getElementById('v1-why');
+
+    function sat(tf){ return (tf * (K1 + 1)) / (K1 + tf); }        // last lesson's saturating tf factor
+    function num(x, d){ return (isFinite(x) ? x.toFixed(d) : '—'); }
+    function sci(x){ return (isFinite(x) && x > 0) ? x.toExponential(2) : '0'; }
+    function lg(x){ return (x > 0 && isFinite(x)) ? Math.log(x).toFixed(3) : '−∞'; }
+
+    function row(a, b, c){
+      return '<div class="v1-row"><span>' + a + '</span><span style="color:' + (c || 'var(--viz-ink)') + '">' + b + '</span></div>';
+    }
+    function bar(v, max, c){
+      var w = Math.max(0, Math.min(100, (max > 0 ? v / max : 0) * 100));
+      return '<div class="v1-track"><i style="width:' + w.toFixed(1) + '%;background:' + c + '"></i></div>';
+    }
+
+    function render(){
+      var tf2 = Number(s.value);
+      lab.textContent = tf2;
+
+      var w1 = sat(TF1), w2 = sat(tf2), sum = w1 + w2;
+      bm.innerHTML = '<h5>BM25 · a sum</h5>' +
+        row('w(database)', num(w1, 3)) +
+        row('w(timeout)', num(w2, 3), tf2 === 0 ? 'var(--viz-amber)' : 'var(--viz-ink)') +
+        '<div class="v1-row v1-tot"><span>total</span><span style="color:var(--viz-green)">' + num(sum, 3) + '</span></div>' +
+        bar(sum, 2 * (K1 + 1), 'var(--viz-green)') +
+        '<div style="font-size:10.5px;color:var(--viz-muted);margin-top:6px">tf-saturation factors, idf held aside</div>';
+
+      var p1 = TF1 / LEN, p2 = tf2 / LEN, prod = p1 * p2;
+      ql.innerHTML = '<h5>Query likelihood · a product</h5>' +
+        row('P(database|d)', num(p1, 4)) +
+        row('P(timeout|d)', num(p2, 4), tf2 === 0 ? 'var(--viz-red)' : 'var(--viz-ink)') +
+        '<div class="v1-row v1-tot"><span>P(q|d)</span><span style="color:' + (prod > 0 ? 'var(--viz-accent)' : 'var(--viz-red)') + '">' + sci(prod) + '</span></div>' +
+        bar(prod, 0.005, prod > 0 ? 'var(--viz-accent)' : 'var(--viz-red)') +
+        '<div style="font-size:10.5px;color:var(--viz-muted);margin-top:6px">log score ' + lg(prod) + ' &nbsp;·&nbsp; less negative is better</div>';
+
+      why.innerHTML = tf2 === 0
+        ? '<b style="color:var(--viz-red)">Zero: the product is dead, the sum is merely smaller.</b>' +
+          'BM25 still scores <b>' + num(sum, 3) + '</b>, so this document still outranks one containing neither term — a missing term costs it one addend. ' +
+          'Query likelihood returns <b>exactly 0</b>, and <code>log 0</code> is −∞. A document deep in database material that happens to write <code>latency</code> instead of <code>timeout</code> is now <b>tied with documents that contain neither word</b>. ' +
+          '<br><br>That tie is the <b>zero-frequency problem</b>, and it is why smoothing in this model is mandatory rather than merely helpful.'
+        : '<b style="color:var(--viz-green)">Both reward the term — and both already normalise by length.</b>' +
+          'The maximum-likelihood estimate <code>P(t|d) = tf(t,d)/|d|</code> gives ' + num(p2, 4) + ' for ' + tf2 + ' occurrence' + (tf2 === 1 ? '' : 's') + ' in 100 tokens; five occurrences in 1,000 tokens would give 0.005 instead of 0.05. Length normalisation is not bolted on here, it falls out of the estimate. ' +
+          '<br><br>Note what query likelihood does <em>not</em> do: it never saturates. Each extra occurrence moves <code>tf/|d|</code> by the same 0.01, while the BM25 factor is already flattening. Drag to <b>0</b> to see the difference that actually matters.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Ranking By Likelihood</h2>
+  <p class="vz-lede">Rank by <code>P(q|d)</code>: the probability that each document's own word distribution
+    would emit the query. Move the counts and the lengths and watch raw totals lose to proportions — then
+    swap the query's word order and watch nothing at all happen. <b>Like judging two bakeries by the share of
+    their output that is sourdough, not by how many loaves they baked.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Query word order">
+    <button id="v2-o1" aria-pressed="true">query: neural database</button>
+    <button id="v2-o2" aria-pressed="false">query: database neural</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-ctl">
+      <label for="v2-an">A: tf(neural) <b id="v2-anl">4</b></label>
+      <input type="range" id="v2-an" min="0" max="30" value="4" step="1" aria-label="Document A count of neural">
+      <label for="v2-ad">A: tf(database) <b id="v2-adl">1</b></label>
+      <input type="range" id="v2-ad" min="0" max="30" value="1" step="1" aria-label="Document A count of database">
+      <label for="v2-al">A: length <b id="v2-all">100</b></label>
+      <input type="range" id="v2-al" min="50" max="2000" value="100" step="50" aria-label="Document A length">
+      <label for="v2-bn">B: tf(neural) <b id="v2-bnl">20</b></label>
+      <input type="range" id="v2-bn" min="0" max="30" value="20" step="1" aria-label="Document B count of neural">
+      <label for="v2-bd">B: tf(database) <b id="v2-bdl">10</b></label>
+      <input type="range" id="v2-bd" min="0" max="30" value="10" step="1" aria-label="Document B count of database">
+      <label for="v2-bl">B: length <b id="v2-bll">1000</b></label>
+      <input type="range" id="v2-bl" min="50" max="2000" value="1000" step="50" aria-label="Document B length">
+    </div>
+    <div class="v2-out" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">A high <code>P(q|d)</code> is <b>not</b> the probability that the document is relevant —
+    it is a compatibility signal between the query and an estimated distribution. A fluent but irrelevant page
+    can share terms, and a genuinely relevant page written entirely in synonyms can have almost no lexical
+    likelihood. Relevance judgments still decide the smoother, the fields and the extra features.</p>
+
+  <style>
+    .v2-ctl{display:grid;grid-template-columns:1fr;gap:2px}
+    .v2-ctl label{font-size:11.5px;font-weight:700;font-family:ui-monospace,Consolas,monospace;
+      display:flex;justify-content:space-between;margin-top:6px}
+    .v2-ctl label b{color:var(--viz-accent)}
+    .v2-ctl input{width:100%}
+    .v2-out{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+    .v2-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75}
+    .v2-d.is-win{border-color:var(--viz-green)}
+    .v2-hd{display:flex;justify-content:space-between;font-weight:800;font-size:12px}
+    .v2-tag{font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v2-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var order = 0;
+    var ids = ['v2-an','v2-ad','v2-al','v2-bn','v2-bd','v2-bl'];
+    var el = {};
+    ids.forEach(function(i){ el[i] = document.getElementById(i); });
+    var labs = {
+      'v2-an': document.getElementById('v2-anl'), 'v2-ad': document.getElementById('v2-adl'),
+      'v2-al': document.getElementById('v2-all'), 'v2-bn': document.getElementById('v2-bnl'),
+      'v2-bd': document.getElementById('v2-bdl'), 'v2-bl': document.getElementById('v2-bll')
+    };
+    var out = document.getElementById('v2-out'), why = document.getElementById('v2-why');
+    var b1 = document.getElementById('v2-o1'), b2 = document.getElementById('v2-o2');
+
+    function sci(x){ return (isFinite(x) && x > 0) ? x.toExponential(3) : '0'; }
+    function lg(x){ return (x > 0 && isFinite(x)) ? Math.log(x).toFixed(3) : '−∞'; }
+
+    function doc(name, tfn, tfd, len){
+      var L = Math.max(1, len);                       // guards the divide, the slider never sends 0
+      var pn = tfn / L, pd = tfd / L;
+      return { name:name, tfn:tfn, tfd:tfd, len:L, pn:pn, pd:pd, p:pn * pd };
+    }
+    function card(d, win, tie){
+      var terms = order === 0
+        ? [['neural', d.tfn, d.pn], ['database', d.tfd, d.pd]]
+        : [['database', d.tfd, d.pd], ['neural', d.tfn, d.pn]];
+      var lines = terms.map(function(t){
+        return 'P(' + t[0] + '|' + d.name + ') = ' + t[1] + '/' + d.len + ' = ' + t[2].toFixed(4);
+      }).join('<br>');
+      var tag = tie ? 'TIED' : (win ? 'RANKS HIGHER' : 'ranks lower');
+      var col = tie ? 'var(--viz-amber)' : (win ? 'var(--viz-green)' : 'var(--viz-muted)');
+      return '<div class="v2-d' + (win && !tie ? ' is-win' : '') + '">' +
+        '<div class="v2-hd"><span>document ' + d.name + ' &nbsp;|d| = ' + d.len + '</span>' +
+        '<span class="v2-tag" style="color:' + col + '">' + tag + '</span></div>' +
+        lines + '<br>P(q|' + d.name + ') = ' + sci(d.p) + ' &nbsp;·&nbsp; log ' + lg(d.p) + '</div>';
+    }
+
+    function render(){
+      ids.forEach(function(i){ labs[i].textContent = el[i].value; });
+      b1.setAttribute('aria-pressed', order === 0 ? 'true' : 'false');
+      b2.setAttribute('aria-pressed', order === 1 ? 'true' : 'false');
+
+      var A = doc('A', Number(el['v2-an'].value), Number(el['v2-ad'].value), Number(el['v2-al'].value));
+      var B = doc('B', Number(el['v2-bn'].value), Number(el['v2-bd'].value), Number(el['v2-bl'].value));
+      var tie = Math.abs(A.p - B.p) < 1e-15;
+      out.innerHTML = card(A, A.p >= B.p, tie) + card(B, B.p >= A.p, tie);
+
+      var rawA = A.tfn + A.tfd, rawB = B.tfn + B.tfd;
+      var zero = (A.p === 0 || B.p === 0);
+      var upset = (rawB > rawA && A.p > B.p) || (rawA > rawB && B.p > A.p);
+
+      why.innerHTML = zero
+        ? '<b style="color:var(--viz-red)">A count of zero sends the whole product to zero.</b>' +
+          'One term missing is enough: the unigram product <code>P(q|d) = P(q1|d) × P(q2|d)</code> has no way to survive it, and <code>log 0</code> is −∞. Visual 3 is entirely about this. ' +
+          '<br><br>Everything else on this panel still holds — it is just being multiplied by nothing.'
+        : (upset && order === 0)
+          ? '<b style="color:var(--viz-green)">Larger raw counts, smaller likelihood.</b>' +
+            'Document B holds ' + rawB + ' query-term occurrences against A’s ' + rawA + ' and still loses, because the model compares <b>proportions</b>: ' +
+            'at the defaults A gives 0.04 × 0.01 = 4.000e-4 while B gives 0.02 × 0.01 = 2.000e-4. Five occurrences in 100 tokens is 0.05; five in 1,000 tokens is 0.005. ' +
+            '<br><br>Length normalisation is doing this on its own — there is no <code>b</code> to tune. That is not automatically right for every collection: long documents cover more topics, and passage retrieval or a length-aware smoother may fit the domain better.'
+          : '<b style="color:var(--viz-accent)">Order is discarded, and that is deliberate.</b>' +
+            'Swap the two query terms with the buttons above: every probability, every product and the ranking are identical, because the unigram assumption factorises <code>P(q|d)</code> into a product whose terms commute. ' +
+            '<code>database timeout</code> and <code>timeout database</code> are the same query, exactly as in bag-of-words vector retrieval. ' +
+            '<br><br>The payoff is that scoring aligns with inverted-index traversal — only query-term statistics need gathering. When order genuinely matters, you add phrase or proximity features on top; the unigram model will not find it for you. ' +
+            'A repeated query term, by contrast, <em>does</em> count twice: it appears twice in the product.';
+    }
+    ids.forEach(function(i){ el[i].addEventListener('input', render); });
+    b1.addEventListener('click', function(){ order = 0; render(); });
+    b2.addEventListener('click', function(){ order = 1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. One Missing Term</h2>
+  <p class="vz-lede">Three documents, the query <code>database timeout</code>, and one dial: how much of the
+    collection each document borrows. At <b>0</b> you are unsmoothed and two very different documents tie at
+    zero; at <b>1</b> every document <em>is</em> the collection and they all tie again.
+    <b>Like judging a chef on one tasting: unseen is not the same as impossible, but assume they can cook
+    everything and the tasting told you nothing.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-lam">Jelinek-Mercer lambda = <span id="v3-laml">0.20</span>
+      &nbsp;·&nbsp; background: P(database|C) = 0.001, P(timeout|C) = 0.0001</label>
+    <input type="range" id="v3-lam" min="0" max="100" value="20" step="1" aria-label="Smoothing lambda">
+    <div class="v3-docs" id="v3-docs"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The collection model is <code>P(t|C) = cf(t)/|C|</code>: <code>timeout</code> occurring
+    10,000 times in 100 million tokens gives 0.0001. Note what smoothing quietly imports — a term that is
+    <b>common</b> in the collection has a large background probability, so seeing it is unsurprising, while a
+    <b>rare</b> term's occurrence produces a much stronger likelihood ratio. That is rarity weighting, arrived
+    at from a completely different derivation than the RSJ weight.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.5}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-docs{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+    .v3-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75}
+    .v3-d.is-tie{border-color:var(--viz-red);border-style:dashed}
+    .v3-hd{display:flex;justify-content:space-between;gap:8px;font-weight:800;font-size:12px}
+    .v3-rk{font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v3-sub{color:var(--viz-muted);font-size:10.5px;font-family:inherit;margin-top:3px}
+    .v3-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PC = { database: 0.001, timeout: 0.0001 }, LEN = 100;
+    var DOCS = [
+      { n:'D1', note:'deep in databases, writes "latency" for timeout', tf:{ database:5, timeout:0 } },
+      { n:'D2', note:'contains neither query term', tf:{ database:0, timeout:0 } },
+      { n:'D3', note:'mentions both, less often', tf:{ database:2, timeout:2 } }
+    ];
+    var s = document.getElementById('v3-lam'), lab = document.getElementById('v3-laml');
+    var docs = document.getElementById('v3-docs'), why = document.getElementById('v3-why');
+
+    function sci(x){ return (isFinite(x) && x > 0) ? x.toExponential(3) : '0'; }
+    function lg(x){ return (x > 0 && isFinite(x)) ? Math.log(x).toFixed(2) : '−∞'; }
+
+    function render(){
+      var lam = Number(s.value) / 100;
+      lab.textContent = lam.toFixed(2);
+
+      var rows = DOCS.map(function(d){
+        var parts = ['database','timeout'].map(function(t){
+          var ml = d.tf[t] / LEN;
+          return { t:t, ml:ml, p:(1 - lam) * ml + lam * PC[t] };
+        });
+        return { d:d, parts:parts, score: parts[0].p * parts[1].p };
+      });
+      var best = rows.reduce(function(a, r){ return Math.max(a, r.score); }, 0);
+      var sorted = rows.slice().sort(function(a, b){ return b.score - a.score; });
+      var tied = {};
+      sorted.forEach(function(r, i){
+        var prev = sorted[i - 1];
+        if (prev && Math.abs(prev.score - r.score) < 1e-18) { tied[r.d.n] = true; tied[prev.d.n] = true; }
+      });
+
+      docs.innerHTML = rows.map(function(r){
+        var rank = sorted.indexOf(r) + 1;
+        var isTie = !!tied[r.d.n];
+        var tag = isTie ? 'TIED with another document' : 'rank ' + rank;
+        var col = isTie ? 'var(--viz-red)' : (r.score === best ? 'var(--viz-green)' : 'var(--viz-muted)');
+        var lines = r.parts.map(function(p){
+          return 'P(' + p.t + ') = ' + (1 - lam).toFixed(2) + '×' + p.ml.toFixed(3) +
+                 ' + ' + lam.toFixed(2) + '×' + PC[p.t] + ' = ' + p.p.toExponential(2);
+        }).join('<br>');
+        return '<div class="v3-d' + (isTie ? ' is-tie' : '') + '">' +
+          '<div class="v3-hd"><span>' + r.d.n + '</span><span class="v3-rk" style="color:' + col + '">' + tag + '</span></div>' +
+          '<div class="v3-sub">' + r.d.note + '</div>' + lines +
+          '<br>P(q|d) = ' + sci(r.score) + ' &nbsp;·&nbsp; log ' + lg(r.score) + '</div>';
+      }).join('');
+
+      why.innerHTML = lam === 0
+        ? '<b style="color:var(--viz-red)">Unsmoothed: D1 and D2 are tied at exactly zero.</b>' +
+          'Maximum likelihood assigns probability 0 to every term a document does not contain, and the query is a <b>product</b>, so one absent term zeroes it. ' +
+          'D1 is deep in database material and merely says <code>latency</code> instead of <code>timeout</code>; D2 contains neither word. The ranking cannot tell them apart — a useful distinction has been destroyed, not just penalised. ' +
+          '<br><br>Note that this is a modelling failure, not a numerical one: a short document has observed a tiny sample of the language, so <b>unseen must not mean impossible</b>. Nudge lambda off zero.'
+        : lam >= 0.995
+          ? '<b style="color:var(--viz-red)">Fully smoothed: every document has become the collection.</b>' +
+            'At lambda 1 the document term is multiplied by <code>(1 - lambda) = 0</code>, so each score is just <code>P(database|C) × P(timeout|C)</code> and all three documents tie. Lexical discrimination is gone entirely. ' +
+            '<br><br>Over-smoothing is the mirror image of the zero problem, and it fails silently: no error, no zero, just a ranking that carries no information about the documents.'
+          : '<b style="color:var(--viz-green)">Interpolated: the tie is broken, and the ordering is sensible.</b>' +
+            'D1’s missing <code>timeout</code> now scores <code>lambda × 0.0001</code> instead of 0 — small, but positive, so the rest of its evidence survives the multiplication and it comfortably outranks D2. D3, which has both terms, leads. ' +
+            '<br><br>Smoothing is doing a second job here too: it <b>regularizes</b>. One occurrence in a ten-token document and 100 in a 1,000-token document both give a maximum-likelihood 0.1, on wildly different amounts of evidence, and the smoother controls how far each estimate is trusted. ' +
+            '<br><br>What it is <em>not</em> is adding an epsilon to missing terms at scoring time: that yields a number without yielding a normalized distribution, depends arbitrarily on vocabulary size, and treats a missing stopword and a missing identifier alike. And if a query token never occurs in the collection at all, <code>P(t|C)</code> is zero too — that needs subwords, spelling correction, a reserved unknown-token probability or query rewriting.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Lambda Versus Mu</h2>
+  <p class="vz-lede">Two smoothers, both mixing the same two models, with parameters that are <em>not</em> on
+    the same scale. Drag each and compare the smoothed probability of a term that is present against one that
+    is absent. <b>Like diluting a drink: lambda is "one part in five, always"; mu is "add 1,000 ml of water"
+    — which means something completely different to a shot than to a jug.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-tf">Document of 100 tokens &nbsp;·&nbsp; tf(t,d) = <span id="v4-tfl">2</span>
+      &nbsp;·&nbsp; P(t|C) = 0.001</label>
+    <input type="range" id="v4-tf" min="0" max="20" value="2" step="1" aria-label="Term frequency in the document">
+    <label class="v4-lab" for="v4-lam">lambda = <span id="v4-laml">0.20</span></label>
+    <input type="range" id="v4-lam" min="0" max="100" value="20" step="1" aria-label="Jelinek-Mercer lambda">
+    <label class="v4-lab" for="v4-mu">mu = <span id="v4-mul">1000</span> pseudo-tokens</label>
+    <input type="range" id="v4-mu" min="0" max="5000" value="1000" step="50" aria-label="Dirichlet mu">
+    <div class="v4-cols">
+      <div class="v4-c" id="v4-jm"></div>
+      <div class="v4-c" id="v4-dir"></div>
+    </div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Increasing lambda and increasing mu both mean <b>more background influence</b>, so the
+    direction is shared and the scale is not: lambda is a fraction in [0, 1], mu is counted in tokens. A
+    lambda of 0.2 is ordinary; a mu of 0.2 is nothing at all. Neither family wins by theorem — tokenization,
+    fields, passages and the definition of your labels all move the observed optimum.</p>
+
+  <style>
+    .v4-lab{font-size:12px;font-weight:700;display:block;margin:9px 0 4px;line-height:1.5}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-cols{display:flex;gap:9px;flex-wrap:wrap;margin-top:14px}
+    .v4-c{flex:1 1 152px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+    .v4-c h5{margin:0 0 7px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v4-f{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--viz-muted);
+      line-height:1.5;margin-bottom:7px;white-space:pre-wrap}
+    .v4-row{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11.5px;line-height:1.9}
+    .v4-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LEN = 100, PC = 0.001;
+    var tfS = document.getElementById('v4-tf'), lamS = document.getElementById('v4-lam'), muS = document.getElementById('v4-mu');
+    var tfL = document.getElementById('v4-tfl'), lamL = document.getElementById('v4-laml'), muL = document.getElementById('v4-mul');
+    var jm = document.getElementById('v4-jm'), dir = document.getElementById('v4-dir'), why = document.getElementById('v4-why');
+
+    function fx(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+    function row(a, b, c){
+      return '<div class="v4-row"><span>' + a + '</span><span style="color:' + (c || 'var(--viz-ink)') + '">' + b + '</span></div>';
+    }
+
+    function render(){
+      var tf = Number(tfS.value), lam = Number(lamS.value) / 100, mu = Number(muS.value);
+      tfL.textContent = tf; lamL.textContent = lam.toFixed(2); muL.textContent = mu;
+
+      var ml = tf / LEN;
+      var jmP = (1 - lam) * ml + lam * PC, jmA = lam * PC;
+      var den = LEN + mu;                                  // never 0: LEN is fixed at 100
+      var dirP = (tf + mu * PC) / den, dirA = (mu * PC) / den;
+      var dirW = mu / den;
+
+      jm.innerHTML = '<h5>Jelinek-Mercer</h5>' +
+        '<div class="v4-f">(1-λ)·P_ML(t|d) + λ·P(t|C)</div>' +
+        row('P_ML(t|d)', fx(ml, 4)) +
+        row('present', fx(jmP, 5), 'var(--viz-accent)') +
+        row('absent (tf=0)', fx(jmA, 5), jmA > 0 ? 'var(--viz-green)' : 'var(--viz-red)') +
+        row('weight on C', fx(lam, 3), 'var(--viz-violet)');
+
+      dir.innerHTML = '<h5>Dirichlet</h5>' +
+        '<div class="v4-f">(tf + μ·P(t|C)) / (|d| + μ)</div>' +
+        row('numerator', fx(tf + mu * PC, 3)) +
+        row('present', fx(dirP, 5), 'var(--viz-accent)') +
+        row('absent (tf=0)', fx(dirA, 5), dirA > 0 ? 'var(--viz-green)' : 'var(--viz-red)') +
+        row('weight on C', fx(dirW, 3), 'var(--viz-violet)');
+
+      var dead = (lam === 0 && mu === 0);
+      why.innerHTML = dead
+        ? '<b style="color:var(--viz-red)">Both parameters at zero: both models are unsmoothed.</b>' +
+          'At lambda 0 the mixture is pure <code>P_ML</code>; at mu 0 the Dirichlet formula collapses to <code>tf/|d|</code>, which is the same thing. An absent term is 0 in both, and the query product dies. ' +
+          '<br><br>The families differ in <em>how</em> they leave that state, not in whether they must.'
+        : '<b style="color:var(--viz-green)">Same mixture, different mixing rule.</b>' +
+          'At the defaults Jelinek-Mercer gives <code>0.8×0.02 + 0.2×0.001 = 0.0162</code>, and Dirichlet with mu 1,000 gives <code>(2 + 1)/1,100 ≈ 0.00273</code>. Right now they read <b>' + fx(jmP, 5) + '</b> and <b>' + fx(dirP, 5) + '</b> — do not compare those numbers across families as though the parameters matched. ' +
+          '<br><br><b>Mu is a prior in pseudo-tokens:</b> it adds <code>mu·P(t|C) = ' + fx(mu * PC, 3) + '</code> expected occurrences on top of <code>' + mu + '</code> imaginary background tokens. Divide through and the interpolation appears: ' +
+          '<code>(|d|/(|d|+mu))·P_ML + (mu/(|d|+mu))·P(t|C)</code>, i.e. weight <b>' + fx(dirW, 3) + '</b> on the collection here — a weight that <em>depends on the document</em>, which lambda never does. Visual 5 drags exactly that. ' +
+          '<br><br>Dirichlet’s denominator also carries a document-length-dependent penalty, so it can move scores between documents even when their term ratios look identical.';
+    }
+    [tfS, lamS, muS].forEach(function(x){ x.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. How Much To Borrow</h2>
+  <p class="vz-lede">The one structural difference, drawn: Jelinek-Mercer borrows the same fraction from the
+    collection whatever the document is, while Dirichlet borrows <code>mu/(|d|+mu)</code> — heavily from a
+    ten-token stub, barely from a long article. <b>Like a witness statement: you lean on background
+    assumptions when someone saw two seconds of an event, and much less when they watched for an hour.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-mu">Dirichlet mu = <span id="v5-mul">1000</span></label>
+    <input type="range" id="v5-mu" min="0" max="5000" value="1000" step="50" aria-label="Dirichlet mu">
+    <label class="v5-lab" for="v5-lam">Jelinek-Mercer lambda = <span id="v5-laml">0.20</span> (flat, shown as a mark)</label>
+    <input type="range" id="v5-lam" min="0" max="100" value="20" step="1" aria-label="Jelinek-Mercer lambda">
+    <div class="v5-strip" id="v5-strip"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The practical decision is a modelling judgment, not a lookup: <b>Jelinek-Mercer says
+    every document borrows the same fraction; Dirichlet says shorter evidence should borrow more.</b> Pick the
+    assumption that matches your corpus, then verify with relevance evaluation and error analysis. Tune on
+    held-out queries against the target metric, plot a broad grid rather than one point, and prefer a flat
+    region to a narrow optimum that will drift as the collection changes.</p>
+
+  <style>
+    .v5-lab{font-size:12px;font-weight:700;display:block;margin:9px 0 4px;line-height:1.5}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-strip{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v5-r{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v5-len{flex:0 0 62px;color:var(--viz-muted);text-align:right}
+    .v5-bar{position:relative;flex:1;height:16px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v5-bar i{position:absolute;left:0;top:0;bottom:0;background:var(--viz-violet);opacity:.85}
+    .v5-mk{position:absolute;top:0;bottom:0;width:2px;background:var(--viz-amber)}
+    .v5-num{flex:0 0 92px;font-size:10.5px;font-weight:800}
+    .v5-key{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;margin-top:10px;color:var(--viz-muted)}
+    .v5-key span b{font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LENS = [10, 50, 100, 250, 500, 1000, 2000, 5000];
+    var muS = document.getElementById('v5-mu'), lamS = document.getElementById('v5-lam');
+    var muL = document.getElementById('v5-mul'), lamL = document.getElementById('v5-laml');
+    var strip = document.getElementById('v5-strip'), why = document.getElementById('v5-why');
+
+    function render(){
+      var mu = Number(muS.value), lam = Number(lamS.value) / 100;
+      muL.textContent = mu; lamL.textContent = lam.toFixed(2);
+
+      strip.innerHTML = LENS.map(function(L){
+        var den = L + mu;
+        var w = den > 0 ? mu / den : 0;                 // den is 0 only if both are 0; then no borrowing
+        var gap = w - lam;
+        var word = Math.abs(gap) < 0.02 ? 'same as λ' : (gap > 0 ? 'borrows MORE than λ' : 'borrows less than λ');
+        var col = Math.abs(gap) < 0.02 ? 'var(--viz-muted)' : (gap > 0 ? 'var(--viz-violet)' : 'var(--viz-green)');
+        return '<div class="v5-r"><span class="v5-len">|d| = ' + L + '</span>' +
+          '<span class="v5-bar"><i style="width:' + (w * 100).toFixed(1) + '%"></i>' +
+          '<span class="v5-mk" style="left:' + (lam * 100).toFixed(1) + '%"></span></span>' +
+          '<span class="v5-num" style="color:' + col + '">' + w.toFixed(3) + '</span>' +
+          '<span style="flex:0 0 auto;font-size:9.5px;font-family:inherit;color:' + col + '">' + word + '</span></div>';
+      }).join('') +
+      '<div class="v5-key"><span>filled bar = Dirichlet weight on the collection, <b>mu/(|d|+mu)</b></span>' +
+      '<span>vertical mark = Jelinek-Mercer weight, <b>lambda</b>, identical on every row</span></div>';
+
+      var w100 = mu / (100 + mu), w2000 = mu / (2000 + mu);
+      why.innerHTML = mu === 0
+        ? '<b style="color:var(--viz-red)">At mu 0 the Dirichlet bars vanish: no borrowing at any length.</b>' +
+          'The formula collapses to <code>tf/|d|</code>, so an absent term is zero again for every document, short or long. Jelinek-Mercer’s mark stays where lambda put it, which is the point of the comparison: <b>the two knobs are not the same knob</b>. ' +
+          '<br><br>Raise mu and watch the short documents move first.'
+        : '<b style="color:var(--viz-violet)">Short documents lean on the collection; long ones speak for themselves.</b>' +
+          'At mu ' + mu + ', a 100-token document puts <b>' + w100.toFixed(3) + '</b> of its weight on the background while a 2,000-token document puts only <b>' + w2000.toFixed(3) + '</b>. At the classic mu = 1,000 those numbers are 0.909 and 0.333. ' +
+          'Jelinek-Mercer’s mark does not move across the rows at all — every document borrows lambda, whatever its length, though its <code>P_ML</code> already contains length normalisation. ' +
+          '<br><br>This is why Dirichlet is often attractive for collections with varied document lengths: <b>evidence strength genuinely does change with length</b>, and the mixture follows it without being told. ' +
+          '<br><br>It is a preference, not a proof. Examine long and short slices, rare and common query terms, and exact identifiers; hold out a test set; and record the smoothing family, the parameter, the collection-statistics version, the tokenizer and the field policy as part of the scoring model, or a rebuilt index will quietly score against a different background.';
+    }
+    [muS, lamS].forEach(function(x){ x.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

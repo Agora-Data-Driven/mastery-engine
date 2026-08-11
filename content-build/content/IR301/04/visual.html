@@ -1,0 +1,694 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px;text-align:left}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Three Separable Failures</button>
+  <button class="viz-tab" data-viz-tab="2">2. Counting Atomic Claims</button>
+  <button class="viz-tab" data-viz-tab="3">3. Precision Versus Recall</button>
+  <button class="viz-tab" data-viz-tab="4">4. Scorecard Not Score</button>
+  <button class="viz-tab" data-viz-tab="5">5. Calibrating The Judge</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Three Separable Failures</h2>
+  <p class="vz-lede"><b>Self-Correcting RAG: Reflect, Re-Retrieve, Refine</b> built a loop that regenerates
+    when the answer is not good enough — but never said what <em>good enough</em> is measured with. Here is
+    that measurement. Break each stage of the pipeline and watch which metric family notices.
+    <b>Like a car that won't start: no fuel, a dead spark, or the right engine driving the wrong wheels — one
+    "check engine" light tells you none of it.</b></p>
+
+  <div class="v1-stages" id="v1-stages"></div>
+
+  <div class="vz-card">
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-agg" id="v1-agg"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The three families have <b>different owners</b>: context metrics belong to retrieval,
+    faithfulness to the grounding and prompt layer, answer relevance to generation and UX. That is the whole
+    reason to keep them apart — a single aggregated RAG score moves for four unrelated reasons and points at
+    nobody.</p>
+
+  <style>
+    .v1-stages{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-t{min-height:46px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v1-t[aria-pressed="false"]{border-color:var(--viz-red);border-style:dashed}
+    .v1-mk{flex:0 0 auto;width:60px;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:ui-monospace,Consolas,monospace}
+    .v1-rows{display:flex;flex-direction:column;gap:6px}
+    .v1-r{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-size:11.5px;line-height:1.45}
+    .v1-r h6{margin:0 0 3px;font-size:12px;display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+    .v1-r h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v1-own{color:var(--viz-muted);font-size:10.5px;letter-spacing:.02em;text-transform:uppercase}
+    .v1-agg{margin-top:13px;padding:10px;border:1.5px dashed var(--viz-line);border-radius:9px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Each stage is a switch. OK values are a healthy production system; broken
+    // values are the worked cases from the lesson (0.5 recall, 4-of-6 claims).
+    var STAGES = [
+      { on:true, label:'Retrieval delivered the evidence',
+        metric:'context recall', ok:1.00, bad:0.50,
+        owner:'owner: retrieval',
+        okWhy:'Both required facts are inside the top-k chunks the generator will see.',
+        badWhy:'The question needs two facts — the refund window and the annual-plan exception — and only one reached the context. <b>1 of 2 = 0.50</b>. The exception was indexed, so <em>corpus</em> recall was fine; chunking and retrieval together failed to deliver it to the boundary. Audit chunking first.' },
+      { on:true, label:'The generator stuck to the context',
+        metric:'faithfulness', ok:0.94, bad:0.67,
+        owner:'owner: grounding + prompt layer',
+        okWhy:'Nearly every atomic claim is entailed by a retrieved span.',
+        badWhy:'Six atomic claims, four supported — <b>4 of 6 = 0.67</b>. One invented number and one cadence flipped from annual to monthly. This is the hallucination metric, and below threshold it is what fires the reflect gate: regenerate, caveat, or abstain.' },
+      { on:true, label:'The answer addressed the question',
+        metric:'answer relevance', ok:0.91, bad:0.35,
+        owner:'owner: generation + UX',
+        okWhy:'The response is about what was actually asked.',
+        badWhy:'The user asked <code>how do I cancel</code> and received a faithful plan comparison. Perfectly grounded, perfectly retrieved, <b>completely useless</b> — which is why relevance is its own axis and not a corollary of the other two.' }
+    ];
+    var stages = document.getElementById('v1-stages');
+    var rows = document.getElementById('v1-rows');
+    var agg = document.getElementById('v1-agg');
+    var why = document.getElementById('v1-why');
+
+    function render(){
+      [].slice.call(stages.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', STAGES[i].on ? 'true' : 'false');
+        b.innerHTML = '<span class="v1-mk" style="color:' + (STAGES[i].on ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (STAGES[i].on ? '✓ WORKS' : '✕ BROKEN') + '</span><span>' + STAGES[i].label + '</span>';
+      });
+
+      var sum = 0;
+      rows.innerHTML = STAGES.map(function(s){
+        var v = s.on ? s.ok : s.bad;
+        sum += v;
+        var c = s.on ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v1-r" style="border-color:' + c + '">' +
+          '<h6><span>' + s.metric + ' <span class="v1-own">' + s.owner + '</span></span>' +
+          '<b style="color:' + c + '">' + v.toFixed(2) + (s.on ? ' · pass' : ' · DROP') + '</b></h6>' +
+          (s.on ? s.okWhy : s.badWhy) + '</div>';
+      }).join('');
+
+      var n = STAGES.length;
+      var mean = n > 0 ? sum / n : 0;              // n is fixed at 3; the guard is habit, not decoration
+      var broken = STAGES.filter(function(s){ return !s.on; });
+      agg.innerHTML = 'single aggregated "RAG score" = ' + mean.toFixed(2) +
+        '<br><span style="color:var(--viz-muted)">' +
+        (broken.length === 0
+          ? 'nothing is wrong — and the aggregate cannot tell you that either'
+          : broken.length + ' stage' + (broken.length === 1 ? '' : 's') + ' broken, ' +
+            broken.length + ' different team' + (broken.length === 1 ? '' : 's') + ' to call. The aggregate names none of them.') +
+        '</span>';
+
+      why.innerHTML = broken.length === 0
+        ? '<b style="color:var(--viz-green)">All three pass — which is the only case an aggregate reports honestly.</b>' +
+          'Turn any switch off and notice what happens to the single number: it moves a little, in the same direction, whichever stage broke. ' +
+          'That is the argument for decomposition in one sentence — <b>a metric that cannot distinguish causes cannot assign an owner</b>.' +
+          '<br><br>Note also what none of these measure: whether the retrieved document was one the user is <em>allowed</em> to read. That is the next lesson.'
+        : '<b style="color:var(--viz-amber)">Diagnose from the pattern, not the total.</b>' +
+          'Missing evidence is a <b>context recall</b> finding. Evidence present but ignored or contradicted is <b>faithfulness</b>. Everything correct but the wrong question answered is <b>answer relevance</b>. ' +
+          'Two of these can be perfect while the third makes the product useless, and the aggregate above is currently ' + mean.toFixed(2) + ' — a number that would look almost healthy on a dashboard.' +
+          '<br><br><b>Faithful ≠ correct.</b> An answer grounded perfectly in <em>wrong</em> retrieved context scores 1.00 on faithfulness. That is a retrieval finding wearing a grounding badge, and only reading the families separately reveals it.';
+    }
+
+    STAGES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v1-t';
+      b.setAttribute('aria-pressed', 'true');
+      b.addEventListener('click', function(){ STAGES[i].on = !STAGES[i].on; render(); });
+      stages.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Counting Atomic Claims</h2>
+  <p class="vz-lede">Faithfulness is supported claims over total claims — and the granularity is the whole
+    point. Tap a claim to flip whether the context entails it, and watch what a claim-level score sees that
+    an answer-level judgment never will. <b>Like marking a maths paper line by line instead of writing
+    "looks about right" at the bottom.</b></p>
+
+  <div class="v2-claims" id="v2-claims"></div>
+
+  <div class="vz-seg" role="group" aria-label="Verifier strictness">
+    <button id="v2-strict" aria-pressed="false">strict verifier: count synthesis as unsupported</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-score" id="v2-score"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Operationally this is <b>sampled continuously</b>, not measured once at launch: a few
+    hundred answers decomposed every night, tracked per release, per query class and per claim type. A drop
+    from <b>0.94 to 0.88</b> after a prompt change is release-blocking; a slow slide over a month is usually
+    corpus or traffic drift.</p>
+
+  <style>
+    .v2-claims{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-c{min-height:46px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v2-mk{flex:0 0 auto;width:15px;font-weight:800;font-size:13px}
+    .v2-kind{margin-left:auto;flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+      text-transform:uppercase;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v2-score{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-why em.v2-diag{display:block;font-style:normal;margin-top:8px;padding-left:10px;
+      border-left:2px solid var(--viz-amber)}
+  </style>
+  <script>
+  (function(){
+    // One answer about the Team plan, decomposed. `sup` is the live verdict; the
+    // diagnosis attached to each claim is what makes an unsupported one actionable.
+    var CLAIMS = [
+      { t:'The Team plan costs 20 per seat', kind:'number', sup:true,
+        diag:'A price absent from the context points at <b>retrieval or memory leakage</b> — the model answering from training data.' },
+      { t:'Billing is monthly', kind:'date/cadence', sup:true,
+        diag:'The context says <b>annual</b>. A claim that <em>contradicts</em> the retrieved text points at <b>generation</b>, not retrieval — the evidence was right there.' },
+      { t:'Seats can be added mid-cycle', kind:'policy', sup:true,
+        diag:'No span entails this. Either the policy chunk never made the context, or the model filled a gap.' },
+      { t:'Unused seats are refunded pro rata', kind:'number', sup:false,
+        diag:'No number like this appears anywhere in the retrieved context. <b>Numbers, dates and named entities are the highest-risk claims</b> and the easiest to check mechanically — decompose them out deliberately.' },
+      { t:'So the Team plan is cheaper per seat than Business', kind:'inference', sup:true,
+        diag:'Careful: this combines two <em>supported</em> facts into a comparative sentence. That is <b>supported inference, not fabrication</b>. A verifier that fails it is mis-tuned.' },
+      { t:'Support responds within one business day', kind:'entity', sup:true,
+        diag:'Not entailed by any retrieved span.' }
+    ];
+    var strict = false;
+    var list = document.getElementById('v2-claims');
+    var strictBtn = document.getElementById('v2-strict');
+    var score = document.getElementById('v2-score');
+    var why = document.getElementById('v2-why');
+
+    function verdict(c){ return strict && c.kind === 'inference' ? false : c.sup; }
+
+    function render(){
+      strictBtn.setAttribute('aria-pressed', strict ? 'true' : 'false');
+      [].slice.call(list.children).forEach(function(b, i){
+        var ok = verdict(CLAIMS[i]);
+        b.setAttribute('aria-pressed', ok ? 'true' : 'false');
+        b.style.borderColor = ok ? 'var(--viz-line)' : 'var(--viz-red)';
+        b.innerHTML = '<span class="v2-mk" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (ok ? '✓' : '✕') + '</span><span>' + CLAIMS[i].t + '</span>' +
+          '<span class="v2-kind">' + CLAIMS[i].kind + '</span>';
+      });
+
+      var total = CLAIMS.length;
+      var sup = CLAIMS.filter(verdict).length;
+      var f = total > 0 ? sup / total : 0;         // never divide by an empty decomposition
+      var c = f >= 0.9 ? 'var(--viz-green)' : (f >= 0.75 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      score.innerHTML =
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">faithfulness = ' + sup + '/' + total + ' = ' + f.toFixed(2) + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">answer-level grade: “mostly correct”</span>' +
+        '<span class="v2-pill" style="color:' + (f < 0.85 ? 'var(--viz-violet)' : 'var(--viz-muted)') + ';border-color:' + (f < 0.85 ? 'var(--viz-violet)' : 'var(--viz-line)') + '">reflect gate (0.85): ' + (f < 0.85 ? 'FIRES' : 'passes') + '</span>';
+
+      var bad = CLAIMS.filter(function(c2){ return !verdict(c2); });
+      var head = bad.length === 0
+        ? '<b style="color:var(--viz-green)">Every claim entailed — 1.00.</b>Nothing to triage. Note that this says the answer is <em>grounded</em>, not that it is <em>true</em>: an answer faithful to wrong retrieved context also scores 1.00, and that is a context-recall finding, not a grounding one.'
+        : '<b>' + bad.length + ' unsupported claim' + (bad.length === 1 ? '' : 's') + ' — and each one names its own defect.</b>' +
+          'This is why the metric is claim-level. The dangerous failure is <b>one fabricated number inside a long, fluent, mostly-correct answer</b>, and the answer-level pill above is exactly what misses it.';
+      why.innerHTML = head + bad.map(function(c2){
+        return '<em class="v2-diag"><b style="display:inline;font-size:12.5px">' + c2.t + '</b> — ' + c2.diag + '</em>';
+      }).join('') +
+      (strict
+        ? '<br><b style="color:var(--viz-amber);margin-top:10px">Strict mode is a trap.</b>' +
+          'Penalising legitimate synthesis makes the number drop for a defect that does not exist. Teams learn within a week that the metric cries wolf and stop reading it — so an over-strict verifier costs you the sensor entirely. ' +
+          '<b>Tuning verifier strictness against human labels is part of operating the metric</b>, not a one-time setup.'
+        : '');
+    }
+
+    CLAIMS.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v2-c';
+      b.setAttribute('aria-pressed', 'true');
+      b.addEventListener('click', function(){ CLAIMS[i].sup = !CLAIMS[i].sup; render(); });
+      list.appendChild(b);
+    });
+    strictBtn.addEventListener('click', function(){ strict = !strict; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Precision Versus Recall</h2>
+  <p class="vz-lede">Both metrics take the chunks <em>actually sent to the model</em> as their unit. Move k,
+    rerank, and break the chunking that carries the exception — the two worked cases of the lesson,
+    0.375 and 0.5, are both in here. <b>Like packing a briefcase for a meeting: too little and you're missing
+    the contract, too much and you can't find it.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v3-lab" for="v3-k">Send the top <span id="v3-kl">8</span> of 8 retrieved chunks</label>
+    <input type="range" id="v3-k" min="1" max="8" value="8" step="1" aria-label="Number of chunks sent to the model">
+    <div class="vz-seg" role="group" aria-label="Pipeline switches" style="margin:12px 0 0">
+      <button id="v3-rerank" aria-pressed="false">rerank before sending</button>
+      <button id="v3-chunk" aria-pressed="true">exception chunked with its section header</button>
+    </div>
+  </div>
+
+  <div class="v3-list" id="v3-list"></div>
+
+  <div class="vz-card">
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Judgment: precision and recall trade off through <b>k and rerank depth</b> exactly as the
+    funnel predicts, and the right operating point is <b>high precision with sufficient recall</b> — because
+    the generator can only use what it sees, and is shaped by everything it sees. Report both by query class.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-list{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+    .v3-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 9px;background:var(--viz-bg);font-size:11px;line-height:1.35}
+    .v3-r.is-cut{opacity:.4;border-style:dashed}
+    .v3-pos{flex:0 0 auto;width:16px;font-family:ui-monospace,Consolas,monospace;font-weight:800;color:var(--viz-muted)}
+    .v3-tag{margin-left:auto;flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;
+      font-family:ui-monospace,Consolas,monospace;text-align:right}
+    .v3-stats{display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Eight retrieved chunks. Three are relevant; two of them carry the two facts
+    // the gold answer requires (A = refund window, B = the annual-plan exception).
+    var BASE = [
+      { t:'pricing page intro',            rel:false, ev:null },
+      { t:'refund policy — 30-day window', rel:true,  ev:'A' },
+      { t:'shipping FAQ',                  rel:false, ev:null },
+      { t:'billing glossary',              rel:false, ev:null },
+      { t:'refund policy — how to claim',  rel:true,  ev:null },
+      { t:'careers page boilerplate',      rel:false, ev:null },
+      { t:'annual plans — refund exception', rel:true, ev:'B' },
+      { t:'changelog, March release',      rel:false, ev:null }
+    ];
+    var LOST = { t:'unrelated help-centre excerpt', rel:false, ev:null };
+    var k = 8, rerank = false, chunked = true;
+
+    var slider = document.getElementById('v3-k'), kl = document.getElementById('v3-kl');
+    var bR = document.getElementById('v3-rerank'), bC = document.getElementById('v3-chunk');
+    var list = document.getElementById('v3-list'), stats = document.getElementById('v3-stats'), why = document.getElementById('v3-why');
+
+    // Lost-in-the-middle: the model exploits the head and the tail of a long
+    // context far better than the middle, so a relevant chunk buried at position
+    // seven of ten behaves partly as if it were absent.
+    function weight(pos, n){
+      if (n <= 3) return 1;
+      if (pos <= 2) return 1;
+      if (pos === n) return 0.85;
+      return 0.45;
+    }
+
+    function ordered(){
+      var rows = BASE.map(function(r, i){
+        return chunked || i !== 6 ? r : LOST;      // broken chunking loses the exception entirely
+      });
+      if (!rerank) return rows.slice();
+      return rows.slice().sort(function(a, b){ return (b.rel ? 1 : 0) - (a.rel ? 1 : 0); });
+    }
+
+    function render(){
+      k = Number(slider.value);
+      kl.textContent = k;
+      bR.setAttribute('aria-pressed', rerank ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', chunked ? 'true' : 'false');
+
+      var rows = ordered();
+      var sent = rows.slice(0, k);
+      var relCount = 0, eff = 0, facts = {};
+      list.innerHTML = rows.map(function(r, i){
+        var pos = i + 1, inCtx = pos <= k;
+        var w = inCtx ? weight(pos, k) : 0;
+        if (inCtx && r.rel) { relCount += 1; eff += w; }
+        if (inCtx && r.ev) facts[r.ev] = true;
+        var col = !inCtx ? 'var(--viz-muted)' : (r.rel ? 'var(--viz-green)' : 'var(--viz-red)');
+        var tag = !inCtx ? 'not sent'
+          : (r.rel ? (r.ev ? 'RELEVANT · fact ' + r.ev : 'RELEVANT') + (w < 1 ? ' · buried ×' + w.toFixed(2) : ' · read well')
+                   : 'NOISE');
+        return '<div class="v3-r' + (inCtx ? '' : ' is-cut') + '" style="border-color:' + col + '">' +
+          '<span class="v3-pos">' + pos + '</span><span>' + r.t + '</span>' +
+          '<span class="v3-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var prec = k > 0 ? relCount / k : 0;                 // k is clamped ≥ 1 by the slider
+      var effPrec = k > 0 ? eff / k : 0;
+      var have = (facts.A ? 1 : 0) + (facts.B ? 1 : 0);
+      var recall = have / 2;                               // the gold answer requires exactly 2 facts
+      var noise = sent.length - relCount;
+
+      function pill(label, v, good){
+        var c = good ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + label + ' ' + v + '</span>';
+      }
+      stats.innerHTML =
+        pill('context precision', relCount + '/' + k + ' = ' + prec.toFixed(3), prec >= 0.5) +
+        pill('rank-aware precision', effPrec.toFixed(3), effPrec >= 0.5) +
+        pill('context recall', have + '/2 = ' + recall.toFixed(2), recall === 1) +
+        '<span class="v3-pill" style="color:' + (noise > 0 ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' + (noise > 0 ? 'var(--viz-amber)' : 'var(--viz-line)') + '">' +
+        noise + ' noise chunk' + (noise === 1 ? '' : 's') + ' sent</span>';
+
+      var parts = [];
+      if (!chunked) {
+        parts.push('<b style="color:var(--viz-red)">Recall 0.50 — and no value of k fixes it.</b>' +
+          'The annual-plan exception was <em>indexed</em>, so corpus recall was fine. But it lives in a section that was never chunked with enough surrounding context to match this query, so it never enters the candidate set at all. ' +
+          'The generator sees half the policy and produces a <b>confident half-answer</b>. ' +
+          '<br><br>Follow the chain of custody: when context recall is low, <b>audit chunking first and retrieval second</b>. The evidence is usually present but packaged so that no query can find it.');
+      }
+      if (chunked && recall < 1) {
+        parts.push('<b style="color:var(--viz-amber)">k is now too small to carry both facts.</b>' +
+          'Precision looks better because the denominator shrank, but the context can no longer produce the gold answer. ' +
+          'This is the trade in its rawest form: <b>a precision win that costs recall is not a win</b>, because the generator can only use what it sees.');
+      }
+      if (chunked && recall === 1 && prec < 0.5) {
+        parts.push('<b style="color:var(--viz-amber)">Precision ' + prec.toFixed(3) + ' — the ' + noise + ' noise chunks are not neutral filler.</b>' +
+          'They dilute attention, and worse, they invite <b>distraction-hallucination</b>: the model weaves an irrelevant but plausible chunk into the answer. Every irrelevant chunk in the context is a liability. ' +
+          '<br><br>The remedies are the IR 202 toolkit applied at this boundary: rerank harder, cut k, filter by metadata, or drop chunks below a relevance threshold.');
+      }
+      if (rerank) {
+        parts.push('<b style="color:var(--viz-green)">Reranking moved the relevant chunks to the head of the context.</b>' +
+          'Plain precision counts a set; <b>rank-aware precision counts where the model will actually read</b>. Compare the two pills: the set did not change, the ordering did, and the usable evidence rose to ' + effPrec.toFixed(3) + '. ' +
+          'That gap is the <b>lost-in-the-middle</b> effect priced in.');
+      } else if (chunked && k >= 7) {
+        parts.push('<b>Position 7 is doing much less work than position 2.</b>' +
+          'Language models exploit the beginning and the end of a long context far better than the middle, so a relevant chunk at position seven of ten behaves <em>partly as if absent</em>. ' +
+          'That is why precision is measured with rank awareness rather than as a bare fraction — and why the rerank switch changes the answer without changing the chunks.');
+      }
+      why.innerHTML = parts.join('<br><br>');
+    }
+
+    slider.addEventListener('input', render);
+    bR.addEventListener('click', function(){ rerank = !rerank; render(); });
+    bC.addEventListener('click', function(){ chunked = !chunked; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Scorecard Not Score</h2>
+  <p class="vz-lede">Three answers to <code>how do I cancel my subscription</code>. Their averaged RAG scores
+    land within a few hundredths of each other; their repairs have nothing in common. Pick an answer, then
+    flip between the aggregate and the scorecard. <b>Like a blood panel: one "health score" is worthless, the
+    twelve rows are the diagnosis.</b></p>
+
+  <div class="v4-picks" id="v4-picks"></div>
+
+  <div class="vz-seg" role="group" aria-label="View">
+    <button id="v4-mode" aria-pressed="false">show the single aggregated score only</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-card" id="v4-card"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The ultimate signals are <b>online</b>: thumbs, escalation rate, re-query rate, task
+    completion. Offline metrics exist to predict them — so when offline scores rise while escalations rise
+    too, <b>believe the escalations</b> and go looking for what the rubric is not measuring.</p>
+
+  <style>
+    .v4-picks{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-p{min-height:46px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;line-height:1.4}
+    .v4-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-p b{display:block;font-size:12.5px;margin-bottom:2px}
+    .v4-rows{display:flex;flex-direction:column;gap:4px}
+    .v4-r{display:flex;align-items:center;gap:8px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v4-nm{flex:0 0 116px}
+    .v4-track{flex:1;height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-v{flex:0 0 34px;text-align:right;font-weight:800}
+    .v4-own{font-size:10.5px;color:var(--viz-muted);letter-spacing:.02em;text-transform:uppercase;
+      margin:10px 0 3px;font-family:ui-monospace,Consolas,monospace}
+    .v4-big{font-family:ui-monospace,Consolas,monospace;font-size:30px;font-weight:800;text-align:center;
+      padding:16px 0 4px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Seven measured dimensions, grouped by the team that owns them. The three
+    // answers are tuned so their means sit within 0.04 of one another.
+    var DIMS = [
+      { k:'faithfulness',      own:'grounding + prompt layer' },
+      { k:'citation accuracy', own:'grounding + prompt layer' },
+      { k:'context precision', own:'retrieval' },
+      { k:'context recall',    own:'retrieval' },
+      { k:'answer relevance',  own:'generation + UX' },
+      { k:'completeness',      own:'generation + UX' },
+      { k:'format compliance', own:'generation + UX' }
+    ];
+    var ANSWERS = [
+      { name:'A · a faithful plan comparison',
+        blurb:'Every sentence entailed by a retrieved span. About pricing tiers.',
+        v:[0.98, 1.00, 0.75, 1.00, 0.22, 0.30, 1.00], esc:'41% escalate to a human',
+        fix:['Answer relevance 0.22 — grounded and useless.',
+          'Retrieval did its job and grounding did its job. The user asked <code>how do I cancel</code> and got a plan comparison. ' +
+          'Nothing in the context metrics or faithfulness can see this, which is exactly why relevance is a separate axis. ' +
+          'Measure it with a rubric judge, or with a <b>reverse-consistency check</b>: generate synthetic questions from the answer and compare them to the original — an answer that could only have come from the real question scores high. ' +
+          '<br><br><b>Owner: generation and UX.</b> Sending this to the retrieval team wastes a sprint.'] },
+      { name:'B · right steps, one invented deadline',
+        blurb:'Correct cancellation flow, plus a “within 14 days” that appears nowhere.',
+        v:[0.71, 0.40, 0.75, 1.00, 0.95, 0.60, 1.00], esc:'12% escalate — but one trust incident',
+        fix:['Faithfulness 0.71 with a citation dragged down with it.',
+          'The evidence was in the context — recall 1.00 — and the model added a number anyway. That is a <b>generation</b> defect, and the fabricated claim carries a citation pointing at a span that does not support it, so citation accuracy falls with it. ' +
+          '<b>A correct answer with wrong citations destroys trust as effectively as a wrong answer.</b> ' +
+          '<br><br>Note the online row: escalations are <em>low</em>, because the answer is fluent and users act on it. Low escalation is not vindication here — this is the failure mode that surfaces as an incident rather than a metric.'] },
+      { name:'C · thin answer from thin context',
+        blurb:'Two steps of four, prose where a numbered list was asked for.',
+        v:[0.96, 0.60, 0.50, 0.50, 0.93, 0.70, 1.00], esc:'18% escalate, 34% re-query',
+        fix:['Context recall 0.50 — the answer is as complete as the evidence allowed.',
+          'Faithfulness is nearly perfect and relevance is high: the model behaved impeccably with half a policy. Completeness 0.70 is a <em>symptom</em>, not the defect. ' +
+          '<b>Owner: retrieval.</b> Audit chunking first, then the ranker — and note the re-query rate, the online signal that fires when an answer is right as far as it goes.'] }
+    ];
+    var cur = 0, aggOnly = false;
+    var picks = document.getElementById('v4-picks');
+    var modeBtn = document.getElementById('v4-mode');
+    var card = document.getElementById('v4-card');
+    var why = document.getElementById('v4-why');
+
+    function mean(v){ return v.length > 0 ? v.reduce(function(a, b){ return a + b; }, 0) / v.length : 0; }
+
+    function render(){
+      modeBtn.setAttribute('aria-pressed', aggOnly ? 'true' : 'false');
+      [].slice.call(picks.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+      });
+      var a = ANSWERS[cur], m = mean(a.v);
+
+      if (aggOnly) {
+        var all = ANSWERS.map(function(x){ return mean(x.v); });
+        var spread = Math.max.apply(null, all) - Math.min.apply(null, all);
+        card.innerHTML = '<div class="v4-big" style="color:var(--viz-amber)">' + m.toFixed(2) + '</div>' +
+          '<div style="text-align:center;font-size:11.5px;color:var(--viz-muted)">“RAG score” for ' + a.name + '</div>' +
+          '<div style="text-align:center;font-size:11.5px;color:var(--viz-muted);margin-top:8px">the other two: ' +
+          all.filter(function(_, i){ return i !== cur; }).map(function(x){ return x.toFixed(2); }).join(' and ') +
+          ' &nbsp;·&nbsp; total spread ' + spread.toFixed(2) + '</div>';
+        why.innerHTML = '<b style="color:var(--viz-red)">Three numbers within ' + spread.toFixed(2) + ' of each other. Three unrelated repairs.</b>' +
+          'One answer is off-topic, one invented a deadline, one was starved of evidence — and the aggregate cannot tell you which, or whom to call. ' +
+          '<b>Aggregation destroys the triage value that is the entire point of measuring.</b> ' +
+          '<br><br>Switch the view back and read the rows grouped by owner.';
+        return;
+      }
+
+      var html = '', lastOwn = '';
+      DIMS.forEach(function(d, i){
+        if (d.own !== lastOwn) {
+          if (lastOwn) html += '</div>';                 // close the previous owner's group first
+          html += '<div class="v4-own">' + d.own + '</div><div class="v4-rows">';
+          lastOwn = d.own;
+        }
+        var v = a.v[i];
+        var c = v >= 0.85 ? 'var(--viz-green)' : (v >= 0.6 ? 'var(--viz-amber)' : 'var(--viz-red)');
+        var mark = v >= 0.85 ? '✓' : (v >= 0.6 ? '~' : '✕');
+        html += '<div class="v4-r"><span class="v4-nm">' + d.k + '</span>' +
+          '<span class="v4-track"><i style="width:' + Math.round(v * 100) + '%;background:' + c + '"></i></span>' +
+          '<span class="v4-v" style="color:' + c + '">' + mark + v.toFixed(2) + '</span></div>';
+      });
+      html += '</div>';
+      card.innerHTML = html +
+        '<div class="v4-own">online signal</div><div style="font-size:11.5px;font-family:ui-monospace,Consolas,monospace;color:var(--viz-violet)">' +
+        a.esc + '</div>' +
+        '<div style="margin-top:10px;font-size:11.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace">averaged: ' + m.toFixed(2) + '</div>';
+      why.innerHTML = '<b>' + a.fix[0] + '</b>' + a.fix[1];
+    }
+
+    ANSWERS.forEach(function(a, i){
+      var b = document.createElement('button');
+      b.className = 'v4-p';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<b>' + a.name + '</b>' + a.blurb;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      picks.appendChild(b);
+    });
+    modeBtn.addEventListener('click', function(){ aggOnly = !aggOnly; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Calibrating The Judge</h2>
+  <p class="vz-lede">Nearly every metric on the last four panels is a model judging text. Switch on the four
+    biases that recur, and drag the size of the human-labelled golden set that is the only thing able to
+    <em>see</em> them. <b>Like a bathroom scale nobody ever checked against a known weight: it reads
+    consistently, and consistently wrong.</b></p>
+
+  <div class="v5-bias" id="v5-bias"></div>
+
+  <div class="vz-card">
+    <div class="v5-bars" id="v5-bars"></div>
+    <label class="v5-lab" for="v5-n">Human-labelled golden set: <span id="v5-nl">300</span> examples</label>
+    <input type="range" id="v5-n" min="0" max="600" value="300" step="25" aria-label="Size of the human-labelled golden set">
+    <div class="v5-verdict" id="v5-verdict"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The architecture that works has three layers: a <b>golden set</b> of 100–300 human-labelled
+    queries gates releases and prompt or schema changes; <b>continuous LLM-judged sampling</b> of production
+    traffic watches for drift between releases; <b>online signals</b> arbitrate when the first two disagree.
+    LLM judges are not a mistake — they are the only scalable option. But a judge is a <b>sensor</b>, and
+    sensors need calibration, version control and periodic re-validation before their readings mean anything.</p>
+
+  <style>
+    .v5-bias{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-b{min-height:46px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v5-mk{flex:0 0 auto;width:14px;font-weight:800;font-size:13px}
+    .v5-d{margin-left:auto;flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:800}
+    .v5-bars{display:flex;flex-direction:column;gap:9px;margin-bottom:14px}
+    .v5-row h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between}
+    .v5-row h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v5-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-verdict{margin-top:12px;padding:10px;border:1.5px solid var(--viz-line);border-radius:9px;
+      font-size:11.5px;font-family:ui-monospace,Consolas,monospace;line-height:1.5}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TRUE_SCORE = 0.80;      // what the human-labelled golden set says the system is worth
+    var BIASES = [
+      { on:false, d:0.06, name:'Self-preference: judge shares the generator’s model family',
+        why:'Judges rate outputs from their own family higher. <b>The judge must differ from the generator</b> — the cheapest fix on this list, and the most often skipped.' },
+      { on:false, d:0.09, name:'Verbosity bias: longer, more confident answers score better',
+        why:'Length correlates with score regardless of correctness, so a prompt change that makes answers wordier reads as a quality win. <b>Rubrics must explicitly forbid rewarding length.</b>' },
+      { on:false, d:0.07, name:'Shallow agreement: judge rewards lexical overlap with the context',
+        why:'A subtly wrong answer that quotes the right phrases passes. This is precisely why <b>numeric claims need targeted verification</b> rather than a general-purpose entailment rubric.' },
+      { on:false, d:0.05, name:'Judge drift: the judge model auto-updated this week',
+        why:'Every metric moves with <em>no change to your system</em>, and the incident review hunts for a code change that does not exist. <b>Pin judge versions like dependencies.</b>' }
+    ];
+    var n = 300;
+    var biasBox = document.getElementById('v5-bias');
+    var bars = document.getElementById('v5-bars');
+    var slider = document.getElementById('v5-n'), nl = document.getElementById('v5-nl');
+    var verdict = document.getElementById('v5-verdict');
+    var why = document.getElementById('v5-why');
+
+    function render(){
+      n = Number(slider.value);
+      nl.textContent = n;
+      [].slice.call(biasBox.children).forEach(function(b, i){
+        var on = BIASES[i].on;
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.style.borderColor = on ? 'var(--viz-red)' : 'var(--viz-line)';
+        b.innerHTML = '<span class="v5-mk" style="color:' + (on ? 'var(--viz-red)' : 'var(--viz-muted)') + '">' +
+          (on ? '✕' : '·') + '</span><span>' + BIASES[i].name + '</span>' +
+          '<span class="v5-d" style="color:' + (on ? 'var(--viz-red)' : 'var(--viz-muted)') + '">+' + BIASES[i].d.toFixed(2) + '</span>';
+      });
+
+      var live = BIASES.filter(function(b){ return b.on; });
+      var drift = live.reduce(function(a, b){ return a + b.d; }, 0);
+      var measured = Math.min(1, TRUE_SCORE + drift);
+      var gap = measured - TRUE_SCORE;
+
+      function bar(label, v, c, sub){
+        return '<div class="v5-row"><h6><span>' + label + '</span><b style="color:' + c + '">' + v.toFixed(2) + '</b></h6>' +
+          '<div class="v5-track"><i style="width:' + Math.round(v * 100) + '%;background:' + c + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:3px">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('human golden set (truth)', TRUE_SCORE, 'var(--viz-green)', 'labelled by people, never passed through any model') +
+        bar('what the LLM judge reports', measured, gap >= 0.10 ? 'var(--viz-red)' : (gap > 0 ? 'var(--viz-amber)' : 'var(--viz-green)'),
+          live.length === 0 ? 'no bias active — the judge and the humans agree' : live.length + ' bias' + (live.length === 1 ? '' : 'es') + ' active, inflating by ' + gap.toFixed(2));
+
+      // 95% half-width on an agreement rate near 0.5 is ~1.96·sqrt(p(1-p)/n) ≈ 0.98/√n.
+      var half = n > 0 ? 0.98 / Math.sqrt(n) : null;
+      var canSee = half !== null && half < gap;
+      verdict.innerHTML = n === 0
+        ? '<span style="color:var(--viz-red)">✕ no golden set — the gap above is invisible to you</span><br>' +
+          'Nothing measures the judge, so its readings are simply believed. Every number on the other four panels inherits that.'
+        : 'agreement measurable to ±' + half.toFixed(3) + ' at n = ' + n + '<br>' +
+          (gap === 0
+            ? '<span style="color:var(--viz-green)">✓ judge agrees with the humans within the interval</span>'
+            : (canSee
+                ? '<span style="color:var(--viz-green)">✓ a bias of ' + gap.toFixed(2) + ' is larger than the interval — you would DETECT it</span>'
+                : '<span style="color:var(--viz-amber)">~ a bias of ' + gap.toFixed(2) + ' hides inside the interval — label more examples</span>'));
+
+      why.innerHTML = live.length === 0
+        ? '<b style="color:var(--viz-green)">A calibrated judge is a usable sensor.</b>' +
+          'Validate against human labels on a few hundred examples and <b>record the agreement</b>; re-validate whenever the judge <em>or</em> the generator changes; keep the golden set as the immovable reference that never passes through any model. ' +
+          'Then treat LLM metrics as <b>regression detectors rather than truth</b> — you are watching for movement, not reading an absolute grade. ' +
+          '<br><br>IR 104’s experiment discipline applies unchanged: paired comparisons on the same queries, per-segment slices, confidence intervals on deltas.' +
+          '<br><br>Switch a bias on and watch what an uncalibrated dashboard would have told you.'
+        : '<b style="color:var(--viz-red)">Reported ' + measured.toFixed(2) + ', actually ' + TRUE_SCORE.toFixed(2) + ' — and nothing in your system changed.</b>' +
+          (gap >= 0.10
+            ? 'A gap this size ships a regression as an improvement: the release passes its gate, the dashboard goes up, and the escalation rate quietly goes up with it.'
+            : 'Small enough to survive a glance at a dashboard, large enough to reverse the verdict on a close A/B.') +
+          live.map(function(b){ return '<br><br><b style="display:inline;font-size:12.5px">' + b.name.split(':')[0] + ':</b> ' + b.why; }).join('') +
+          '<br><br><b>The half-width above is the whole argument for a few hundred labels:</b> ±0.98/√n, so n = 300 buys ±0.057 — enough to see a 0.1 bias, and cheap enough to redo on every judge change.';
+    }
+
+    BIASES.forEach(function(b, i){
+      var el = document.createElement('button');
+      el.className = 'v5-b';
+      el.setAttribute('aria-pressed', 'false');
+      el.addEventListener('click', function(){ BIASES[i].on = !BIASES[i].on; render(); });
+      biasBox.appendChild(el);
+    });
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

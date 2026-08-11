@@ -1,0 +1,661 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Top-k Not All-k</button>
+  <button class="viz-tab" data-viz-tab="2">2. TAAT Versus DAAT</button>
+  <button class="viz-tab" data-viz-tab="3">3. Champion List Size</button>
+  <button class="viz-tab" data-viz-tab="4">4. The WAND Pivot</button>
+  <button class="viz-tab" data-viz-tab="5">5. Essential Or Skippable</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Top-k Not All-k</h2>
+  <p class="vz-lede"><b>Cosine Similarity as a Ranking Function</b>, over <b>Bag-of-Words Vectors</b> weighted by
+    <b>tf-idf</b> and fixed by <b>Document Length Normalization</b>, already gives every document a number.
+    This lesson never changes that number. It asks how many of them you can decline to compute. Drag k, and
+    flip the heap between full and still filling. <b>Like an exam where only the top three get in: once you
+    know the third-best mark, most papers need no marking at all.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Heap state">
+    <button id="v1-full" aria-pressed="true">heap already full</button>
+    <button id="v1-empty" aria-pressed="false">heap still filling</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-k">k = <span id="v1-kl">2</span> results wanted
+      &nbsp;·&nbsp; threshold &#952; = <span id="v1-th">1.60</span></label>
+    <input type="range" id="v1-k" min="1" max="4" value="2" step="1" aria-label="How many results the user wants">
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The threshold is the whole hinge, and it is not free: it only exists because scores can be
+    <b>finalized in document order</b> and fed to a min-heap of size k. That is why the traversal question in
+    visual 2 comes before the skipping questions in visuals 4 and 5 — an algorithm that finishes one term at a
+    time has no finished score to threshold on until the very end.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v1-rows{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+    .v1-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 10px;background:var(--viz-bg)}
+    .v1-d.is-in{border-color:var(--viz-green)}
+    .v1-d.is-waste{border-color:var(--viz-amber)}
+    .v1-d.is-out{opacity:.5;border-style:dashed}
+    .v1-top{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v1-tag{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right}
+    .v1-bar{position:relative;height:12px;border-radius:4px;background:var(--viz-line);margin-top:7px;overflow:hidden}
+    .v1-bar i{position:absolute;top:0;bottom:0;left:0;border-radius:4px}
+    .v1-bar u{position:absolute;top:0;bottom:0;width:2px;background:var(--viz-violet)}
+    .v1-sub{font-size:10.5px;color:var(--viz-muted);margin-top:5px;font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The four documents that match "vector database", with the scores from the
+    // worked postings. Each document’s UPPER BOUND is the sum of the maxima of the
+    // terms it actually matches: vector <= 1.5, database <= 1.2.
+    var DOCS = [
+      { id:2, terms:'vector + database', score:2.3, bound:2.7 },
+      { id:9, terms:'vector + database', score:1.6, bound:2.7 },
+      { id:7, terms:'database only',     score:1.2, bound:1.2 },
+      { id:5, terms:'vector only',       score:0.7, bound:1.5 }
+    ];
+    var SORTED = [2.3, 1.6, 1.2, 0.7];
+    var MAXB = 2.7;
+    var heapFull = true;
+    var s = document.getElementById('v1-k'), kl = document.getElementById('v1-kl');
+    var th = document.getElementById('v1-th'), rows = document.getElementById('v1-rows');
+    var why = document.getElementById('v1-why');
+    var bF = document.getElementById('v1-full'), bE = document.getElementById('v1-empty');
+
+    function render(){
+      var k = Number(s.value);
+      if (!(k >= 1)) k = 1;
+      kl.textContent = k;
+      var theta = heapFull ? SORTED[k - 1] : -Infinity;
+      th.textContent = heapFull ? theta.toFixed(2) : '−∞';
+      bF.setAttribute('aria-pressed', heapFull ? 'true' : 'false');
+      bE.setAttribute('aria-pressed', heapFull ? 'false' : 'true');
+
+      var proven = 0, wasted = 0, html = '';
+      DOCS.forEach(function(d){
+        var cls, tag, col;
+        if (heapFull && d.score >= theta) { cls = 'is-in'; tag = 'IN THE TOP ' + k; col = 'var(--viz-green)'; }
+        else if (heapFull && d.bound < theta) { cls = 'is-out'; tag = 'PROVABLY OUT · never scored'; col = 'var(--viz-muted)'; proven += 1; }
+        else { cls = 'is-waste'; tag = 'must be scored, then dropped'; col = 'var(--viz-amber)'; wasted += 1; }
+        var sw = Math.max(2, d.score / MAXB * 100), bw = Math.max(2, d.bound / MAXB * 100);
+        var mark = (heapFull && isFinite(theta)) ?
+          '<u style="left:' + (theta / MAXB * 100) + '%"></u>' : '';
+        html += '<div class="v1-d ' + cls + '">' +
+          '<div class="v1-top"><span>doc ' + d.id + '</span><span>' + d.terms + '</span>' +
+          '<span class="v1-tag" style="color:' + col + '">' + tag + '</span></div>' +
+          '<div class="v1-bar"><i style="width:' + bw + '%;background:var(--viz-line)"></i>' +
+          '<i style="width:' + sw + '%;background:' + (cls === 'is-in' ? 'var(--viz-green)' : 'var(--viz-accent)') + ';opacity:.85"></i>' + mark + '</div>' +
+          '<div class="v1-sub">cosine score ' + d.score.toFixed(1) + ' (lesson 02) · upper bound ' + d.bound.toFixed(1) + ' (this lesson)' +
+          (mark ? ' · ❘ = θ' : '') + '</div></div>';
+      });
+      rows.innerHTML = html;
+
+      why.innerHTML = !heapFull
+        ? '<b style="color:var(--viz-red)">An empty heap prunes nothing.</b>' +
+          'Before k results have been collected the threshold is effectively negative infinity — or zero for nonnegative scores — so <b>no bound can fall below it</b> and every one of the four documents has to be fully scored. ' +
+          'This is not a detail: it is why a query that meets strong candidates early finishes faster than the same query that meets them late, with the scoring formula completely unchanged. ' +
+          '<br><br>Flip back to <em>heap already full</em> to see the same four documents under a live threshold.'
+        : '<b style="color:var(--viz-green)">' + proven + ' of 4 documents are provably out, from bounds alone.</b>' +
+          'A document’s upper bound is the sum of the maxima of the terms it matches: doc 5 has only <code>vector</code>, so it cannot exceed 1.5 however the tf and idf fall. ' +
+          'With &#952; = ' + theta.toFixed(2) + ', every bound below that is a <b>proof</b> — not a heuristic — that the document cannot enter the answer, so its posting entry is never decoded and its score is never formed. ' +
+          (wasted ? '<br><br><b style="color:var(--viz-amber)">And ' + wasted + ' still has to be scored to find that out.</b>' +
+            'A bound above &#952; only says <em>possible</em>. Doc ' + (theta > 1.3 ? '9' : '5') + ' survives the test, gets fully scored, and is then discarded. Wasted work, never a wrong answer — the same asymmetry as false positives in a min/max statistic.' : '') +
+          '<br><br>Notice what did the work: not a better score, a <b>threshold plus an upper bound</b>. Everything left in this lesson is a way of getting more mileage out of exactly that pair.';
+    }
+    s.addEventListener('input', render);
+    bF.addEventListener('click', function(){ heapFull = true; render(); });
+    bE.addEventListener('click', function(){ heapFull = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. TAAT Versus DAAT</h2>
+  <p class="vz-lede">Same postings, same arithmetic, same final ranking — two ways of ordering the work. Pick a
+    traversal and step it. Watch what the algorithm is holding in memory at each moment.
+    <b>Like adding up a stack of receipts: one column at a time down every page, or one whole page at a
+    time.</b></p>
+
+  <div class="vz-card vz-mono" id="v2-post" style="margin-bottom:12px"></div>
+
+  <div class="vz-seg" role="group" aria-label="Traversal strategy">
+    <button id="v2-taat" aria-pressed="true">term-at-a-time</button>
+    <button id="v2-daat" aria-pressed="false">document-at-a-time</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-ctl">
+      <button class="v2-btn" id="v2-back" aria-label="Previous step">&#8592;</button>
+      <span class="v2-step" id="v2-step">step 0 of 7</span>
+      <button class="v2-btn" id="v2-next" aria-label="Next step">next &#8594;</button>
+    </div>
+    <div class="v2-act" id="v2-act"></div>
+    <div class="v2-state" id="v2-state"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Neither is universally faster. DAAT keeps switching between lists and naïve implementations
+    pay branch and pointer costs; TAAT reads one list end to end, which is cache-friendly and vectorizes well.
+    <b>Query length, list sizes, compression layout and the pruning rules available decide it</b> — with lists
+    of 50, 50 and 5,000,000, a conjunctive query wants the short list driving and a seek into the long one.
+    A planner should read collection statistics, not pick one traversal for everything.</p>
+
+  <style>
+    .v2-ctl{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+    .v2-btn{min-height:44px;min-width:64px;flex:0 0 auto;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 12px}
+    .v2-step{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted);margin-left:auto}
+    .v2-act{font-size:13px;font-weight:700;line-height:1.45;margin-bottom:10px}
+    .v2-state{display:flex;flex-direction:column;gap:4px}
+    .v2-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-r.is-hot{border-color:var(--viz-accent)}
+    .v2-r.is-fin{border-color:var(--viz-green)}
+    .v2-cap{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      margin:10px 0 5px;font-weight:700}
+    .v2-pill{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    document.getElementById('v2-post').innerHTML =
+      'query: vector database          k = 2\n' +
+      'vector  :  (2, 1.5)  (5, 0.7)  (9, 1.0)\n' +
+      'database:  (2, 0.8)  (7, 1.2)  (9, 0.6)\n' +
+      '           ^docid ^that term’s score contribution';
+
+    var TAAT = [
+      { a:'Start. The accumulator is empty; nothing has been read.', acc:{}, hot:null },
+      { a:'vector (2, 1.5) → accumulator[2] = 1.5', acc:{2:1.5}, hot:2 },
+      { a:'vector (5, 0.7) → accumulator[5] = 0.7', acc:{2:1.5,5:0.7}, hot:5 },
+      { a:'vector (9, 1.0) → accumulator[9] = 1.0. That list is done.', acc:{2:1.5,5:0.7,9:1.0}, hot:9 },
+      { a:'database (2, 0.8) → accumulator[2] rises 1.5 → 2.3', acc:{2:2.3,5:0.7,9:1.0}, hot:2 },
+      { a:'database (7, 1.2) → a NEW entry appears at the end of the run', acc:{2:2.3,5:0.7,7:1.2,9:1.0}, hot:7 },
+      { a:'database (9, 0.6) → accumulator[9] rises 1.0 → 1.6', acc:{2:2.3,5:0.7,7:1.2,9:1.6}, hot:9 },
+      { a:'Only now: scan the accumulator and select the largest scores.', acc:{2:2.3,5:0.7,7:1.2,9:1.6}, hot:null, done:true }
+    ];
+    var DAAT = [
+      { a:'Start. One iterator per term, both at their first posting.', it:{v:2,d:2}, heap:[], hot:null },
+      { a:'Smallest docid = 2, in both lists: 1.5 + 0.8 = 2.3. FINALIZED.', it:{v:2,d:2}, heap:[2.3], hot:2 },
+      { a:'Advance both. Heads are now vector→5, database→7.', it:{v:5,d:7}, heap:[2.3], hot:null },
+      { a:'Smallest docid = 5, vector alone: 0.7. FINALIZED. Heap is now full.', it:{v:5,d:7}, heap:[2.3,0.7], hot:5 },
+      { a:'Advance vector→9. Smallest docid = 7, database alone: 1.2 > θ = 0.7, so it enters and evicts 0.7.', it:{v:9,d:7}, heap:[2.3,1.2], hot:7 },
+      { a:'Advance database→9. Both at 9: 1.0 + 0.6 = 1.6 > θ = 1.2, so it enters and evicts 1.2.', it:{v:9,d:9}, heap:[2.3,1.6], hot:9 },
+      { a:'Lists exhausted. Top 2 = doc 2 (2.3), doc 9 (1.6) — identical to TAAT.', it:{v:null,d:null}, heap:[2.3,1.6], hot:null, done:true }
+    ];
+
+    var taat = true, i = 0;
+    var bT = document.getElementById('v2-taat'), bD = document.getElementById('v2-daat');
+    var back = document.getElementById('v2-back'), next = document.getElementById('v2-next');
+    var stepL = document.getElementById('v2-step'), act = document.getElementById('v2-act');
+    var state = document.getElementById('v2-state'), why = document.getElementById('v2-why');
+
+    function row(cls, left, right, pill, col){
+      return '<div class="v2-r ' + cls + '"><span>' + left + '</span><span>' + right + '</span>' +
+        (pill ? '<span class="v2-pill" style="color:' + col + '">' + pill + '</span>' : '') + '</div>';
+    }
+    function render(){
+      var steps = taat ? TAAT : DAAT;
+      if (i < 0) i = 0;
+      if (i > steps.length - 1) i = steps.length - 1;
+      var st = steps[i];
+      bT.setAttribute('aria-pressed', taat ? 'true' : 'false');
+      bD.setAttribute('aria-pressed', taat ? 'false' : 'true');
+      stepL.textContent = 'step ' + i + ' of ' + (steps.length - 1);
+      act.textContent = st.a;
+
+      var h = '';
+      if (taat) {
+        var keys = Object.keys(st.acc);
+        h += '<div class="v2-cap">accumulator · ' + keys.length + ' live entr' + (keys.length === 1 ? 'y' : 'ies') + '</div>';
+        h += keys.length
+          ? keys.map(function(k){
+              return row(st.hot === Number(k) ? 'is-hot' : '', 'doc ' + k, st.acc[k].toFixed(1),
+                st.hot === Number(k) ? 'just written' : '', 'var(--viz-accent)');
+            }).join('')
+          : row('', 'empty', '—', '', '');
+        h += '<div class="v2-cap">top-k heap</div>';
+        h += st.done
+          ? row('is-fin', 'doc 2', '2.3', 'selected', 'var(--viz-green)') + row('is-fin', 'doc 9', '1.6', 'selected', 'var(--viz-green)')
+          : row('', 'not built yet', '—', 'no threshold exists', 'var(--viz-muted)');
+      } else {
+        h += '<div class="v2-cap">iterators</div>';
+        h += row(st.it.v === null ? '' : 'is-hot', 'vector →', st.it.v === null ? 'exhausted' : 'doc ' + st.it.v, '', '');
+        h += row(st.it.d === null ? '' : 'is-hot', 'database →', st.it.d === null ? 'exhausted' : 'doc ' + st.it.d, '', '');
+        var thr = st.heap.length >= 2 ? Math.min.apply(null, st.heap) : null;
+        h += '<div class="v2-cap">min-heap of size k = 2 · threshold θ = ' +
+          (thr === null ? '−∞ (not full)' : thr.toFixed(1)) + '</div>';
+        h += st.heap.length
+          ? st.heap.slice().sort(function(a,b){ return b - a; }).map(function(v){
+              return row('is-fin', 'score', v.toFixed(1), v === thr ? 'root = θ' : '', 'var(--viz-violet)');
+            }).join('')
+          : row('', 'empty', '—', 'nothing can be pruned yet', 'var(--viz-muted)');
+      }
+      state.innerHTML = h;
+
+      why.innerHTML = taat
+        ? '<b>TAAT holds an accumulator; its size is the risk.</b>' +
+          'One posting list is read end to end before the next is touched, so access is sequential, parallelises by term, and permits blockwise vectorized accumulation. The price is that <b>every document touched by any query term needs a slot</b> — a hash map, a dense score array, or a compressed structure. ' +
+          'Four here; on a broad query, millions, to return ten. Clearing a dense array is itself expensive, which is why real implementations track which slots were touched. ' +
+          '<br><br>And note the last step: <b>no complete score exists until the final list is finished</b>, so there is no live threshold to prune against along the way.'
+        : '<b>DAAT holds a heap; its size is k.</b>' +
+          'All lists advance together in increasing docid order, so the smallest current docid is the next candidate and its score is <b>complete the moment it is formed</b>. That is what lets each score go straight into a min-heap of size k, whose root becomes the threshold &#952;. ' +
+          'Memory is bounded by the iterators, the heap and a little scoring state — not by the number of documents touched. ' +
+          '<br><br>Watch &#952; climb from −∞ to 0.7 to 1.2 to 1.6 as the steps run. <b>That rising number is the raw material for every skip in visuals 4 and 5</b>, and it is the reason WAND-style pruning is built on DAAT rather than on TAAT.';
+    }
+    bT.addEventListener('click', function(){ taat = true; i = 0; render(); });
+    bD.addEventListener('click', function(){ taat = false; i = 0; render(); });
+    back.addEventListener('click', function(){ i -= 1; render(); });
+    next.addEventListener('click', function(){ i += 1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Champion List Size</h2>
+  <p class="vz-lede">Index elimination cuts what is traversed <em>before</em> scoring. A champion list keeps
+    only the r best-weighted documents per term, chosen at indexing time. Drag r, drop the very common term,
+    turn a filter on. <b>Like a shortlist drawn up before the interviews: cheap, and only as good as whoever
+    drew it.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-r">Champion list size r = <span id="v3-rl">1,000</span>
+      &nbsp;·&nbsp; full posting = 1,000,000 docs per term</label>
+    <input type="range" id="v3-r" min="0" max="4" value="1" step="1" aria-label="Champion list size r">
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-opts">
+      <button class="v3-t" id="v3-elim" aria-pressed="false">eliminate the very common term (5,000,000 postings)</button>
+      <button class="v3-t" id="v3-filter" aria-pressed="false">access filter rejects 9 of every 10 champions</button>
+    </div>
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Champion lists move work from request time to index construction, so they go stale: term
+    weights, document quality and deletion state all drift. <b>Store the construction version and rebuild
+    derived structures whenever the scoring model changes</b>, and if champions are built per segment, make
+    sure the segments' score statistics are comparable — otherwise a small new segment either dominates the
+    merged candidate set or vanishes from it.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-bars{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v3-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v3-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v3-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-opts{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+    .v3-t{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:8px 11px}
+    .v3-t[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-ink)}
+    .v3-t::before{content:"\2610  ";font-family:ui-monospace,Consolas,monospace}
+    .v3-t[aria-pressed="true"]::before{content:"\2611  "}
+    .v3-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var RS = [100, 1000, 10000, 100000, 1000000];
+    var FULL = 1000000, COMMON = 5000000, K = 10;
+    var elim = false, filt = false;
+    var s = document.getElementById('v3-r'), rl = document.getElementById('v3-rl');
+    var bars = document.getElementById('v3-bars'), stats = document.getElementById('v3-stats');
+    var why = document.getElementById('v3-why');
+    var bE = document.getElementById('v3-elim'), bF = document.getElementById('v3-filter');
+    var fmt = function(n){ return n.toLocaleString('en-US'); };
+
+    function bar(t, v, max, c, sub){
+      var w = max > 0 ? Math.max(0.6, v / max * 100) : 0.6;
+      return '<div class="v3-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + fmt(v) + '</b></h6>' +
+        '<div class="v3-track"><i style="width:' + w + '%;background:' + c + '"></i></div>' +
+        '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+    }
+    function render(){
+      var r = RS[Number(s.value)] || RS[0];
+      rl.textContent = fmt(r);
+      bE.setAttribute('aria-pressed', elim ? 'true' : 'false');
+      bF.setAttribute('aria-pressed', filt ? 'true' : 'false');
+
+      var exhaustive = 2 * FULL + COMMON;
+      var pool = 2 * Math.min(r, FULL) + (elim ? 0 : Math.min(r, COMMON));
+      var pct = pool / exhaustive * 100;
+      var survivors = filt ? Math.floor(pool * 0.1) : pool;
+      var poolCol = r >= 100000 ? 'var(--viz-amber)' : 'var(--viz-green)';
+
+      bars.innerHTML =
+        bar('exhaustive traversal — every posting', exhaustive, exhaustive, 'var(--viz-red)',
+          'Two content terms at 1,000,000 postings each' + (elim ? ', plus the common term you just dropped' : ', plus one extremely common term at 5,000,000') + '.') +
+        bar('champion candidate pool', pool, exhaustive, poolCol,
+          'Union of the champion lists actually traversed: ' + pct.toFixed(pct < 1 ? 3 : 1) + '% of the postings above.');
+
+      stats.innerHTML =
+        '<span class="v3-pill" style="color:' + poolCol + ';border-color:' + poolCol + '">pool ' + fmt(pool) + ' docs</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + pct.toFixed(pct < 1 ? 3 : 1) + '% of exhaustive</span>' +
+        (filt ? '<span class="v3-pill" style="color:' + (survivors < K ? 'var(--viz-red)' : 'var(--viz-amber)') + ';border-color:' + (survivors < K ? 'var(--viz-red)' : 'var(--viz-amber)') + '">' + fmt(survivors) + ' survive the filter</span>' : '');
+
+      var head, body;
+      if (r <= 100) {
+        head = '<b style="color:var(--viz-red)">r = 100: fast, and it can miss competitive documents.</b>';
+        body = 'The pool is a rounding error against the full posting, so latency collapses — but the guarantee collapses with it. A champion list ranks each term independently, so <b>a document mediocre for every single query term can still be excellent because it matches them all</b>, and no term-local top-100 will ever contain it.';
+      } else if (r >= 1000000) {
+        head = '<b style="color:var(--viz-red)">r = 1,000,000: this IS the exhaustive scan.</b>';
+        body = 'Every posting is in its own champion list, so nothing was eliminated and nothing was saved. The dial has run off the end of its useful range — and the fact that the machinery still runs perfectly while saving nothing is exactly what makes it easy to ship by accident.';
+      } else if (r >= 100000) {
+        head = '<b style="color:var(--viz-amber)">r = 100,000: recall improves, most of the saving is gone.</b>';
+        body = 'This is the honest shape of the tradeoff — the two ends of the dial are wrong in opposite ways, and neither is a constant to memorise. Lists can also use a score cutoff or a term-specific size: a rare term may need its whole short posting, while a frequent term benefits from aggressive restriction.';
+      } else {
+        head = '<b style="color:var(--viz-green)">r = ' + fmt(r) + ': a workable candidate budget.</b>';
+        body = 'A pool of ' + fmt(pool) + ' against ' + fmt(exhaustive) + ' postings, chosen at indexing time rather than paid for per request. The right configuration is <b>the smallest candidate budget that meets an explicit relevance target</b>, and the target has to be measured as recall of the exhaustive top k — not as overlap of candidate sets, which can look excellent while the one document that mattered is missing.';
+      }
+
+      var extra = '';
+      if (elim) {
+        extra += '<br><br><b style="color:var(--viz-amber)">Dropping the common term saved 5,000,000 postings — and it is a guess, not a proof.</b>' +
+          'Ignoring a term with negligible discriminative value barely moves the ranking on a normal query. But that term may be load-bearing in a phrase, an entity name, or a navigational query, and <b>on a one-term query eliminating the only term yields no candidates at all</b>. Eliminate on query structure, never on idf alone.';
+      }
+      if (filt) {
+        extra += '<br><br><b style="color:var(--viz-red)">' + fmt(survivors) + ' candidates survive the filter' + (survivors < K ? ' — fewer than k = 10.' : '.') + '</b>' +
+          'Filters are applied after candidate generation, so a small r can hide relevant documents the moment access control or language narrows the set. ' + (survivors < K
+            ? 'The ranker <b>must expand</b> — returning ' + fmt(survivors) + ' result' + (survivors === 1 ? '' : 's') + ' because that is all the shortlist had left is a bug wearing the costume of an empty index.'
+            : 'Enough survive here, but the fallback condition still has to be written down explicitly rather than assumed.');
+      }
+      extra += '<br><br><b>The line that matters:</b> everything on this panel is <em>heuristic</em> elimination — it accepts recall risk. Suppose k = 10, the first tier returns 10 documents, and the heap threshold is 0.15 while omitted postings could contribute as much as 0.9: stopping is unjustified. If a bound proves every omitted candidate scores at most 0.12, stopping is correct. Visuals 4 and 5 are that proof; a system should label which guarantee it actually provides.';
+
+      why.innerHTML = head + body + extra;
+    }
+    s.addEventListener('input', render);
+    bE.addEventListener('click', function(){ elim = !elim; render(); });
+    bF.addEventListener('click', function(){ filt = !filt; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The WAND Pivot</h2>
+  <p class="vz-lede">Three iterators, three upper bounds, one threshold. Sort by current document identifier,
+    add bounds from the front, and stop the instant the running sum can beat &#952;. Drag the threshold and
+    watch the pivot move. <b>Like queue-jumping at a weigh-in: nobody who cannot possibly make the weight even
+    gets on the scale.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-t">Heap threshold &#952; = <span id="v4-tl">1.50</span>
+      &nbsp;·&nbsp; total possible score = 1.90</label>
+    <input type="range" id="v4-t" min="0" max="20" value="15" step="1" aria-label="Heap threshold">
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-verdict" id="v4-verdict"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Correct bounds are non-negotiable. A bound must cover <b>every positive component of
+    first-stage scoring</b> — field boosts included. If a later feature can add 0.5, either fold its maximum
+    into the bound or apply it only after a safely generated candidate set. <b>An underestimated maximum skips
+    a true winner</b>, and that is a correctness bug, not a slow query.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-rows{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v4-i{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-i.is-pivot{border-color:var(--viz-violet)}
+    .v4-i.is-move{border-color:var(--viz-amber)}
+    .v4-i.is-past{opacity:.5}
+    .v4-mk{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right}
+    .v4-verdict{margin-top:12px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 12px;
+      font-size:12.5px;line-height:1.5}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Sorted by current docid, which is the order WAND requires before accumulating.
+    var ITS = [
+      { n:'term A', doc:10, ub:0.4 },
+      { n:'term B', doc:14, ub:0.7 },
+      { n:'term C', doc:14, ub:0.8 }
+    ];
+    var TOTAL = 1.9;
+    var s = document.getElementById('v4-t'), tl = document.getElementById('v4-tl');
+    var rows = document.getElementById('v4-rows'), verdict = document.getElementById('v4-verdict');
+    var why = document.getElementById('v4-why');
+
+    function render(){
+      var theta = Number(s.value) / 10;
+      if (!isFinite(theta)) theta = 0;
+      tl.textContent = theta.toFixed(2);
+
+      var run = 0, pivotIdx = -1, sums = [];
+      for (var j = 0; j < ITS.length; j++) {
+        run += ITS[j].ub;
+        sums.push(run);
+        if (pivotIdx === -1 && run > theta) pivotIdx = j;
+      }
+      var pivotDoc = pivotIdx === -1 ? null : ITS[pivotIdx].doc;
+
+      rows.innerHTML = ITS.map(function(it, j){
+        var cls = '', mk = '', col = 'var(--viz-muted)';
+        if (pivotIdx === -1) { cls = 'is-past'; mk = 'bound exhausted'; }
+        else if (j === pivotIdx) { cls = 'is-pivot'; mk = 'PIVOT · doc ' + pivotDoc; col = 'var(--viz-violet)'; }
+        else if (j < pivotIdx && it.doc < pivotDoc) { cls = 'is-move'; mk = 'skip ahead to ' + pivotDoc; col = 'var(--viz-amber)'; }
+        else if (j < pivotIdx) { cls = ''; mk = 'already at the pivot'; col = 'var(--viz-green)'; }
+        else { cls = 'is-past'; mk = 'not needed yet'; }
+        return '<div class="v4-i ' + cls + '"><span>' + it.n + '</span><span>doc ' + it.doc + '</span>' +
+          '<span>ub ' + it.ub.toFixed(1) + '</span><span>&#8721; ' + sums[j].toFixed(1) + '</span>' +
+          '<span class="v4-mk" style="color:' + col + '">' + mk + '</span></div>';
+      }).join('');
+
+      var vTxt, vCol;
+      if (pivotIdx === -1) {
+        vCol = 'var(--viz-green)';
+        vTxt = '<b>No pivot exists — and that is the finish line.</b> Even all three bounds together reach only ' + TOTAL.toFixed(1) +
+          ', which cannot beat &#952; = ' + theta.toFixed(2) + '. No remaining document can enter the top k, so retrieval stops here.';
+      } else if (ITS[0].doc === pivotDoc) {
+        vCol = 'var(--viz-green)';
+        vTxt = '<b>Doc ' + pivotDoc + ' is a candidate.</b> Every iterator inside the bound is already positioned at the pivot, so it is fully scored and offered to the heap.';
+      } else {
+        vCol = 'var(--viz-amber)';
+        vTxt = '<b>Doc ' + pivotDoc + ' is the pivot; term A must catch up.</b> The iterator at doc ' + ITS[0].doc +
+          ' skips forward to ' + pivotDoc + '. If it lands there, doc ' + pivotDoc + ' is scored from all matches; if it jumps past, the iterators are reordered and the test repeats. ' +
+          'Documents 11, 12 and 13 are never examined at all — no document below ' + pivotDoc + ' can gather enough possible evidence.';
+      }
+      verdict.style.borderColor = vCol;
+      verdict.innerHTML = vTxt;
+
+      why.innerHTML = theta === 0
+        ? '<b style="color:var(--viz-red)">&#952; = 0 is the un-pruned state, and every query starts here.</b>' +
+          'Before the heap holds k results the threshold is effectively &#8722;&#8734; (or zero for nonnegative scores), so the very first bound already exceeds it and the pivot lands on the smallest docid in play. WAND is running, correctly, and skipping nothing. ' +
+          '<br><br>Drag &#952; up and watch the pivot jump from doc 10 to doc 14: <b>the pruning is manufactured entirely by the threshold</b>, which is manufactured entirely by finding good documents. That is why a query planner that surfaces strong candidates early makes the rest of the same query cheaper without touching the ranking function.'
+        : pivotIdx === -1
+          ? '<b style="color:var(--viz-green)">This is the payoff: a proof of completion.</b>' +
+            'The sum of every remaining term bound is ' + TOTAL.toFixed(1) + ' and &#952; is ' + theta.toFixed(2) + '. Nothing left in any posting list can reach the heap, so the traversal terminates <b>with the same answer an exhaustive scorer would have produced</b>. ' +
+            '<br><br>That is the whole character of WAND and MaxScore: they convert a performance hope into a proof. Given valid upper bounds and a current threshold, the skipped non-contenders provably cannot alter the final top k.'
+          : '<b>Read the sum column, not the bounds.</b>' +
+            'Bounds are accumulated <em>from the front of the docid ordering</em> until the running total exceeds &#952;: ' +
+            sums.map(function(v){ return v.toFixed(1); }).join(' → ') + ' against &#952; = ' + theta.toFixed(2) + '. ' +
+            'The pivot is the docid where that first happens — the earliest document that could possibly clear the bar. ' +
+            '<br><br><b style="color:var(--viz-violet)">Block-Max WAND sharpens exactly this test.</b> Instead of one loose maximum per term, it stores a bound per block of the posting list. If a term’s global maximum is 4.0 but the next block’s maximum is 0.3, the local bound permits a large skip that the global value would forbid — visual 5 puts you on that dial.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Essential Or Skippable</h2>
+  <p class="vz-lede">Same threshold, two ways of spending it. MaxScore splits the query into terms that must
+    drive traversal and terms that only refine a score; Block-Max stores a bound per block so a quiet stretch
+    of a loud term can be jumped. <b>Like packing for a weight limit: some items you must carry, others you
+    only pick up if there is room left.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which bound">
+    <button id="v5-max" aria-pressed="true">MaxScore split</button>
+    <button id="v5-blk" aria-pressed="false">Block-Max skips</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-t">Heap threshold &#952; = <span id="v5-tl">1.20</span>
+      <span class="v5-hint" id="v5-hint"></span></label>
+    <input type="range" id="v5-t" min="0" max="20" value="12" step="1" aria-label="Heap threshold">
+    <div class="v5-body" id="v5-body"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two things break threshold growth in production, and both make pruning weak rather than
+    wrong. <b>Filters</b> that reject early high scorers keep the heap under-filled, so &#952; stays low;
+    integrating them into traversal only helps if the bounds stay correct. <b>Distributed retrieval</b> merges
+    shard-local top-k at a coordinator, so each shard must return enough candidates or a globally competitive
+    document is dropped before the merge ever sees it. Judge these systems on postings decoded, candidates
+    fully scored, block skips and heap updates — not on latency alone.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-hint{color:var(--viz-muted)!important;font-weight:600;font-family:inherit;font-size:11.5px}
+    .v5-body{margin-top:14px}
+    .v5-t{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      margin-bottom:5px}
+    .v5-t.is-ess{border-color:var(--viz-green)}
+    .v5-t.is-non{opacity:.55;border-style:dashed}
+    .v5-mk{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right}
+    .v5-cap{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      margin:0 0 6px;font-weight:700}
+    .v5-blocks{display:flex;gap:3px;align-items:flex-end;min-height:70px;margin-bottom:8px;flex-wrap:wrap}
+    .v5-bl{flex:1 1 16px;min-width:16px;border-radius:3px 3px 0 0;position:relative}
+    .v5-bl span{position:absolute;left:0;right:0;bottom:-15px;text-align:center;font-size:8.5px;
+      font-family:ui-monospace,Consolas,monospace;color:var(--viz-muted)}
+    .v5-legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TERMS = [
+      { n:'term A', ub:0.4 },
+      { n:'term B', ub:0.7 },
+      { n:'term C', ub:0.8 }
+    ];
+    // One posting list of a "loud" term: global max 4.0, but most blocks are quiet.
+    var BLOCKS = [4.0, 0.3, 0.3, 1.2, 0.3, 2.6, 0.4, 0.9, 0.3, 3.1, 0.5, 0.2];
+    var REST = 1.1;      // the most the OTHER query terms can contribute (0.4 + 0.7)
+    var GLOBAL = 4.0;
+    var maxMode = true;
+    var s = document.getElementById('v5-t'), tl = document.getElementById('v5-tl');
+    var hint = document.getElementById('v5-hint'), body = document.getElementById('v5-body');
+    var why = document.getElementById('v5-why');
+    var bM = document.getElementById('v5-max'), bB = document.getElementById('v5-blk');
+
+    function render(){
+      bM.setAttribute('aria-pressed', maxMode ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', maxMode ? 'false' : 'true');
+      var raw = Number(s.value);
+      if (!isFinite(raw)) raw = 0;
+      var theta = maxMode ? raw / 10 : raw / 4;      // 0.0-2.0 for MaxScore, 0.0-5.0 for blocks
+      tl.textContent = theta.toFixed(2);
+      hint.textContent = maxMode ? ' · bounds 0.4 / 0.7 / 0.8, total 1.9' : ' · other terms add at most 1.1';
+
+      if (maxMode) {
+        var run = 0, nonEss = 0, sums = [];
+        TERMS.forEach(function(t){ run += t.ub; sums.push(run); if (run <= theta) nonEss += 1; });
+        body.innerHTML = '<div class="v5-cap">query terms, sorted by upper bound</div>' +
+          TERMS.map(function(t, j){
+            var non = j < nonEss;
+            return '<div class="v5-t ' + (non ? 'is-non' : 'is-ess') + '"><span>' + t.n + '</span>' +
+              '<span>ub ' + t.ub.toFixed(1) + '</span><span>cumulative ' + sums[j].toFixed(1) + '</span>' +
+              '<span class="v5-mk" style="color:' + (non ? 'var(--viz-muted)' : 'var(--viz-green)') + '">' +
+              (non ? 'NONESSENTIAL · refine only' : 'ESSENTIAL · drives traversal') + '</span></div>';
+          }).join('') +
+          '<div class="v5-legend">' +
+          '<span class="v5-pill" style="color:var(--viz-green);border-color:var(--viz-green)">' + (3 - nonEss) + ' essential</span>' +
+          '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + nonEss + ' nonessential</span></div>';
+
+        why.innerHTML = nonEss === 0
+          ? '<b style="color:var(--viz-red)">&#952; is too low to spare anything.</b>' +
+            'Even term A alone, at 0.4, could carry a document over the bar, so every list has to generate candidates. This is the state every query begins in, and it is why MaxScore and WAND both do <em>more</em> work than a naïve scan for the first k documents and then far less. ' +
+            '<br><br>Push &#952; up and watch the terms fall out of the essential set one by one.'
+          : nonEss === TERMS.length
+            ? '<b style="color:var(--viz-green)">Every term is nonessential — which means the query is finished.</b>' +
+              'The cumulative bound of all three terms is 1.9, below &#952; = ' + theta.toFixed(2) + ', so no unseen document can reach the heap at all. MaxScore has proved completion by the same arithmetic WAND used to prove a skip. ' +
+              '<br><br>The two are the same idea wearing different clothes: WAND expresses it as a <b>pivot document</b>, MaxScore as a <b>partition of the query</b>. Compare with visual 4 at the same threshold.'
+            : '<b>' + nonEss + ' term' + (nonEss === 1 ? '' : 's') + ' can no longer generate candidates — only rescue them.</b>' +
+              'Sorted ascending, the longest prefix whose cumulative maximum stays at or below &#952; = ' + theta.toFixed(2) + ' is nonessential: a document found <em>only</em> in those lists cannot reach the threshold even at its best. ' +
+              'The essential lists drive the traversal; the nonessential ones are consulted afterwards, when their remaining possible contribution might lift a live candidate over the bar. ' +
+              '<br><br><b style="color:var(--viz-violet)">Note the direction of travel.</b> As &#952; rises, terms move from essential to nonessential and never back — so the query gets structurally cheaper as it proceeds. Nothing about the score changed; only who has to be read.';
+      } else {
+        var need = theta - REST;                 // a block must be able to reach this on its own
+        var skipped = 0;
+        var maxB = Math.max.apply(null, BLOCKS) || 1;
+        body.innerHTML = '<div class="v5-cap">one posting list, 12 blocks · global max ' + GLOBAL.toFixed(1) + '</div>' +
+          '<div class="v5-blocks">' + BLOCKS.map(function(b, j){
+            var skip = b + REST < theta;
+            if (skip) skipped += 1;
+            var h = Math.max(6, b / maxB * 62);
+            return '<i class="v5-bl" style="height:' + h + 'px;background:' + (skip ? 'var(--viz-line)' : 'var(--viz-accent)') +
+              (skip ? ';opacity:.6' : '') + '"><span>' + (skip ? '✗' : b.toFixed(1)) + '</span></i>';
+          }).join('') + '</div>' +
+          '<div class="v5-legend">' +
+          '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + (BLOCKS.length - skipped) + ' blocks decoded</span>' +
+          '<span class="v5-pill" style="color:' + (skipped ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (skipped ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + skipped + ' blocks skipped (✗)</span>' +
+          '<span class="v5-pill" style="color:var(--viz-red);border-color:var(--viz-red)">global bound ' + (GLOBAL + REST).toFixed(1) + ' → 0 skips</span></div>';
+
+        why.innerHTML = '<b>A block is skippable when its own maximum plus the rest of the query cannot reach &#952;.</b>' +
+          'Here the other terms add at most ' + REST.toFixed(1) + ', so a block must be able to contribute more than ' +
+          (need > 0 ? need.toFixed(2) : '0.00') + ' on its own to be worth decoding' + (need <= 0 ? ' — which every block manages, so nothing is skipped yet' : '') + '. ' +
+          skipped + ' of ' + BLOCKS.length + ' qualify at &#952; = ' + theta.toFixed(2) + '. ' +
+          '<br><br><b style="color:var(--viz-red)">Now look at the third pill.</b> This term’s <em>global</em> maximum is ' + GLOBAL.toFixed(1) +
+          ', so its whole-list bound is ' + (GLOBAL + REST).toFixed(1) + ' — above every threshold on this slider. A single loose maximum per term therefore permits <b>no skips at all</b>, ' +
+          'while the per-block maxima permit ' + skipped + '. One noisy block at ' + GLOBAL.toFixed(1) + ' was hiding a list that is mostly quiet. ' +
+          '<br><br>Smaller blocks tighten the bounds further, but every block costs metadata and adds decoding overhead, so block size is a space, CPU and pruning tradeoff rather than a value to memorise. ' +
+          'And the bound must still cover <b>every</b> positive component of the score: a per-block maximum that forgot a field boost skips a true winner just as surely as a global one would.';
+      }
+    }
+    s.addEventListener('input', render);
+    bM.addEventListener('click', function(){ maxMode = true; s.value = 12; render(); });
+    bB.addEventListener('click', function(){ maxMode = false; s.value = 6; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

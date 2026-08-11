@@ -1,0 +1,714 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+input[type=range]{width:100%;min-height:30px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Eigenvectors Turn Perpendicular</button>
+  <button class="viz-tab" data-viz-tab="2">2. Polynomial To Matrix</button>
+  <button class="viz-tab" data-viz-tab="3">3. Signs Make Shape</button>
+  <button class="viz-tab" data-viz-tab="4">4. Four Tests One Verdict</button>
+  <button class="viz-tab" data-viz-tab="5">5. Rebuild From Eigenvalues</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Eigenvectors Turn Perpendicular</h2>
+  <p class="vz-lede"><b>Diagonalization of matrices</b> gave you A = P D P<sup>-1</sup> with no promise that P
+    is pleasant — or even that it exists. Slide the lower-left entry k of A = [1 1 ; k 2] and watch the two
+    eigenvectors swing. Exactly one value of k makes A symmetric, and that is exactly where they meet at a
+    right angle. <b>Like a pair of scissors: only at one setting do the blades cross square.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-k">lower-left entry k = <span id="v1-kl">1.00</span></label>
+    <input type="range" id="v1-k" min="-1" max="3" value="1" step="0.05" aria-label="Lower left entry k">
+    <div class="v1-row">
+      <svg class="v1-svg" id="v1-svg" viewBox="0 0 190 190" role="img"
+           aria-label="The two eigenvectors drawn from the origin"></svg>
+      <div class="v1-read vz-mono" id="v1-read"></div>
+    </div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">This is the whole reason symmetric matrices get their own lesson. With an
+    <b>orthonormal</b> eigenbasis the change-of-basis matrix Q satisfies Q<sup>-1</sup> = Q<sup>T</sup>, so
+    "diagonalize" costs a transpose instead of an inversion, and the basis is perfectly conditioned. It is
+    also why numerical libraries ship a separate symmetric eigensolver (<code>eigh</code>, not
+    <code>eig</code>): it can assume real output and orthogonal vectors, and it is both faster and steadier
+    for it.</p>
+
+  <style>
+    .v1-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:12px}
+    .v1-svg{flex:0 0 auto;width:190px;height:190px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg)}
+    .v1-read{flex:1 1 150px;min-width:140px}
+    .v1-tag{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.03em;border:1.5px solid;
+      border-radius:999px;padding:3px 9px;margin-bottom:7px;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v1-k'), kl = document.getElementById('v1-kl');
+    var svg = document.getElementById('v1-svg');
+    var read = document.getElementById('v1-read'), why = document.getElementById('v1-why');
+    var CX = 95, CY = 95, R = 70;
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return r.toFixed(2); }
+
+    var BASE = '<line x1="10" y1="95" x2="180" y2="95" stroke="var(--viz-line)" stroke-width="1"></line>' +
+      '<line x1="95" y1="10" x2="95" y2="180" stroke="var(--viz-line)" stroke-width="1"></line>' +
+      '<circle cx="95" cy="95" r="70" fill="none" stroke="var(--viz-line)" stroke-width="1" stroke-dasharray="3 4"></circle>';
+
+    function arrow(vx, vy, col, lab){
+      var n = Math.sqrt(vx * vx + vy * vy);
+      if (!isFinite(n) || n < 1e-9) return '';           // guard: a zero vector has no direction to draw
+      var ux = vx / n, uy = vy / n;
+      var x2 = CX + ux * R, y2 = CY - uy * R;
+      return '<line x1="' + CX + '" y1="' + CY + '" x2="' + f2(x2) + '" y2="' + f2(y2) + '" stroke="' + col +
+        '" stroke-width="3" stroke-linecap="round"></line>' +
+        '<circle cx="' + f2(x2) + '" cy="' + f2(y2) + '" r="4" fill="' + col + '"></circle>' +
+        '<text x="' + f2(CX + ux * (R + 12)) + '" y="' + f2(CY - uy * (R + 12)) + '" fill="' + col +
+        '" font-size="11" font-weight="800" text-anchor="middle" dominant-baseline="middle">' + lab + '</text>';
+    }
+
+    function render(){
+      var k = Number(s.value);
+      kl.textContent = f2(k);
+      var sym = Math.abs(k - 1) < 1e-6;
+      var disc = 1 + 4 * k;
+      var mat = 'A = [  1     1  ]\n    [ ' + f2(k) + '   2  ]\n\n';
+
+      if (disc < -1e-9) {
+        var im = Math.sqrt(-disc) / 2;
+        svg.innerHTML = BASE + '<text x="95" y="99" fill="var(--viz-muted)" font-size="10.5" ' +
+          'text-anchor="middle" font-weight="700">no real eigenvector</text>';
+        read.innerHTML = '<span class="v1-tag" style="color:var(--viz-red);border-color:var(--viz-red)">' +
+          'COMPLEX SPECTRUM</span>' + mat +
+          'lambda = 1.50 +/- ' + f2(im) + ' i\n\nno real direction is\nmerely stretched by A';
+        why.innerHTML = '<b style="color:var(--viz-red)">A real matrix can have no real eigenvalues at all.</b>' +
+          'This one rotates as well as stretches, so no real vector stays on its own line. A <b>symmetric</b> ' +
+          'matrix can never land here — that is the first half of the spectral theorem, and it is a theorem, ' +
+          'not a tendency. Push k up to -0.25 and the two complex roots collide on the real axis.';
+        return;
+      }
+
+      var rt = Math.sqrt(Math.max(disc, 0));
+      var l1 = (3 + rt) / 2, l2 = (3 - rt) / 2;
+
+      if (rt < 1e-6) {
+        svg.innerHTML = BASE + arrow(1, l1 - 1, 'var(--viz-amber)', 'only 1');
+        read.innerHTML = '<span class="v1-tag" style="color:var(--viz-amber);border-color:var(--viz-amber)">' +
+          'DEFECTIVE</span>' + mat +
+          'lambda = ' + f2(l1) + ' (twice)\n\nalgebraic mult 2\ngeometric mult 1\n\nNOT diagonalizable';
+        why.innerHTML = '<b style="color:var(--viz-amber)">Repeated eigenvalue, one eigenvector — the failure case.</b>' +
+          'Here algebraic multiplicity 2 meets geometric multiplicity 1, so there is no basis of eigenvectors ' +
+          'and A = P D P<sup>-1</sup> does not exist. For a <b>symmetric</b> matrix this cannot happen: the two ' +
+          'multiplicities always agree, so a repeated eigenvalue still contributes a full eigenspace and you ' +
+          'simply pick an orthonormal basis inside it with Gram-Schmidt.';
+        return;
+      }
+
+      var v1y = l1 - 1, v2y = l2 - 1;
+      var dot = 1 + v1y * v2y;                             // equals 1 - k
+      var n1 = Math.sqrt(1 + v1y * v1y), n2 = Math.sqrt(1 + v2y * v2y);
+      var den = n1 * n2;
+      var cos = den > 1e-9 ? Math.max(-1, Math.min(1, dot / den)) : 1;   // guard: clamp before acos
+      var ang = Math.acos(cos) * 180 / Math.PI;
+      var perp = Math.abs(dot) < 1e-6;
+
+      var mark = perp
+        ? '<path d="M 95 79 L 111 79 L 111 95" fill="none" stroke="var(--viz-green)" stroke-width="1.6"></path>'
+        : '';
+      svg.innerHTML = BASE + mark +
+        arrow(1, v1y, 'var(--viz-accent)', 'q1') +
+        arrow(1, v2y, 'var(--viz-violet)', 'q2');
+
+      read.innerHTML = (sym
+          ? '<span class="v1-tag" style="color:var(--viz-green);border-color:var(--viz-green)">SYMMETRIC · A = A transpose</span>'
+          : '<span class="v1-tag" style="color:var(--viz-red);border-color:var(--viz-red)">NOT SYMMETRIC</span>') +
+        mat +
+        'lambda1 = ' + f2(l1) + '   v1 = (1, ' + f2(v1y) + ')\n' +
+        'lambda2 = ' + f2(l2) + '   v2 = (1, ' + f2(v2y) + ')\n\n' +
+        'v1 . v2 = ' + f2(dot) + '   (= 1 - k)\n' +
+        'angle   = ' + f2(ang) + ' deg' + (perp ? '  RIGHT ANGLE' : '');
+
+      why.innerHTML = perp
+        ? '<b style="color:var(--viz-green)">k = 1, so A = A transpose — and the eigenvectors are perpendicular.</b>' +
+          'Not a coincidence, and not luck: derive it. From A v1 = lambda1 v1 and A v2 = lambda2 v2, evaluate ' +
+          'v2<sup>T</sup> A v1 twice. Grouping to the right gives lambda1 (v2 . v1). Grouping to the left gives ' +
+          '(A<sup>T</sup> v2)<sup>T</sup> v1 = (A v2)<sup>T</sup> v1 = lambda2 (v2 . v1). Subtract: ' +
+          '(lambda1 - lambda2)(v2 . v1) = 0, and the eigenvalues differ, so the dot product must be zero.' +
+          '<br><br>The step that needed symmetry is the single one where A<sup>T</sup> was swapped for A.'
+        : '<b style="color:var(--viz-red)">k = ' + f2(k) + ', so A is not symmetric — and the angle is ' + f2(ang) + ' degrees.</b>' +
+          'The eigenvalues here are real and the matrix is perfectly diagonalizable; nothing is broken. The ' +
+          'eigenvectors are simply <em>not orthogonal</em>, so P<sup>-1</sup> is a genuine inverse rather than a ' +
+          'transpose. At k = 0 you get the standard counterexample [1 1 ; 0 2]: real eigenvalues 1 and 2, ' +
+          'eigenvectors (1,0) and (1,1), dot product 1.' +
+          '<br><br>Watch the dot product readout as you drag: it is exactly <b>1 - k</b>, and it hits zero only ' +
+          'at k = 1, the one setting where A equals its own transpose.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Polynomial To Matrix</h2>
+  <p class="vz-lede">Every quadratic polynomial is a matrix sandwich x<sup>T</sup>A x, but the translation
+    has one trap: an off-diagonal entry gets counted twice. Move the coefficients and watch the symmetric
+    matrix, a lopsided rival that produces the identical polynomial, and the skew part that both of them
+    hide. <b>Like splitting a bill two ways: the total is the same however you write each share.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-a">a = <span id="v2-al">2</span> &nbsp;·&nbsp; coefficient of x squared</label>
+    <input type="range" id="v2-a" min="-6" max="6" value="2" step="1" aria-label="coefficient of x squared">
+    <label class="vz-lab" for="v2-b">b = <span id="v2-bl">2</span> &nbsp;·&nbsp; coefficient of x y</label>
+    <input type="range" id="v2-b" min="-6" max="6" value="2" step="1" aria-label="coefficient of x y">
+    <label class="vz-lab" for="v2-c">c = <span id="v2-cl">4</span> &nbsp;·&nbsp; coefficient of y squared</label>
+    <input type="range" id="v2-c" min="-6" max="6" value="4" step="1" aria-label="coefficient of y squared">
+    <div class="v2-poly vz-mono" id="v2-poly"></div>
+    <div class="vz-seg" id="v2-pre" role="group" aria-label="Worked examples"></div>
+    <div class="vz-seg" id="v2-vec" role="group" aria-label="Test vector"></div>
+    <div class="v2-out" id="v2-out"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The consequence runs the other way too. If two different matrices B and C satisfy
+    x<sup>T</sup>B x = x<sup>T</sup>C x for <b>every</b> x, you may conclude only that B - C is
+    skew-symmetric — never that B = C. Requiring A to be symmetric is exactly what removes that freedom and
+    makes the matrix a well-defined property of the function.</p>
+
+  <style>
+    .v2-poly{margin-top:14px;padding:10px 12px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg);font-size:13px;font-weight:700;text-align:center;margin-bottom:12px}
+    .v2-out{display:flex;flex-direction:column;gap:7px}
+    .v2-r{display:flex;align-items:center;gap:10px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px 11px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      line-height:1.5;flex-wrap:wrap}
+    .v2-nm{flex:0 0 auto;font-weight:800;font-family:inherit;font-size:11px;letter-spacing:.03em}
+    .v2-m{flex:0 0 auto;white-space:pre}
+    .v2-v{margin-left:auto;font-weight:800;font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v2-a'), B = document.getElementById('v2-b'), C = document.getElementById('v2-c');
+    var al = document.getElementById('v2-al'), bl = document.getElementById('v2-bl'), cl = document.getElementById('v2-cl');
+    var poly = document.getElementById('v2-poly'), pre = document.getElementById('v2-pre');
+    var vecBox = document.getElementById('v2-vec'), out = document.getElementById('v2-out'), why = document.getElementById('v2-why');
+
+    var VECS = [[1, 2], [3, -1], [1, 0], [2, 2]];
+    var PRESETS = [
+      { n: 'x A x = 21', a: 1, b: 4, c: 3, v: 0 },
+      { n: '2x1x1+6x1x2+5x2x2', a: 2, b: 6, c: 5, v: 0 },
+      { n: 'no cross term', a: 3, b: 0, c: 1, v: 1 }
+    ];
+    var vi = 0;
+
+    function f1(v){ var r = Math.round(v * 10) / 10; if (!isFinite(r)) return '--'; return String(r); }
+    function pad(v){ var t = f1(v); while (t.length < 5) t = ' ' + t; return t; }
+    function term(co, s){ if (co === 0) return ''; return (co > 0 ? ' + ' : ' - ') + (Math.abs(co) === 1 ? '' : Math.abs(co)) + s; }
+
+    function row(name, mat, label, val, col){
+      return '<div class="v2-r"><span class="v2-nm" style="color:' + col + '">' + name + '</span>' +
+        '<span class="v2-m">' + mat + '</span>' +
+        '<span class="v2-v" style="color:' + col + '">' + label + ' = ' + f1(val) + '</span></div>';
+    }
+
+    function render(){
+      var a = Number(A.value), b = Number(B.value), c = Number(C.value);
+      al.textContent = a; bl.textContent = b; cl.textContent = c;
+      var h = b / 2;
+      var p = VECS[vi], x = p[0], y = p[1];
+
+      var body = (a === 0 ? '' : (a === 1 ? 'x^2' : a + 'x^2')) + term(b, 'xy') + term(c, 'y^2');
+      poly.textContent = 'q(x, y) = ' + (body.replace(/^ \+ /, '') || '0');
+
+      var qA = a * x * x + b * x * y + c * y * y;
+      var qB = a * x * x + b * x * y + c * y * y;
+      var qS = 0;
+
+      [].slice.call(vecBox.children).forEach(function(btn, j){
+        btn.setAttribute('aria-pressed', j === vi ? 'true' : 'false');
+      });
+
+      out.innerHTML =
+        row('SYMMETRIC A', '[' + pad(a) + pad(h) + ' ]\n[' + pad(h) + pad(c) + ' ]', 'x A x', qA, 'var(--viz-green)') +
+        row('LOPSIDED B', '[' + pad(a) + pad(b) + ' ]\n[' + pad(0) + pad(c) + ' ]', 'x B x', qB, 'var(--viz-accent)') +
+        row('SKEW A - B', '[' + pad(0) + pad(-h) + ' ]\n[' + pad(h) + pad(0) + ' ]', 'x S x', qS, 'var(--viz-violet)');
+
+      why.innerHTML = '<b>At x = (' + x + ', ' + y + '): ' + a + '(' + x + ')^2 + ' + b + '(' + x + ')(' + y +
+        ') + ' + c + '(' + y + ')^2 = ' + f1(qA) + '.</b>' +
+        'Read the symmetric matrix off the polynomial by <b>halving every cross coefficient</b>: the entry ' +
+        f1(h) + ' sits in both off-diagonal slots and is therefore counted twice, which is how it recovers the ' +
+        'full ' + b + 'xy. Putting ' + b + ' in both corners would double the cross term.' +
+        '<br><br>The lopsided B is not symmetric and returns the identical value at every x you can pick. ' +
+        'Their difference S is <b>skew-symmetric</b> (S<sup>T</sup> = -S), and the third row is pinned at ' +
+        'exactly zero for the same reason it always is: x<sup>T</sup>S x is a 1x1 scalar, so it equals its own ' +
+        'transpose, x<sup>T</sup>S<sup>T</sup>x = -x<sup>T</sup>S x. A number equal to its own negative is zero.' +
+        '<br><br>So for any square B, x<sup>T</sup>B x = x<sup>T</sup>[ (B + B<sup>T</sup>) / 2 ] x. The ' +
+        'symmetric half is the only part the quadratic form can see.';
+    }
+
+    VECS.forEach(function(v, j){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', j === 0 ? 'true' : 'false');
+      b.textContent = 'x = (' + v[0] + ', ' + v[1] + ')';
+      b.addEventListener('click', function(){ vi = j; render(); });
+      vecBox.appendChild(b);
+    });
+    PRESETS.forEach(function(ps){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = ps.n;
+      b.addEventListener('click', function(){
+        A.value = ps.a; B.value = ps.b; C.value = ps.c; vi = ps.v; render();
+      });
+      pre.appendChild(b);
+    });
+    A.addEventListener('input', render);
+    B.addEventListener('input', render);
+    C.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Signs Make Shape</h2>
+  <p class="vz-lede">Every point of the square is coloured by the sign of q = x<sup>T</sup>A x. Set the two
+    eigenvalues and the surface follows: all positive is a bowl, all negative a dome, mixed signs a saddle.
+    Then rotate — every entry of A changes and the verdict does not.
+    <b>Like turning a Pringle in your hand: still a saddle, whichever way you hold it.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-l1">lambda 1 = <span id="v3-l1l">2.0</span></label>
+    <input type="range" id="v3-l1" min="-3" max="3" value="2" step="0.5" aria-label="first eigenvalue">
+    <label class="vz-lab" for="v3-l2">lambda 2 = <span id="v3-l2l">1.0</span></label>
+    <input type="range" id="v3-l2" min="-3" max="3" value="1" step="0.5" aria-label="second eigenvalue">
+    <label class="vz-lab" for="v3-th">eigenvector rotation = <span id="v3-thl">0°</span></label>
+    <input type="range" id="v3-th" min="0" max="180" value="0" step="5" aria-label="rotation of the eigenvectors">
+    <div class="v3-row">
+      <svg class="v3-svg" id="v3-svg" viewBox="0 0 190 190" role="img"
+           aria-label="Sign of the quadratic form over the square"></svg>
+      <div class="v3-side">
+        <div class="v3-verdict" id="v3-verdict"></div>
+        <div class="v3-mat vz-mono" id="v3-mat"></div>
+      </div>
+    </div>
+    <div class="v3-key">
+      <span><i style="background:var(--viz-green)"></i>q &gt; 0 · rises</span>
+      <span><i style="background:var(--viz-red)"></i>q &lt; 0 · falls</span>
+      <span><i style="background:var(--viz-line)"></i>q = 0 · flat</span>
+    </div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The Hessian of a twice-differentiable function is symmetric, so the second derivative
+    test <em>is</em> this panel. For f = x<sup>2</sup> + xy + 2y<sup>2</sup> the Hessian at the origin is
+    [2 1 ; 1 4]: both eigenvalues positive, so a strict local minimum. An indefinite Hessian is a saddle
+    point; a <b>semidefinite</b> one is inconclusive, because along the flat direction the quadratic term
+    contributes nothing and the cubic and quartic terms decide.</p>
+
+  <style>
+    .v3-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:14px}
+    .v3-svg{flex:0 0 auto;width:190px;height:190px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg)}
+    .v3-side{flex:1 1 150px;min-width:145px}
+    .v3-verdict{font-size:13.5px;font-weight:800;line-height:1.35;margin-bottom:9px}
+    .v3-mat{white-space:pre}
+    .v3-key{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;font-size:11px;color:var(--viz-muted);
+      font-weight:700}
+    .v3-key i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;
+      vertical-align:-1px}
+  </style>
+  <script>
+  (function(){
+    var L1 = document.getElementById('v3-l1'), L2 = document.getElementById('v3-l2'), TH = document.getElementById('v3-th');
+    var l1l = document.getElementById('v3-l1l'), l2l = document.getElementById('v3-l2l'), thl = document.getElementById('v3-thl');
+    var svg = document.getElementById('v3-svg'), matEl = document.getElementById('v3-mat');
+    var verd = document.getElementById('v3-verdict'), why = document.getElementById('v3-why');
+    var N = 15, SIZE = 190, CELL = SIZE / N, TOL = 1e-9;
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return r.toFixed(2); }
+    function pad(v){ var t = f2(v); while (t.length < 6) t = ' ' + t; return t; }
+
+    function classify(a, b){
+      var pos = a > TOL || b > TOL, neg = a < -TOL || b < -TOL, zero = Math.abs(a) <= TOL || Math.abs(b) <= TOL;
+      if (!pos && !neg) return { k: 'zero', t: 'The zero form', s: 'a flat plane', c: 'var(--viz-muted)' };
+      if (pos && neg) return { k: 'ind', t: 'Indefinite', s: 'a saddle', c: 'var(--viz-amber)' };
+      if (pos && zero) return { k: 'psd', t: 'Positive semidefinite', s: 'a trough, flat along one line', c: 'var(--viz-accent)' };
+      if (neg && zero) return { k: 'nsd', t: 'Negative semidefinite', s: 'a ridge, flat along one line', c: 'var(--viz-accent)' };
+      if (pos) return { k: 'pd', t: 'Positive definite', s: 'an upward bowl, strict minimum at the origin', c: 'var(--viz-green)' };
+      return { k: 'nd', t: 'Negative definite', s: 'a downward dome, strict maximum at the origin', c: 'var(--viz-red)' };
+    }
+
+    function render(){
+      var l1 = Number(L1.value), l2 = Number(L2.value), deg = Number(TH.value);
+      l1l.textContent = l1.toFixed(1); l2l.textContent = l2.toFixed(1); thl.textContent = deg + '°';
+      var th = deg * Math.PI / 180, ct = Math.cos(th), st = Math.sin(th);
+      var a = l1 * ct * ct + l2 * st * st;
+      var b = (l1 - l2) * ct * st;
+      var c = l1 * st * st + l2 * ct * ct;
+
+      var vals = [], maxAbs = 0, i, j, q;
+      for (i = 0; i < N; i++) {
+        for (j = 0; j < N; j++) {
+          var x = -1 + (2 * (j + 0.5)) / N, y = 1 - (2 * (i + 0.5)) / N;
+          var u1 = x * ct + y * st, u2 = -x * st + y * ct;
+          q = l1 * u1 * u1 + l2 * u2 * u2;
+          vals.push(q);
+          if (Math.abs(q) > maxAbs) maxAbs = Math.abs(q);
+        }
+      }
+      var den = maxAbs > TOL ? maxAbs : 1;      // guard: the all-zero form must not divide by zero
+
+      var cells = '';
+      for (var p = 0; p < vals.length; p++) {
+        q = vals[p];
+        var col = q > TOL ? 'var(--viz-green)' : (q < -TOL ? 'var(--viz-red)' : 'var(--viz-line)');
+        var op = Math.max(0.12, Math.min(1, Math.abs(q) / den));
+        cells += '<rect x="' + f2((p % N) * CELL) + '" y="' + f2(Math.floor(p / N) * CELL) + '" width="' +
+          f2(CELL + 0.7) + '" height="' + f2(CELL + 0.7) + '" fill="' + col + '" opacity="' + f2(op) + '"></rect>';
+      }
+
+      function axis(dx, dy, lab, col){
+        var x1 = 95 - dx * 82, y1 = 95 + dy * 82, x2 = 95 + dx * 82, y2 = 95 - dy * 82;
+        return '<line x1="' + f2(x1) + '" y1="' + f2(y1) + '" x2="' + f2(x2) + '" y2="' + f2(y2) +
+          '" stroke="' + col + '" stroke-width="2" stroke-dasharray="5 3"></line>' +
+          '<text x="' + f2(95 + dx * 68) + '" y="' + f2(95 - dy * 68) + '" fill="' + col +
+          '" font-size="10" font-weight="800" text-anchor="middle" dominant-baseline="middle">' + lab + '</text>';
+      }
+      var w1 = l1 > TOL ? 'up' : (l1 < -TOL ? 'down' : 'flat');
+      var w2 = l2 > TOL ? 'up' : (l2 < -TOL ? 'down' : 'flat');
+      svg.innerHTML = cells + axis(ct, st, 'q1 ' + w1, 'var(--viz-ink)') + axis(-st, ct, 'q2 ' + w2, 'var(--viz-violet)');
+
+      var v = classify(l1, l2);
+      verd.innerHTML = '<span style="color:' + v.c + '">' + v.t + '</span><br>' +
+        '<span style="font-weight:600;font-size:12px;color:var(--viz-muted)">' + v.s + '</span>';
+      matEl.textContent = 'A = [' + pad(a) + pad(b) + ' ]\n    [' + pad(b) + pad(c) + ' ]\n\n' +
+        'trace = ' + f2(l1 + l2) + '\ndet   = ' + f2(l1 * l2);
+
+      why.innerHTML = '<b>q(x) = ' + f2(l1) + ' c1^2 + ' + f2(l2) + ' c2^2 in the eigenbasis.</b>' +
+        'Write x in the orthonormal eigenbasis, x = c1 q1 + c2 q2, and the cross terms cancel: q collapses to ' +
+        'a weighted sum of squares whose weights are the eigenvalues. Every c<sup>2</sup> is non-negative, so ' +
+        'the eigenvalue signs alone decide the sign of q — and therefore the shape.' +
+        '<br><br>Now drag the <b>rotation</b>. Every entry of A moves, but trace and determinant are pinned at ' +
+        f2(l1 + l2) + ' and ' + f2(l1 * l2) + ', and the verdict never flinches. That is the invariance behind ' +
+        'the substitution x = P y with P orthogonal: the new matrix P<sup>T</sup>A P equals P<sup>-1</sup>A P, ' +
+        'so it is <em>similar</em> to A and carries the same eigenvalues. Rotating your coordinates cannot turn ' +
+        'a bowl into a saddle.' +
+        (v.k === 'psd' || v.k === 'nsd'
+          ? '<br><br><b style="color:var(--viz-accent)">A zero eigenvalue is the semidefinite case.</b>' +
+            'q vanishes on the whole line through the flat eigenvector — a trough, not a bowl — so the ' +
+            'extremum at the origin is real but <em>not strict</em>. That is exactly (x - 2y)<sup>2</sup>, which ' +
+            'is positive semidefinite and zero along x = 2y.'
+          : '');
+    }
+    L1.addEventListener('input', render);
+    L2.addEventListener('input', render);
+    TH.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Four Tests One Verdict</h2>
+  <p class="vz-lede">You rarely need the eigenvalues. Leading principal minors, trace and determinant,
+    completing the square, and the eigenvalues themselves all answer the same question about
+    q = a x<sup>2</sup> + k xy + c y<sup>2</sup> — and they always agree. Drive the coefficients and watch
+    all four move together. <b>Like four instruments in a cockpit: if one disagrees, you misread it.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-seg" id="v4-pre" role="group" aria-label="Worked examples"></div>
+    <label class="vz-lab" for="v4-a">a = <span id="v4-al">2</span></label>
+    <input type="range" id="v4-a" min="-6" max="6" value="2" step="1" aria-label="coefficient a">
+    <label class="vz-lab" for="v4-k">k = <span id="v4-kl">4</span> &nbsp;·&nbsp; the cross coefficient</label>
+    <input type="range" id="v4-k" min="-12" max="12" value="4" step="1" aria-label="cross coefficient k">
+    <label class="vz-lab" for="v4-c">c = <span id="v4-cl">5</span></label>
+    <input type="range" id="v4-c" min="-6" max="6" value="5" step="1" aria-label="coefficient c">
+    <div class="v4-verdict" id="v4-verdict"></div>
+    <div class="v4-tests" id="v4-tests"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Sylvester's criterion generalises upward with a sign pattern, not with "all negative":
+    a symmetric 3x3 is <b>negative definite</b> exactly when its leading principal minors
+    <b>alternate starting negative</b> — minus, plus, minus. The reason is mechanical: negating A flips the
+    sign of the 1x1 minor once, the 2x2 minor twice, the 3x3 minor three times.</p>
+
+  <style>
+    .v4-verdict{margin-top:14px;padding:11px 12px;border-radius:10px;border:1.5px solid;font-size:13.5px;
+      font-weight:800;text-align:center;line-height:1.4}
+    .v4-tests{margin-top:11px;display:flex;flex-direction:column;gap:6px}
+    .v4-t{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:11.5px;line-height:1.5}
+    .v4-t b{display:block;font-family:inherit;font-size:10.5px;letter-spacing:.03em;margin-bottom:3px;
+      color:var(--viz-muted)}
+    .v4-t span{font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v4-a'), K = document.getElementById('v4-k'), C = document.getElementById('v4-c');
+    var al = document.getElementById('v4-al'), kl = document.getElementById('v4-kl'), cl = document.getElementById('v4-cl');
+    var pre = document.getElementById('v4-pre'), verd = document.getElementById('v4-verdict');
+    var tests = document.getElementById('v4-tests'), why = document.getElementById('v4-why');
+    var TOL = 1e-9;
+
+    var PRESETS = [
+      { n: 'bowl', a: 2, k: 4, c: 5 },
+      { n: 'dome', a: -2, k: 2, c: -3 },
+      { n: 'saddle', a: 2, k: -4, c: 1 },
+      { n: 'trough', a: 1, k: -4, c: 4 },
+      { n: 'all entries positive', a: 1, k: 8, c: 1 },
+      { n: 'pure cross term', a: 0, k: 4, c: 0 }
+    ];
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return String(r); }
+
+    function classify(p, m){
+      var pos = p > TOL || m > TOL, neg = p < -TOL || m < -TOL, zero = Math.abs(p) <= TOL || Math.abs(m) <= TOL;
+      if (!pos && !neg) return { t: 'The zero form — a flat plane', c: 'var(--viz-muted)' };
+      if (pos && neg) return { t: 'Indefinite — a saddle', c: 'var(--viz-amber)' };
+      if (pos && zero) return { t: 'Positive semidefinite — a trough', c: 'var(--viz-accent)' };
+      if (neg && zero) return { t: 'Negative semidefinite — a ridge', c: 'var(--viz-accent)' };
+      if (pos) return { t: 'Positive definite — an upward bowl', c: 'var(--viz-green)' };
+      return { t: 'Negative definite — a downward dome', c: 'var(--viz-red)' };
+    }
+
+    function render(){
+      var a = Number(A.value), k = Number(K.value), c = Number(C.value);
+      al.textContent = a; kl.textContent = k; cl.textContent = c;
+      var h = k / 2;
+      var d1 = a, d2 = a * c - h * h;
+      var tr = a + c, det = d2;
+      var root = Math.sqrt((a - c) * (a - c) + k * k);   // never negative, so lambda is always real
+      var lp = (tr + root) / 2, lm = (tr - root) / 2;
+      var v = classify(lp, lm);
+
+      verd.style.color = v.c; verd.style.borderColor = v.c;
+      verd.textContent = v.t;
+
+      var sq;
+      if (Math.abs(a) > TOL) {
+        sq = f2(a) + '(x + ' + f2(h / a) + 'y)^2 + ' + f2(c - h * h / a) + 'y^2';
+      } else if (Math.abs(c) > TOL) {                     // guard: cannot divide by a = 0
+        sq = f2(c) + '(y + ' + f2(h / c) + 'x)^2 + ' + f2(a - h * h / c) + 'x^2';
+      } else {
+        sq = f2(k) + 'xy  — no square to complete; take x = y then x = -y';
+      }
+
+      var sign = function(x){ return x > TOL ? 'positive' : (x < -TOL ? 'negative' : 'zero'); };
+      tests.innerHTML =
+        '<div class="v4-t"><b>TEST 1 · LEADING PRINCIPAL MINORS</b><span>D1 = ' + f2(d1) + ' (' + sign(d1) +
+          ') · D2 = det = ' + f2(a) + '(' + f2(c) + ') - ' + f2(h) + '^2 = ' + f2(d2) + ' (' + sign(d2) +
+          ')</span></div>' +
+        '<div class="v4-t"><b>TEST 2 · TRACE AND DETERMINANT</b><span>trace = ' + f2(tr) + ' = sum of eigenvalues · det = ' +
+          f2(det) + ' = product</span></div>' +
+        '<div class="v4-t"><b>TEST 3 · THE EIGENVALUES THEMSELVES</b><span>lambda = ' + f2(lp) + ' and ' + f2(lm) +
+          ' — both real, as symmetry guarantees</span></div>' +
+        '<div class="v4-t"><b>TEST 4 · COMPLETE THE SQUARE</b><span>q = ' + sq + '</span></div>';
+
+      var traps = '';
+      if (a > TOL && c > TOL && d2 < -TOL) {
+        traps = '<br><br><b style="color:var(--viz-amber)">Trap: both diagonal entries are positive and this is ' +
+          'still a saddle.</b>A positive diagonal only says q is positive along the two coordinate axes. It ' +
+          'says nothing about the diagonal directions, and the cross term wins there. "All entries positive" ' +
+          'is no better — [1 4 ; 4 1] has eigenvalues 5 and -3.';
+      } else if (det > TOL && a < -TOL) {
+        traps = '<br><br><b style="color:var(--viz-amber)">Trap: a positive determinant does not mean a bowl.</b>' +
+          'It means the two eigenvalues share a sign, and here that shared sign is negative. That is why ' +
+          'Sylvester needs D1 as well as D2: trace -7 with determinant 10 gives matching signs and a negative ' +
+          'sum, hence two negative eigenvalues and a dome.';
+      } else if (Math.abs(d2) <= TOL) {
+        traps = '<br><br><b style="color:var(--viz-accent)">Determinant zero is the boundary case.</b>' +
+          'One eigenvalue is exactly 0, so q is flat along its eigenvector and the form is semi definite, not ' +
+          'definite. Sylvester needs <em>strict</em> inequalities for exactly this reason.';
+      }
+
+      why.innerHTML = '<b>All four tests report ' + v.t.toLowerCase() + '.</b>' +
+        'Test 1 is Sylvester\'s criterion: positive definite exactly when every leading principal minor is ' +
+        'positive, negative definite exactly when they alternate starting negative. Test 2 works because for a ' +
+        '2x2 the determinant is the product of the eigenvalues and the trace is their sum, so two numbers fix ' +
+        'both signs. Test 3 is the definition. Test 4 is the algebra underneath all of them: once q is written ' +
+        'as a weighted sum of independent squares, the weights <em>are</em> the verdict.' +
+        '<br><br>Set k with a = 1 and c = 4 and watch the boundary: D2 = 4 - k^2/4 stays positive exactly for ' +
+        '-4 &lt; k &lt; 4, which is the full answer to "for which k is x^2 + kxy + 4y^2 positive definite".' + traps;
+    }
+
+    PRESETS.forEach(function(ps){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = ps.n;
+      b.addEventListener('click', function(){ A.value = ps.a; K.value = ps.k; C.value = ps.c; render(); });
+      pre.appendChild(b);
+    });
+    A.addEventListener('input', render);
+    K.addEventListener('input', render);
+    C.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Rebuild From Eigenvalues</h2>
+  <p class="vz-lede">The spectral theorem runs backwards: fix an orthonormal pair q1, q2, choose two
+    eigenvalues, and A = Q L Q<sup>T</sup> is determined. Apply a function to the diagonal and the whole
+    matrix follows — squares, shifts, inverses, all without touching an eigenvector.
+    <b>Like a graphic equaliser: the sliders are the eigenvalues, the bands never move.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-seg" id="v5-pre" role="group" aria-label="Worked examples"></div>
+    <label class="vz-lab" for="v5-l1">lambda 1 = <span id="v5-l1l">1</span> &nbsp;·&nbsp; on q1 = (1, 1)/sqrt2</label>
+    <input type="range" id="v5-l1" min="-4" max="4" value="1" step="1" aria-label="first eigenvalue">
+    <label class="vz-lab" for="v5-l2">lambda 2 = <span id="v5-l2l">3</span> &nbsp;·&nbsp; on q2 = (1, -1)/sqrt2</label>
+    <input type="range" id="v5-l2" min="-4" max="4" value="3" step="1" aria-label="second eigenvalue">
+    <div class="vz-seg" id="v5-fn" role="group" aria-label="Function of A"></div>
+    <div class="v5-mat vz-mono" id="v5-mat"></div>
+    <label class="vz-lab" for="v5-c1">x = <span id="v5-c1l">3</span> q1 + <span id="v5-c2l">4</span> q2</label>
+    <input type="range" id="v5-c1" min="-4" max="4" value="3" step="1" aria-label="coefficient on q1">
+    <input type="range" id="v5-c2" min="-4" max="4" value="4" step="1" aria-label="coefficient on q2">
+    <div class="v5-val" id="v5-val"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">This is also where the whole lesson points. Most data matrices are not square, let
+    alone symmetric — but A<sup>T</sup>A always is, and it is always positive semidefinite, because
+    x<sup>T</sup>A<sup>T</sup>A x = |Ax|<sup>2</sup> &gt;= 0. Everything on this page therefore applies to
+    it, which is precisely how the next lesson builds the SVD out of an eigendecomposition.</p>
+
+  <style>
+    .v5-mat{margin-top:4px;padding:11px 12px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg);white-space:pre;margin-bottom:4px}
+    .v5-val{margin-top:11px;display:flex;flex-direction:column;gap:6px}
+    .v5-l{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5}
+    .v5-l b{display:block;font-family:inherit;font-size:10.5px;letter-spacing:.03em;margin-bottom:3px;
+      color:var(--viz-muted)}
+  </style>
+  <script>
+  (function(){
+    var L1 = document.getElementById('v5-l1'), L2 = document.getElementById('v5-l2');
+    var C1 = document.getElementById('v5-c1'), C2 = document.getElementById('v5-c2');
+    var l1l = document.getElementById('v5-l1l'), l2l = document.getElementById('v5-l2l');
+    var c1l = document.getElementById('v5-c1l'), c2l = document.getElementById('v5-c2l');
+    var fnBox = document.getElementById('v5-fn'), pre = document.getElementById('v5-pre');
+    var matEl = document.getElementById('v5-mat'), valEl = document.getElementById('v5-val'), why = document.getElementById('v5-why');
+    var TOL = 1e-9, fi = 1;
+
+    var FNS = [
+      { n: 'A', f: function(l){ return l; }, d: 'the matrix itself' },
+      { n: 'A squared', f: function(l){ return l * l; }, d: 'eigenvalues squared' },
+      { n: 'A + 3I', f: function(l){ return l + 3; }, d: 'every eigenvalue shifted by 3' },
+      { n: 'A inverse', f: function(l){ return 1 / l; }, d: 'eigenvalues reciprocated' }
+    ];
+    var PRESETS = [
+      { n: 'A squared = [5 -4 ; -4 5]', l1: 1, l2: 3, c1: 3, c2: 4, fi: 1 },
+      { n: 'x A x = -23', l1: 1, l2: -2, c1: 3, c2: 4, fi: 0 },
+      { n: 'singular', l1: 0, l2: 2, c1: 1, c2: 1, fi: 3 }
+    ];
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return String(r); }
+    function pad(v){ var t = f2(v); while (t.length < 7) t = ' ' + t; return t; }
+
+    function render(){
+      var l1 = Number(L1.value), l2 = Number(L2.value);
+      var c1 = Number(C1.value), c2 = Number(C2.value);
+      l1l.textContent = l1; l2l.textContent = l2; c1l.textContent = c1; c2l.textContent = c2;
+      [].slice.call(fnBox.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === fi ? 'true' : 'false'); });
+
+      var fn = FNS[fi];
+      // guard: A inverse does not exist when an eigenvalue is 0, and 1/0 would print Infinity
+      var singular = fi === 3 && (Math.abs(l1) <= TOL || Math.abs(l2) <= TOL);
+      var f1 = fn.f(l1), f2v = fn.f(l2);
+
+      if (singular) {
+        matEl.textContent = fn.n + ' does not exist.\n\nAn eigenvalue is 0, so A is\nsingular: it flattens its\n' +
+          'own eigenvector to the\nzero vector, and nothing\ncan undo that.';
+      } else {
+        matEl.textContent = fn.n + ' = ' + f2(f1) + ' q1 q1^T + ' + f2(f2v) + ' q2 q2^T\n\n' +
+          '  [' + pad((f1 + f2v) / 2) + pad((f1 - f2v) / 2) + ' ]\n' +
+          '  [' + pad((f1 - f2v) / 2) + pad((f1 + f2v) / 2) + ' ]\n\n' +
+          'Q^T (' + fn.n + ') Q = diag(' + f2(f1) + ', ' + f2(f2v) + ')';
+      }
+
+      var spectral = f1 * c1 * c1 + f2v * c2 * c2;
+      var p = (c1 + c2) / Math.SQRT2, qq = (c1 - c2) / Math.SQRT2;
+      var m11 = (f1 + f2v) / 2, m12 = (f1 - f2v) / 2;
+      var direct = m11 * p * p + 2 * m12 * p * qq + m11 * qq * qq;
+      var norm = c1 * c1 + c2 * c2;
+
+      valEl.innerHTML = singular
+        ? '<div class="v5-l"><b>NO VALUE TO SHOW</b>Choose a nonzero eigenvalue pair, or pick another function.</div>'
+        : '<div class="v5-l"><b>IN THE EIGENBASIS</b>x M x = ' + f2(f1) + '(' + c1 + ')^2 + ' + f2(f2v) + '(' + c2 +
+            ')^2 = <b style="display:inline;color:var(--viz-accent)">' + f2(spectral) + '</b></div>' +
+          '<div class="v5-l"><b>BY THE ENTRIES, IN STANDARD COORDINATES</b>x = (' + f2(p) + ', ' + f2(qq) +
+            ') · x M x = ' + f2(direct) + '  — the same number</div>' +
+          '<div class="v5-l"><b>LENGTH IS UNCHANGED BY Q</b>|x|^2 = ' + c1 + '^2 + ' + c2 + '^2 = ' + f2(norm) +
+            ', because q1 and q2 are orthonormal</div>';
+
+      why.innerHTML = '<b>' + fn.n + ': ' + fn.d + ', eigenvectors untouched.</b>' +
+        'Q holds the orthonormal eigenvectors as columns, so Q<sup>T</sup>Q = I and A = Q L Q<sup>T</sup> = ' +
+        'lambda1 q1 q1<sup>T</sup> + lambda2 q2 q2<sup>T</sup> — a weighted sum of rank-one <b>projection</b> ' +
+        'matrices, one per eigendirection. Any function applied to L survives the sandwich, because the Q ' +
+        'and Q<sup>T</sup> in the middle of a product cancel: A<sup>2</sup> = Q L Q<sup>T</sup> Q L ' +
+        'Q<sup>T</sup> = Q L<sup>2</sup> Q<sup>T</sup>.' +
+        '<br><br>Set lambda = 1 and 3 with A squared and read off [5 -4 ; -4 5]: the eigenvalues became 1 and ' +
+        '9 and the eigenvectors did not move. Set A + 3I and every diagonal entry of L rises by 3, so ' +
+        'diag(1, 4, -2) becomes diag(4, 7, 1).' +
+        '<br><br>The value line is the same idea one level down. Because the basis is orthonormal, the cross ' +
+        'terms in x<sup>T</sup>M x vanish and it collapses to a weighted sum of squares — which is the entire ' +
+        'reason eigenvalue signs decide definiteness. With lambda = 1 and -2 and x = 3q1 + 4q2, that is ' +
+        '1(9) + (-2)(16) = -23, and no matrix multiplication was needed.';
+    }
+
+    FNS.forEach(function(fn, j){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', j === 1 ? 'true' : 'false');
+      b.textContent = fn.n;
+      b.addEventListener('click', function(){ fi = j; render(); });
+      fnBox.appendChild(b);
+    });
+    PRESETS.forEach(function(ps){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = ps.n;
+      b.addEventListener('click', function(){
+        L1.value = ps.l1; L2.value = ps.l2; C1.value = ps.c1; C2.value = ps.c2; fi = ps.fi; render();
+      });
+      pre.appendChild(b);
+    });
+    L1.addEventListener('input', render);
+    L2.addEventListener('input', render);
+    C1.addEventListener('input', render);
+    C2.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

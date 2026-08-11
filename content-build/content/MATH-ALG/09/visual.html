@@ -1,0 +1,655 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 110px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 130px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Same Two Differences</button>
+  <button class="viz-tab" data-viz-tab="2">2. Undoing Pythagoras</button>
+  <button class="viz-tab" data-viz-tab="3">3. Center And Radius</button>
+  <button class="viz-tab" data-viz-tab="4">4. Complete The Square</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Same Two Differences</h2>
+  <p class="vz-lede">Intercepts and Slope already had you build dx and dy from two points and divide them.
+    Keep the same two numbers and do something else with them: square-add-root for distance, or average the
+    raw coordinates for the midpoint. Drag the points and watch all three answers move together.
+    <b>Like two street corners on a map: how steep the road is, how far apart they are, and where you would
+    meet in the middle are three different questions about one pair of pins.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already taught</h5><div class="vz-mono">dx = x2 - x1
+dy = y2 - y1
+slope = dy / dx        (a ratio)</div></div>
+    <div class="v1-half"><h5>this lesson</h5><div class="vz-mono">distance = sqrt(dx^2 + dy^2)   (a length)
+midpoint = ((x1+x2)/2,
+            (y1+y2)/2)         (a point)</div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v1-x1">point 1 = ( <b><span id="v1-lx1">0</span></b> , <b><span id="v1-ly1">0</span></b> )</label>
+    <input class="vz-range" type="range" id="v1-x1" min="-9" max="11" value="0" step="1" aria-label="x of point 1">
+    <input class="vz-range" type="range" id="v1-y1" min="-9" max="11" value="0" step="1" aria-label="y of point 1">
+    <label class="vz-lab" for="v1-x2">point 2 = ( <b><span id="v1-lx2">3</span></b> , <b><span id="v1-ly2">4</span></b> )</label>
+    <input class="vz-range" type="range" id="v1-x2" min="-9" max="11" value="3" step="1" aria-label="x of point 2">
+    <input class="vz-range" type="range" id="v1-y2" min="-9" max="11" value="4" step="1" aria-label="y of point 2">
+
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="v1-read" id="v1-read"></div>
+    <div class="vz-mono" id="v1-steps" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-presets"></div>
+  </div>
+
+  <p class="vz-note">Watch the types, because that is what the distractors trade on. The midpoint is a
+    <b>location</b>, the distance is a single nonnegative <b>number</b>, and the slope is a <b>ratio</b> that
+    can fail to exist. A question asking "what does the midpoint represent" is answered by <em>the point
+    halfway between the endpoints</em> — never by the segment's length and never by its slope.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+    .v1-read{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var X1 = document.getElementById('v1-x1'), Y1 = document.getElementById('v1-y1');
+    var X2 = document.getElementById('v1-x2'), Y2 = document.getElementById('v1-y2');
+    var lx1 = document.getElementById('v1-lx1'), ly1 = document.getElementById('v1-ly1');
+    var lx2 = document.getElementById('v1-lx2'), ly2 = document.getElementById('v1-ly2');
+    var plot = document.getElementById('v1-plot'), read = document.getElementById('v1-read');
+    var steps = document.getElementById('v1-steps'), why = document.getElementById('v1-why');
+    var pres = document.getElementById('v1-presets');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    // exact radical: pull the largest perfect square out of a nonnegative integer
+    function rad(sq){
+      if (!isFinite(sq) || sq < 0) return '—';
+      if (sq === 0) return '0';
+      var out = 1, inn = Math.round(sq);
+      for (var f = 2; f * f <= inn; f++) { while (inn % (f * f) === 0) { out *= f; inn = inn / (f * f); } }
+      if (inn === 1) return String(out);
+      return (out === 1 ? '' : out) + '√' + inn;
+    }
+
+    function render(){
+      var x1 = Number(X1.value), y1 = Number(Y1.value), x2 = Number(X2.value), y2 = Number(Y2.value);
+      if (!isFinite(x1)) x1 = 0; if (!isFinite(y1)) y1 = 0;
+      if (!isFinite(x2)) x2 = 0; if (!isFinite(y2)) y2 = 0;
+      lx1.textContent = x1; ly1.textContent = y1; lx2.textContent = x2; ly2.textContent = y2;
+
+      var dx = x2 - x1, dy = y2 - y1;
+      var sq = dx * dx + dy * dy, d = Math.sqrt(sq);
+      var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+
+      var LO = -10, HI = 12, W = 300, H = 300;
+      function px(v){ return (v - LO) / (HI - LO) * W; }
+      function py(v){ return H - (v - LO) / (HI - LO) * H; }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Two points with the right triangle and midpoint marked">';
+      for (var g = LO; g <= HI; g += 2) {
+        svg += '<line x1="' + px(g) + '" y1="0" x2="' + px(g) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+        svg += '<line x1="0" y1="' + py(g) + '" x2="' + W + '" y2="' + py(g) + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+      }
+      svg += '<line x1="0" y1="' + py(0) + '" x2="' + W + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += '<line x1="' + px(0) + '" y1="0" x2="' + px(0) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      // the two legs of the right triangle, meeting at the corner (x2, y1)
+      svg += '<line x1="' + px(x1) + '" y1="' + py(y1) + '" x2="' + px(x2) + '" y2="' + py(y1) +
+        '" style="stroke:var(--viz-amber);stroke-width:2;stroke-dasharray:5 4"></line>';
+      svg += '<line x1="' + px(x2) + '" y1="' + py(y1) + '" x2="' + px(x2) + '" y2="' + py(y2) +
+        '" style="stroke:var(--viz-amber);stroke-width:2;stroke-dasharray:5 4"></line>';
+      svg += '<line x1="' + px(x1) + '" y1="' + py(y1) + '" x2="' + px(x2) + '" y2="' + py(y2) +
+        '" style="stroke:var(--viz-accent);stroke-width:3"></line>';
+      svg += '<text x="' + ((px(x1) + px(x2)) / 2) + '" y="' + (py(y1) + 13) + '" text-anchor="middle" style="font-size:11px;fill:var(--viz-amber);font-weight:700">dx = ' + dx + '</text>';
+      svg += '<text x="' + (px(x2) + 6) + '" y="' + ((py(y1) + py(y2)) / 2) + '" style="font-size:11px;fill:var(--viz-amber);font-weight:700">dy = ' + dy + '</text>';
+      svg += '<circle cx="' + px(mx) + '" cy="' + py(my) + '" r="5" style="fill:var(--viz-violet)"></circle>';
+      svg += '<text x="' + px(mx) + '" y="' + (py(my) - 9) + '" text-anchor="middle" style="font-size:10.5px;fill:var(--viz-violet);font-weight:700">midpoint (' + n(mx) + ', ' + n(my) + ')</text>';
+      svg += '<circle cx="' + px(x1) + '" cy="' + py(y1) + '" r="5" style="fill:var(--viz-green)"></circle>';
+      svg += '<circle cx="' + px(x2) + '" cy="' + py(y2) + '" r="5" style="fill:var(--viz-green)"></circle>';
+      svg += '<text x="' + (px(x1) + 7) + '" y="' + (py(y1) + 14) + '" style="font-size:10px;fill:var(--viz-green)">(' + x1 + ', ' + y1 + ')</text>';
+      svg += '<text x="' + (px(x2) + 7) + '" y="' + (py(y2) - 7) + '" style="font-size:10px;fill:var(--viz-green)">(' + x2 + ', ' + y2 + ')</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var exact = rad(sq).indexOf('√') === -1;   // a whole number needs no decimal beside it
+      var slopeTxt = dx === 0 ? 'slope undefined (dx = 0)' : 'slope = ' + dy + '/' + dx + ' = ' + n(dy / dx);
+      read.innerHTML =
+        pill(slopeTxt, dx === 0 ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        pill('distance = ' + rad(sq) + (exact ? '' : ' ≈ ' + n(d)), 'var(--viz-accent)') +
+        pill('midpoint = (' + n(mx) + ', ' + n(my) + ')', 'var(--viz-violet)');
+
+      function par(v){ return v < 0 ? '(' + v + ')' : String(v); }
+      steps.textContent =
+        'distance   sqrt((' + x2 + ' - ' + par(x1) + ')^2 + (' + y2 + ' - ' + par(y1) + ')^2)\n' +
+        '           = sqrt(' + (dx * dx) + ' + ' + (dy * dy) + ') = sqrt(' + sq + ') = ' + rad(sq) + '\n' +
+        'midpoint   ((' + par(x1) + ' + ' + par(x2) + ')/2, (' + par(y1) + ' + ' + par(y2) + ')/2)\n' +
+        '           = (' + n(mx) + ', ' + n(my) + ')\n' +
+        'check      each half is sqrt(' + n(sq / 4) + ') = ' + n(d / 2) + ', and ' + n(d / 2) + ' + ' + n(d / 2) + ' = ' + n(d);
+
+      if (dx === 0 && dy === 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">The two points coincide, so the segment is a single dot.</b>' +
+          'Distance collapses to 0 and the midpoint is the point itself — averaging a number with itself returns it. ' +
+          'Slope is undefined here for the same reason it is undefined on a vertical line: dx = 0, and you cannot divide by it. ' +
+          '<br><br>Note that the two <em>new</em> formulas never divide by anything that can vanish, which is why distance and ' +
+          'midpoint are defined for every pair of points while slope is not.';
+      } else if (dx === 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Vertical segment: slope dies, the other two do not.</b>' +
+          'With dx = 0 the ratio dy/dx has a zero denominator and slope is undefined, but distance reduces to sqrt(0 + ' +
+          (dy * dy) + ') = ' + n(Math.abs(dy)) + ' — just the vertical gap — and the midpoint is still the honest average (' +
+          n(mx) + ', ' + n(my) + '). ' +
+          '<br><br>This is the sharpest reminder that these three are different objects built from the same two differences.';
+      } else if (dy === 0) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Horizontal segment: the triangle degenerates and the root is trivial.</b>' +
+          'sqrt(' + (dx * dx) + ' + 0) = ' + n(Math.abs(dx)) + ', which is exactly what you would measure by counting squares. ' +
+          'Slope is 0 — flat, not undefined, and the two are not the same claim. ' +
+          '<br><br>Every non-degenerate case is this one plus a vertical leg, which is the whole content of visual 2.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-accent)">One pair of points, three different answers.</b>' +
+          'The dashed legs are dx = ' + dx + ' and dy = ' + dy + '. Divide them and you have slope ' + n(dy / dx) +
+          '; square, add and root them and you have length ' + rad(sq) + '; ignore the differences entirely and average the ' +
+          'coordinates instead and you have the point (' + n(mx) + ', ' + n(my) + '). ' +
+          '<br><br><b style="display:inline">Why the average is the middle:</b> the check line computes the distance from each ' +
+          'endpoint to that point and gets ' + n(d / 2) + ' both times. Halfway is not a definition you memorise — it is a ' +
+          'consequence you can verify with the other formula on this same screen. ' +
+          '<br><br>Swapping the two points negates dx and dy, which flips nothing at all: the squares kill the sign and the ' +
+          'sum in the midpoint is symmetric.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'(0,0) & (3,4)',   v:[0, 0, 3, 4] },
+      { t:'(2,6) & (8,10)',  v:[2, 6, 8, 10] },
+      { t:'(-1,3) & (5,-1)', v:[-1, 3, 5, -1] },
+      { t:'vertical pair',   v:[4, -2, 4, 7] },
+      { t:'same point twice', v:[3, 3, 3, 3] }
+    ];
+    PRESETS.forEach(function(p){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = p.t;
+      b.addEventListener('click', function(){
+        X1.value = p.v[0]; Y1.value = p.v[1]; X2.value = p.v[2]; Y2.value = p.v[3]; render();
+      });
+      pres.appendChild(b);
+    });
+    [X1, Y1, X2, Y2].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Undoing Pythagoras</h2>
+  <p class="vz-lede">Pythagoras is a statement about <em>areas</em>: the two small squares fill the big one.
+    But the question asked for a <em>length</em>, so one step is left over. Drag the legs and watch the three
+    tempting numbers stay wrong while only the root comes out right.
+    <b>Like being told a room is 25 square metres when you asked how wide it is.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-a">horizontal leg |dx| = <b><span id="v2-al">3</span></b></label>
+    <input class="vz-range" type="range" id="v2-a" min="1" max="9" value="3" step="1" aria-label="Horizontal leg length">
+    <label class="vz-lab" for="v2-b">vertical leg |dy| = <b><span id="v2-bl">4</span></b></label>
+    <input class="vz-range" type="range" id="v2-b" min="1" max="9" value="4" step="1" aria-label="Vertical leg length">
+
+    <div class="vz-plot" id="v2-plot"></div>
+    <div class="vz-mono" id="v2-eq" style="margin-top:8px"></div>
+    <div class="v2-cands" id="v2-cands"></div>
+    <div class="vz-why" id="v2-why"></div>
+    <div class="vz-pre" id="v2-presets"></div>
+  </div>
+
+  <p class="vz-note">The formula never needs absolute value bars, and the reason is on screen: the squares
+    are built from dx and dy, and a square is blind to sign. That is also why you may subtract the points in
+    either order. The only thing the square root can ever return here is a nonnegative number — a distance
+    of −5 is not a wrong answer, it is not an answer.</p>
+
+  <style>
+    .v2-cands{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+    .v2-c{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px 11px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      line-height:1.4;min-height:44px}
+    .v2-c.is-right{border-color:var(--viz-green)}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit;text-align:right}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v2-a'), B = document.getElementById('v2-b');
+    var al = document.getElementById('v2-al'), bl = document.getElementById('v2-bl');
+    var plot = document.getElementById('v2-plot'), eq = document.getElementById('v2-eq');
+    var cands = document.getElementById('v2-cands'), why = document.getElementById('v2-why');
+    var pres = document.getElementById('v2-presets');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+    function rad(sq){
+      if (!isFinite(sq) || sq < 0) return '—';
+      if (sq === 0) return '0';
+      var out = 1, inn = Math.round(sq);
+      for (var f = 2; f * f <= inn; f++) { while (inn % (f * f) === 0) { out *= f; inn = inn / (f * f); } }
+      if (inn === 1) return String(out);
+      return (out === 1 ? '' : out) + '√' + inn;
+    }
+
+    function render(){
+      var a = Number(A.value), b = Number(B.value);
+      if (!isFinite(a) || a < 1) a = 1;
+      if (!isFinite(b) || b < 1) b = 1;
+      al.textContent = a; bl.textContent = b;
+      var sq = a * a + b * b, c = Math.sqrt(sq);
+
+      // right angle at the origin; leg a along +x, leg b along +y.
+      // squares sit outside the triangle: a-square below, b-square left, c-square beyond the hypotenuse.
+      var minX = -b, maxX = a + b, minY = -a, maxY = a + b;
+      var spanX = maxX - minX, spanY = maxY - minY;
+      var span = Math.max(spanX, spanY, 1);
+      var VB = 320, PAD = 16, s = (VB - 2 * PAD) / span;
+      var offX = PAD + ((span - spanX) / 2) * s, offY = PAD + ((span - spanY) / 2) * s;
+      function px(v){ return offX + (v - minX) * s; }
+      function py(v){ return VB - (offY + (v - minY) * s); }
+      function poly(pts, fill, stroke){
+        return '<polygon points="' + pts.map(function(p){ return px(p[0]).toFixed(1) + ',' + py(p[1]).toFixed(1); }).join(' ') +
+          '" style="fill:' + fill + ';fill-opacity:.22;stroke:' + stroke + ';stroke-width:2"></polygon>';
+      }
+      function label(x, y, t, col){
+        return '<text x="' + px(x) + '" y="' + py(y) + '" text-anchor="middle" dominant-baseline="middle" ' +
+          'style="font-size:12px;font-weight:800;fill:' + col + '">' + t + '</text>';
+      }
+      var svg = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" role="img" aria-label="Squares built on the two legs and on the hypotenuse">';
+      svg += poly([[0, 0], [a, 0], [a, -a], [0, -a]], 'var(--viz-amber)', 'var(--viz-amber)');
+      svg += poly([[0, 0], [0, b], [-b, b], [-b, 0]], 'var(--viz-violet)', 'var(--viz-violet)');
+      svg += poly([[a, 0], [0, b], [b, a + b], [a + b, a]], 'var(--viz-accent)', 'var(--viz-accent)');
+      svg += poly([[0, 0], [a, 0], [0, b]], 'var(--viz-green)', 'var(--viz-green)');
+      svg += label(a / 2, -a / 2, 'dx² = ' + (a * a), 'var(--viz-amber)');
+      svg += label(-b / 2, b / 2, 'dy² = ' + (b * b), 'var(--viz-violet)');
+      svg += label((a + b) / 2, (a + b) / 2, 'd² = ' + sq, 'var(--viz-accent)');
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var exact = rad(sq).indexOf('√') === -1;   // a whole number needs no decimal beside it
+      eq.textContent =
+        'dx² + dy²  =  d²\n' +
+        (a * a) + '  +  ' + (b * b) + '   =  ' + sq + '        ← the theorem stops here, in square units\n' +
+        'd = sqrt(' + sq + ') = ' + rad(sq) + (exact ? '' : ' ≈ ' + n(c)) + '     ← one more step, back to a length';
+
+      var rows = [
+        { v: a + b, txt: 'dx + dy = ' + (a + b), tag: 'walking two sides', ok: false },
+        { v: a * b, txt: 'dx × dy = ' + (a * b), tag: 'area of the rectangle', ok: false },
+        { v: sq, txt: 'dx² + dy² = ' + sq, tag: 'that is d², an area', ok: false },
+        { v: c, txt: 'sqrt(dx² + dy²) = ' + rad(sq), tag: 'CORRECT — a length', ok: true }
+      ];
+      cands.innerHTML = rows.map(function(r){
+        var col = r.ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v2-c' + (r.ok ? ' is-right' : '') + '"><span>' + r.txt + '</span>' +
+          '<span class="v2-tag" style="color:' + col + '">' + (r.ok ? '✓ ' : '✗ ') + r.tag + '</span></div>';
+      }).join('');
+
+      var pyth = (a === 3 && b === 4) || (a === 4 && b === 3) || (a === 6 && b === 8) || (a === 8 && b === 6) ||
+                 (a === 5 && b === 12) || (a === 9 && b === 12);
+      why.innerHTML = '<b style="color:var(--viz-green)">The square root is there because it inverts the Pythagorean theorem.</b>' +
+        'The blue square on the hypotenuse has area ' + sq + ', and the two small squares (' + (a * a) + ' and ' +
+        (b * b) + ') tile it exactly. But its <em>side</em> is what you were asked for, and the side of a square of ' +
+        'area ' + sq + ' is sqrt(' + sq + ') = ' + rad(sq) + '. Reporting ' + sq + ' answers a question about area with the ' +
+        'units of area still attached. ' +
+        (pyth
+          ? '<br><br>This pair is one of the whole-number triples, so the root comes out clean at ' + n(c) +
+            ' — which is why textbook distance questions keep using 3-4-5 and 6-8-10.'
+          : '<br><br>sqrt(' + sq + ') is irrational here, so ' + rad(sq) + ' is the exact answer and ' + n(c) +
+            ' is only a decimal approximation of it. Leave it in radical form unless a decimal is asked for.') +
+        '<br><br>The other two wrong rows are worth naming as well. Adding the legs gives ' + (a + b) +
+        ', which is what you would walk going around the corner — always longer than the straight line, and equal to it ' +
+        'only if one leg were 0. Multiplying gives ' + (a * b) + ', an area of the wrong rectangle entirely.';
+    }
+
+    var PRESETS = [
+      { t:'3 and 4 → 5',  a:3, b:4 },
+      { t:'6 and 8 → 10', a:6, b:8 },
+      { t:'6 and 4 → √52', a:6, b:4 },
+      { t:'1 and 1 → √2', a:1, b:1 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ A.value = p.a; B.value = p.b; render(); });
+      pres.appendChild(btn);
+    });
+    [A, B].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Center And Radius</h2>
+  <p class="vz-lede">A circle is one sentence: "every point exactly r from (h, k)". Square both sides of that
+    distance statement and you have the standard equation. Drag the center, the radius and a test point, and
+    watch the equation and the in/on/out verdict follow.
+    <b>Like a compass: pin the point, set the span, and the equation is just a written record of both.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-h">center h = <b><span id="v3-hl">3</span></b>&nbsp;&nbsp;k = <b><span id="v3-kl">-2</span></b></label>
+    <input class="vz-range" type="range" id="v3-h" min="-7" max="7" value="3" step="1" aria-label="Center x coordinate">
+    <input class="vz-range" type="range" id="v3-k" min="-7" max="7" value="-2" step="1" aria-label="Center y coordinate">
+    <label class="vz-lab" for="v3-r">radius r = <b><span id="v3-rl">4</span></b></label>
+    <input class="vz-range" type="range" id="v3-r" min="0" max="8" value="4" step="1" aria-label="Radius">
+    <label class="vz-lab" for="v3-px">test point = ( <b><span id="v3-pxl">6</span></b> , <b><span id="v3-pyl">2</span></b> )</label>
+    <input class="vz-range" type="range" id="v3-px" min="-10" max="10" value="6" step="1" aria-label="Test point x">
+    <input class="vz-range" type="range" id="v3-py" min="-10" max="10" value="2" step="1" aria-label="Test point y">
+
+    <div class="v3-eq vz-mono" id="v3-eq"></div>
+    <div class="vz-plot" id="v3-plot"></div>
+    <div class="v3-read" id="v3-read"></div>
+    <div class="vz-why" id="v3-why"></div>
+    <div class="vz-pre" id="v3-presets"></div>
+  </div>
+
+  <p class="vz-note">Two traps live in this one line, and both are sign-or-power slips rather than
+    conceptual ones. The form <em>subtracts</em> the center, so a visible plus means a negative coordinate;
+    and the right-hand side is r², not r, because it was manufactured by squaring a length. What standard
+    form gives you directly is the center and the radius — intercepts, area and circumference are all
+    further work.</p>
+
+  <style>
+    .v3-eq{margin-top:10px;padding:10px 11px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:15px;font-weight:700;text-align:center}
+    .v3-read{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var Hs = document.getElementById('v3-h'), Ks = document.getElementById('v3-k'), Rs = document.getElementById('v3-r');
+    var PX = document.getElementById('v3-px'), PY = document.getElementById('v3-py');
+    var hl = document.getElementById('v3-hl'), kl = document.getElementById('v3-kl'), rl = document.getElementById('v3-rl');
+    var pxl = document.getElementById('v3-pxl'), pyl = document.getElementById('v3-pyl');
+    var eq = document.getElementById('v3-eq'), plot = document.getElementById('v3-plot');
+    var read = document.getElementById('v3-read'), why = document.getElementById('v3-why');
+    var pres = document.getElementById('v3-presets');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function bin(sym, c){
+      if (c === 0) return sym + '²';
+      return '(' + sym + (c > 0 ? ' - ' + c : ' + ' + (-c)) + ')²';
+    }
+
+    function render(){
+      var h = Number(Hs.value), k = Number(Ks.value), r = Number(Rs.value);
+      var tx = Number(PX.value), ty = Number(PY.value);
+      if (!isFinite(h)) h = 0; if (!isFinite(k)) k = 0;
+      if (!isFinite(r) || r < 0) r = 0;
+      if (!isFinite(tx)) tx = 0; if (!isFinite(ty)) ty = 0;
+      hl.textContent = h; kl.textContent = k; rl.textContent = r; pxl.textContent = tx; pyl.textContent = ty;
+
+      eq.textContent = bin('x', h) + ' + ' + bin('y', k) + ' = ' + (r * r);
+
+      var dist = Math.sqrt((tx - h) * (tx - h) + (ty - k) * (ty - k));
+      var LO = -11, HI = 11, W = 300, H = 300;
+      function px(v){ return (v - LO) / (HI - LO) * W; }
+      function py(v){ return H - (v - LO) / (HI - LO) * H; }
+      var unit = W / (HI - LO);
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Circle with its center, radius and a test point">';
+      for (var g = LO + 1; g < HI; g += 2) {
+        svg += '<line x1="' + px(g) + '" y1="0" x2="' + px(g) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+        svg += '<line x1="0" y1="' + py(g) + '" x2="' + W + '" y2="' + py(g) + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+      }
+      svg += '<line x1="0" y1="' + py(0) + '" x2="' + W + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += '<line x1="' + px(0) + '" y1="0" x2="' + px(0) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      if (r > 0) {
+        svg += '<circle cx="' + px(h) + '" cy="' + py(k) + '" r="' + (r * unit) + '" style="fill:var(--viz-accent);fill-opacity:.13;stroke:var(--viz-accent);stroke-width:2.5"></circle>';
+        svg += '<line x1="' + px(h) + '" y1="' + py(k) + '" x2="' + px(h + r) + '" y2="' + py(k) + '" style="stroke:var(--viz-green);stroke-width:2.5"></line>';
+        svg += '<text x="' + (px(h) + (r * unit) / 2) + '" y="' + (py(k) - 6) + '" text-anchor="middle" style="font-size:11px;fill:var(--viz-green);font-weight:800">r = ' + r + '</text>';
+      }
+      svg += '<line x1="' + px(h) + '" y1="' + py(k) + '" x2="' + px(tx) + '" y2="' + py(ty) + '" style="stroke:var(--viz-violet);stroke-width:2;stroke-dasharray:4 4"></line>';
+      svg += '<circle cx="' + px(h) + '" cy="' + py(k) + '" r="5" style="fill:var(--viz-accent)"></circle>';
+      svg += '<text x="' + (px(h) + 8) + '" y="' + (py(k) + 15) + '" style="font-size:10.5px;fill:var(--viz-accent);font-weight:700">center (' + h + ', ' + k + ')</text>';
+      svg += '<circle cx="' + px(tx) + '" cy="' + py(ty) + '" r="5" style="fill:var(--viz-violet)"></circle>';
+      svg += '<text x="' + (px(tx) + 8) + '" y="' + (py(ty) - 7) + '" style="font-size:10.5px;fill:var(--viz-violet);font-weight:700">(' + tx + ', ' + ty + ')</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var where = r === 0 ? (dist === 0 ? 'ON (the single point)' : 'OUTSIDE') :
+        (Math.abs(dist - r) < 1e-9 ? 'ON the circle' : (dist < r ? 'INSIDE' : 'OUTSIDE'));
+      var wcol = where.indexOf('ON') === 0 ? 'var(--viz-green)' : (where === 'INSIDE' ? 'var(--viz-violet)' : 'var(--viz-red)');
+      read.innerHTML =
+        pill('center = (' + h + ', ' + k + ')', 'var(--viz-accent)') +
+        pill('r = ' + r + '   but r² = ' + (r * r), 'var(--viz-amber)') +
+        pill('distance to center = ' + n(dist) + '  →  ' + where, wcol);
+
+      var signNote = (h < 0 || k < 0)
+        ? 'Look at the equation: ' + (h < 0 ? 'the x-group shows a PLUS ' + (-h) + ' because h = ' + h + ' is negative' :
+            'the y-group shows a PLUS ' + (-k) + ' because k = ' + k + ' is negative') +
+          '. The form subtracts the center, so a visible plus always means a negative coordinate. That single flip is ' +
+          'what separates the right answer from the most popular distractor.'
+        : 'Both coordinates are non-negative here, so the equation shows minus signs and reads almost like the answer. ' +
+          'Slide h or k below zero and watch a sign in the equation flip to a plus while the center itself stays negative.';
+
+      why.innerHTML = r === 0
+        ? '<b style="color:var(--viz-amber)">r = 0: the equation still makes sense, but the graph is one point.</b>' +
+          'With the right-hand side equal to 0, the only way two squares can sum to zero is for both to be zero, so ' +
+          'x = ' + h + ' and y = ' + k + ' — a single point, not a circle. This is the degenerate case you will meet again ' +
+          'in visual 4, where the right-hand side is not given to you but computed. ' +
+          '<br><br>' + signNote
+        : '<b style="color:var(--viz-accent)">The equation is a distance test, and the dashed line is you running it.</b>' +
+          'The circle is the set of points whose distance to (' + h + ', ' + k + ') equals ' + r + '. The test point is ' +
+          n(dist) + ' away, so it is ' + where + '. Substituting it into the left-hand side gives ' +
+          ((tx - h) * (tx - h) + (ty - k) * (ty - k)) + ', and the right-hand side is r² = ' + (r * r) + ' — the comparison ' +
+          'is the same one, just squared on both sides so no root is needed. ' +
+          '<br><br><b style="display:inline">r versus r²:</b> the equation ends in ' + (r * r) + ', and the radius is sqrt(' +
+          (r * r) + ') = ' + r + '. In (x + 1)² + (y − 4)² = 25 the radius is 5, not 25; the constant is a squared length ' +
+          'because the form was built by squaring a distance. ' +
+          '<br><br>' + signNote;
+    }
+
+    var PRESETS = [
+      { t:'(x-3)²+(y+2)²=16', h:3,  k:-2, r:4 },
+      { t:'(x+1)²+(y-4)²=25', h:-1, k:4,  r:5 },
+      { t:'unit circle',      h:0,  k:0,  r:1 },
+      { t:'r = 0 (a point)',  h:2,  k:2,  r:0 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ Hs.value = p.h; Ks.value = p.k; Rs.value = p.r; render(); });
+      pres.appendChild(btn);
+    });
+    [Hs, Ks, Rs, PX, PY].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Complete The Square</h2>
+  <p class="vz-lede">Expanded form hides the center and the radius; completing the square is how you get them
+    back, once per variable. Set the coefficients of the general form, then run the trip in either direction
+    and check that you land where you started.
+    <b>Like a packed suitcase: nothing has been lost, but you cannot see what is in there until you unpack
+    it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Direction">
+    <button type="button" id="v4-mc" aria-pressed="true">complete the square →</button>
+    <button type="button" id="v4-me" aria-pressed="false">← expand it back</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-d">general form x² + y² + Dx + Ey + F = 0 &nbsp; with D = <b><span id="v4-dl">-4</span></b>, E = <b><span id="v4-el">2</span></b>, F = <b><span id="v4-fl">-4</span></b></label>
+    <input class="vz-range" type="range" id="v4-d" min="-10" max="10" value="-4" step="1" aria-label="Coefficient D of x">
+    <input class="vz-range" type="range" id="v4-e" min="-10" max="10" value="2" step="1" aria-label="Coefficient E of y">
+    <input class="vz-range" type="range" id="v4-f" min="-20" max="20" value="-4" step="1" aria-label="Constant F">
+
+    <div class="v4-eq vz-mono" id="v4-eq"></div>
+    <div class="vz-mono" id="v4-steps"></div>
+    <div id="v4-verdict" style="margin-top:11px"></div>
+    <div class="vz-why" id="v4-why"></div>
+    <div class="vz-pre" id="v4-presets"></div>
+  </div>
+
+  <p class="vz-note">Notice where the judgment lives: not in the equation's appearance but in the number the
+    right-hand side becomes <em>after</em> you complete. Positive is a circle, zero is a single point,
+    negative is no real graph at all. An expanded equation is never "not a circle" merely because it is
+    expanded — you cannot know until you have finished the square.</p>
+
+  <style>
+    .v4-eq{margin-top:10px;padding:10px 11px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:14px;font-weight:700;text-align:center;margin-bottom:10px}
+  </style>
+  <script>
+  (function(){
+    var D = document.getElementById('v4-d'), E = document.getElementById('v4-e'), F = document.getElementById('v4-f');
+    var dl = document.getElementById('v4-dl'), el = document.getElementById('v4-el'), fl = document.getElementById('v4-fl');
+    var bC = document.getElementById('v4-mc'), bE = document.getElementById('v4-me');
+    var eq = document.getElementById('v4-eq'), steps = document.getElementById('v4-steps');
+    var verdict = document.getElementById('v4-verdict'), why = document.getElementById('v4-why');
+    var pres = document.getElementById('v4-presets');
+    var completing = true;
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function term(c, v){
+      if (c === 0) return '';
+      var mag = Math.abs(c);
+      return (c > 0 ? ' + ' : ' - ') + (mag === 1 && v ? '' : n(mag)) + v;
+    }
+    function bin(sym, c){
+      if (c === 0) return sym + '^2';
+      return '(' + sym + (c > 0 ? ' - ' + n(c) : ' + ' + n(-c)) + ')^2';
+    }
+    function general(d, e, f){
+      return 'x^2 + y^2' + term(d, 'x') + term(e, 'y') + term(f, '') + ' = 0';
+    }
+    function tail(c){ return c === 0 ? '' : term(c, ''); }   // hide a "+ 0" that teaches nothing
+
+    function render(){
+      var d = Number(D.value), e = Number(E.value), f = Number(F.value);
+      if (!isFinite(d)) d = 0; if (!isFinite(e)) e = 0; if (!isFinite(f)) f = 0;
+      dl.textContent = d; el.textContent = e; fl.textContent = f;
+      bC.setAttribute('aria-pressed', completing ? 'true' : 'false');
+      bE.setAttribute('aria-pressed', completing ? 'false' : 'true');
+
+      var hh = d / 2, kk = e / 2;              // halves of the linear coefficients
+      var h = -hh, k = -kk;                     // the center
+      var r2 = hh * hh + kk * kk - f;           // the completed right-hand side
+      var isCircle = r2 > 0, isPoint = Math.abs(r2) < 1e-12;
+      var r = isCircle ? Math.sqrt(r2) : 0;
+
+      eq.textContent = completing
+        ? general(d, e, f) + '        →        ' + bin('x', h) + ' + ' + bin('y', k) + ' = ' + n(r2)
+        : bin('x', h) + ' + ' + bin('y', k) + ' = ' + n(r2) + '        →        ' + general(d, e, f);
+
+      if (completing) {
+        steps.textContent =
+          '   ' + general(d, e, f) + '\n' +
+          '1  group the x-terms and the y-terms, move the constant right\n' +
+          '     (x^2' + term(d, 'x') + ') + (y^2' + term(e, 'y') + ') = ' + n(-f) + '\n' +
+          '2  half of ' + n(d) + ' is ' + n(hh) + ', and (' + n(hh) + ')^2 = ' + n(hh * hh) + '\n' +
+          '   half of ' + n(e) + ' is ' + n(kk) + ', and (' + n(kk) + ')^2 = ' + n(kk * kk) + '\n' +
+          '   add BOTH of those to BOTH sides\n' +
+          '     (x^2' + term(d, 'x') + ' + ' + n(hh * hh) + ') + (y^2' + term(e, 'y') + ' + ' + n(kk * kk) + ')' +
+          ' = ' + n(-f) + ' + ' + n(hh * hh) + ' + ' + n(kk * kk) + '\n' +
+          '3  each group is now a perfect square\n' +
+          '     ' + bin('x', h) + ' + ' + bin('y', k) + ' = ' + n(r2);
+      } else {
+        steps.textContent =
+          '   ' + bin('x', h) + ' + ' + bin('y', k) + ' = ' + n(r2) + '\n' +
+          '1  square each binomial  (a - b)^2 = a^2 - 2ab + b^2\n' +
+          '     x^2' + term(d, 'x') + tail(h * h) + '     and     y^2' + term(e, 'y') + tail(k * k) + '\n' +
+          '   the middle terms are -2h = ' + n(d) + ' and -2k = ' + n(e) + '\n' +
+          '2  add them and collect\n' +
+          '     x^2 + y^2' + term(d, 'x') + term(e, 'y') + tail(h * h + k * k) + ' = ' + n(r2) + '\n' +
+          '3  drive everything to zero: F = ' + n(h * h + k * k) + ' - ' + n(r2) + ' = ' + n(f) + '\n' +
+          '     ' + general(d, e, f);
+      }
+
+      var vcol = isCircle ? 'var(--viz-green)' : (isPoint ? 'var(--viz-amber)' : 'var(--viz-red)');
+      var vtag = isCircle ? 'A CIRCLE' : (isPoint ? 'A SINGLE POINT' : 'NO REAL GRAPH');
+      verdict.innerHTML =
+        pill(vtag, vcol) + ' ' +
+        pill('center (' + n(h) + ', ' + n(k) + ')', 'var(--viz-accent)') + ' ' +
+        pill('r² = ' + n(r2) + (isCircle ? '   r = ' + n(r) : ''), 'var(--viz-violet)');
+
+      var common = '<br><br><b style="display:inline">The two halves of the trip:</b> expanding uses the special ' +
+        'product (x - h)² = x² - 2hx + h², so the linear coefficient you see is always -2h — here D = ' + n(d) +
+        ', giving h = ' + n(h) + '. Completing runs that backwards: halve the linear coefficient, square it, add it to ' +
+        'both sides. Halving is why odd values of D or E produce a half-integer center rather than a wrong one.';
+
+      if (!isCircle && !isPoint) {
+        why.innerHTML = '<b style="color:var(--viz-red)">r² = ' + n(r2) + ' is negative, so there are no real points.</b>' +
+          'A sum of two real squares can never be negative, so nothing satisfies this equation. The algebra ran ' +
+          'perfectly and produced a completed form that simply has no graph — which is exactly why you complete the ' +
+          'square <em>before</em> deciding what the equation is. ' + common;
+      } else if (isPoint) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">r² = 0, so the graph is the single point (' + n(h) + ', ' + n(k) + ').</b>' +
+          'Both squares must vanish at once, which pins x and y to one value each. This is the boundary case between ' +
+          'a circle and nothing at all, and it is invisible in the expanded form: the equation looks like every other ' +
+          'one on this slider. ' + common;
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">A genuine circle: center (' + n(h) + ', ' + n(k) + '), radius ' + n(r) + '.</b>' +
+          'Nothing about the expanded version was wrong — it was simply not in standard form, because its x and y ' +
+          'terms had not yet been completed into squares. That, and only that, is what "not yet standard form" means; ' +
+          'the radius it implies is fine and the equation is missing nothing. ' +
+          '<br><br>Read the two forms against each other: the constant F = ' + n(f) + ' carries h² + k² − r² = ' +
+          n(h * h) + ' + ' + n(k * k) + ' − ' + n(r2) + ', which is why F alone tells you nothing until the linear ' +
+          'terms have been folded in. ' + common;
+      }
+    }
+
+    var PRESETS = [
+      { t:'x²+y²-4x+2y-4=0', d:-4, e:2,  f:-4 },
+      { t:'x²+y²+6x-8y+9=0', d:6,  e:-8, f:9 },
+      { t:'unit circle',     d:0,  e:0,  f:-1 },
+      { t:'a single point',  d:-6, e:-2, f:10 },
+      { t:'no real graph',   d:0,  e:0,  f:4 },
+      { t:'odd D and E',     d:-3, e:5,  f:0 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ D.value = p.d; E.value = p.e; F.value = p.f; render(); });
+      pres.appendChild(btn);
+    });
+    bC.addEventListener('click', function(){ completing = true; render(); });
+    bE.addEventListener('click', function(){ completing = false; render(); });
+    [D, E, F].forEach(function(el2){ el2.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

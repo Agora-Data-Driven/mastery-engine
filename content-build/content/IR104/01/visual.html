@@ -1,0 +1,665 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Cutoff Is The Threshold</button>
+  <button class="viz-tab" data-viz-tab="2">2. Blind Inside The Cutoff</button>
+  <button class="viz-tab" data-viz-tab="3">3. Choosing k By Consumer</button>
+  <button class="viz-tab" data-viz-tab="4">4. Building Average Precision</button>
+  <button class="viz-tab" data-viz-tab="5">5. First Hit Only</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Cutoff Is The Threshold</h2>
+  <p class="vz-lede">In ML, <b>precision</b> = TP/(TP+FP) and <b>recall</b> = TP/(TP+FN) were computed over a
+    <em>fixed predicted set</em> that a score threshold handed you. A retriever scores essentially every
+    document instead, so there is no set until you cut the ranking at <b>k</b> — and then the same formulas
+    apply, unchanged. Drag the cut. <b>Like judging a bakery by its window display: you have to say how big
+    the window is before "how many are good" means anything.</b></p>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-k">Cut at k = <span id="v1-kl">5</span>
+      &nbsp;·&nbsp; query <span class="v1-q">cloud run cold start latency</span>
+      &nbsp;·&nbsp; R = 4 relevant in the judged set</label>
+    <input type="range" id="v1-k" min="1" max="12" value="5" step="1" aria-label="Rank cutoff k">
+    <div class="v1-list" id="v1-list"></div>
+  </div>
+
+  <div class="vz-card v1-gap">
+    <div class="v1-stats" id="v1-stats"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">Two things follow mechanically. Recall's numerator is non-decreasing in <b>k</b> while
+    its denominator R is fixed, so <b>recall can only rise or stay flat</b>. Precision's denominator grows by
+    1 every step and its numerator only sometimes does, so precision tends to fall. Sweeping <b>k</b> from 1
+    to the list depth traces exactly the precision–recall tradeoff curve you know from classifiers — the rank
+    cutoff is playing the role of the score threshold.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-q{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted)}
+    .v1-gap{margin-top:11px}
+    .v1-list{margin-top:14px;display:flex;flex-direction:column;gap:3px}
+    .v1-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:8px;
+      padding:5px 9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v1-r.is-in{border-color:var(--viz-accent)}
+    .v1-r.is-out{opacity:.5;border-style:dashed}
+    .v1-n{flex:0 0 30px;color:var(--viz-muted)}
+    .v1-doc{flex:1 1 auto}
+    .v1-tag{flex:0 0 auto;font-weight:800;font-size:10px;letter-spacing:.04em}
+    .v1-stats{display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var REL = { 1:true, 3:true, 5:true, 10:true };   // System A's relevant ranks
+    var R = 4, DEPTH = 12;
+    var s = document.getElementById('v1-k'), kl = document.getElementById('v1-kl');
+    var list = document.getElementById('v1-list'), stats = document.getElementById('v1-stats'), why = document.getElementById('v1-why');
+
+    function f2(x){ return (Math.round(x * 100) / 100).toFixed(2); }
+    function pill(text, colour){
+      return '<span class="vz-pill" style="color:' + colour + ';border-color:' + colour + '">' + text + '</span>';
+    }
+
+    function render(){
+      var k = Number(s.value);
+      if (!(k >= 1)) k = 1;                       // a NaN slider must never reach the arithmetic
+      kl.textContent = k;
+
+      var tp = 0, rows = '';
+      for (var r = 1; r <= DEPTH; r++) {
+        var rel = !!REL[r], inSet = r <= k;
+        if (rel && inSet) tp += 1;
+        var tag = inSet ? (rel ? 'TP' : 'FP') : (rel ? 'FN' : 'TN');
+        var col = inSet ? (rel ? 'var(--viz-green)' : 'var(--viz-red)')
+                        : (rel ? 'var(--viz-amber)' : 'var(--viz-muted)');
+        rows += '<div class="v1-r ' + (inSet ? 'is-in' : 'is-out') + '">' +
+          '<span class="v1-n">' + (r < 10 ? ' ' : '') + r + '</span>' +
+          '<span class="v1-doc">' + (rel ? '✓ relevant' : '· not relevant') + '</span>' +
+          '<span class="v1-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }
+      list.innerHTML = rows;
+
+      var fp = k - tp, fn = R - tp;
+      var p = tp / k;                              // k >= 1 always, so this cannot divide by zero
+      var rc = R > 0 ? tp / R : 0;
+      var f1 = (p + rc) > 0 ? 2 * p * rc / (p + rc) : 0;
+
+      stats.innerHTML =
+        pill('TP ' + tp, 'var(--viz-green)') +
+        pill('FP ' + fp, 'var(--viz-red)') +
+        pill('FN ' + fn, 'var(--viz-amber)') +
+        pill('P@' + k + ' = ' + tp + '/' + k + ' = ' + f2(p), 'var(--viz-accent)') +
+        pill('R@' + k + ' = ' + tp + '/' + R + ' = ' + f2(rc), 'var(--viz-violet)') +
+        pill('F1 = ' + f2(f1), 'var(--viz-muted)');
+
+      var head = k >= 10
+        ? '<b style="color:var(--viz-green)">Full recall at k = ' + k + ', and precision paid for it.</b>'
+        : '<b style="color:var(--viz-accent)">One cutoff, one pair of numbers.</b>';
+      why.innerHTML = head +
+        'At <b>k = ' + k + '</b> the top-' + k + ' <em>is</em> the predicted set, so TP/FP/FN are exactly the ' +
+        'quantities you counted for a classifier: ' + tp + ' true positives, ' + fp + ' false positives, and ' +
+        fn + ' relevant document' + (fn === 1 ? '' : 's') + ' still below the line. ' +
+        '<br><br>The retriever never handed you that set. It scored the whole corpus and produced a total ' +
+        'ordering; <b>you</b> supplied the set by choosing where to cut. That is why there is no single ' +
+        'precision for a ranked system — there is a pair for every k — and why the cutoff is a modelling ' +
+        'decision about how the output is consumed, not a nuisance parameter. ' +
+        (k >= 10
+          ? '<br><br>Notice what happened between k = 5 (P = 0.60, R = 0.75) and k = 10 (P = 0.40, R = 1.00): ' +
+            'recall rose, precision fell, and no single number tells you whether that was an improvement.'
+          : '<br><br>Keep dragging to k = 10 and watch recall reach 1.00 while precision halves. R is the ' +
+            'count of relevant documents <em>in the judged set</em> — nobody knows the true corpus-wide ' +
+            'count, so recall is always relative to your judgments.');
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Blind Inside The Cutoff</h2>
+  <p class="vz-lede">P@k and R@k are sensitive to rank only <em>across</em> the cutoff boundary, never
+    <em>within</em> it. Tap ranks to place the four relevant documents anywhere in the top 10 and watch P@10
+    and R@10 refuse to move. <b>Like a taxi that arrives at your door versus one that circles the block five
+    times first — same fare on the meter, very different ride.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Preset rankings">
+    <button id="v2-a" aria-pressed="true">System A · 1, 3, 5, 10</button>
+    <button id="v2-b" aria-pressed="false">System B · 6, 7, 8, 9</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-grid" id="v2-grid"></div>
+    <div class="v2-hint" id="v2-hint"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Swapping the documents at ranks 1 and 10 changes nothing at P@10. Any metric built from
+    a single cutoff treats the top-<b>k</b> as a <b>bag</b> — membership counted, order discarded. That is
+    not a flaw to patch; it is the definition, and it is precisely the gap average precision exists to fill.
+    Note the one thing that <em>does</em> move as you drag documents across rank 5: the k = 5 pair. Order
+    matters to a cutoff metric only when it carries a document over the line.</p>
+
+  <style>
+    .v2-grid{display:grid;grid-template-columns:repeat(5, 1fr);gap:6px}
+    .v2-c{min-height:52px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+      border-radius:10px;font:inherit;font-size:11.5px;font-weight:700;display:flex;flex-direction:column;
+      align-items:center;justify-content:center;gap:1px;line-height:1.2;padding:2px}
+    .v2-c[aria-pressed="true"]{border-color:var(--viz-green);background:var(--viz-surface)}
+    .v2-c span{font-family:ui-monospace,Consolas,monospace;font-size:10px;color:var(--viz-muted)}
+    .v2-c[aria-pressed="true"] span{color:var(--viz-green)}
+    .v2-hint{margin-top:9px;font-size:11.5px;min-height:16px;line-height:1.4}
+    .v2-stats{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var R = 4, DEPTH = 10;
+    var sel = [1, 3, 5, 10];
+    var grid = document.getElementById('v2-grid'), hint = document.getElementById('v2-hint');
+    var stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+    var bA = document.getElementById('v2-a'), bB = document.getElementById('v2-b');
+
+    function f2(x){ return (Math.round(x * 100) / 100).toFixed(2); }
+    function pill(text, colour){
+      return '<span class="vz-pill" style="color:' + colour + ';border-color:' + colour + '">' + text + '</span>';
+    }
+    function same(a, b){
+      var x = a.slice().sort(function(p, q){ return p - q; }).join(',');
+      var y = b.slice().sort(function(p, q){ return p - q; }).join(',');
+      return x === y;
+    }
+
+    function build(){
+      grid.innerHTML = '';
+      for (var r = 1; r <= DEPTH; r++) {
+        (function(rank){
+          var b = document.createElement('button');
+          b.className = 'v2-c';
+          b.setAttribute('aria-pressed', 'false');
+          b.addEventListener('click', function(){
+            var i = sel.indexOf(rank);
+            if (i >= 0) { sel.splice(i, 1); hint.innerHTML = ''; }
+            else if (sel.length < R) { sel.push(rank); hint.innerHTML = ''; }
+            else {
+              hint.innerHTML = '<b style="color:var(--viz-amber)">All 4 placed.</b> ' +
+                '<span style="color:var(--viz-muted)">Remove one first — the query has exactly R = 4 relevant documents.</span>';
+              return;
+            }
+            render();
+          });
+          grid.appendChild(b);
+        })(r);
+      }
+    }
+
+    function render(){
+      bA.setAttribute('aria-pressed', same(sel, [1, 3, 5, 10]) ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', same(sel, [6, 7, 8, 9]) ? 'true' : 'false');
+
+      [].slice.call(grid.children).forEach(function(b, i){
+        var rank = i + 1, on = sel.indexOf(rank) >= 0;
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.innerHTML = 'rank ' + rank + '<span>' + (on ? '✓ relevant' : '· junk') + '</span>';
+      });
+
+      var in5 = sel.filter(function(r){ return r <= 5; }).length;
+      var in10 = sel.length;
+      var first = in10 ? Math.min.apply(null, sel) : 0;
+
+      stats.innerHTML =
+        pill('P@5 = ' + in5 + '/5 = ' + f2(in5 / 5), 'var(--viz-accent)') +
+        pill('R@5 = ' + in5 + '/4 = ' + f2(in5 / R), 'var(--viz-violet)') +
+        pill('P@10 = ' + in10 + '/10 = ' + f2(in10 / 10), 'var(--viz-accent)') +
+        pill('R@10 = ' + in10 + '/4 = ' + f2(in10 / R), 'var(--viz-violet)') +
+        pill('first hit: ' + (first ? 'rank ' + first : 'none in top 10'), first === 1 ? 'var(--viz-green)' : 'var(--viz-amber)');
+
+      var head, body;
+      if (in10 === R) {
+        head = '<b style="color:var(--viz-red)">All four inside the cutoff: P@10 = 0.40 and R@10 = 1.00, whatever the order.</b>';
+        body = 'System A answers at <b>rank 1</b>. System B makes the user scan five junk results first and ' +
+          'lands its first hit at <b>rank 6</b>. The metric cannot tell them apart, because it only asks ' +
+          '<em>which documents are in the bag</em>, not how they are arranged inside it. ' +
+          'Right now your first hit is at ' + (first ? 'rank ' + first : 'no rank') + ' and P@10 has not moved.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">' + (R - in10) + ' relevant document' +
+          (R - in10 === 1 ? '' : 's') + ' pushed below rank 10 — now the numbers move.</b>';
+        body = 'Crossing the boundary is the <em>only</em> way to change a cutoff metric. Recall fell to ' +
+          f2(in10 / R) + ' because the numerator lost a document while R stayed at 4. ' +
+          'This is the whole sensitivity profile of P@k and R@k in one sentence: <b>blind within k, sharp across it.</b>';
+      }
+      why.innerHTML = head + body +
+        '<br><br><b>Denominator gotcha:</b> R is fixed at 4 here, but across a real query set it varies. ' +
+        'With R = 3 the ceiling on P@10 is 0.30, so averaging P@10 punishes queries for having few relevant ' +
+        'answers — which is what <b>R-precision</b> (P@R, visual 3) exists to fix.';
+    }
+
+    bA.addEventListener('click', function(){ sel = [1, 3, 5, 10]; hint.innerHTML = ''; render(); });
+    bB.addEventListener('click', function(){ sel = [6, 7, 8, 9]; hint.innerHTML = ''; render(); });
+    build();
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Choosing k By Consumer</h2>
+  <p class="vz-lede">The cutoff is not a convention to memorise — it is a fact about who reads the list.
+    Tap a consumer to see which cutoff and which half of the pair actually decides anything.
+    <b>Like a ladder: the right length is a fact about the roof, not about the ladder.</b></p>
+
+  <div class="v3-list" id="v3-list"></div>
+
+  <div class="vz-card">
+    <div class="v3-num" id="v3-num"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card v3-gap">
+    <label class="v3-lab" for="v3-r">Denominator gotcha · this query has R = <span id="v3-rl">4</span>
+      relevant documents</label>
+    <input type="range" id="v3-r" min="1" max="10" value="4" step="1" aria-label="Number of relevant documents R">
+    <div class="v3-ceil" id="v3-ceil"></div>
+  </div>
+
+  <p class="vz-note">The asymmetry that decides real architectures: <b>missed recall at the first stage is
+    unfixable downstream, while poor precision there is merely work for the next stage.</b> A reranker can
+    reorder the top 200 all day; it can never recover a document the candidate generator failed to surface.
+    So tune stage one on R@1000 and refuse to be impressed by its precision.</p>
+
+  <style>
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-s{min-height:52px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v3-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-k{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:800;
+      color:var(--viz-muted);width:52px}
+    .v3-s[aria-pressed="true"] .v3-k{color:var(--viz-accent)}
+    .v3-num{display:flex;gap:7px;flex-wrap:wrap}
+    .v3-gap{margin-top:11px}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-ceil{margin-top:12px;font-size:12.5px;line-height:1.6}
+    .v3-bar{margin-top:8px;height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-bar i{display:block;height:100%;background:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    // System A again: relevant at 1, 3, 5, 10 out of a judged R = 4.
+    var CONSUMERS = [
+      { k:'k = 10', t:'A search results page',
+        pills:[['P@10 = 0.40', 'var(--viz-accent)'], ['R@10 = 1.00', 'var(--viz-violet)']],
+        why:['Precision is what the page is judged on.',
+          'Ten slots, all of them read or skimmed. P@10 = 4/10 = 0.40 says four of the ten lines were worth ' +
+          'the user’s eye. Recall matters less here because the user can paginate — but note that P@10 ' +
+          'still cannot tell you whether the good result was line 1 or line 10.'] },
+      { k:'k = 5', t:'A RAG prompt stuffing 5 chunks',
+        pills:[['P@5 = 3/5 = 0.60', 'var(--viz-accent)'], ['R@5 = 3/4 = 0.75', 'var(--viz-violet)']],
+        why:['Both halves of the pair matter, and rank 6 does not exist.',
+          'The prompt has exactly five slots. <b>A relevant chunk at rank 6 does not exist as far as the LLM ' +
+          'is concerned</b> — it is not merely deprioritised, it is absent. So you report P@5 (how much of ' +
+          'the context window is useful) <em>and</em> R@5 (how much of the answer made it in). Here one of ' +
+          'the four relevant documents sits at rank 10 and is simply lost: R@5 = 0.75.'] },
+      { k:'R@100', t:'A first-stage candidate generator',
+        pills:[['R@100 or R@1000', 'var(--viz-violet)'], ['precision: barely matters', 'var(--viz-muted)']],
+        why:['Recall only. Precision here is the next stage’s problem.',
+          'BM25 and the embedding retriever exist to hand a reranker a pool. What you need to know is ' +
+          'whether the answer is <em>in</em> the pool, so the metric is R@100 or R@1000. A first stage with ' +
+          'P@1000 = 0.004 and R@1000 = 0.99 is doing its job perfectly. Optimise its precision and you will ' +
+          'trade away the only thing it can uniquely provide.'] }
+    ];
+    var RANKS = [1, 3, 5, 10, 12, 14, 17, 21, 26, 33];   // where relevant documents land, in order
+
+    var list = document.getElementById('v3-list'), num = document.getElementById('v3-num'), why = document.getElementById('v3-why');
+    var rs = document.getElementById('v3-r'), rl = document.getElementById('v3-rl'), ceil = document.getElementById('v3-ceil');
+
+    function f2(x){ return (Math.round(x * 100) / 100).toFixed(2); }
+    function pill(text, colour){
+      return '<span class="vz-pill" style="color:' + colour + ';border-color:' + colour + '">' + text + '</span>';
+    }
+
+    function show(i){
+      var c = CONSUMERS[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      num.innerHTML = c.pills.map(function(p){ return pill(p[0], p[1]); }).join('');
+      why.innerHTML = '<b>' + c.why[0] + '</b>' + c.why[1];
+    }
+
+    CONSUMERS.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v3-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-k">' + c.k + '</span><span>' + c.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(1);
+
+    function renderR(){
+      var n = Number(rs.value);
+      if (!(n >= 1)) n = 1;                        // never let a NaN reach the division
+      rl.textContent = n;
+      var ceiling = Math.min(n, 10) / 10;
+      var hits = 0;
+      for (var i = 0; i < n; i++) { if (RANKS[i] <= n) hits += 1; }
+      var rprec = hits / n;                        // n >= 1, so this is always defined
+      ceil.innerHTML =
+        pill('ceiling on P@10 = min(R,10)/10 = ' + f2(ceiling), ceiling < 1 ? 'var(--viz-red)' : 'var(--viz-green)') +
+        ' ' + pill('R-precision = P@' + n + ' = ' + hits + '/' + n + ' = ' + f2(rprec), 'var(--viz-green)') +
+        '<div class="v3-bar"><i style="width:' + Math.round(ceiling * 100) + '%"></i></div>' +
+        '<div style="margin-top:9px">' +
+        (ceiling < 1
+          ? 'With only <b>' + n + '</b> relevant document' + (n === 1 ? '' : 's') + ' in the judged set, ' +
+            'P@10 <b>cannot exceed ' + f2(ceiling) + '</b> however perfect the ranking is. Average P@10 across ' +
+            'queries with wildly different R and you are partly measuring how many answers each question ' +
+            'happened to have.'
+          : 'At R = 10 the ceiling finally reaches 1.00 — P@10 can be perfect. This is the only regime in ' +
+            'which averaging P@10 across queries is comparing like with like.') +
+        ' <b>R-precision</b> sidesteps it entirely by moving the cutoff to R itself, one value per query.</div>';
+    }
+    rs.addEventListener('input', renderR);
+    renderR();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Building Average Precision</h2>
+  <p class="vz-lede">AP walks the ranking, records precision at every position where a relevant document
+    appears, and averages those values over R. Three relevant documents are pinned at ranks 1, 3 and 5 —
+    drag the fourth and watch AP move while P@10 sits still. <b>Like a race where every runner's finishing
+    time counts, not just whether the team finished.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-x">Fourth relevant document at
+      <span id="v4-xl">rank 10</span> &nbsp;·&nbsp; R = 4</label>
+    <input type="range" id="v4-x" min="0" max="9" value="4" step="1" aria-label="Rank of the fourth relevant document">
+    <div class="v4-terms" id="v4-terms"></div>
+    <div class="v4-stats" id="v4-stats"></div>
+  </div>
+
+  <div class="vz-card v4-gap">
+    <div class="v4-curve" id="v4-curve"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note"><b>MAP</b> is the arithmetic mean of AP over the query set, and it is a <em>macro</em>
+    average: a query with 1 relevant document counts exactly as much as one with 50, and queries with zero
+    relevant documents in the judgments are excluded rather than scored 0, because AP is undefined at R = 0.
+    Two cautions. AP assumes <b>binary</b> relevance, so graded judgments must be squashed first and the
+    threshold can flip which system wins. And MAP evaluates to the full depth — commonly 1000 — so it will
+    happily credit improvements at ranks 20 to 50 that no user of a top-5 product will ever see.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-gap{margin-top:11px}
+    .v4-terms{margin-top:14px;display:flex;flex-direction:column;gap:4px}
+    .v4-t{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-t.is-live{border-color:var(--viz-accent)}
+    .v4-t.is-zero{border-style:dashed;opacity:.62}
+    .v4-t b{margin-left:auto;font-size:12px}
+    .v4-stats{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-curve svg{width:100%;height:auto;display:block}
+  </style>
+  <script>
+  (function(){
+    var OPTS = [6, 7, 8, 9, 10, 11, 12, 13, 14, 0];   // 0 = never retrieved
+    var FIXED = [1, 3, 5], R = 4;
+    var s = document.getElementById('v4-x'), xl = document.getElementById('v4-xl');
+    var terms = document.getElementById('v4-terms'), stats = document.getElementById('v4-stats');
+    var curve = document.getElementById('v4-curve'), why = document.getElementById('v4-why');
+
+    function f3(x){ return (Math.round(x * 1000) / 1000).toFixed(3); }
+    function f2(x){ return (Math.round(x * 100) / 100).toFixed(2); }
+    function pill(text, colour){
+      return '<span class="vz-pill" style="color:' + colour + ';border-color:' + colour + '">' + text + '</span>';
+    }
+
+    function render(){
+      var idx = Number(s.value);
+      if (!(idx >= 0) || idx >= OPTS.length) idx = 4;
+      var x = OPTS[idx];
+      xl.textContent = x ? 'rank ' + x : 'never retrieved';
+
+      // precision at each relevant position: the i-th relevant document has i hits above-and-including it
+      var precs = FIXED.map(function(r, i){ return { r: r, p: (i + 1) / r }; });
+      precs.push({ r: x, p: x > 0 ? 4 / x : 0 });
+
+      terms.innerHTML = precs.map(function(t, i){
+        var zero = t.p === 0;
+        return '<div class="v4-t ' + (i === 3 ? (zero ? 'is-zero' : 'is-live') : '') + '">' +
+          '<span>relevant #' + (i + 1) + '</span>' +
+          '<span>' + (t.r ? 'rank ' + t.r : 'not retrieved') + '</span>' +
+          '<b style="color:' + (zero ? 'var(--viz-red)' : 'var(--viz-accent)') + '">' +
+          (t.r ? 'P@' + t.r + ' = ' + (i + 1) + '/' + t.r + ' = ' : 'contributes ') + f3(t.p) + '</b></div>';
+      }).join('');
+
+      var sum = precs.reduce(function(a, t){ return a + t.p; }, 0);
+      var ap = R > 0 ? sum / R : 0;                        // R is a constant 4; the guard is the habit
+      var in10 = FIXED.length + ((x > 0 && x <= 10) ? 1 : 0);
+
+      stats.innerHTML =
+        pill('AP = ' + f3(sum) + ' / 4 = ' + f3(ap), 'var(--viz-green)') +
+        pill('P@10 = ' + in10 + '/10 = ' + f2(in10 / 10), 'var(--viz-accent)') +
+        pill('R@10 = ' + in10 + '/4 = ' + f2(in10 / R), 'var(--viz-violet)');
+
+      // the uninterpolated precision-recall staircase: recall rises by exactly 1/R per hit
+      var W = 300, H = 132, L = 34, B = 24, T = 8, Rr = 8;
+      var px = function(rec){ return L + rec * (W - L - Rr); };
+      var py = function(p){ return (H - B) - p * (H - B - T); };
+      var seg = '';
+      precs.forEach(function(t, i){
+        var x0 = px(i / R), x1 = px((i + 1) / R), y = py(t.p);
+        seg += '<rect x="' + x0 + '" y="' + y + '" width="' + (x1 - x0) + '" height="' + ((H - B) - y) +
+          '" fill="var(--viz-accent)" opacity="0.24"></rect>' +
+          '<line x1="' + x0 + '" y1="' + y + '" x2="' + x1 + '" y2="' + y +
+          '" stroke="var(--viz-accent)" stroke-width="2"></line>';
+      });
+      curve.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+        'aria-label="uninterpolated precision-recall staircase, area equals average precision">' +
+        '<line x1="' + L + '" y1="' + (H - B) + '" x2="' + W + '" y2="' + (H - B) + '" stroke="var(--viz-line)" stroke-width="1.5"></line>' +
+        '<line x1="' + L + '" y1="' + T + '" x2="' + L + '" y2="' + (H - B) + '" stroke="var(--viz-line)" stroke-width="1.5"></line>' +
+        seg +
+        '<text x="2" y="' + (T + 9) + '" fill="var(--viz-muted)" font-size="9">P 1.0</text>' +
+        '<text x="2" y="' + (H - B) + '" fill="var(--viz-muted)" font-size="9">P 0.0</text>' +
+        '<text x="' + L + '" y="' + (H - 6) + '" fill="var(--viz-muted)" font-size="9">recall 0</text>' +
+        '<text x="' + (W - 52) + '" y="' + (H - 6) + '" fill="var(--viz-muted)" font-size="9">recall 1.0</text>' +
+        '</svg>';
+
+      var head = x === 6
+        ? '<b style="color:var(--viz-green)">Rank 10 to rank 6: AP rises to 0.733 and P@10 does not move at all.</b>'
+        : x === 0
+          ? '<b style="color:var(--viz-red)">Never retrieved contributes a hard 0 — not "excluded".</b>'
+          : x > 10
+            ? '<b style="color:var(--viz-amber)">Past rank 10 both move: the document crossed the cutoff.</b>'
+            : '<b style="color:var(--viz-accent)">AP sees the position of every relevant document.</b>';
+      why.innerHTML = head +
+        'Each of the four steps above is exactly <b>1/R = 0.25</b> of recall wide, because every relevant hit ' +
+        'raises recall by precisely 1/R. So the four precisions are sampled at equally spaced recall ' +
+        'increments and their mean is a <b>Riemann sum of width 1/R</b> approximating the integral of P dR — ' +
+        'AP <em>is</em> the area under the uninterpolated precision–recall curve, and the shaded staircase is ' +
+        'that area. ' +
+        '<br><br>Two more readings. AP is the <b>expected precision experienced by a user who stops at a ' +
+        'relevant document chosen uniformly at random</b> — crude, but an honest user model. And it is ' +
+        'intrinsically top-heavy with <em>no</em> explicit discount function: a hit at rank 1 contributes ' +
+        '1.000, while a hit at rank 100 contributes about 0.04, because precision at depth is diluted by ' +
+        'everything above it. ' +
+        (x === 0
+          ? '<br><br>Dragging the fourth document out of the list entirely drops AP to ' + f3(ap) +
+            ' and R@10 to 0.75. A relevant document you never retrieve is a zero in the sum, which is what ' +
+            'makes AP recall-aware where P@k alone is not.'
+          : '<br><br>Right now AP = ' + f3(ap) + '. Move the fourth document up and only AP responds, until ' +
+            'it crosses rank 10 — the boundary is the <em>only</em> thing P@10 can see.');
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. First Hit Only</h2>
+  <p class="vz-lede">Some tasks need exactly one hit — known-item search, navigational queries, factoid
+    lookup, a RAG setup with a single gold passage. RR = 1/r₁ where r₁ is the rank of the first relevant
+    result, 0 if none appears. Drag each query's first hit. <b>Like looking for your keys: finding them in
+    the first pocket you check is worth far more than finding them in the ninth.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Query set size">
+    <button id="v5-n3" aria-pressed="false">3 queries</button>
+    <button id="v5-n4" aria-pressed="true">4 queries · MRR@10</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-row">
+      <label class="v5-lab" for="v5-r1">query 1 · first hit at <span id="v5-p1">rank 1</span></label>
+      <input type="range" id="v5-r1" min="1" max="11" value="1" step="1" aria-label="Query 1 first relevant rank">
+      <div class="v5-out" id="v5-o1"></div>
+    </div>
+    <div class="v5-row">
+      <label class="v5-lab" for="v5-r2">query 2 · first hit at <span id="v5-p2">rank 2</span></label>
+      <input type="range" id="v5-r2" min="1" max="11" value="2" step="1" aria-label="Query 2 first relevant rank">
+      <div class="v5-out" id="v5-o2"></div>
+    </div>
+    <div class="v5-row">
+      <label class="v5-lab" for="v5-r3">query 3 · first hit at <span id="v5-p3">rank 4</span></label>
+      <input type="range" id="v5-r3" min="1" max="11" value="4" step="1" aria-label="Query 3 first relevant rank">
+      <div class="v5-out" id="v5-o3"></div>
+    </div>
+    <div class="v5-row" id="v5-row4">
+      <label class="v5-lab" for="v5-r4">query 4 · first hit at <span id="v5-p4">nothing in the top 10</span></label>
+      <input type="range" id="v5-r4" min="1" max="11" value="11" step="1" aria-label="Query 4 first relevant rank">
+      <div class="v5-out" id="v5-o4"></div>
+    </div>
+    <div class="v5-stats" id="v5-stats"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">One identity ties this panel to the last. If a query has exactly one relevant document
+    at rank r, then R = 1 and the AP sum has a single term: AP = (1/1)·P@r = 1/r = RR. <b>MRR is exactly MAP
+    restricted to single-answer queries</b>, so an evaluation set with one judged passage per query makes MAP
+    and MRR the same number — computing both tells you nothing. And MRR is blind past the first hit: one
+    relevant document followed by nine junk results ties a system returning ten relevant documents, which
+    makes it the wrong metric for research queries, candidate generation, or any RAG prompt reading five
+    slots.</p>
+
+  <style>
+    .v5-row{padding:9px 0;border-bottom:1px dashed var(--viz-line)}
+    .v5-row.is-off{opacity:.4}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.5}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-out{margin-top:6px;font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;
+      color:var(--viz-muted)}
+    .v5-stats{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var n = 4;
+    var rs = [document.getElementById('v5-r1'), document.getElementById('v5-r2'),
+              document.getElementById('v5-r3'), document.getElementById('v5-r4')];
+    var ps = [document.getElementById('v5-p1'), document.getElementById('v5-p2'),
+              document.getElementById('v5-p3'), document.getElementById('v5-p4')];
+    var os = [document.getElementById('v5-o1'), document.getElementById('v5-o2'),
+              document.getElementById('v5-o3'), document.getElementById('v5-o4')];
+    var row4 = document.getElementById('v5-row4');
+    var stats = document.getElementById('v5-stats'), why = document.getElementById('v5-why');
+    var b3 = document.getElementById('v5-n3'), b4 = document.getElementById('v5-n4');
+
+    function f3(x){ return (Math.round(x * 1000) / 1000).toFixed(3); }
+    function pill(text, colour){
+      return '<span class="vz-pill" style="color:' + colour + ';border-color:' + colour + '">' + text + '</span>';
+    }
+    function rr(r){ return (r >= 1 && r <= 10) ? 1 / r : 0; }
+
+    function render(){
+      b3.setAttribute('aria-pressed', n === 3 ? 'true' : 'false');
+      b4.setAttribute('aria-pressed', n === 4 ? 'true' : 'false');
+      row4.className = 'v5-row' + (n === 3 ? ' is-off' : '');
+      rs[3].disabled = (n === 3);
+
+      var sum = 0;
+      for (var i = 0; i < 4; i++) {
+        var r = Number(rs[i].value);
+        if (!(r >= 1)) r = 1;
+        var v = rr(r);
+        if (i < n) sum += v;
+        ps[i].textContent = r <= 10 ? 'rank ' + r : 'nothing in the top 10';
+        var cost = r < 10 ? (1 / r - 1 / (r + 1)) : (r === 10 ? 0.1 : 0);
+        var note = r > 10
+          ? 'RR = 0 · the MRR@10 cliff: rank 10 scored 0.100, rank 11 scores nothing at all'
+          : r === 10
+            ? 'RR = 0.100 · one rank worse falls off the cutoff and costs the whole 0.100'
+            : 'RR = ' + f3(v) + ' · one rank worse costs ' + f3(cost);
+        os[i].innerHTML = '<span style="color:' + (v === 0 ? 'var(--viz-red)' : (r === 1 ? 'var(--viz-green)' : 'var(--viz-muted)')) + '">' +
+          (i >= n ? 'excluded from this query set · ' : '') + note + '</span>';
+      }
+
+      var mrr = n > 0 ? sum / n : 0;               // n is 3 or 4, but never divide unguarded
+      stats.innerHTML =
+        pill('sum of RR = ' + f3(sum), 'var(--viz-muted)') +
+        pill('MRR = ' + f3(sum) + ' / ' + n + ' = ' + f3(mrr), 'var(--viz-green)');
+
+      why.innerHTML =
+        '<b>Why the reciprocal of the rank, and not the rank itself?</b>' +
+        'Two practical reasons. <b>Top-heaviness that matches abandonment</b>: dropping from rank 1 to rank 2 ' +
+        'costs 0.500 of the score, while dropping from rank 9 to rank 10 costs about 0.011 — differences deep ' +
+        'in the list barely matter, which is how users behave. And <b>boundedness</b>: RR lives in (0, 1], so ' +
+        'one catastrophic query with its first hit at rank 500 cannot dominate the mean the way it would ' +
+        'dominate <em>mean rank</em>, which is unbounded and outlier-hostile. ' +
+        '<br><br><b>Never invert an MRR back into a position.</b> By Jensen’s inequality ' +
+        'E[1/r] ≥ 1/E[r], so 1/MRR = ' + (mrr > 0 ? f3(1 / mrr) : '∞') + ' is <em>not</em> the average ' +
+        'first-hit rank here. If stakeholders want a rank number, report the median first-relevant rank ' +
+        'separately. ' +
+        '<br><br>' + (n === 3
+          ? 'With three queries at ranks 1, 2 and 4: MRR = 1.75/3 ≈ 0.583. Switch to 4 queries and the ' +
+            'unanswered one drags it to 1.75/4 ≈ 0.438 — a query that returns nothing scores 0, it is not ' +
+            'excluded the way a zero-relevant query is excluded from MAP.'
+          : 'RR is statistically <b>chunky</b>: per-query values can only be 1, 0.5, 0.333, 0.25 … or 0, so ' +
+            'the distribution is coarse and high-variance. You need a large query set before a small MRR ' +
+            'delta means anything at all.');
+    }
+
+    rs.forEach(function(el){ el.addEventListener('input', render); });
+    b3.addEventListener('click', function(){ n = 3; render(); });
+    b4.addEventListener('click', function(){ n = 4; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

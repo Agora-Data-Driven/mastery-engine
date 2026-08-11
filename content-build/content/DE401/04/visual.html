@@ -1,0 +1,627 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-range{width:100%;min-height:44px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Rebuild Beside And Swap</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Four Gates</button>
+  <button class="viz-tab" data-viz-tab="3">3. Sizing The Shadow</button>
+  <button class="viz-tab" data-viz-tab="4">4. Full Or Incremental</button>
+  <button class="viz-tab" data-viz-tab="5">5. Rollback And Mixing</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Rebuild Beside And Swap</h2>
+  <p class="vz-lede"><b>Single Source of Truth vs Derived Copies</b> said which copy is authoritative, and
+    <b>Freshness SLAs and Lag Metrics</b> said the gap between snapshot and publish is measurable. A rebuild
+    spends both at once. Choose how v4 gets built, then decide whether to replay the gap before the alias
+    moves. <b>Like repainting a shop: you can close and paint the room you are standing in, or fit out the
+    room next door and move the sign across in one go.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Build strategy" id="v1-seg"></div>
+
+  <div class="vz-card">
+    <div class="v1-flow" id="v1-flow"></div>
+    <button class="v1-toggle" id="v1-replay" aria-pressed="true">staleness replay before the swap: ON</button>
+    <div class="v1-pills" id="v1-pills"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">A <b>generation</b> is the whole tuple — embedding model, chunker version, quantization
+    config and index build — tagged together, not just "the index". That is what lets every metric and every
+    reconciliation count attribute to exactly one system state, which is the difference between "quality
+    dropped" and "quality dropped on v4".</p>
+
+  <style>
+    .v1-flow{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v1-node{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v1-node.is-live{border-color:var(--viz-accent)}
+    .v1-node.is-bad{border-color:var(--viz-red);border-style:dashed}
+    .v1-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit;text-align:right}
+    .v1-edge{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted);padding-left:10px}
+    .v1-toggle{width:100%;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:8px}
+    .v1-toggle[aria-pressed="true"]{border-color:var(--viz-green)}
+    .v1-toggle[aria-pressed="false"]{border-color:var(--viz-red)}
+    .v1-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v1-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STRATS = [
+      { lab:'mutate v3 in place',
+        nodes:[
+          { t:'lake · silver layer', s:'source of truth', k:'' },
+          { t:'index v3', s:'ALIAS → serving, being rewritten under load', k:'is-bad' }
+        ],
+        edge:'writes land directly into the index that is answering queries',
+        pills:[
+          ['rollback','none — no "before" to return to','var(--viz-red)'],
+          ['propagation','gradual, fleet-wide','var(--viz-red)'],
+          ['errors','a half-applied change is a half-broken index','var(--viz-red)']
+        ],
+        why:['This is the shape the whole lesson exists to prevent.',
+          'There is no second copy, so there is nothing to validate against and nothing to return to. Every consumer sees the change arrive gradually, so for the length of the rewrite <b>half the fleet serves the old behaviour and half the new</b> — and any metric gathered during that period describes neither system. If it goes wrong at forty percent complete, the only recovery is a rebuild from truth, measured in hours.'] },
+      { lab:'build v4 from index v3',
+        nodes:[
+          { t:'lake · silver layer', s:'source of truth — not read', k:'' },
+          { t:'index v3', s:'ALIAS → serving · read as the build input', k:'is-live' },
+          { t:'index v4', s:'building from a derived copy', k:'is-bad' }
+        ],
+        edge:'v4 is a copy of a copy — the lake is never consulted',
+        pills:[
+          ['rollback','seconds (alias)','var(--viz-green)'],
+          ['propagation','none — one metadata operation','var(--viz-green)'],
+          ['errors','photocopied: v3 defects become v4 truth','var(--viz-red)']
+        ],
+        why:['Fast, and it launders every defect forward.',
+          'Reading the old index is tempting because it is right there and already chunked. But a derived copy is not the source of truth: whatever v3 got wrong — a mis-parsed table, a dropped tenant, a stale ACL — is re-ingested into v4 as though it were fact, and now two generations agree on it. <b>Errors photocopy.</b>' +
+          '<br><br>The same rule kills the second temptation: writing a special bulk transform for the rebuild. Build from the lake’s silver layer with <b>the same transform code the streaming path runs</b>, in bulk mode — a forked build path is the drift trap from lesson one, and it shows up as v3 and v4 disagreeing about documents neither of them changed.'] },
+      { lab:'build v4 beside, from the lake',
+        nodes:[
+          { t:'lake · silver layer', s:'source of truth — the only build input', k:'' },
+          { t:'index v3', s:'ALIAS → serving · untouched, stays hot', k:'is-live' },
+          { t:'index v4', s:'built beside · validated before anyone sees it', k:'' }
+        ],
+        edge:'same transform code as the streaming path, run in bulk mode',
+        pills:[
+          ['rollback','seconds — the same alias move, reversed','var(--viz-green)'],
+          ['propagation','none — one metadata operation','var(--viz-green)'],
+          ['errors','not inherited: the build reads truth','var(--viz-green)']
+        ],
+        why:['The primitive: rebuild-and-swap behind a versioned alias.',
+          'A complete new index is built beside the serving one under a new generation tag, validated, and only then does an alias move from old to new in <b>one atomic metadata operation</b>. Consumers address the alias and never a physical index, so the swap is instant and total — there is no window where half the fleet serves v3 and half v4. Rollback is the same operation in reverse.' +
+          '<br><br>The build is also <b>rate-shaped</b>: scavenger capacity against the serving path, large enough to finish on schedule and small enough that a mid-build traffic spike never turns the rebuild into a serving incident.'] }
+    ];
+
+    var cur = 2, replay = true;
+    var seg = document.getElementById('v1-seg'), flow = document.getElementById('v1-flow');
+    var pills = document.getElementById('v1-pills'), why = document.getElementById('v1-why');
+    var rep = document.getElementById('v1-replay');
+
+    function render(){
+      var st = STRATS[cur];
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      flow.innerHTML = st.nodes.map(function(n, i){
+        return (i ? '<div class="v1-edge">↓ ' + st.edge + '</div>' : '') +
+          '<div class="v1-node ' + n.k + '"><span>' + n.t + '</span><span class="v1-tag">' + n.s + '</span></div>';
+      }).join('');
+
+      rep.setAttribute('aria-pressed', replay ? 'true' : 'false');
+      rep.textContent = 'staleness replay before the swap: ' + (replay ? 'ON' : 'OFF');
+
+      var extra = replay
+        ? ['staleness at publish', 'caught up 23:40 → 23:55, then swap', 'var(--viz-green)']
+        : ['staleness at publish', 'live already behind the snapshot', 'var(--viz-red)'];
+      pills.innerHTML = st.pills.concat([extra]).map(function(p){
+        return '<span class="v1-pill" style="color:' + p[2] + ';border-color:' + p[2] + '">' + p[0] + ': ' + p[1] + '</span>';
+      }).join('');
+
+      why.innerHTML = '<b>' + st.why[0] + '</b>' + st.why[1] +
+        '<br><br><b>' + (replay ? 'Replay ON — the gap is closed.' : 'Replay OFF — the index publishes stale.') + '</b>' +
+        (replay
+          ? 'The build records its <b>snapshot timestamp</b> and replays every event since that snapshot before the alias moves. On the clean run the v4 build finishes Tuesday 23:40, the replay catches it up to 23:55, the golden gate passes Wednesday morning, shadowing runs twenty-four hours, and the alias moves Thursday 08:00 in thirty seconds. Total user-visible change: none.'
+          : 'Everything written to the lake while the build ran is missing from v4, so the moment it starts serving it is already behind — <b>the staleness-at-publish gap</b> the freshness lesson measures. The golden set will not catch it: those queries are about documents that existed when the snapshot was taken.');
+    }
+
+    STRATS.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = s.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(b);
+    });
+    rep.addEventListener('click', function(){ replay = !replay; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Four Gates</h2>
+  <p class="vz-lede">Validation before cutover is four gates in a fixed order, cheapest first. Switch gates
+    off and watch which defects walk straight past you and out to users. <b>Like airport security: bag scan,
+    metal detector, pat-down, watch-list — skip one and you learn which one it was from the passengers.</b></p>
+
+  <div class="v2-gates" id="v2-gates"></div>
+
+  <div class="vz-card">
+    <div class="v2-defects" id="v2-defects"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Sign-off is <b>written</b>: every gate has an owner, a threshold and a recorded result.
+    That is what makes the cutover meeting a formality when the data is green and a no-go when it is not —
+    instead of a debate about whether the numbers feel acceptable, which is a debate the person who did the
+    work always wins.</p>
+
+  <style>
+    .v2-gates{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-g{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:flex-start;gap:10px;line-height:1.4}
+    .v2-g[aria-pressed="true"]{border-color:var(--viz-green)}
+    .v2-g[aria-pressed="false"]{border-style:dashed;opacity:.6}
+    .v2-mark{flex:0 0 auto;font-weight:800;font-size:12px;width:26px}
+    .v2-cost{display:block;font-size:10.5px;color:var(--viz-muted);margin-top:2px}
+    .v2-defects{display:flex;flex-direction:column;gap:4px}
+    .v2-d{display:flex;align-items:flex-start;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.4}
+    .v2-d.is-out{border-color:var(--viz-red)}
+    .v2-dt{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right;flex:0 0 96px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var GATES = [
+      { n:'structural', d:'counts of documents, chunks and vectors per tenant, schema conformance, ACL fields present — all from the reconciliation machinery', c:'seconds · offline' },
+      { n:'golden set', d:'per-class metrics paired against the old index, no class regressing past its threshold', c:'minutes · ~300 adjudicated queries' },
+      { n:'shadow traffic', d:'a sample of live queries mirrored to the new index, results logged and never served', c:'hours to a day · real query mix' },
+      { n:'canary soak', d:'the production canaries pointed at the new index for hours or days', c:'days · a whole traffic cycle' }
+    ];
+    var DEFECTS = [
+      { t:'tenant 44 is missing 8,000 chunks after the rebuild', g:0, why:'a silent recall hole for one tenant — a count comparison finds it instantly' },
+      { t:'the ACL field is absent on part of the new chunks', g:0, why:'a security failure wearing a quality-failure costume' },
+      { t:'the exact-ID query class is down nine percent', g:1, why:'exactly the regression a paired golden set exists to catch' },
+      { t:'0.9% of queries time out under load — cold caches on long-tail tenants', g:2, why:'900 failures a day at 100k queries/day; the golden set was green' },
+      { t:'a rare ACL shape only real traffic ever produces', g:2, why:'nobody writes it into 300 adjudicated queries because nobody imagined it' },
+      { t:'hit rate drifts down only across a full weekday cycle', g:3, why:'an hour of Tuesday morning cannot contain a weekly pattern' }
+    ];
+    var on = [true, true, true, true];
+    var gEl = document.getElementById('v2-gates'), dEl = document.getElementById('v2-defects'), why = document.getElementById('v2-why');
+
+    function render(){
+      [].slice.call(gEl.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', on[j] ? 'true' : 'false');
+        b.querySelector('.v2-mark').textContent = on[j] ? '✓' : '—';
+        b.querySelector('.v2-mark').style.color = on[j] ? 'var(--viz-green)' : 'var(--viz-red)';
+      });
+
+      var escaped = 0;
+      dEl.innerHTML = DEFECTS.map(function(d){
+        var caught = on[d.g];
+        if (!caught) escaped += 1;
+        return '<div class="v2-d ' + (caught ? '' : 'is-out') + '"><span>' + d.t + '</span>' +
+          '<span class="v2-dt" style="color:' + (caught ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (caught ? 'caught · gate ' + (d.g + 1) : 'ESCAPES to users') + '</span></div>';
+      }).join('');
+
+      var out = DEFECTS.filter(function(d){ return !on[d.g]; });
+      var head = escaped === 0
+        ? '<b style="color:var(--viz-green)">All four gates run, in order. Nothing in this list reaches a user.</b>'
+        : '<b style="color:var(--viz-red)">' + escaped + ' of 6 defect' + (escaped === 1 ? '' : 's') + ' reach users.</b>';
+
+      var body = out.length
+        ? out.map(function(d){ return '· <b style="display:inline;font-size:12.5px">' + d.t + '</b> — ' + d.why + '.'; }).join('<br>')
+        : 'Structural runs first because it is the cheapest and it invalidates everything downstream: there is no point measuring retrieval quality on an index that is missing a tenant. The golden set is next, then shadow traffic, then the soak — each one costs an order of magnitude more time than the one before it.';
+
+      var order = (!on[0] && on[2])
+        ? '<br><br><b style="color:var(--viz-amber)">Order matters as much as coverage.</b>You are paying for hours of shadow traffic to discover a count mismatch that reconciliation answers in seconds. The gates are ordered cheapest-first on purpose: a failure at gate 1 means you never spend gate 3.'
+        : '';
+
+      var shadowNote = on[2]
+        ? '<br><br><b>Why shadow traffic earns its place.</b>It catches what 300 adjudicated queries cannot: tail queries nobody imagined, cache interactions that only appear under a real query mix, latency under concurrent load, and rare ACL shapes. <b>A two percent shadow for a day surfaces more truth about the new system than a week of offline benchmarking.</b> In the scenario above, per-tenant pre-warming fixed it before a single user was exposed.'
+        : '<br><br><b style="color:var(--viz-red)">With shadow traffic off you are flying on offline evidence.</b>Every remaining gate uses queries you chose in advance, so the new index is never once asked a question you did not think of, under load you did not simulate.';
+
+      why.innerHTML = head + body + order + shadowNote;
+    }
+
+    GATES.forEach(function(g, i){
+      var b = document.createElement('button');
+      b.className = 'v2-g';
+      b.setAttribute('aria-pressed', 'true');
+      b.innerHTML = '<span class="v2-mark">✓</span><span><b>' + (i + 1) + ' · ' + g.n + '</b> — ' + g.d +
+        '<span class="v2-cost">' + g.c + '</span></span>';
+      b.addEventListener('click', function(){ on[i] = !on[i]; render(); });
+      gEl.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Sizing The Shadow</h2>
+  <p class="vz-lede">A shadow is only evidence if it contains the query class you are afraid of, for long
+    enough to cover a traffic cycle. Move the three dials and watch how often the exact-ID class — three
+    percent of traffic — actually gets tested. <b>Like a food survey: asking twelve people tells you nothing
+    about the rare allergy, however carefully you write the questionnaire.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Production traffic" id="v3-traffic"></div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-pct">Shadow sample: <span id="v3-pctl">1%</span> of live queries</label>
+    <input class="vz-range" type="range" id="v3-pct" min="0" max="4" value="1" step="1" aria-label="Shadow sample percentage">
+    <label class="v3-lab" for="v3-dur">Soak duration: <span id="v3-durl">1 hour</span></label>
+    <input class="vz-range" type="range" id="v3-dur" min="0" max="4" value="0" step="1" aria-label="Soak duration">
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <label class="v3-lab" for="v3-ov">Top-10 overlap with the old index: <span id="v3-ovl">96%</span>
+      &nbsp;·&nbsp; <span id="v3-ovc">4%</span> of queries return something different</label>
+    <input class="vz-range" type="range" id="v3-ov" min="0" max="100" value="96" step="1" aria-label="Top-10 overlap percentage">
+    <div class="v3-owhy" id="v3-owhy"></div>
+  </div>
+
+  <p class="vz-note">Results are <b>compared continuously, not merely collected</b>. Overlap and
+    score-distribution deltas are computed as the soak runs, so a degradation visible at hour three stops the
+    soak at hour three — rather than being read about on Friday, after the swap.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:8px 0 2px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why,.v3-owhy{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b,.v3-owhy b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TRAFFIC = [
+      { l:'100k queries/day', v:100000 },
+      { l:'500k queries/day', v:500000 },
+      { l:'1M queries/day', v:1000000 },
+      { l:'5M queries/day', v:5000000 }
+    ];
+    var PCTS = [0.5, 1, 2, 5, 10];
+    var HOURS = [{ l:'1 hour', v:1 }, { l:'4 hours', v:4 }, { l:'12 hours', v:12 },
+                 { l:'24 hours', v:24 }, { l:'72 hours', v:72 }];
+    var CLASS = 0.03;   // the exact-ID class is three percent of traffic
+
+    var ti = 2;
+    var segT = document.getElementById('v3-traffic');
+    var sp = document.getElementById('v3-pct'), spl = document.getElementById('v3-pctl');
+    var sd = document.getElementById('v3-dur'), sdl = document.getElementById('v3-durl');
+    var stats = document.getElementById('v3-stats'), why = document.getElementById('v3-why');
+    var ov = document.getElementById('v3-ov'), ovl = document.getElementById('v3-ovl');
+    var ovc = document.getElementById('v3-ovc'), owhy = document.getElementById('v3-owhy');
+
+    function render(){
+      [].slice.call(segT.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === ti ? 'true' : 'false'); });
+      var pct = PCTS[Number(sp.value)], hrs = HOURS[Number(sd.value)];
+      spl.textContent = pct + '%';
+      sdl.textContent = hrs.l;
+
+      var perDay = Math.round(TRAFFIC[ti].v * CLASS * (pct / 100));
+      var seen = Math.round(perDay * (hrs.v / 24));
+      var thin = seen < 300, ok = seen >= 1000;
+      var cSeen = thin ? 'var(--viz-red)' : (ok ? 'var(--viz-green)' : 'var(--viz-amber)');
+      var cycle = hrs.v >= 24;
+
+      stats.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">exact-ID class = 3% of traffic</span>' +
+        '<span class="v3-pill" style="color:' + cSeen + ';border-color:' + cSeen + '">' + seen.toLocaleString() +
+          ' exact-ID queries shadowed' + (thin ? ' · too thin' : (ok ? ' · enough to trust' : ' · borderline')) + '</span>' +
+        '<span class="v3-pill" style="color:' + (cycle ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+          (cycle ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (cycle ? 'covers a full daily cycle' : 'misses the traffic cycle') + '</span>';
+
+      var lead = thin
+        ? '<b style="color:var(--viz-red)">Too thin to trust.</b>At ' + pct + '% of ' + TRAFFIC[ti].l + ', the class you are afraid of is tested about ' +
+          perDay.toLocaleString() + ' times a day — and only ' + seen.toLocaleString() + ' times in ' + hrs.l +
+          '. A regression in it can hide inside that sample and still be real in production. The fix is to <b>raise the shadow, or stratify it</b> to oversample rare classes rather than sampling traffic uniformly.'
+        : ok
+          ? '<b style="color:var(--viz-green)">Enough of the rare class to mean something.</b>' + seen.toLocaleString() +
+            ' exact-ID queries in ' + hrs.l + ' is a sample a nine-percent regression cannot hide inside. Note what bought it: the shadow is mirrored to the new index and <b>logged, never served</b>, so this evidence costs compute and zero user exposure.'
+          : '<b style="color:var(--viz-amber)">Borderline.</b>' + seen.toLocaleString() + ' exact-ID queries in ' + hrs.l +
+            ' will show a large regression and miss a small one. Either lengthen the soak or stratify the sample toward the classes you actually fear.';
+
+      var dur = cycle
+        ? '<br><br><b>The duration covers a cycle.</b>Traffic has shape: batch windows, business hours, weekly patterns. A soak that spans at least a full day sees the load profile that produces cache and latency effects, not just the mix that happens to be running now.'
+        : '<br><br><b style="color:var(--viz-red)">' + hrs.l + ' misses the traffic cycle.</b>An hour of Tuesday morning misses the batch-window load profile entirely — and that window is precisely where concurrency, cold caches and tail latency interact. This is how a green shadow is followed by a bad cutover.';
+
+      why.innerHTML = lead + dur;
+
+      var over = Number(ov.value), diff = 100 - over;
+      ovl.textContent = over + '%';
+      ovc.textContent = diff + '%';
+      owhy.innerHTML = diff <= 5
+        ? '<b style="color:var(--viz-green)">A healthy upgrade.</b>Overlap will never be one hundred percent, and it should not be — <b>improvement means different answers</b>. A few percent of queries changing is what a real quality gain looks like from the outside. (At exactly 100% overlap, ask the opposite question: did the new generation actually get built, or are you shadowing the old index against itself?)'
+        : diff <= 25
+          ? '<b style="color:var(--viz-amber)">Explain the delta before you swap.</b>' + diff + '% of queries returning something different is more than a tuning change. It may be legitimate — a genuinely better model moves more results — but "may be" is not a gate. Pull a sample of changed queries, look at the score distributions, and record what you found next to the threshold.'
+          : '<b style="color:var(--viz-red)">Stop: either the build is broken or the change is far larger than advertised.</b>' + diff +
+            '% of queries changing is not a tuning delta. Sixty percent means one of two things — a defective build, or a behavioural change nobody was told about — and in <b>both</b> cases a human reads a sample of changed queries before the alias moves. Overlap is the subtle instrument here precisely because it flags the second case, which no per-class metric will: every class can look fine while the system answers a different question.';
+    }
+
+    TRAFFIC.forEach(function(t, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = t.l;
+      b.addEventListener('click', function(){ ti = i; render(); });
+      segT.appendChild(b);
+    });
+    sp.addEventListener('input', render);
+    sd.addEventListener('input', render);
+    ov.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Full Or Incremental</h2>
+  <p class="vz-lede">The backfill type follows the blast radius of the change, and it is decided in writing
+    before the work starts. Tap a change to see what it touches and what it costs — then re-run the job to
+    see why replay has to be idempotent. <b>Like a recipe change: new flour means baking everything again,
+    a new label on the jar does not.</b></p>
+
+  <div class="v4-rows" id="v4-rows"></div>
+
+  <div class="vz-card">
+    <div class="v4-stats" id="v4-stats"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v4-ctl">
+      <button class="v4-btn" id="v4-idem" aria-pressed="true">idempotent replay: ON</button>
+      <button class="v4-btn" id="v4-run">run the backfill again</button>
+      <button class="v4-btn" id="v4-reset">reset</button>
+    </div>
+    <div class="v4-count" id="v4-count"></div>
+    <div class="v4-rwhy" id="v4-rwhy"></div>
+  </div>
+
+  <p class="vz-note">Completion is a <b>verified count match from reconciliation</b>, not a job exit code —
+    <code>finished</code> is a state of the data, not of the scheduler. And the whole job runs as scavenger
+    traffic: serving is the foreground, the backfill takes whatever the dashboards say is spare.</p>
+
+  <style>
+    .v4-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v4-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-badge{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;flex:0 0 74px;text-align:right}
+    .v4-stats{display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why,.v4-rwhy{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b,.v4-rwhy b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-ctl{display:flex;gap:6px;flex-wrap:wrap}
+    .v4-btn{flex:1 1 108px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px}
+    .v4-btn[aria-pressed="true"]{border-color:var(--viz-green)}
+    .v4-btn[aria-pressed="false"]{border-color:var(--viz-red)}
+    .v4-count{margin-top:12px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:800}
+  </style>
+  <script>
+  (function(){
+    var CORPUS = 2100000, AFFECTED = 180000;
+    var CHANGES = [
+      { t:'new embedding model', r:'every vector', full:true, docs:CORPUS,
+        why:'Every vector in the index is produced by the model, so a new model invalidates all of them at once. Nothing is reusable — not the chunks, not the scores, not the neighbour lists.' },
+      { t:'new chunker version', r:'every chunk ID', full:true, docs:CORPUS,
+        why:'Chunk boundaries move, so chunk IDs move, so every downstream artifact keyed by chunk ID changes with them. This is the change most often mistaken for a small one, and mistaking it is how week-long incidents begin.' },
+      { t:'new analyzer or tokenizer', r:'every posting', full:true, docs:CORPUS,
+        why:'The lexical side of a hybrid index is rebuilt term by term: change how text becomes terms and every posting list is different.' },
+      { t:'new quantization config', r:'every stored code', full:true, docs:CORPUS,
+        why:'Quantization is a re-encoding of the vectors you already have. The embeddings survive conceptually, but every stored code is rewritten, so the index is rebuilt.' },
+      { t:'parser bug in one format', r:"that format's documents", full:false, docs:AFFECTED,
+        why:'Only PDFs were mis-parsed, so only PDFs are reprocessed. This is the case incremental backfill exists for, and the saving is the whole point of classifying the change first.' },
+      { t:'new enrichment field', r:'metadata only — embeddings reused', full:false, docs:CORPUS, meta:true,
+        why:'Every document is visited, and yet this is still incremental: the expensive artifact — the vector — is untouched and reused. Incremental is about which artifacts change, not how many rows you walk past.' },
+      { t:'ACL schema change', r:'metadata only, security-gated', full:false, docs:CORPUS, meta:true, clock:true,
+        why:'Metadata again, so embeddings are reused — but this one runs under a <b>revocation clock</b>: until it completes, someone can still see what they should no longer see, which makes the deadline a security SLA rather than a scheduling preference.' }
+    ];
+
+    var cur = 4, idem = true, runs = 1;
+    var rowsEl = document.getElementById('v4-rows'), stats = document.getElementById('v4-stats'), why = document.getElementById('v4-why');
+    var idemB = document.getElementById('v4-idem'), runB = document.getElementById('v4-run'), resetB = document.getElementById('v4-reset');
+    var countEl = document.getElementById('v4-count'), rwhy = document.getElementById('v4-rwhy');
+
+    function renderChange(){
+      var c = CHANGES[cur];
+      [].slice.call(rowsEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      var col = c.full ? 'var(--viz-red)' : 'var(--viz-green)';
+      var pctTouched = Math.round(c.docs / CORPUS * 100);
+
+      stats.innerHTML =
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' + (c.full ? 'FULL backfill' : 'INCREMENTAL backfill') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + c.docs.toLocaleString() +
+          ' of ' + CORPUS.toLocaleString() + ' docs · ' + pctTouched + '%</span>' +
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' +
+          (c.full ? '≈ a day · 4× the compute' : (c.meta ? 'metadata pass · no re-embedding' : '3 hours at a quarter of capacity')) + '</span>' +
+        (c.clock ? '<span class="v4-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">revocation clock</span>' : '');
+
+      var money = c.full
+        ? '<br><br><b>What full costs here.</b>Every one of the ' + CORPUS.toLocaleString() +
+          ' documents is reprocessed: roughly a day of wall clock and four times the compute of the incremental path — which is exactly why the classification is written down <em>before</em> the work starts. The backfill type decides the schedule, the cost and the rollback plan all at once.'
+        : (c.meta
+          ? '<br><br><b>Why this is still cheap.</b>The vectors are reused, so the run is a metadata pass rather than a re-embedding. Judge cost by the artifact you have to recompute, not by the number of rows the job touches.'
+          : '<br><br><b>The incremental win, in numbers.</b>' + AFFECTED.toLocaleString() + ' PDFs in a ' +
+            (CORPUS / 1000000) + ' million document corpus is ' + pctTouched +
+            '% of the corpus — three hours at a quarter of capacity with zero serving impact. The full-rebuild alternative costs a day and four times the compute <b>for the identical outcome</b>.');
+
+      why.innerHTML = '<b>' + c.t + ' → blast radius: ' + c.r + '</b>' + c.why + money;
+      renderRuns();
+    }
+
+    function renderRuns(){
+      var c = CHANGES[cur];
+      idemB.setAttribute('aria-pressed', idem ? 'true' : 'false');
+      idemB.textContent = 'idempotent replay: ' + (idem ? 'ON' : 'OFF');
+      var stored = idem ? CORPUS : CORPUS + c.docs * (runs - 1);
+      var col = idem ? 'var(--viz-green)' : 'var(--viz-red)';
+      countEl.innerHTML = 'run ' + runs + ' · corpus now holds <span style="color:' + col + '">' +
+        stored.toLocaleString() + '</span> documents' + (idem ? ' — unchanged' : ' — ' + (stored - CORPUS).toLocaleString() + ' duplicates');
+
+      rwhy.innerHTML = idem
+        ? '<b style="color:var(--viz-green)">Running it twice is safe, and resuming continues rather than restarts.</b>' +
+          'Deterministic IDs plus <b>upsert semantics by ID and version</b> mean the second write of a document lands on the first one instead of beside it, and no side effect escapes the target generation. Partition-level <b>checkpoints</b> record progress, so a job that died at 62% picks up at 62%. After ' + runs +
+          ' run' + (runs === 1 ? '' : 's') + ' the corpus is byte-identical to the single-run world — which is the entire property the contract machinery from lesson one exists to give you.'
+        : '<b style="color:var(--viz-red)">Every retry appends instead of replacing.</b>' +
+          'Non-deterministic IDs, or insert-only writes, turn each replay into a fresh copy: ' + runs + ' run' + (runs === 1 ? '' : 's') +
+          ' leaves ' + (stored - CORPUS).toLocaleString() + ' duplicate documents in the index. And retries are not exotic — a worker crash, a rate-limit backoff, a human re-running yesterday after a fix. ' +
+          'The duplicates then surface as near-identical citations in answers, which is the same failure shape as the mixed-version identity skew in visual 5.';
+    }
+
+    CHANGES.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v4-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + c.t + '</span><span class="v4-badge" style="color:' +
+        (c.full ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + (c.full ? 'FULL' : 'INCREMENTAL') + '</span>';
+      b.addEventListener('click', function(){ cur = i; runs = 1; renderChange(); });
+      rowsEl.appendChild(b);
+    });
+    idemB.addEventListener('click', function(){ idem = !idem; renderRuns(); });
+    runB.addEventListener('click', function(){ runs += 1; renderRuns(); });
+    resetB.addEventListener('click', function(){ runs = 1; renderRuns(); });
+    renderChange();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Rollback And Mixing</h2>
+  <p class="vz-lede">Rollback is a rehearsed alias move — until the window closes, at which point the same
+    symptom has a completely different answer. And while two generations coexist, some mixes are harmless
+    and some are quietly wrong. <b>Like keeping the old key to a flat you have moved out of: it costs
+    nothing for a month, and after the locks change you are calling a locksmith.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-t">Time since cutover: <span id="v5-tl">2 hours</span>
+      &nbsp;·&nbsp; rollback window = 168 hours</label>
+    <input class="vz-range" type="range" id="v5-t" min="0" max="336" value="2" step="2" aria-label="Hours since cutover">
+    <div class="v5-bar" id="v5-bar"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Change type" id="v5-seg" style="margin-top:14px"></div>
+  <div class="vz-card">
+    <div class="v5-mix" id="v5-mix"></div>
+  </div>
+
+  <p class="vz-note">The rehearsed incident: Thursday 10:20 the alias moves to v4; 11:05 canaries show the
+    exact-ID class down nine percent; 11:10 the pre-agreed threshold makes the decision; 11:12 the alias is
+    back on v3 and caches are invalidated; 11:20 verification is green. <b>Forty-two minutes of degraded
+    behaviour instead of a day of it</b> — in an incident you do not rise to the occasion, you fall to the
+    level of your rehearsal.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:2px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-bar{position:relative;height:20px;border-radius:6px;background:var(--viz-line);overflow:hidden;margin-top:10px}
+    .v5-bar i{position:absolute;top:0;bottom:0;left:0;background:var(--viz-green);opacity:.55}
+    .v5-bar u{position:absolute;top:0;bottom:0;width:2px;background:var(--viz-ink)}
+    .v5-why,.v5-mix{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b,.v5-mix b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-mix{margin-top:0;padding-top:0;border-top:none}
+    .v5-steps{margin:8px 0 0;padding-left:18px;font-size:12px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var WINDOW = 168, MAX = 336;
+    var s = document.getElementById('v5-t'), lab = document.getElementById('v5-tl');
+    var bar = document.getElementById('v5-bar'), why = document.getElementById('v5-why');
+    var seg = document.getElementById('v5-seg'), mix = document.getElementById('v5-mix');
+
+    var TYPES = [
+      { l:'new enrichment field', safe:true,
+        head:'Metadata-only: mixing is allowed.',
+        body:'Vectors and scores are untouched, so a document carrying the new field and one still without it are scored identically and rank against each other honestly. This is the one case where an incremental backfill may run with both states live in the same serving unit — and it is why the enrichment case is cheap in every dimension, not just compute.' },
+      { l:'new embedding model', safe:false,
+        head:'Incomparable scores — never mix.',
+        body:'Vectors from different models live in <b>different spaces</b>, so a fused or reranked list that mixes them is comparing incommensurables: the numbers have the same shape and mean different things. There is no threshold that fixes it. Model changes run as complete parallel generations with an alias between them, never as a half-migrated index.' },
+      { l:'new chunker version', safe:false,
+        head:'Identity skew — never mix.',
+        body:'Chunk IDs change, so a corpus mid-backfill can return <b>both</b> the v3 and the v4 chunk of the same passage, or neither. The failure shape is worth picturing: a user asks about the refund policy and receives two near-identical citations, one per generation, which crowds a genuinely different source off the answer and doubles the citation count for one fact. Dedup logic has to key on <b>document identity</b> to survive it — and any metric collected during the mix is contaminated and gets flagged as such.' }
+    ];
+    var cur = 0;
+
+    function render(){
+      var h = Number(s.value);
+      lab.textContent = h + ' hour' + (h === 1 ? '' : 's');
+      var inside = h <= WINDOW;
+      bar.innerHTML = '<i style="width:' + Math.min(100, h / MAX * 100) + '%;background:' +
+        (inside ? 'var(--viz-green)' : 'var(--viz-red)') + '"></i><u style="left:' + (WINDOW / MAX * 100) + '%"></u>';
+
+      why.innerHTML = inside
+        ? '<b style="color:var(--viz-green)">Inside the window — rollback is an alias move, in seconds.</b>' +
+          'v3 is still hot, kept there for exactly this purpose. The rehearsed path is three steps and one check:' +
+          '<ol class="v5-steps"><li>move the alias back to the previous generation;</li>' +
+          '<li>invalidate the <b>generation-keyed caches</b>, because cached entries were computed under v4;</li>' +
+          '<li>run a verification pass — canaries plus the golden set — against the rolled-back state.</li></ol>' +
+          '<br>Step 3 is the one people skip, and it is not ceremony: v3 has been <b>receiving live updates</b> the whole time you were on v4, so it is not byte-identical to the index you left. You are verifying a state that has never served traffic in this exact form.'
+        : '<b style="color:var(--viz-red)">Past the window — rollback is now a rebuild from truth, in hours.</b>' +
+          'At ' + h + ' hours the second generation has been dropped, because the rollback window is an <b>economic dial</b>: long enough for weekly traffic patterns to reveal a regression, short enough that keeping a second hot generation does not eat the savings the rebuild was supposed to buy. ' +
+          'Past it the same symptom has a completely different answer — build v4-minus from the lake, validate it through the gates again, then swap. Seconds became hours. ' +
+          '<br><br><b>The judgment:</b> everyone should know which world they are in <em>before</em> they need it. "Can we roll back?" is a question with a calendar answer, and finding out during the incident is how a forty-two minute event becomes a day-long one.';
+    }
+
+    function renderMix(){
+      var t = TYPES[cur];
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      var col = t.safe ? 'var(--viz-green)' : 'var(--viz-red)';
+      mix.innerHTML = '<b style="color:' + col + '">' + (t.safe ? '✓ ' : '✕ ') + t.head + '</b>' + t.body +
+        '<br><br><b>The safe rule, in one line.</b>Metadata-only incremental backfills may mix, because vectors and scores are untouched; <b>model and chunker changes go full-generation dual-run</b>. Everything else is a special case of those two.';
+    }
+
+    TYPES.forEach(function(t, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = t.l;
+      b.addEventListener('click', function(){ cur = i; renderMix(); });
+      seg.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+    renderMix();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

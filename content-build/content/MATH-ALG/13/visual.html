@@ -1,0 +1,920 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 130px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 132px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+.vz-eq{margin-top:10px;padding:10px 11px;border-radius:9px;background:var(--viz-bg);
+  border:1.5px solid var(--viz-line);font-family:ui-monospace,Consolas,monospace;
+  font-size:14px;font-weight:700;text-align:center}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Count To Fraction</button>
+  <button class="viz-tab" data-viz-tab="2">2. Rules That Survive</button>
+  <button class="viz-tab" data-viz-tab="3">3. Square Then Check</button>
+  <button class="viz-tab" data-viz-tab="4">4. Match The Base</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Count To Fraction</h2>
+  <p class="vz-lede">Exponent properties (integer exponents) built the exponent as a count of repeated
+    factors, so only whole numbers made sense up there. Insist that the nesting rule keeps working and the
+    count is forced to become a fraction — which is a root. Drag the numerator and the denominator and watch
+    the new exponent land between the rungs you already have.
+    <b>Like a staircase you have always walked one step at a time, and now you can stand halfway up a
+    step.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already taught</h5><div class="vz-mono">b^3 = b·b·b       a count of factors
+b^0 = 1, b^-2 = 1/b^2
+sqrt(50) = 5·sqrt(2)   a separate rulebook</div></div>
+    <div class="v1-half"><h5>this lesson</h5><div class="vz-mono">(b^(1/n))^n = b^(n/n) = b
+so b^(1/n) IS the n-th root
+b^(m/n) = (n-th root of b)^m</div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v1-b">base b = <b><span id="v1-bl">8</span></b></label>
+    <input class="vz-range" type="range" id="v1-b" min="2" max="16" value="8" step="1" aria-label="The base b">
+    <label class="vz-lab" for="v1-m">numerator m = <b><span id="v1-ml">2</span></b> &nbsp;·&nbsp; the power</label>
+    <input class="vz-range" type="range" id="v1-m" min="-6" max="6" value="2" step="1" aria-label="Numerator of the exponent">
+    <label class="vz-lab" for="v1-n">denominator n = <b><span id="v1-nl">3</span></b> &nbsp;·&nbsp; the root index</label>
+    <input class="vz-range" type="range" id="v1-n" min="1" max="6" value="3" step="1" aria-label="Denominator of the exponent">
+
+    <div class="vz-eq" id="v1-expr"></div>
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="vz-mono" id="v1-steps"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-presets"></div>
+  </div>
+
+  <p class="vz-note">Read the two orders in the working: rooting first keeps the arithmetic small, powering
+    first blows it up and then shrinks it back. They always agree, so choose the small one — and notice that
+    an even root of a negative base has no real value at all, which is why questions about
+    <b>b^(1/2)</b> announce "for b ≥ 0" before they announce anything else.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var B = document.getElementById('v1-b'), M = document.getElementById('v1-m'), N = document.getElementById('v1-n');
+    var bl = document.getElementById('v1-bl'), ml = document.getElementById('v1-ml'), nl = document.getElementById('v1-nl');
+    var expr = document.getElementById('v1-expr'), plot = document.getElementById('v1-plot');
+    var steps = document.getElementById('v1-steps'), why = document.getElementById('v1-why');
+    var pres = document.getElementById('v1-presets');
+
+    function gcd(a, b){ a = Math.abs(a); b = Math.abs(b); while (b) { var t = a % b; a = b; b = t; } return a || 1; }
+    function isInt(v){ return isFinite(v) && Math.abs(v - Math.round(v)) < 1e-9; }
+    // one formatter for every number on screen, so nothing can ever print NaN
+    function num(v){
+      if (!isFinite(v)) return '—';
+      if (isInt(v)) return String(Math.round(v));
+      if (Math.abs(v) >= 1000) return String(Math.round(v));
+      if (Math.abs(v) >= 1) return String(Math.round(v * 1000) / 1000);
+      return String(Math.round(v * 100000) / 100000);
+    }
+    function rel(v){ return isInt(v) ? ' = ' : ' ≈ '; }
+    function frac(p, q){
+      var g = gcd(p, q), pp = p / g, qq = q / g;
+      return qq === 1 ? String(pp) : pp + '/' + qq;
+    }
+    function ordinal(n){
+      if (n === 1) return 'first';
+      if (n === 2) return 'square';
+      if (n === 3) return 'cube';
+      return n + 'th';
+    }
+    function rootName(n){ return n <= 1 ? 'b itself' : (n <= 3 ? 'the ' + ordinal(n) + ' root' : 'the ' + ordinal(n) + ' root'); }
+
+    function render(){
+      var b = Number(B.value), m = Number(M.value), n = Number(N.value);
+      if (!isFinite(b) || b < 2) b = 2;
+      if (!isFinite(m)) m = 0;
+      if (!isFinite(n) || n < 1) n = 1;
+      bl.textContent = b; ml.textContent = m; nl.textContent = n;
+
+      var t = m / n;                     // the exponent as a plain number
+      var r = Math.pow(b, 1 / n);        // the n-th root of b — b >= 2, so always real
+      var val = Math.pow(b, t);
+      var bm = Math.pow(b, m);
+
+      expr.textContent = b + '^(' + frac(m, n) + ')' + rel(val) + num(val);
+
+      /* the exponent number line: integer rungs you already own, with m/n between them */
+      var lo = Math.min(-1, Math.floor(t) - 1), hi = Math.max(2, Math.ceil(t) + 1);
+      if (hi - lo < 4) hi = lo + 4;
+      var W = 320, H = 108, PAD = 16, AX = 66;
+      var span = hi - lo || 1;
+      function px(v){ return PAD + (v - lo) / span * (W - 2 * PAD); }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="A number line of exponents with the integer rungs labelled and m over n marked between them">';
+      svg += '<line x1="' + PAD + '" y1="' + AX + '" x2="' + (W - PAD) + '" y2="' + AX + '" style="stroke:var(--viz-line);stroke-width:2"></line>';
+      var k, flip = 0;
+      for (k = Math.ceil(lo); k <= Math.floor(hi); k++) {
+        svg += '<line x1="' + px(k).toFixed(1) + '" y1="' + (AX - 6) + '" x2="' + px(k).toFixed(1) + '" y2="' + (AX + 6) + '" style="stroke:var(--viz-line);stroke-width:2"></line>';
+        svg += '<text x="' + px(k).toFixed(1) + '" y="' + (AX + 19) + '" text-anchor="middle" style="font-size:9.5px;fill:var(--viz-muted)">' + k + '</text>';
+        svg += '<text x="' + px(k).toFixed(1) + '" y="' + (flip % 2 === 0 ? 26 : 40) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-muted)">' + num(Math.pow(b, k)) + '</text>';
+        flip += 1;
+      }
+      svg += '<text x="' + PAD + '" y="' + (H - 4) + '" style="font-size:9px;fill:var(--viz-muted)">exponent →</text>';
+      svg += '<line x1="' + px(t).toFixed(1) + '" y1="' + (AX - 16) + '" x2="' + px(t).toFixed(1) + '" y2="' + (AX + 10) + '" style="stroke:var(--viz-violet);stroke-width:2.5"></line>';
+      svg += '<circle cx="' + px(t).toFixed(1) + '" cy="' + AX + '" r="4.5" style="fill:var(--viz-violet)"></circle>';
+      svg += '<text x="' + px(t).toFixed(1) + '" y="' + (AX + 34) + '" text-anchor="middle" style="font-size:10px;font-weight:800;fill:var(--viz-violet)">' +
+        frac(m, n) + ' → ' + num(val) + '</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var rootTxt = n === 1 ? 'b' : rootName(n) + ' of ' + b;
+      steps.textContent =
+        'root first    ' + b + '^(' + frac(m, n) + ') = (' + rootTxt + ')^' + m + '\n' +
+        '              = (' + num(r) + ')^' + m + rel(val) + num(val) + '\n' +
+        'power first   = ' + (n === 1 ? b + '^' + m : rootName(n) + ' of ' + b + '^' + m + ' = ' + rootName(n) + ' of ' + num(bm)) + rel(val) + num(val) + '\n' +
+        'why it must   (' + b + '^(1/' + n + '))^' + n + ' = ' + b + '^(' + n + '/' + n + ') = ' + b + '^1 = ' + b + '\n' +
+        '              and indeed ' + num(r) + '^' + n + rel(b) + num(Math.pow(r, n));
+
+      if (n === 1) {
+        why.innerHTML = '<b style="color:var(--viz-muted)">n = 1: this is the whole-number case you already had.</b>' +
+          'The exponent is the integer ' + m + ', the marker sits exactly on a rung, and nothing new is happening — ' +
+          'which is the point. Rational exponents do not replace the old rules, they extend them, so the familiar case has ' +
+          'to still be sitting inside the new one. Push n above 1 and the marker steps off the rung.';
+      } else if (m === 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">m = 0: every root of every base returns 1.</b>' +
+          '0/' + n + ' is 0, and ' + b + '^0 = 1 for any nonzero base — the zero-exponent rule, unchanged. ' +
+          'Notice that the fraction reduced before anything was computed: the exponent is a NUMBER, not a pair of numbers, ' +
+          'so 0/3 and 0/5 are the same exponent and must give the same value.';
+      } else if (m < 0) {
+        why.innerHTML = '<b style="color:var(--viz-violet)">A negative numerator inverts, then roots.</b>' +
+          b + '^(' + frac(m, n) + ') = 1 / ' + b + '^(' + frac(-m, n) + ') = 1 / ' + num(Math.pow(b, -t)) + rel(val) + num(val) + '. ' +
+          'The two jobs are done by different parts of the fraction and they do not interfere: the minus sign flips, the ' +
+          'denominator roots, the numerator powers. ' +
+          '<br><br>The value stays <b>positive</b> — a negative exponent has never once made a positive base negative. ' +
+          'That distractor survives because it is never tested against a number.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-accent)">The denominator roots, the numerator powers.</b>' +
+          'Here that reads: take ' + rootName(n) + ' of ' + b + ', which is ' + num(r) + ', then raise it to the power ' + m +
+          ' to get ' + num(val) + '. Doing it the other way — ' + b + '^' + m + ' = ' + num(bm) + ' first, then ' + rootName(n) +
+          ' — lands on the same number, because (b^(1/' + n + '))^' + m + ' and (b^' + m + ')^(1/' + n + ') are both b^(' + frac(m, n) + ') ' +
+          'by the nesting rule. ' +
+          '<br><br><b style="display:inline">Read the marker:</b> the exponent ' + frac(m, n) + ' lands between the integer rungs ' +
+          Math.floor(t) + ' and ' + Math.ceil(t) + ', and its value ' + num(val) + ' lands between ' + num(Math.pow(b, Math.floor(t))) +
+          ' and ' + num(Math.pow(b, Math.ceil(t))) + '. Fractions fill in the gaps the counting exponent had to skip over.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'9^(1/2) = 3',  b:9,  m:1,  n:2 },
+      { t:'8^(2/3) = 4',  b:8,  m:2,  n:3 },
+      { t:'16^(3/4) = 8', b:16, m:3,  n:4 },
+      { t:'4^(-1/2)',     b:4,  m:-1, n:2 },
+      { t:'9^(3/2) = 27', b:9,  m:3,  n:2 },
+      { t:'5^3 (n = 1)',  b:5,  m:3,  n:1 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ B.value = p.b; M.value = p.m; N.value = p.n; render(); });
+      pres.appendChild(btn);
+    });
+    [B, M, N].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Rules That Survive</h2>
+  <p class="vz-lede">Four statements look like exponent rules and only some are. Pick one, then move the
+    numbers underneath it and watch the two sides agree or split apart — including the traps, where a false
+    rule accidentally agrees at the numbers you happened to pick.
+    <b>Like an alibi that holds up for one evening: it can be broken by a single date, but never proved by
+    one.</b></p>
+
+  <div class="v2-rules" id="v2-rules"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-a">a = <b><span id="v2-al">2</span></b> &nbsp;&nbsp; b = <b><span id="v2-bl">3</span></b></label>
+    <input class="vz-range" type="range" id="v2-a" min="2" max="9" value="2" step="1" aria-label="The base a">
+    <input class="vz-range" type="range" id="v2-b" min="2" max="9" value="3" step="1" aria-label="The base b">
+    <label class="vz-lab" for="v2-m">m = <b><span id="v2-ml">3</span></b> &nbsp;&nbsp; n = <b><span id="v2-nl">2</span></b> &nbsp;·&nbsp; both move in halves</label>
+    <input class="vz-range" type="range" id="v2-m" min="-8" max="8" value="6" step="1" aria-label="The exponent m, in halves">
+    <input class="vz-range" type="range" id="v2-n" min="-8" max="8" value="4" step="1" aria-label="The exponent n, in halves">
+
+    <div class="vz-mono" id="v2-out" style="margin-top:11px"></div>
+    <div id="v2-verdict" style="margin-top:11px"></div>
+    <div class="vz-why" id="v2-why"></div>
+    <div class="vz-pre" id="v2-presets"></div>
+  </div>
+
+  <p class="vz-note">The judgment worth taking away is about evidence, not about exponents. A numeric test is
+    a <b>refutation machine</b>: one disagreement kills a rule forever, but a thousand agreements prove
+    nothing, because you only ever tested a thousand of infinitely many cases. Use the numbers to eliminate,
+    then keep the survivor for the reason it is true — that nesting counts blocks of factors, so the counts
+    multiply.</p>
+
+  <style>
+    .v2-rules{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:12px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v2-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-n{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-muted);width:14px}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v2-a'), Bb = document.getElementById('v2-b');
+    var M = document.getElementById('v2-m'), N = document.getElementById('v2-n');
+    var al = document.getElementById('v2-al'), bl = document.getElementById('v2-bl');
+    var ml = document.getElementById('v2-ml'), nl = document.getElementById('v2-nl');
+    var rules = document.getElementById('v2-rules'), out = document.getElementById('v2-out');
+    var verdict = document.getElementById('v2-verdict'), why = document.getElementById('v2-why');
+    var pres = document.getElementById('v2-presets');
+    var cur = 0;
+
+    function isInt(v){ return isFinite(v) && Math.abs(v - Math.round(v)) < 1e-9; }
+    function num(v){
+      if (!isFinite(v)) return '—';
+      if (isInt(v)) return String(Math.round(v));
+      if (Math.abs(v) >= 1000) return String(Math.round(v));
+      return String(Math.round(v * 10000) / 10000);
+    }
+    function half(i){                       // a slider tick is half a unit
+      var v = i / 2;
+      if (isInt(v)) return String(v);
+      return (v < 0 ? '-' : '') + Math.abs(v * 2) + '/2';
+    }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function same(x, y){
+      if (!isFinite(x) || !isFinite(y)) return false;
+      return Math.abs(x - y) <= 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
+    }
+
+    var RULES = [
+      { txt:'(a^m)^n  =  a^(m + n)', ok:false,
+        lhs:function(a, b, m, n){ return Math.pow(Math.pow(a, m), n); },
+        rhs:function(a, b, m, n){ return Math.pow(a, m + n); },
+        lt:function(a, b, m, n){ return '(a^m)^n   = (' + a + '^' + m + ')^' + n; },
+        rt:function(a, b, m, n){ return 'a^(m + n) = ' + a + '^(' + (m + n) + ')'; },
+        fix:'(a^m)^n = a^(m · n)',
+        note:'Nesting stacks n copies of a block of m factors, so the counts MULTIPLY. Adding them is the product rule, which is a different arrangement entirely: side by side, not bracketed.' },
+      { txt:'(a · b)^r  =  a^r · b^r     (r = m)', ok:true,
+        lhs:function(a, b, m){ return Math.pow(a * b, m); },
+        rhs:function(a, b, m){ return Math.pow(a, m) * Math.pow(b, m); },
+        lt:function(a, b, m){ return '(a · b)^r = (' + (a * b) + ')^' + m; },
+        rt:function(a, b, m){ return 'a^r · b^r = ' + a + '^' + m + ' · ' + b + '^' + m; },
+        fix:'',
+        note:'This is the one that holds for every positive a and b and every real r. A power distributes across a PRODUCT because the factors can be re-sorted freely; it is exactly the move that turns the square root of 36 into 2 · 3.' },
+      { txt:'a^(m + n)  =  a^m + a^n', ok:false,
+        lhs:function(a, b, m, n){ return Math.pow(a, m + n); },
+        rhs:function(a, b, m, n){ return Math.pow(a, m) + Math.pow(a, n); },
+        lt:function(a, b, m, n){ return 'a^(m + n) = ' + a + '^(' + (m + n) + ')'; },
+        rt:function(a, b, m, n){ return 'a^m + a^n = ' + a + '^' + m + ' + ' + a + '^' + n; },
+        fix:'a^(m + n) = a^m · a^n',
+        note:'Exponents never distribute over a SUM. Adding exponents corresponds to multiplying the powers, because you are pooling two bags of factors — a sum of powers is not a power of anything.' },
+      { txt:'a^m / a^n  =  a^(m · n)', ok:false,
+        lhs:function(a, b, m, n){ return Math.pow(a, m) / Math.pow(a, n); },
+        rhs:function(a, b, m, n){ return Math.pow(a, m * n); },
+        lt:function(a, b, m, n){ return 'a^m / a^n = ' + a + '^' + m + ' / ' + a + '^' + n; },
+        rt:function(a, b, m, n){ return 'a^(m · n) = ' + a + '^(' + (m * n) + ')'; },
+        fix:'a^m / a^n = a^(m − n)',
+        note:'Division cancels factors, so the counts SUBTRACT, top minus bottom. Subtracting in the other order reports the reciprocal of the right answer, which is the quieter of the two mistakes hiding in this line.' },
+      { txt:'a^m · a^n  =  a^(m + n)', ok:true,
+        lhs:function(a, b, m, n){ return Math.pow(a, m) * Math.pow(a, n); },
+        rhs:function(a, b, m, n){ return Math.pow(a, m + n); },
+        lt:function(a, b, m, n){ return 'a^m · a^n = ' + a + '^' + m + ' · ' + a + '^' + n; },
+        rt:function(a, b, m, n){ return 'a^(m + n) = ' + a + '^(' + (m + n) + ')'; },
+        fix:'',
+        note:'The product rule, and it never cared whether the exponents were whole. Set a = 4, m = 1/2, n = 3/2: the halves add to 2, and 2 · 8 = 16 = 4^2.' }
+    ];
+
+    function render(){
+      var a = Number(A.value), b = Number(Bb.value);
+      var mi = Number(M.value), ni = Number(N.value);
+      if (!isFinite(a) || a < 2) a = 2;
+      if (!isFinite(b) || b < 2) b = 2;
+      if (!isFinite(mi)) mi = 0;
+      if (!isFinite(ni)) ni = 0;
+      var m = mi / 2, n = ni / 2;
+      al.textContent = a; bl.textContent = b; ml.textContent = half(mi); nl.textContent = half(ni);
+
+      var i;
+      for (i = 0; i < rules.children.length; i++) {
+        rules.children[i].setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+      }
+
+      var R = RULES[cur];
+      var L = R.lhs(a, b, m, n), Rv = R.rhs(a, b, m, n);
+      var agree = same(L, Rv);
+
+      out.textContent =
+        R.lt(a, b, m, n) + '   =  ' + num(L) + '\n' +
+        R.rt(a, b, m, n) + '   =  ' + num(Rv) + '\n' +
+        (agree ? 'the two sides AGREE at these numbers' : 'the two sides DISAGREE — gap of ' + num(Math.abs(L - Rv)));
+
+      var vcol = R.ok ? 'var(--viz-green)' : (agree ? 'var(--viz-amber)' : 'var(--viz-red)');
+      var vtag = R.ok ? '✓ TRUE for all positive bases' : (agree ? '✗ FALSE — agreeing here by luck' : '✗ FALSE — refuted right here');
+      verdict.innerHTML =
+        pill(vtag, vcol) + ' ' +
+        pill('left = ' + num(L), 'var(--viz-accent)') + ' ' +
+        pill('right = ' + num(Rv), 'var(--viz-violet)');
+
+      if (R.ok) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Valid — and it stays valid when the exponents are fractions.</b>' +
+          R.note +
+          '<br><br>Sweep every slider and the two lines never part. That is not a proof, but it is the right kind of ' +
+          'evidence: a false rule cannot survive a sweep, so anything that does survive is worth learning the reason for.';
+      } else if (agree) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Careful — a false rule agreeing at these particular numbers.</b>' +
+          'Both sides read ' + num(L) + ' here, which is a coincidence of the values you chose, not a rule. With m = ' +
+          half(mi) + ' and n = ' + half(ni) + ', the two different exponent recipes happen to land on the same number. ' +
+          'Move either slider one notch and the agreement collapses. ' +
+          '<br><br>This is the whole reason a single check can only ever <em>refute</em>. ' + R.note +
+          '<br><br>The correct statement is <b style="display:inline">' + R.fix + '</b>.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-red)">Refuted, and one line of arithmetic did it.</b>' +
+          'Left is ' + num(L) + ', right is ' + num(Rv) + '. Those are different numbers, so the statement is false — ' +
+          'no further argument is needed and none is possible. ' +
+          '<br><br>' + R.note +
+          '<br><br>The correct statement is <b style="display:inline">' + R.fix + '</b>.';
+      }
+    }
+
+    RULES.forEach(function(R, i){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'v2-r';
+      btn.setAttribute('aria-pressed', 'false');
+      btn.innerHTML = '<span class="v2-n">' + (i + 1) + '</span><span>' + R.txt + '</span>' +
+        '<span class="v2-tag" style="color:var(--viz-muted)">test it</span>';
+      btn.addEventListener('click', function(){ cur = i; render(); });
+      rules.appendChild(btn);
+    });
+
+    var PRESETS = [
+      { t:'a=2, m=3, n=2',    a:2, b:3, m:6,  n:4,  r:0 },
+      { t:'a=2, m=2, n=2',    a:2, b:3, m:4,  n:4,  r:0 },
+      { t:'a=4, b=9, r=1/2',  a:4, b:9, m:1,  n:4,  r:1 },
+      { t:'a=2, m=1, n=1',    a:2, b:3, m:2,  n:2,  r:2 },
+      { t:'a=4, m=1/2, n=3/2', a:4, b:3, m:1, n:3,  r:4 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        A.value = p.a; Bb.value = p.b; M.value = p.m; N.value = p.n; cur = p.r; render();
+      });
+      pres.appendChild(btn);
+    });
+    [A, Bb, M, N].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Square Then Check</h2>
+  <p class="vz-lede">Squaring both sides clears the radical — and quietly drags in the mirror-image curve
+    underneath it. Every extraneous root you will ever meet is an honest crossing of that dashed phantom.
+    Move the equation and watch which candidates land on the solid branch and which land on the ghost.
+    <b>Like casting a net for one fish and hauling in its reflection too.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Equation shape">
+    <button type="button" id="v3-modeA" aria-pressed="true">sqrt(x + p) = d</button>
+    <button type="button" id="v3-modeB" aria-pressed="false">sqrt(x + p) = x + q</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-p">inside the radical: p = <b><span id="v3-pl">9</span></b></label>
+    <input class="vz-range" type="range" id="v3-p" min="-12" max="12" value="9" step="1" aria-label="The constant p inside the radical">
+    <div id="v3-dwrap">
+      <label class="vz-lab" for="v3-d">right-hand side: d = <b><span id="v3-dl">4</span></b></label>
+      <input class="vz-range" type="range" id="v3-d" min="-6" max="6" value="4" step="1" aria-label="The constant on the right">
+    </div>
+    <div id="v3-qwrap" hidden>
+      <label class="vz-lab" for="v3-q">right-hand side: x + q with q = <b><span id="v3-ql">-5</span></b></label>
+      <input class="vz-range" type="range" id="v3-q" min="-8" max="6" value="-5" step="1" aria-label="The constant q on the right">
+    </div>
+
+    <div class="vz-eq" id="v3-eq"></div>
+    <div class="v3-key" id="v3-key"></div>
+    <div class="vz-plot" id="v3-plot"></div>
+    <div class="vz-mono" id="v3-steps"></div>
+    <div id="v3-verdict" style="margin-top:11px"></div>
+    <div class="vz-why" id="v3-why"></div>
+    <div class="vz-pre" id="v3-presets"></div>
+  </div>
+
+  <p class="vz-note">Notice what the check is really testing: a candidate survives exactly when both sides
+    come out with the <b>same sign</b>. A principal square root is never negative, so any candidate that
+    forces the right-hand side below zero belongs to the mirror equation, not to yours. That is also why
+    "why must you check?" is answered by naming the operation — squaring — and never by blaming the
+    radical.</p>
+
+  <style>
+    .v3-key{display:flex;gap:10px;flex-wrap:wrap;margin:10px 0 4px;font-size:11px;color:var(--viz-muted)}
+    .v3-key span{display:flex;align-items:center;gap:5px}
+    .v3-key i{width:16px;height:0;border-top-width:2.5px;display:inline-block}
+  </style>
+  <script>
+  (function(){
+    var bA = document.getElementById('v3-modeA'), bB = document.getElementById('v3-modeB');
+    var P = document.getElementById('v3-p'), D = document.getElementById('v3-d'), Q = document.getElementById('v3-q');
+    var pl = document.getElementById('v3-pl'), dl = document.getElementById('v3-dl'), ql = document.getElementById('v3-ql');
+    var dwrap = document.getElementById('v3-dwrap'), qwrap = document.getElementById('v3-qwrap');
+    var eq = document.getElementById('v3-eq'), key = document.getElementById('v3-key'), plot = document.getElementById('v3-plot');
+    var steps = document.getElementById('v3-steps'), verdict = document.getElementById('v3-verdict');
+    var why = document.getElementById('v3-why'), pres = document.getElementById('v3-presets');
+    var modeA = true;
+
+    function isInt(v){ return isFinite(v) && Math.abs(v - Math.round(v)) < 1e-9; }
+    function num(v){
+      if (!isFinite(v)) return '—';
+      if (isInt(v)) return String(Math.round(v));
+      return String(Math.round(v * 1000) / 1000);
+    }
+    function rel(v){ return isInt(v) ? ' = ' : ' ≈ '; }
+    function signed(c){ return c === 0 ? '' : (c > 0 ? ' + ' + c : ' - ' + (-c)); }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    key.innerHTML =
+      '<span><i style="border-top:2.5px solid var(--viz-green)"></i>solid: y = sqrt(x + p), the real function</span>' +
+      '<span><i style="border-top:2.5px dashed var(--viz-red)"></i>dashed: y = −sqrt(x + p), the phantom squaring lets in</span>' +
+      '<span><i style="border-top:2.5px solid var(--viz-accent)"></i>the right-hand side</span>';
+
+    function render(){
+      var p = Number(P.value), d = Number(D.value), q = Number(Q.value);
+      if (!isFinite(p)) p = 0;
+      if (!isFinite(d)) d = 0;
+      if (!isFinite(q)) q = 0;
+      pl.textContent = p; dl.textContent = d; ql.textContent = q;
+      bA.setAttribute('aria-pressed', modeA ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', modeA ? 'false' : 'true');
+      dwrap.hidden = !modeA;
+      qwrap.hidden = modeA;
+
+      var rhsTxt = modeA ? String(d) : 'x' + (q === 0 ? '' : signed(q));
+      eq.textContent = 'sqrt(x' + signed(p) + ') = ' + rhsTxt;
+      function rhsAt(x){ return modeA ? d : x + q; }
+
+      /* candidates from squaring, each checked back in the ORIGINAL */
+      var cands = [], noReal = false, disc = 0;
+      if (modeA) {
+        cands.push(d * d - p);
+      } else {
+        disc = 4 * (p - q) + 1;
+        if (disc < 0) { noReal = true; }
+        else {
+          var rt = Math.sqrt(disc);
+          var x1 = ((1 - 2 * q) + rt) / 2, x2 = ((1 - 2 * q) - rt) / 2;
+          cands.push(x1);
+          if (Math.abs(x1 - x2) > 1e-12) cands.push(x2);
+        }
+      }
+      var rows = cands.map(function(x){
+        var inside = x + p;
+        var left = inside >= 0 ? Math.sqrt(inside) : NaN;
+        var right = rhsAt(x);
+        var okDomain = inside >= -1e-9;
+        var ok = okDomain && right >= -1e-9 && Math.abs(left - right) < 1e-7;
+        return { x:x, inside:inside, left:left, right:right, ok:ok, okDomain:okDomain };
+      });
+      var good = rows.filter(function(r){ return r.ok; });
+      var bad = rows.filter(function(r){ return !r.ok; });
+
+      /* ---- the picture: both branches, the right-hand side, every candidate marked ---- */
+      var xsList = [-p, 0];
+      rows.forEach(function(r){ if (isFinite(r.x)) xsList.push(r.x); });
+      var xMin = Math.min.apply(null, xsList) - 2, xMax = Math.max.apply(null, xsList) + 3;
+      if (!isFinite(xMin)) xMin = -6;
+      if (!isFinite(xMax) || xMax - xMin < 6) xMax = xMin + 8;
+      var W = 320, H = 200, PAD = 22;
+      var yTop = 1, yBot = -1, i, xv, yv;
+      for (i = 0; i <= 60; i++) {
+        xv = xMin + (xMax - xMin) * i / 60;
+        if (xv + p >= 0) {
+          yv = Math.sqrt(xv + p);
+          if (yv > yTop) yTop = yv;
+          if (-yv < yBot) yBot = -yv;
+        }
+        yv = rhsAt(xv);
+        if (isFinite(yv)) { if (yv > yTop) yTop = yv; if (yv < yBot) yBot = yv; }
+      }
+      yTop = Math.min(yTop, 14) + 1; yBot = Math.max(yBot, -14) - 1;
+      if (!(yTop - yBot > 0)) { yTop = 1; yBot = -1; }
+      function px(v){ return PAD + (v - xMin) / (xMax - xMin) * (W - 2 * PAD); }
+      function py(v){ return H - PAD - (v - yBot) / (yTop - yBot) * (H - 2 * PAD); }
+      function clampY(v){ return Math.max(yBot, Math.min(yTop, v)); }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The square root curve, its mirror image below the axis, the right-hand side, and each candidate marked as checking or extraneous">';
+      svg += '<line x1="' + PAD + '" y1="' + py(clampY(0)).toFixed(1) + '" x2="' + (W - PAD) + '" y2="' + py(clampY(0)).toFixed(1) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      if (0 >= xMin && 0 <= xMax) {
+        svg += '<line x1="' + px(0).toFixed(1) + '" y1="' + PAD + '" x2="' + px(0).toFixed(1) + '" y2="' + (H - PAD) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      }
+      var up = [], dn = [];
+      for (i = 0; i <= 90; i++) {
+        xv = Math.max(-p, xMin) + (xMax - Math.max(-p, xMin)) * i / 90;
+        if (xv < xMin || xv + p < 0) continue;
+        yv = Math.sqrt(xv + p);
+        up.push(px(xv).toFixed(1) + ',' + py(clampY(yv)).toFixed(1));
+        dn.push(px(xv).toFixed(1) + ',' + py(clampY(-yv)).toFixed(1));
+      }
+      if (up.length > 1) {
+        svg += '<polyline points="' + dn.join(' ') + '" style="fill:none;stroke:var(--viz-red);stroke-width:2.4;stroke-dasharray:6 4"></polyline>';
+        svg += '<polyline points="' + up.join(' ') + '" style="fill:none;stroke:var(--viz-green);stroke-width:2.8"></polyline>';
+      }
+      svg += '<line x1="' + px(xMin).toFixed(1) + '" y1="' + py(clampY(rhsAt(xMin))).toFixed(1) +
+        '" x2="' + px(xMax).toFixed(1) + '" y2="' + py(clampY(rhsAt(xMax))).toFixed(1) +
+        '" style="stroke:var(--viz-accent);stroke-width:2.4"></line>';
+      rows.forEach(function(r){
+        if (!isFinite(r.x) || !r.okDomain) return;
+        var yy = clampY(r.right);
+        var col = r.ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        svg += '<circle cx="' + px(r.x).toFixed(1) + '" cy="' + py(yy).toFixed(1) + '" r="5" style="fill:' + col + '"></circle>';
+        svg += '<text x="' + px(r.x).toFixed(1) + '" y="' + (py(yy) - 9).toFixed(1) + '" text-anchor="middle" style="font-size:10px;font-weight:800;fill:' + col + '">' +
+          (r.ok ? '✓ ' : '✗ ') + 'x = ' + num(r.x) + '</text>';
+      });
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      /* ---- the working, line by line ---- */
+      var txt;
+      if (modeA) {
+        var x0 = rows[0];
+        txt = '   sqrt(x' + signed(p) + ') = ' + d + '\n' +
+          '1  the radical already stands alone\n' +
+          '2  square both sides:   x' + signed(p) + ' = ' + d + '^2 = ' + (d * d) + '\n' +
+          '3  solve:               x = ' + (d * d) + ' - (' + p + ') = ' + num(x0.x) + '\n' +
+          '4  CHECK in the original\n' +
+          '     left  = sqrt(' + num(x0.x) + signed(p) + ') = sqrt(' + num(x0.inside) + ')' + rel(x0.left) + num(x0.left) + '\n' +
+          '     right = ' + d + '\n' +
+          '     ' + (x0.ok ? '-> the two sides match, so x = ' + num(x0.x) + ' is a solution'
+                          : '-> they do NOT match, so x = ' + num(x0.x) + ' is EXTRANEOUS');
+      } else {
+        var bq = 2 * q - 1, cq = q * q - p;
+        txt = '   sqrt(x' + signed(p) + ') = x' + signed(q) + '\n' +
+          '1  the radical already stands alone\n' +
+          '2  square both sides:   x' + signed(p) + ' = x^2' + signed(2 * q) + 'x' + signed(q * q) + '\n' +
+          '3  collect:             x^2' + signed(bq) + 'x' + signed(cq) + ' = 0\n' +
+          '4  discriminant:        (' + bq + ')^2 - 4(' + cq + ') = ' + num(disc) + '\n';
+        if (noReal) {
+          txt += '     negative, so squaring produced NO real candidates at all\n' +
+            '5  nothing to check — this equation has no real solution';
+        } else {
+          txt += '     candidates: ' + rows.map(function(r){ return 'x' + rel(r.x) + num(r.x); }).join('  and  ') + '\n' +
+            '5  CHECK EACH in the original\n' +
+            rows.map(function(r){
+              return '     x' + rel(r.x) + num(r.x) + ':  sqrt(' + num(r.inside) + ')' + rel(r.left) + num(r.left) +
+                '   vs   ' + num(r.right) + '   ' + (r.ok ? '-> checks' : '-> EXTRANEOUS');
+            }).join('\n');
+        }
+      }
+      steps.textContent = txt;
+
+      var vhtml = '';
+      if (noReal) {
+        vhtml = pill('NO REAL CANDIDATES', 'var(--viz-red)');
+      } else {
+        vhtml = pill(good.length + ' solution' + (good.length === 1 ? '' : 's'), good.length ? 'var(--viz-green)' : 'var(--viz-red)') + ' ' +
+          pill(bad.length + ' extraneous', bad.length ? 'var(--viz-amber)' : 'var(--viz-muted)') + ' ' +
+          pill(good.length ? 'x = ' + good.map(function(r){ return num(r.x); }).join(', ') : 'no solution', 'var(--viz-accent)');
+      }
+      verdict.innerHTML = vhtml;
+
+      var common = '<br><br><b style="display:inline">Where the ghost comes from:</b> squaring turns the equation into ' +
+        'one that is also satisfied by −sqrt(x' + signed(p) + '), because a = b forces a² = b² but a² = b² only forces ' +
+        'a = ±b. The dashed curve IS that second equation, drawn. Every extraneous root sits on it.';
+
+      if (noReal) {
+        why.innerHTML = '<b style="color:var(--viz-red)">The quadratic has no real roots, so there is nothing to check.</b>' +
+          'The discriminant came out ' + num(disc) + '. Neither branch meets the line anywhere in the plane, so the ' +
+          'squared equation — the more generous of the two — already has no answers, and the original cannot have one either. ' +
+          'This is the one case where skipping the check costs you nothing, and you cannot know that in advance. ' + common;
+      } else if (good.length && !bad.length) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Every candidate survived — the right-hand side never went negative.</b>' +
+          'The line meets only the solid branch here, so squaring introduced nothing false. Note that this is luck of the ' +
+          'setup, not a property of the method: nothing in steps 1 to 3 knew it, and only the substitution can tell you. ' +
+          '<br><br>Drag ' + (modeA ? 'd below zero' : 'q down') + ' and watch the crossing slide onto the dashed branch, ' +
+          'with the algebra behaving exactly as it does now. ' + common;
+      } else if (good.length && bad.length) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">One real solution and one impostor, from one flawless calculation.</b>' +
+          'x = ' + num(good[0].x) + ' lands on the solid branch and checks. x = ' + num(bad[0].x) + ' lands on the dashed one: ' +
+          'the left side comes back ' + num(bad[0].left) + ' — never negative, because that is what "principal square root" ' +
+          'means — while the right side is ' + num(bad[0].right) + '. Opposite signs, so it belongs to the mirror equation. ' +
+          '<br><br>There is no arithmetic error to hunt for. Re-doing the algebra will produce the same pair every time. ' + common;
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-red)">Every candidate is extraneous, so the equation has no solution.</b>' +
+          'The squared equation happily returns ' + rows.map(function(r){ return 'x' + rel(r.x) + num(r.x); }).join(' and ') +
+          ', and not one of them survives substitution: the right-hand side is negative there, and a principal square root ' +
+          'cannot be. ' +
+          '<br><br>This is the sharpest possible argument for the check. Without it you would report an answer to an ' +
+          'equation that has none — and the working above contains no mistake at any line. ' + common;
+      }
+    }
+
+    var PRESETS = [
+      { t:'sqrt(x+9) = 4',   a:true,  p:9,  d:4 },
+      { t:'sqrt(x+9) = -4',  a:true,  p:9,  d:-4 },
+      { t:'sqrt(x+1) = 5',   a:true,  p:1,  d:5 },
+      { t:'sqrt(x+7) = x-5', a:false, p:7,  q:-5 },
+      { t:'sqrt(x) = x-2',   a:false, p:0,  q:-2 },
+      { t:'no real roots',   a:false, p:-6, q:0 }
+    ];
+    PRESETS.forEach(function(pr){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = pr.t;
+      btn.addEventListener('click', function(){
+        modeA = pr.a;
+        P.value = pr.p;
+        if (pr.a) D.value = pr.d; else Q.value = pr.q;
+        render();
+      });
+      pres.appendChild(btn);
+    });
+    bA.addEventListener('click', function(){ modeA = true; render(); });
+    bB.addEventListener('click', function(){ modeA = false; render(); });
+    [P, D, Q].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Match The Base</h2>
+  <p class="vz-lede">With the unknown up in the exponent there is nothing to isolate — so rewrite both sides
+    on one base and read the exponents off. It works because the curve crosses a horizontal line exactly
+    once. Pick a base, a shift and a target, and watch the rewrite succeed, degenerate, or run out of road.
+    <b>Like two prices quoted in different currencies: convert them first, and only then compare.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-b">base b = <b><span id="v4-bl">2</span></b></label>
+    <input class="vz-range" type="range" id="v4-b" min="0" max="7" value="1" step="1" aria-label="The base b">
+    <label class="vz-lab" for="v4-k">exponent shift: b^(x + <b><span id="v4-kl">0</span></b>)</label>
+    <input class="vz-range" type="range" id="v4-k" min="-3" max="3" value="0" step="1" aria-label="The shift added to x">
+    <label class="vz-lab" for="v4-t">target value = <b><span id="v4-tl">16</span></b></label>
+    <input class="vz-range" type="range" id="v4-t" min="0" max="22" value="13" step="1" aria-label="The value on the right">
+
+    <div class="vz-eq" id="v4-eq"></div>
+    <div class="vz-plot" id="v4-plot"></div>
+    <div class="vz-mono" id="v4-steps"></div>
+    <div id="v4-verdict" style="margin-top:11px"></div>
+    <div class="vz-why" id="v4-why"></div>
+    <div class="vz-pre" id="v4-presets"></div>
+  </div>
+
+  <p class="vz-note">Two boundaries are worth carrying away. <b>b = 1 is excluded</b> because a flat line is
+    not one-to-one: it meets its target everywhere or nowhere, never once. And a target that is not a power
+    of the base cannot be reached by rewriting at all — the answer exists, it is simply trapped between two
+    integers, which is the exact gap the next lesson fills.</p>
+
+  <style>
+    /* Panel 4 styles entirely from the shared chrome in the head (vz-card, vz-lab,
+       vz-range, vz-eq, vz-plot, vz-pill, vz-why): it needs no rules of its own. */
+  </style>
+  <script>
+  (function(){
+    var Bs = document.getElementById('v4-b'), Ks = document.getElementById('v4-k'), Ts = document.getElementById('v4-t');
+    var bl = document.getElementById('v4-bl'), kl = document.getElementById('v4-kl'), tl = document.getElementById('v4-tl');
+    var eq = document.getElementById('v4-eq'), plot = document.getElementById('v4-plot');
+    var steps = document.getElementById('v4-steps'), verdict = document.getElementById('v4-verdict');
+    var why = document.getElementById('v4-why'), pres = document.getElementById('v4-presets');
+
+    var BASES = [1, 2, 3, 4, 5, 8, 9, 10];
+    var TARGETS = [
+      { l:'1/9', v:1 / 9 }, { l:'1/8', v:1 / 8 }, { l:'1/4', v:0.25 }, { l:'1/3', v:1 / 3 },
+      { l:'1/2', v:0.5 }, { l:'1', v:1 }, { l:'2', v:2 }, { l:'3', v:3 }, { l:'4', v:4 },
+      { l:'5', v:5 }, { l:'8', v:8 }, { l:'9', v:9 }, { l:'10', v:10 }, { l:'16', v:16 },
+      { l:'25', v:25 }, { l:'27', v:27 }, { l:'32', v:32 }, { l:'64', v:64 }, { l:'81', v:81 },
+      { l:'100', v:100 }, { l:'125', v:125 }, { l:'243', v:243 }, { l:'1000', v:1000 }
+    ];
+
+    function isInt(v){ return isFinite(v) && Math.abs(v - Math.round(v)) < 1e-9; }
+    function num(v){
+      if (!isFinite(v)) return '—';
+      if (isInt(v)) return String(Math.round(v));
+      if (Math.abs(v) >= 1) return String(Math.round(v * 1000) / 1000);
+      return String(Math.round(v * 100000) / 100000);
+    }
+    function gcd(a, b){ a = Math.abs(a); b = Math.abs(b); while (b) { var t = a % b; a = b; b = t; } return a || 1; }
+    function frac(p, q){
+      if (q < 0) { p = -p; q = -q; }
+      var g = gcd(p, q), pp = p / g, qq = q / g;
+      return qq === 1 ? String(pp) : pp + '/' + qq;
+    }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    // Is the target a rational power of the base? Search low denominators first, so
+    // 8 as a power of 4 comes back as 3/2 rather than as some larger equivalent.
+    function findExp(b, T){
+      var q, p, val;
+      for (q = 1; q <= 6; q++) {
+        for (p = -18; p <= 18; p++) {
+          val = Math.pow(b, p / q);
+          if (isFinite(val) && Math.abs(val - T) <= 1e-9 * Math.max(1, Math.abs(T))) return { p:p, q:q };
+        }
+      }
+      return null;
+    }
+
+    function render(){
+      var bi = Number(Bs.value), k = Number(Ks.value), ti = Number(Ts.value);
+      if (!isFinite(bi) || bi < 0 || bi >= BASES.length) bi = 1;
+      if (!isFinite(k)) k = 0;
+      if (!isFinite(ti) || ti < 0 || ti >= TARGETS.length) ti = 13;
+      var b = BASES[Math.round(bi)], tgt = TARGETS[Math.round(ti)], T = tgt.v;
+      bl.textContent = b; kl.textContent = k; tl.textContent = tgt.l;
+
+      eq.textContent = b + '^(x' + (k === 0 ? '' : (k > 0 ? ' + ' + k : ' - ' + (-k))) + ') = ' + tgt.l;
+
+      var flat = (b === 1);
+      var hit = flat ? null : findExp(b, T);
+      var sol = null;                       // the solution as an exact fraction
+      if (hit) sol = { p: hit.p - k * hit.q, q: hit.q };
+
+      /* bracket the answer when no rewrite exists, without leaving arithmetic */
+      var loJ = null, hiJ = null, j;
+      if (!flat && !hit) {
+        for (j = -8; j <= 8; j++) {
+          if (Math.pow(b, j) <= T && T < Math.pow(b, j + 1)) { loJ = j; hiJ = j + 1; }
+        }
+      }
+
+      /* ---- the picture: y = b^(x+k) meeting the horizontal target ---- */
+      var centre = sol ? sol.p / sol.q : (loJ === null ? 0 : (loJ + 0.5 - k));
+      if (!isFinite(centre)) centre = 0;
+      centre = Math.max(-6, Math.min(6, centre));
+      var xMin = centre - 3.2, xMax = centre + 3.2;
+      var yTop = Math.max(T * 2.1, 1.6), yBot = 0;
+      if (!isFinite(yTop) || yTop <= 0) yTop = 2;
+      var W = 320, H = 190, PAD = 24;
+      function px(v){ return PAD + (v - xMin) / (xMax - xMin) * (W - 2 * PAD); }
+      function py(v){ return H - PAD - (v - yBot) / (yTop - yBot) * (H - 2 * PAD); }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The exponential curve crossing the horizontal target line exactly once">';
+      svg += '<line x1="' + PAD + '" y1="' + (H - PAD) + '" x2="' + (W - PAD) + '" y2="' + (H - PAD) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      svg += '<line x1="' + PAD + '" y1="' + PAD + '" x2="' + PAD + '" y2="' + (H - PAD) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      var pts = [], i, xv, yv;
+      for (i = 0; i <= 120; i++) {
+        xv = xMin + (xMax - xMin) * i / 120;
+        yv = Math.pow(b, xv + k);
+        if (!isFinite(yv) || yv > yTop) { continue; }
+        pts.push(px(xv).toFixed(1) + ',' + py(yv).toFixed(1));
+      }
+      svg += '<line x1="' + PAD + '" y1="' + py(Math.min(T, yTop)).toFixed(1) + '" x2="' + (W - PAD) + '" y2="' + py(Math.min(T, yTop)).toFixed(1) +
+        '" style="stroke:var(--viz-violet);stroke-width:2.2;stroke-dasharray:6 4"></line>';
+      svg += '<text x="' + (W - PAD - 2) + '" y="' + (py(Math.min(T, yTop)) - 6).toFixed(1) + '" text-anchor="end" style="font-size:10px;font-weight:800;fill:var(--viz-violet)">target ' + tgt.l + '</text>';
+      if (pts.length > 1) {
+        svg += '<polyline points="' + pts.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.8"></polyline>';
+      }
+      if (sol) {
+        var sx = sol.p / sol.q;
+        if (sx >= xMin && sx <= xMax) {
+          svg += '<line x1="' + px(sx).toFixed(1) + '" y1="' + py(Math.min(T, yTop)).toFixed(1) + '" x2="' + px(sx).toFixed(1) + '" y2="' + (H - PAD) +
+            '" style="stroke:var(--viz-green);stroke-width:2;stroke-dasharray:4 4"></line>';
+          svg += '<circle cx="' + px(sx).toFixed(1) + '" cy="' + py(Math.min(T, yTop)).toFixed(1) + '" r="5" style="fill:var(--viz-green)"></circle>';
+          svg += '<text x="' + px(sx).toFixed(1) + '" y="' + (H - PAD + 14) + '" text-anchor="middle" style="font-size:10.5px;font-weight:800;fill:var(--viz-green)">x = ' + frac(sol.p, sol.q) + '</text>';
+        }
+      }
+      svg += '<text x="' + PAD + '" y="' + (PAD - 8) + '" style="font-size:9.5px;fill:var(--viz-muted)">y = ' + b + '^(x + ' + k + ')</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      /* ---- the working ---- */
+      var shift = (k === 0 ? '' : (k > 0 ? ' + ' + k : ' - ' + (-k)));
+      if (flat) {
+        steps.textContent =
+          '   1^(x' + shift + ') = ' + tgt.l + '\n' +
+          '1  every power of 1 is 1, so the left side is the constant 1\n' +
+          '2  b^u = b^v only lets you cancel the base when b is NOT 1\n' +
+          '3  ' + (T === 1 ? 'the equation reads 1 = 1, true for EVERY x' : 'the equation reads 1 = ' + tgt.l + ', false for every x');
+      } else if (hit) {
+        steps.textContent =
+          '   ' + b + '^(x' + shift + ') = ' + tgt.l + '\n' +
+          '1  rewrite the right side on base ' + b + ':   ' + tgt.l + ' = ' + b + '^(' + frac(hit.p, hit.q) + ')\n' +
+          '2  b^u = b^v with b > 0 and b not 1 is one-to-one, so u = v\n' +
+          '     x' + shift + ' = ' + frac(hit.p, hit.q) + '\n' +
+          '3  solve that linear equation:   x = ' + frac(hit.p, hit.q) + (k === 0 ? '' : (k > 0 ? ' - ' + k : ' + ' + (-k))) + ' = ' + frac(sol.p, sol.q) + '\n' +
+          'check  ' + b + '^(' + frac(sol.p, sol.q) + shift + ') = ' + b + '^(' + frac(hit.p, hit.q) + ') = ' + num(Math.pow(b, hit.p / hit.q));
+      } else {
+        steps.textContent =
+          '   ' + b + '^(x' + shift + ') = ' + tgt.l + '\n' +
+          '1  rewrite the right side on base ' + b + '...  it is not a power of ' + b + '\n' +
+          (loJ === null ? '2  the target is outside the range this panel brackets\n'
+            : '2  bracket it instead:   ' + b + '^' + loJ + ' = ' + num(Math.pow(b, loJ)) + '  <  ' + tgt.l + '  <  ' +
+              b + '^' + hiJ + ' = ' + num(Math.pow(b, hiJ)) + '\n' +
+              '     so x' + shift + ' lies between ' + loJ + ' and ' + hiJ + ', and x between ' + (loJ - k) + ' and ' + (hiJ - k) + '\n') +
+          '3  matching bases cannot finish this one — a solution exists, but naming it needs a new tool';
+      }
+
+      if (flat) {
+        verdict.innerHTML = pill('b = 1 — NOT one-to-one', 'var(--viz-red)') + ' ' +
+          pill(T === 1 ? 'every real x is a solution' : 'no solution at all', 'var(--viz-amber)');
+      } else if (hit) {
+        verdict.innerHTML = pill('exact rewrite found', 'var(--viz-green)') + ' ' +
+          pill(tgt.l + ' = ' + b + '^(' + frac(hit.p, hit.q) + ')', 'var(--viz-violet)') + ' ' +
+          pill('x = ' + frac(sol.p, sol.q), 'var(--viz-accent)');
+      } else {
+        verdict.innerHTML = pill('no common base', 'var(--viz-amber)') + ' ' +
+          pill(loJ === null ? 'answer outside this window' : 'x is between ' + (loJ - k) + ' and ' + (hiJ - k), 'var(--viz-violet)');
+      }
+
+      if (flat) {
+        why.innerHTML = '<b style="color:var(--viz-red)">b = 1 flattens the curve, and a flat line is not one-to-one.</b>' +
+          'The whole method rests on "equal powers force equal exponents", and that step is only legal because the curve ' +
+          'never revisits a value. At b = 1 it revisits every value at every x: the graph is the horizontal line y = 1. ' +
+          (T === 1
+            ? 'So 1 = 1 is satisfied by every real x — infinitely many solutions, and cancelling the base would have reported exactly one. '
+            : 'So 1 = ' + tgt.l + ' is satisfied by no x at all, and cancelling the base would have invented one. ') +
+          '<br><br>That is why the condition is stated as b &gt; 0 <em>and</em> b ≠ 1 every single time.';
+      } else if (hit && hit.q === 1) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Both sides on one base, then the exponents alone.</b>' +
+          'The right side is ' + b + '^' + hit.p + ', so the equation becomes x' + shift + ' = ' + hit.p + ' — a linear equation, ' +
+          'and the answer is x = ' + frac(sol.p, sol.q) + '. ' +
+          (k === 0 ? 'With no shift the exponent IS the answer, which is why these questions look easier than they are. '
+                   : 'Note the shift: the exponent is ' + hit.p + ' but the answer is ' + frac(sol.p, sol.q) + ', and reading off ' + hit.p +
+                     ' is the single commonest slip on this question type. ') +
+          '<br><br>The dashed target line crosses the curve exactly once, no matter where you drag it. That single ' +
+          'crossing is the one-to-one property, and it is what licenses step 2.';
+      } else if (hit) {
+        why.innerHTML = '<b style="color:var(--viz-violet)">The rewrite needed a fractional exponent — the first half of this lesson, doing work.</b>' +
+          tgt.l + ' is not a whole-number power of ' + b + ', but it is ' + b + '^(' + frac(hit.p, hit.q) + '): take ' +
+          (hit.q === 2 ? 'the square root' : 'the ' + hit.q + 'th root') + ' of ' + b + ' and raise it to the power ' + hit.p + '. ' +
+          'So the equation is solvable exactly, and x = ' + frac(sol.p, sol.q) + '. ' +
+          '<br><br>Read it backwards and it is the same statement: ' + b + '^(' + frac(hit.p, hit.q) + ') = ' + tgt.l +
+          ' is a fact about rational exponents, and here it is doing duty as the answer to an exponential equation. The two ' +
+          'topics in this lesson are one idea approached from opposite ends.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-amber)">No rewrite exists, and that is the honest end of this method.</b>' +
+          tgt.l + ' is not ' + b + ' raised to any simple fraction, so there is nothing to match and no exponent to read off. ' +
+          (loJ === null ? 'The answer still exists — the curve still crosses the line once. '
+            : 'The curve still crosses the dashed line exactly once, so the answer exists and is trapped between ' +
+              (loJ - k) + ' and ' + (hiJ - k) + '. ') +
+          '<br><br>Nothing has gone wrong; you have reached the edge of what rewriting can do. Naming that crossing exactly ' +
+          'is what logarithms are for, and it is the whole of the next lesson.';
+      }
+    }
+
+    function idxOf(arr, v){ var i; for (i = 0; i < arr.length; i++) { if (arr[i] === v) return i; } return 0; }
+    function tIdx(label){ var i; for (i = 0; i < TARGETS.length; i++) { if (TARGETS[i].l === label) return i; } return 0; }
+
+    var PRESETS = [
+      { t:'2^x = 16',      b:2,  k:0, l:'16' },
+      { t:'3^(x+1) = 27',  b:3,  k:1, l:'27' },
+      { t:'4^x = 8',       b:4,  k:0, l:'8' },
+      { t:'8^x = 2',       b:8,  k:0, l:'2' },
+      { t:'9^x = 1/3',     b:9,  k:0, l:'1/3' },
+      { t:'2^x = 10',      b:2,  k:0, l:'10' },
+      { t:'1^x = 5',       b:1,  k:0, l:'5' }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        Bs.value = idxOf(BASES, p.b); Ks.value = p.k; Ts.value = tIdx(p.l); render();
+      });
+      pres.appendChild(btn);
+    });
+    [Bs, Ks, Ts].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,667 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Chunks To Vectors</button>
+  <button class="viz-tab" data-viz-tab="2">2. Rerun Without Duplicates</button>
+  <button class="viz-tab" data-viz-tab="3">3. Packing The Batch</button>
+  <button class="viz-tab" data-viz-tab="4">4. Vector Plus Metadata</button>
+  <button class="viz-tab" data-viz-tab="5">5. Pre-Filter Or Post-Filter</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Chunks To Vectors</h2>
+  <p class="vz-lede"><b>Versioning Datasets Alongside Models</b> and <b>Reproducible Training Data</b> gave you
+    an immutable corpus version; <b>LSH</b> and <b>Language ID and Quality Filtering</b> gave you the clean
+    chunks inside it. This lesson turns those chunks into vectors — and the whole thing hangs on one line:
+    what the vector is <em>called</em>. Tap an input to change it. <b>Like a passport number: change your
+    surname and you get a new document, change your phone number and you do not.</b></p>
+
+  <div class="v1-cols">
+    <div class="v1-col">
+      <h5>already yours (lessons 03–04)</h5>
+      <div class="v1-known vz-mono">corpus@v7 · frozen
+chunk manifest · 12,480 chunks
+near-dups removed (LSH)
+language + quality filtered</div>
+    </div>
+    <div class="v1-col">
+      <h5>what this lesson adds</h5>
+      <div id="v1-right"></div>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-t" id="v1-toggles"></div>
+    <div class="v1-id vz-mono" id="v1-id"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The run manifest is the other half of this: corpus version, chunk manifest, model endpoint
+    and revision, code artifact, parameters and <b>expected item count</b>, all resolved <em>before</em> work
+    starts. Pin them late and a chunk set that shifts mid-run leaves you with vectors from two generations
+    mixed in one index — and no way to tell which is which afterwards.</p>
+
+  <style>
+    .v1-cols{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-col{flex:1 1 168px;min-width:0}
+    .v1-col h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-known{border:1.5px dashed var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg);
+      color:var(--viz-muted)}
+    .v1-rec{border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5;margin-bottom:5px}
+    .v1-rec.is-new{border-color:var(--viz-green)}
+    .v1-rec.is-old{border-style:dashed;opacity:.72}
+    .v1-tag{display:block;font-size:9.5px;font-weight:800;letter-spacing:.04em;margin-top:3px}
+    .v1-t{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-b{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v1-b[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-k{font-family:ui-monospace,Consolas,monospace;font-size:11px;flex:1 1 auto}
+    .v1-s{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+    .v1-id{border-top:1px dashed var(--viz-line);padding-top:11px;word-break:break-all}
+    .v1-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var F = [
+      { k:'chunk_id',              was:'chunk_88f1', now:'chunk_9a02', ident:true,
+        n:'the chunker re-split this document, so this is a different chunk' },
+      { k:'model_id',              was:'embed-3',    now:'embed-4',    ident:true,
+        n:'a different model — a different numeric space entirely' },
+      { k:'model_revision',        was:'r14',        now:'r15',        ident:true,
+        n:'same model name, new weights. The vectors are NOT comparable to the old ones' },
+      { k:'preprocessing_version', was:'pp-2',       now:'pp-3',       ident:true,
+        n:'text normalization, instruction prefix, truncation or pooling moved' },
+      { k:'access_group',          was:'grp-7',      now:'grp-9',      ident:false,
+        n:'a permission change — metadata, and metadata is not identity' }
+    ];
+    var on = F.map(function(){ return false; });
+    var wrap = document.getElementById('v1-toggles'), idl = document.getElementById('v1-id');
+    var right = document.getElementById('v1-right'), why = document.getElementById('v1-why');
+    var last = -1;
+
+    function h(s){ var x = 5381, i; for (i = 0; i < s.length; i++) x = ((x * 33) ^ s.charCodeAt(i)) >>> 0;
+      return ('00000' + x.toString(16)).slice(-6); }
+    function val(i){ return on[i] ? F[i].now : F[i].was; }
+
+    function render(){
+      wrap.innerHTML = '';
+      F.forEach(function(f, i){
+        var b = document.createElement('button');
+        b.className = 'v1-b';
+        b.setAttribute('aria-pressed', on[i] ? 'true' : 'false');
+        b.innerHTML = '<span class="v1-k">' + f.k + ' = ' + val(i) + '</span>' +
+          '<span class="v1-s" style="color:' + (on[i] ? 'var(--viz-amber)' : 'var(--viz-muted)') + '">' +
+          (on[i] ? 'CHANGED' : 'unchanged') + '</span>';
+        b.addEventListener('click', function(){ on[i] = !on[i]; last = i; render(); });
+        wrap.appendChild(b);
+      });
+
+      var baseId = 'emb_' + h('chunk_88f1|embed-3|r14|pp-2');
+      var nowId  = 'emb_' + h(val(0) + '|' + val(1) + '|' + val(2) + '|' + val(3));
+      var identMoved = nowId !== baseId;
+      var metaMoved = on[4];
+
+      idl.innerHTML = 'embedding_id = hash(chunk_id, model_id, model_revision, preprocessing_version)\n' +
+        '             = hash(' + val(0) + ', ' + val(1) + ', ' + val(2) + ', ' + val(3) + ')\n' +
+        '             = <b style="color:' + (identMoved ? 'var(--viz-green)' : 'var(--viz-accent)') + '">' + nowId + '</b>' +
+        (identMoved ? '   ← NEW identity' : '   ← same identity');
+
+      var rows = '';
+      if (identMoved) {
+        rows += '<div class="v1-rec is-old">' + baseId + '\ndim 768 · cosine · corpus@v7' +
+          '<span class="v1-tag" style="color:var(--viz-amber)">STATE: SUPERSEDED — kept for rollback</span></div>';
+        rows += '<div class="v1-rec is-new">' + nowId + '\ndim 768 · cosine · corpus@v7' +
+          '<span class="v1-tag" style="color:var(--viz-green)">STATE: ACTIVE — newly embedded</span></div>';
+      } else {
+        rows += '<div class="v1-rec is-new">' + baseId + '\ndim 768 · cosine · corpus@v7' +
+          '<span class="v1-tag" style="color:var(--viz-green)">STATE: ACTIVE' +
+          (metaMoved ? ' · metadata_version 4 → 5' : '') + '</span></div>';
+      }
+      right.innerHTML = rows;
+
+      var head, body;
+      if (identMoved) {
+        head = ['New identity, so a NEW vector — the old one is not overwritten.', 'var(--viz-green)'];
+        body = 'Every input that changes the numbers is inside the hash, so changing one mints a fresh ' +
+          '<code>embedding_id</code> instead of colliding with the old vector. That is what lets a model upgrade ' +
+          '<b>build beside the current generation</b>: embed with the new version, populate its own index, compare ' +
+          'recall, latency and distributions, then switch routing — and keep the previous generation for rollback. ' +
+          '<br><br>Update vectors in place instead and you can never reproduce an old score again.';
+      } else if (metaMoved) {
+        head = ['Metadata moved, identity did not — no re-embedding at all.', 'var(--viz-accent)'];
+        body = 'The access group is not an input to the model, so the vector bytes are unchanged and re-embedding ' +
+          'would be pure waste. What must change is the <b>payload</b> the filter reads, promptly: this is the ' +
+          'synchronisation problem of visual 4 and the stale-payload failure of visual 5, where a correct ' +
+          '<b>pre-filter</b> passes a revoked group because the metadata it filtered on was old. ' +
+          '<br><br>Note the <code>metadata_version</code> bump — that field exists so a stale payload is <em>detectable</em>.';
+      } else {
+        head = ['Nothing moved: re-running the job is a no-op.', 'var(--viz-accent)'];
+        body = 'Same chunk, same model, same revision, same preprocessing — so the job selects nothing, upserts the ' +
+          'same <code>embedding_id</code>, and converges on the identical logical output. That is the whole meaning of ' +
+          '<b>idempotent</b> here, and visual 2 is what happens when the key is chosen badly. ' +
+          '<br><br>Tap any row above to see which changes mint a new vector and which do not.';
+      }
+      why.innerHTML = '<b style="color:' + head[1] + '">' + head[0] + '</b>' + body +
+        (last >= 0 ? '<br><br><span style="color:var(--viz-muted)">Last change — <code>' + F[last].k +
+          '</code>: ' + F[last].n + '.</span>' : '');
+    }
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Rerun Without Duplicates</h2>
+  <p class="vz-lede">12 chunks, drawn from 3 documents. The first run died partway through. Drag how far it got,
+    then choose what the job keys its writes by, and watch the re-run either converge or make a mess.
+    <b>Like re-photocopying a jammed print job: if the pages are numbered you reprint the missing ones, if
+    they are not you print the lot again.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Write key">
+    <button id="v2-hash" aria-pressed="true">key = hash(chunk, model, rev, pp)</button>
+    <button id="v2-doc" aria-pressed="false">key = document ID</button>
+    <button id="v2-auto" aria-pressed="false">key = auto-generated</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-n">First run committed <span id="v2-nl">7</span> of 12 chunks</label>
+    <input type="range" id="v2-n" min="0" max="12" value="7" step="1" aria-label="Chunks committed by the first run">
+    <div class="v2-grid" id="v2-grid"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Retries only work if the request items are stable too. A timeout that fires <em>after</em> the
+    service already processed the batch must, on repeat, upsert the same embedding IDs — so <b>attempt status is
+    recorded separately from committed artifact identity</b>. And permanent errors (input too long, invalid
+    encoding, unsupported language) belong in a quarantine with chunk ID, error class and model version, not in
+    the retry loop, which would burn quota forever on input that can never succeed.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-grid{margin-top:14px;display:grid;grid-template-columns:repeat(6,1fr);gap:4px}
+    .v2-c{border:1.5px solid var(--viz-line);border-radius:7px;padding:5px 3px;text-align:center;
+      font-family:ui-monospace,Consolas,monospace;font-size:9.5px;line-height:1.35;background:var(--viz-bg)}
+    .v2-c b{display:block;font-size:13px;line-height:1.1}
+    .v2-stats{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 12, PER_DOC = 4;
+    var mode = 'hash';
+    var s = document.getElementById('v2-n'), nl = document.getElementById('v2-nl');
+    var grid = document.getElementById('v2-grid'), stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+    var bH = document.getElementById('v2-hash'), bD = document.getElementById('v2-doc'), bA = document.getElementById('v2-auto');
+
+    function pill(text, colour){
+      return '<span class="v2-pill" style="color:' + colour + ';border-color:' + colour + '">' + text + '</span>';
+    }
+
+    function render(){
+      var done = Number(s.value);
+      nl.textContent = done;
+      bH.setAttribute('aria-pressed', mode === 'hash' ? 'true' : 'false');
+      bD.setAttribute('aria-pressed', mode === 'doc' ? 'true' : 'false');
+      bA.setAttribute('aria-pressed', mode === 'auto' ? 'true' : 'false');
+
+      var cells = '', i, selected, written, records, dupes, unreachable = 0;
+      if (mode === 'hash') { selected = N - done; written = selected; records = N; dupes = 0; }
+      else if (mode === 'doc') { selected = N; written = N; records = N / PER_DOC; dupes = 0; unreachable = N - records; }
+      else { selected = N; written = N; records = done + N; dupes = done; }
+
+      for (i = 0; i < N; i++) {
+        var had = i < done, mark, col, note;
+        if (mode === 'hash') {
+          mark = had ? '=' : '+'; col = had ? 'var(--viz-muted)' : 'var(--viz-green)';
+          note = had ? 'skipped' : 'embedded';
+        } else if (mode === 'doc') {
+          var survives = (i % PER_DOC) === (PER_DOC - 1);
+          mark = survives ? '=' : 'x'; col = survives ? 'var(--viz-green)' : 'var(--viz-red)';
+          note = survives ? 'kept' : 'lost';
+        } else {
+          mark = had ? '2' : '1'; col = had ? 'var(--viz-red)' : 'var(--viz-green)';
+          note = had ? 'DUPLICATE' : 'embedded';
+        }
+        cells += '<div class="v2-c" style="border-color:' + col + '"><b style="color:' + col + '">' + mark + '</b>' +
+          'chunk ' + i + '<br><span style="color:' + col + '">' + note + '</span></div>';
+      }
+      grid.innerHTML = cells;
+
+      var ok = mode === 'hash';
+      stats.innerHTML =
+        pill(selected + ' chunks selected', ok ? 'var(--viz-accent)' : 'var(--viz-amber)') +
+        pill(written + ' model calls paid for', ok ? 'var(--viz-accent)' : 'var(--viz-amber)') +
+        pill(records + ' vector records exist', ok ? 'var(--viz-green)' : 'var(--viz-red)') +
+        (mode === 'auto' ? pill(dupes + ' duplicates', 'var(--viz-red)') : '') +
+        (mode === 'doc' ? pill(unreachable + ' chunks unretrievable', 'var(--viz-red)') : '');
+
+      if (mode === 'hash') {
+        why.innerHTML = '<b style="color:var(--viz-green)">Converged: 12 chunks, 12 vectors, whatever happened last time.</b>' +
+          'The job reads the immutable corpus version, <b>selects the chunks missing the target embedding version</b>, ' +
+          'and writes under deterministic keys — so it selects ' + selected + ' and pays for ' + selected + ' model calls. ' +
+          'Drag the slider anywhere: the final state is identical. That is what "converges to the same logical output ' +
+          'rather than duplicating" means, and it is the property that makes a failed run safe to simply run again. ' +
+          '<br><br>Note that the two failure modes on the other buttons are not exotic — they are the two most natural ' +
+          'keys a first draft reaches for.';
+      } else if (mode === 'doc') {
+        why.innerHTML = '<b style="color:var(--viz-red)">Too coarse: one document version has MANY chunks.</b>' +
+          'Keyed by document ID, the 4 chunks of each document collide onto one record — the last write wins and ' +
+          'the other 3 are unretrievable. 12 chunks become ' + records + ' vectors, and nothing errors: the job ' +
+          'reports success and retrieval quietly loses three quarters of the corpus. ' +
+          '<br><br>A content hash alone is the mirror-image trap: it deduplicates identical text correctly, but two ' +
+          'occurrences of the same passage may need <b>distinct metadata and permissions</b>. If cross-document ' +
+          'deduplication is worth having, separate the reusable vector bytes from the occurrence records.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-red)">Not idempotent: the re-run appends instead of upserting.</b>' +
+          'With a server-generated ID the job cannot tell what already exists, so it re-embeds all 12 and adds them ' +
+          'alongside the ' + done + ' from the first run — ' + records + ' records, ' + dupes + ' of them duplicates ' +
+          'that will both surface as neighbours in the same search. ' +
+          '<br><br>The same shape appears one level down: incrementing a counter or appending an unnamed vector <em>as ' +
+          'a side effect</em> of a batch call makes every timeout permanently corrupting, because the client cannot ' +
+          'know whether the service processed the batch before the socket dropped.';
+      }
+    }
+    s.addEventListener('input', render);
+    bH.addEventListener('click', function(){ mode = 'hash'; render(); });
+    bD.addEventListener('click', function(){ mode = 'doc'; render(); });
+    bA.addEventListener('click', function(){ mode = 'auto'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Packing The Batch</h2>
+  <p class="vz-lede">The endpoint accepts at most <b>20,000 tokens</b> per call, and the queue holds chunks of
+    600, 900 and 1,100 tokens in rotation. Offer it some chunks and choose how the batcher fills the call.
+    <b>Like loading a lift rated in kilograms, not in people.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Batching strategy">
+    <button id="v3-fixed" aria-pressed="true">fixed count of chunks</button>
+    <button id="v3-aware" aria-pressed="false">token-aware packing</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-n">Chunks offered to the batcher: <span id="v3-nl">50</span></label>
+    <input type="range" id="v3-n" min="1" max="50" value="50" step="1" aria-label="Chunks offered to the batcher">
+    <div class="v3-bar" id="v3-bar"></div>
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two details that decide real batches. <b>Reserve room for model-specific prefixes</b> — an
+    instruction prefix on every item is real tokens, and a batch sized to exactly 20,000 fails once one is added.
+    And count with the <b>exact tokenizer version</b>: a batcher counting with last year's tokenizer is
+    estimating, not budgeting, and the gap only shows up on the longest inputs, which are the ones already
+    closest to the ceiling.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-bar{margin-top:16px;height:26px;border-radius:7px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      display:flex;overflow:hidden;position:relative}
+    .v3-seg{height:100%;border-right:1px solid var(--viz-bg);flex:0 0 auto}
+    .v3-cap{position:absolute;top:-1px;bottom:-1px;border-left:2px dashed var(--viz-violet)}
+    .v3-stats{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SIZES = [600, 900, 1100], LIMIT = 20000, RESERVE = 500, USABLE = LIMIT - RESERVE;
+    var aware = false;
+    var s = document.getElementById('v3-n'), nl = document.getElementById('v3-nl');
+    var bar = document.getElementById('v3-bar'), stats = document.getElementById('v3-stats'), why = document.getElementById('v3-why');
+    var bF = document.getElementById('v3-fixed'), bA = document.getElementById('v3-aware');
+
+    function pill(t, c){ return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var n = Number(s.value);
+      nl.textContent = n;
+      bF.setAttribute('aria-pressed', aware ? 'false' : 'true');
+      bA.setAttribute('aria-pressed', aware ? 'true' : 'false');
+
+      var packed = [], total = 0, i, tok;
+      for (i = 0; i < n; i++) {
+        tok = SIZES[i % 3];
+        if (aware && total + tok > USABLE) break;
+        packed.push(tok); total += tok;
+      }
+      var over = total > LIMIT;
+      var scale = Math.max(LIMIT, total);
+      var segs = packed.map(function(t, j){
+        var c = over ? 'var(--viz-red)' : (j % 2 ? 'var(--viz-accent)' : 'var(--viz-green)');
+        return '<span class="v3-seg" style="width:' + (t / scale * 100) + '%;background:' + c + ';opacity:.85"></span>';
+      }).join('');
+      bar.innerHTML = segs + '<span class="v3-cap" style="left:' + (LIMIT / scale * 100) + '%"></span>';
+
+      var pct = Math.round(total / LIMIT * 100);
+      stats.innerHTML =
+        pill(packed.length + ' chunks packed', over ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(total.toLocaleString() + ' / 20,000 tokens', over ? 'var(--viz-red)' : (pct < 60 ? 'var(--viz-amber)' : 'var(--viz-green)')) +
+        pill(over ? 'REJECTED by the endpoint' : pct + '% of the limit used', over ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        (aware ? pill((n - packed.length) + ' left for the next call', 'var(--viz-muted)') : '');
+
+      if (!aware && over) {
+        why.innerHTML = '<b style="color:var(--viz-red)">A fixed count of ' + n + ' chunks blows the ceiling.</b>' +
+          'Those ' + n + ' chunks carry ' + total.toLocaleString() + ' tokens against a 20,000 limit, so the endpoint ' +
+          'rejects the <em>whole</em> batch — including the chunks that were nowhere near the boundary. This is exactly ' +
+          'why a fixed count of 50 chunks is the wrong dial: <b>count is not the quantity the limit is expressed in</b>. ' +
+          '<br><br>And the failure is worse than it looks. A rejected batch that gets naively retried unchanged fails ' +
+          'identically every time — it is a permanent error wearing the clothes of a transient one, and it belongs in ' +
+          'quarantine or in a re-packer, not in the backoff loop.';
+      } else if (!aware) {
+        why.innerHTML = '<b style="color:' + (pct < 60 ? 'var(--viz-amber)' : 'var(--viz-green)') + '">Fits — but only because this queue happens to be short.</b>' +
+          n + ' chunks came to ' + total.toLocaleString() + ' tokens, using ' + pct + '% of the call. The count that ' +
+          'is safe here depends entirely on <em>which</em> chunks turn up: the same 50-chunk rule that works on 600-token ' +
+          'chunks fails on 1,100-token ones. Drag right and watch it break. ' +
+          '<br><br>Batch size is a trade between throughput, model limits, latency and <b>failure cost</b> — a big batch ' +
+          'that fails takes everything in it down with it.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">Token-aware packing fills the call and never overruns it.</b>' +
+          'The packer adds chunks while they fit under ' + USABLE.toLocaleString() + ' tokens — 20,000 minus a ' +
+          RESERVE + '-token reserve for model-specific prefixes — and stops at ' + packed.length + ' chunks, ' +
+          total.toLocaleString() + ' tokens (' + pct + '% of the limit). The remaining ' + (n - packed.length) + ' ride the next call. ' +
+          '<br><br>The batch is now sized in the unit the endpoint actually charges and limits, so throughput is high, ' +
+          'rejection is structurally impossible, and the failure blast radius is a known number of chunks rather than ' +
+          'whatever happened to be queued.';
+      }
+    }
+    s.addEventListener('input', render);
+    bF.addEventListener('click', function(){ aware = false; render(); });
+    bA.addEventListener('click', function(){ aware = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Vector Plus Metadata</h2>
+  <p class="vz-lede">A vector on its own is 768 numbers nobody can filter, cite, invalidate or explain. Switch a
+    field off and watch which of those four powers you just lost — then choose where the fields live.
+    <b>Like a photo with the date, place and people stripped out: still a photo, useless as a record.</b></p>
+
+  <div class="v4-fields" id="v4-fields"></div>
+
+  <div class="vz-card">
+    <div class="v4-caps" id="v4-caps"></div>
+    <div class="vz-seg" role="group" aria-label="Where metadata lives" style="margin-top:14px;margin-bottom:0">
+      <button id="v4-co" aria-pressed="false">co-located in the index</button>
+      <button id="v4-cat" aria-pressed="false">normalized catalog</button>
+      <button id="v4-both" aria-pressed="true">both</button>
+    </div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Cardinality is the quiet constraint. Filtering on tenant or language is cheap and selective;
+    storing a huge array of individual principals on every vector is not, so access control is modelled with
+    compact group IDs, partitioned indexes or a precomputed authorization token set — and reviewed against the
+    <b>exact query behaviour</b>, not the intent. Watch the same monitors either way: orphan vectors, stale
+    metadata versions, dimension mismatches, hits on inactive records, and catalog-versus-index count drift.</p>
+
+  <style>
+    .v4-fields{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v4-f{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:7px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v4-f[aria-pressed="false"]{border-style:dashed;opacity:.6}
+    .v4-box{flex:0 0 auto;width:17px;height:17px;border-radius:5px;border:1.5px solid var(--viz-line);
+      font-size:11px;font-weight:900;text-align:center;line-height:15px}
+    .v4-n{font-family:ui-monospace,Consolas,monospace;font-size:11px;flex:1 1 auto}
+    .v4-caps{display:flex;gap:6px;flex-wrap:wrap}
+    .v4-cap{flex:1 1 92px;border:1.5px solid;border-radius:10px;padding:7px 8px;text-align:center;
+      font-size:10.5px;font-weight:800;letter-spacing:.03em;line-height:1.35}
+    .v4-cap span{display:block;font-size:9.5px;font-weight:700;letter-spacing:0;margin-top:2px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var FIELDS = [
+      { k:'embedding_id', c:['INVALIDATE','EXPLAIN'],
+        w:'The stable key every upsert targets. Without it a retry cannot be idempotent and nothing can be revoked by name.' },
+      { k:'chunk_id', c:['CITE','INVALIDATE'],
+        w:'The pointer back to the source span. Losing it means a hit can be scored but never quoted — and the chunk text itself is a choice: copy it into the vector store for speed, or return the ID and fetch from the authoritative document store to avoid a stale copy.' },
+      { k:'document_version_id', c:['CITE','INVALIDATE'],
+        w:'Lineage. Deleting document version V has to enumerate every chunk and embedding descendant across models and indexes; moving the logical document pointer removes nothing if the serving query still searches the old vectors.' },
+      { k:'model_version + dim + metric', c:['SEARCH','EXPLAIN'],
+        w:'A 768-dimensional cosine-normalized vector cannot blindly share a field with a 1,536-dimensional inner-product vector. Bind model, dimension, normalization and metric in an index namespace or a typed collection — this is schema, not convention.' },
+      { k:'tenant + permissions', c:['FILTER'],
+        w:'The eligibility predicate of visual 5. It is denormalized onto the vector so the filter is fast, which is precisely why it needs synchronising when access changes.' },
+      { k:'language + quality', c:['FILTER'],
+        w:'Immutable at processing time, so it can be written straight onto the vector generation and never resynchronised.' },
+      { k:'state: active/superseded/deleted', c:['FILTER','INVALIDATE'],
+        w:'Without a state field, a superseded generation is indistinguishable from the live one and both answer queries.' },
+      { k:'metadata_version', c:['FILTER'],
+        w:'This is what makes a STALE payload detectable rather than silently trusted. Fail safely when authorization metadata age exceeds policy.' },
+      { k:'created_at', c:['INVALIDATE'],
+        w:'Retention and lifecycle jobs run off it, and audits log it alongside the vector version.' }
+    ];
+    var CAPS = [
+      { k:'FILTER', d:'restrict to eligible' }, { k:'CITE', d:'quote the source' },
+      { k:'INVALIDATE', d:'delete or revoke' }, { k:'EXPLAIN', d:'justify a score' },
+      { k:'SEARCH', d:'compare vectors at all' }
+    ];
+    var on = FIELDS.map(function(){ return true; });
+    var place = 'both', last = -1;
+    var list = document.getElementById('v4-fields'), caps = document.getElementById('v4-caps'), why = document.getElementById('v4-why');
+    var bCo = document.getElementById('v4-co'), bCat = document.getElementById('v4-cat'), bBoth = document.getElementById('v4-both');
+
+    var PLACE = {
+      co: ['Co-located: fast filters, and a synchronisation debt.',
+        'Fields stored on the vector record itself give low-latency filtering and result display — the index can apply the predicate during the search. The debt is that every denormalized field must be kept current: change a document permission and every affected vector must become inaccessible <b>promptly</b>, by updating payloads, by delete-and-rebuild, or by an external authorization check after retrieval. Each option has a different latency and a different risk window.'],
+      cat: ['Catalog only: perfect lineage, one network hop, no in-index filter.',
+        'A normalized relational catalog joined by stable ID is the right source of truth for full lineage and for attributes too large or too mutable to copy onto every vector. But if the eligibility fields live <em>only</em> there, the index cannot pre-filter on them — the search runs unfiltered and you are forced into post-filtering, with everything visual 5 says about oversampling and trust boundaries.'],
+      both: ['Both — and this is usually the answer.',
+        'Co-locate what is <b>immutable at processing time</b> (chunk parent, language, model version, corpus version, content hash) plus the few selective fields you filter on; keep the catalog authoritative for lineage and for large or mutable attributes, referenced through a versioned metadata stream. Record a <code>metadata_version</code> on the payload so a stale copy is detectable rather than merely wrong.']
+    };
+
+    function render(){
+      list.innerHTML = '';
+      FIELDS.forEach(function(f, i){
+        var b = document.createElement('button');
+        b.className = 'v4-f';
+        b.setAttribute('aria-pressed', on[i] ? 'true' : 'false');
+        b.innerHTML = '<span class="v4-box" style="border-color:' + (on[i] ? 'var(--viz-green)' : 'var(--viz-red)') +
+          ';color:' + (on[i] ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (on[i] ? '✓' : '✗') + '</span>' +
+          '<span class="v4-n">' + f.k + '</span>';
+        b.addEventListener('click', function(){ on[i] = !on[i]; last = i; render(); });
+        list.appendChild(b);
+      });
+
+      var broken = {};
+      FIELDS.forEach(function(f, i){ if (!on[i]) f.c.forEach(function(c){ (broken[c] = broken[c] || []).push(f.k); }); });
+      caps.innerHTML = CAPS.map(function(c){
+        var bad = broken[c.k];
+        var col = bad ? 'var(--viz-red)' : 'var(--viz-green)';
+        return '<div class="v4-cap" style="color:' + col + ';border-color:' + col + '">' + c.k +
+          '<span>' + (bad ? 'BROKEN' : 'works') + '</span><span style="color:var(--viz-muted)">' + c.d + '</span></div>';
+      }).join('');
+
+      bCo.setAttribute('aria-pressed', place === 'co' ? 'true' : 'false');
+      bCat.setAttribute('aria-pressed', place === 'cat' ? 'true' : 'false');
+      bBoth.setAttribute('aria-pressed', place === 'both' ? 'true' : 'false');
+
+      var missing = Object.keys(broken);
+      var head = missing.length
+        ? ['<b style="color:var(--viz-red)">' + missing.length + ' of 5 powers broken: ' + missing.join(', ') + '.</b>',
+           'A vector that cannot be filtered, cited, invalidated or explained is not a retrieval artifact, it is a number. ' +
+           (last >= 0 ? '<br><br><b style="color:var(--viz-ink);display:inline">' + FIELDS[last].k + '</b> — ' + FIELDS[last].w : '')]
+        : ['<b style="color:var(--viz-green)">All five powers intact.</b>',
+           'Minimum viable record: embedding ID, chunk ID, document-version ID, model version, dimension, creation time and state — with source, language, tenant, permissions, timestamps and quality attributes on top for retrieval. Switch one off to see what it was holding up.' +
+           (last >= 0 ? '<br><br><b style="color:var(--viz-ink);display:inline">' + FIELDS[last].k + '</b> — ' + FIELDS[last].w : '')];
+      why.innerHTML = head[0] + head[1] +
+        '<br><br><b>' + PLACE[place][0] + '</b>' + PLACE[place][1];
+    }
+    bCo.addEventListener('click', function(){ place = 'co'; render(); });
+    bCat.addEventListener('click', function(){ place = 'cat'; render(); });
+    bBoth.addEventListener('click', function(){ place = 'both'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Pre-Filter Or Post-Filter</h2>
+  <p class="vz-lede">One shared index of 1,000,000 vectors. Drag how much of it the requester is allowed to see,
+    say how many results they want, and declare whether the predicate is a security boundary or a preference.
+    <b>Like a bouncer at the door versus a bouncer walking guests back out afterwards — same list, very
+    different evening.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v5-lab" for="v5-p">Eligible fraction p = <span id="v5-pl">1%</span>
+      &nbsp;·&nbsp; <span id="v5-el">10,000</span> eligible vectors of 1,000,000</label>
+    <input type="range" id="v5-p" min="0" max="8" value="3" step="1" aria-label="Eligible fraction of the index">
+    <div class="vz-seg" role="group" aria-label="Results wanted" style="margin:14px 0 0">
+      <button id="v5-k10" aria-pressed="true">k = 10 results</button>
+      <button id="v5-k20" aria-pressed="false">k = 20 results</button>
+    </div>
+    <div class="vz-seg" role="group" aria-label="Predicate kind" style="margin:6px 0 0">
+      <button id="v5-sec" aria-pressed="true">predicate = tenant / permission</button>
+      <button id="v5-rel" aria-pressed="false">predicate = language preference</button>
+    </div>
+  </div>
+
+  <div class="v5-cards" id="v5-cards"></div>
+  <div class="vz-card"><div class="v5-why" id="v5-why"></div></div>
+  <p class="vz-note">Two things that survive every choice here. <b>Filtering interacts with graph connectivity</b>:
+    in a graph index, eligible nodes are often reachable only <em>through</em> ineligible ones, so some engines
+    traverse them and some prune them — the word "pre-filter" does not tell you which, and only the first
+    preserves recall. And <b>filtered recall must be measured against exact search inside the eligible subset</b>,
+    sliced by eligible-set size, tenant, filter combination, k and candidate budget. Global unfiltered recall
+    predicts none of it.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.5}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-cards{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v5-c{flex:1 1 168px;min-width:0;border:1.5px solid var(--viz-line);border-radius:12px;padding:11px 12px;
+      background:var(--viz-surface)}
+    .v5-c h4{margin:0 0 7px;font-size:12.5px;font-weight:800;display:flex;align-items:center;gap:6px}
+    .v5-row{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;line-height:1.9;border-bottom:1px dotted var(--viz-line)}
+    .v5-row b{font-weight:800}
+    .v5-v{font-size:10.5px;font-weight:800;letter-spacing:.03em;margin-top:8px;line-height:1.45}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 1000000;
+    var P = [0.0005, 0.001, 0.005, 0.01, 0.02, 0.05, 0.10, 0.25, 0.50];
+    var PL = ['0.05%', '0.1%', '0.5%', '1%', '2%', '5%', '10%', '25%', '50%'];
+    var k = 10, security = true;
+    var s = document.getElementById('v5-p'), pl = document.getElementById('v5-pl'), el = document.getElementById('v5-el');
+    var cards = document.getElementById('v5-cards'), why = document.getElementById('v5-why');
+    var b10 = document.getElementById('v5-k10'), b20 = document.getElementById('v5-k20');
+    var bS = document.getElementById('v5-sec'), bR = document.getElementById('v5-rel');
+
+    function row(a, b, c){ return '<div class="v5-row"><span>' + a + '</span><b style="color:' + c + '">' + b + '</b></div>'; }
+
+    function render(){
+      var p = P[Number(s.value)], eligible = Math.round(N * p);
+      pl.textContent = PL[Number(s.value)];
+      el.textContent = eligible.toLocaleString();
+      b10.setAttribute('aria-pressed', k === 10 ? 'true' : 'false');
+      b20.setAttribute('aria-pressed', k === 20 ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', security ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', security ? 'false' : 'true');
+
+      var naive = k * p;                       // expected eligible items in a k-candidate global search
+      var need = Math.ceil(k / p);             // the k/p starting point
+      var thin = eligible < 1000;
+      var exact = eligible <= 500;
+
+      var postCol = naive < 1 ? 'var(--viz-red)' : (naive < k / 2 ? 'var(--viz-amber)' : 'var(--viz-green)');
+      var post = '<div class="v5-c" style="border-color:' + postCol + '"><h4 style="color:' + postCol + '">POST-FILTER</h4>' +
+        row('ask for k = ' + k + ' globally', 'get ' + naive.toFixed(2) + ' eligible', postCol) +
+        row('candidates needed (k/p)', need.toLocaleString(), 'var(--viz-ink)') +
+        row('vectors scored then thrown away', (need - k).toLocaleString(), 'var(--viz-amber)') +
+        '<div class="v5-v" style="color:' + postCol + '">' +
+        (naive < 1 ? 'ZERO-RESULT RISK — a plain top-' + k + ' search routinely returns nothing eligible'
+                   : 'workable without oversampling, but measure it') + '</div></div>';
+
+      var preCol = exact ? 'var(--viz-amber)' : (thin ? 'var(--viz-amber)' : 'var(--viz-green)');
+      var pre = '<div class="v5-c" style="border-color:' + preCol + '"><h4 style="color:' + preCol + '">PRE-FILTER</h4>' +
+        row('search space', eligible.toLocaleString() + ' vectors', 'var(--viz-ink)') +
+        row('ineligible nodes in top-k', '0', 'var(--viz-green)') +
+        row('candidates needed', k.toLocaleString(), 'var(--viz-green)') +
+        '<div class="v5-v" style="color:' + preCol + '">' +
+        (exact ? 'SO SMALL THAT EXACT SCAN WINS — brute-force cosine over ' + eligible.toLocaleString() + ' vectors'
+               : thin ? 'THIN SUBSET — a restrictive filter can fragment the graph or starve the traversal'
+                      : 'eligibility guaranteed, and recall inside the tenant improves') + '</div></div>';
+
+      cards.innerHTML = post + pre;
+
+      var head, body;
+      if (security) {
+        head = ['<b style="color:var(--viz-red)">Security predicate: authorization is not a relevance filter.</b>',
+          'An ineligible vector must never be returned, logged as visible content, or handed to a reranker that exposes it ' +
+          'to an unauthorized service — logs and traces included. Post-filtering can be secure <em>only</em> if the removal ' +
+          'happens inside a trusted boundary before any prohibited disclosure. So for a mandatory constraint the answer is ' +
+          '<b>pre-filtering or physical partitioning</b>: tenant-specific indexes give the strongest isolation and the most ' +
+          'predictable recall, at the cost of more indexes to operate and less pooling efficiency. ' +
+          '<br><br>And the filter is only as current as its input: a revoked group with a stale vector payload passes a ' +
+          'perfectly correct pre-filter. Propagate change events, reconcile with the source of truth, and fail safe when ' +
+          'authorization metadata is older than policy allows.'];
+      } else {
+        head = ['<b style="color:var(--viz-accent)">Relevance predicate: post-filtering is a legitimate choice here.</b>',
+          'Nothing is disclosed that should not be, so the question is purely cost and recall. Keep one global ANN structure, ' +
+          'oversample to about ' + need.toLocaleString() + ' candidates, and <b>measure</b> — because <code>k/p</code> = ' +
+          k + '/' + p + ' is a starting point, not a guarantee: skew, correlation between eligibility and similarity, and ANN misses all ' +
+          'push the real number around. Cap the oversampling to protect latency, and watch the zero-result rate. ' +
+          '<br><br>Adaptive sizing does this properly: estimate selectivity from metadata statistics and request more ' +
+          'neighbours only for rare filters.'];
+      }
+      body = exact
+        ? '<br><br><b style="color:var(--viz-amber)">At ' + eligible.toLocaleString() + ' eligible vectors, stop using the index.</b>' +
+          'A brute-force cosine scan over an eligible subset this small beats navigating a million-vector ANN graph on both ' +
+          'latency and reliability — and it is exact, so filtered recall stops being a question you have to measure.'
+        : '';
+      why.innerHTML = head[0] + head[1] + body;
+    }
+    s.addEventListener('input', render);
+    b10.addEventListener('click', function(){ k = 10; render(); });
+    b20.addEventListener('click', function(){ k = 20; render(); });
+    bS.addEventListener('click', function(){ security = true; render(); });
+    bR.addEventListener('click', function(){ security = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

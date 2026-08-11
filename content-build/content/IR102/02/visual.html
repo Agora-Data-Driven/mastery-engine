@@ -1,0 +1,690 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Frontier To Leads</button>
+  <button class="viz-tab" data-viz-tab="2">2. Poll, Diff, Confirm</button>
+  <button class="viz-tab" data-viz-tab="3">3. Events Out Of Order</button>
+  <button class="viz-tab" data-viz-tab="4">4. Cost Per Unique Page</button>
+  <button class="viz-tab" data-viz-tab="5">5. Seeds And Scope Gate</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Frontier To Leads</h2>
+  <p class="vz-lede"><b>The Crawl Frontier</b>, <b>Politeness</b> and <b>URL Canonicalization</b> all begin
+    with a URL already in hand. This panel is the step before them: switch discovery channels on and watch
+    which of ten real pages become reachable at all, and how long each takes to notice.
+    <b>Like a shop that only restocks what customers ask for — the things nobody mentions never arrive.</b></p>
+
+  <div class="vz-seg" id="v1-chans" role="group" aria-label="Discovery channels"></div>
+
+  <div class="vz-card">
+    <div class="v1-stat" id="v1-stat"></div>
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Nothing here skips what you already know: every URL a channel produces is still
+    normalized, canonicalized, checked against scope and robots, then queued and rate-limited exactly as
+    before. Discovery only decides <b>what gets the chance</b> to be crawled — and its output is a
+    <b>lead, not truth</b>.</p>
+
+  <style>
+    .v1-stat{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-rows{display:flex;flex-direction:column;gap:4px}
+    .v1-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.35}
+    .v1-r.is-lost{opacity:.5;border-style:dashed}
+    .v1-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right;flex:0 0 auto}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CH = [
+      { k:'links',   n:'link traversal', lag:72,   on:true  },
+      { k:'sitemap', n:'sitemap diff',   lag:24,   on:false },
+      { k:'feed',    n:'feed poll',      lag:0.25, on:false },
+      { k:'notify',  n:'notification',   lag:0.05, on:false },
+      { k:'search',  n:'search API',     lag:168,  on:false }
+    ];
+    var DOCS = [
+      { t:'Vertex vector search overview',      links:1, sitemap:1, feed:0, notify:0, search:1 },
+      { t:'API reference with no inbound links', links:0, sitemap:1, feed:0, notify:0, search:0 },
+      { t:'Release note published 20 min ago',   links:0, sitemap:0, feed:1, notify:1, search:0 },
+      { t:'BigQuery vector_search reference',    links:1, sitemap:1, feed:0, notify:0, search:1 },
+      { t:'Blog post from last month',           links:1, sitemap:1, feed:0, notify:0, search:1 },
+      { t:'Doc edited in place, URL unchanged',  links:0, sitemap:1, feed:0, notify:1, search:0 },
+      { t:'PDF in research.google /pubs/',       links:0, sitemap:0, feed:0, notify:0, search:1 },
+      { t:'Support article behind deep nav',     links:1, sitemap:1, feed:0, notify:0, search:1 },
+      { t:'Page updated by a partner CMS',       links:0, sitemap:0, feed:0, notify:1, search:0 },
+      { t:'Archived 2019 doc, still linked',     links:1, sitemap:1, feed:0, notify:0, search:1 }
+    ];
+    var segs = document.getElementById('v1-chans');
+    var stat = document.getElementById('v1-stat');
+    var rows = document.getElementById('v1-rows');
+    var why  = document.getElementById('v1-why');
+
+    function lagLabel(h){
+      if (h < 1) return Math.round(h * 60) + ' min';
+      if (h < 48) return Math.round(h) + ' h';
+      return Math.round(h / 24) + ' d';
+    }
+    function render(){
+      [].slice.call(segs.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', CH[i].on ? 'true' : 'false');
+      });
+      var lags = [], html = '', lost = 0;
+      DOCS.forEach(function(d){
+        var best = null;
+        CH.forEach(function(c){ if (c.on && d[c.k] && (best === null || c.lag < best.lag)) best = c; });
+        if (best) {
+          lags.push(best.lag);
+          html += '<div class="v1-r"><span>' + d.t + '</span>' +
+            '<span class="v1-tag" style="color:var(--viz-green)">found via ' + best.n + '<br>' + lagLabel(best.lag) + '</span></div>';
+        } else {
+          lost += 1;
+          html += '<div class="v1-r is-lost"><span>' + d.t + '</span>' +
+            '<span class="v1-tag" style="color:var(--viz-red)">NOT DISCOVERED</span></div>';
+        }
+      });
+      rows.innerHTML = html;
+
+      var found = lags.length;
+      var med = '—';
+      if (found) {
+        var s = lags.slice().sort(function(a, b){ return a - b; });
+        var mid = Math.floor(s.length / 2);
+        med = lagLabel(s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2);
+      }
+      var okC = found === DOCS.length ? 'var(--viz-green)' : (found ? 'var(--viz-amber)' : 'var(--viz-red)');
+      stat.innerHTML =
+        '<span class="v1-pill" style="color:' + okC + ';border-color:' + okC + '">' + found + ' of ' + DOCS.length + ' discovered</span>' +
+        '<span class="v1-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">median detection lag ' + med + '</span>' +
+        '<span class="v1-pill" style="color:' + (lost ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (lost ? 'var(--viz-red)' : 'var(--viz-line)') + '">' + lost + ' invisible</span>';
+
+      var on = {};
+      CH.forEach(function(c){ on[c.k] = c.on; });
+      var parts = [];
+      if (!found) {
+        parts.push('<b style="color:var(--viz-red)">Nothing is discovered, so nothing else applies.</b>' +
+          'A crawler cannot retrieve a document it never hears about. The frontier, the crawl delay and the canonicalizer all operate on URLs that this step has to supply.');
+      } else {
+        parts.push('<b>' + found + ' of 10 reachable · ' + lost + ' still invisible.</b>');
+        if (on.links) parts.push('<b style="display:inline;font-size:12.5px">Link traversal</b> is biased toward well-linked, already-known pages — it finds the hubs and misses the orphan reference, the brand-new release note and anything nobody links to. ');
+        if (on.sitemap) parts.push('<b style="display:inline;font-size:12.5px">The sitemap</b> is the cure for orphan pages: a publisher-provided inventory, diffed daily (100,000 URLs yesterday, 100,500 today, 500 new candidates). Completeness, at a day of lag. ');
+        if (on.feed) parts.push('<b style="display:inline;font-size:12.5px">The feed</b> covers only its latest window, so it buys freshness and nothing historical — miss a month of polls and only a sitemap or archive can fill the gap. ');
+        if (on.notify) parts.push('<b style="display:inline;font-size:12.5px">Notifications</b> collapse detection lag to minutes and remove wasted polling, at the price of at-least-once delivery — duplicates, reordering, and losses (visual 3). ');
+        if (on.search) parts.push('<b style="display:inline;font-size:12.5px">The search API</b> reaches outside your link graph entirely — that PDF has no path from any seed you hold — but it returns a ranked sample, never an inventory (visual 4). ');
+        parts.push('<br><br>Notice the shape: no single channel is complete, and their blind spots differ. That is the whole argument for running notifications for latency, feed polls for recent reconciliation, and a periodic inventory diff for completeness — recording <b>discovered_via</b> on every record so the channels disagreeing becomes visible instead of silent.');
+      }
+      why.innerHTML = parts.join('');
+    }
+    CH.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', c.on ? 'true' : 'false');
+      b.textContent = c.n;
+      b.addEventListener('click', function(){ CH[i].on = !CH[i].on; render(); });
+      segs.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Poll, Diff, Confirm</h2>
+  <p class="vz-lede">One sitemap poll, three separate decisions: was it worth downloading, what is new, and
+    what has vanished. Only the first two are cheap. <b>Like a shop inventory sheet: a missing line means
+    "look into it", never "the item was destroyed".</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Request and file state">
+    <button id="v2-cond" aria-pressed="true">conditional request: ON</button>
+    <button id="v2-changed" aria-pressed="false">publisher edited the file</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v2-fetch vz-mono" id="v2-fetch"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-gone">Entries listed yesterday and absent today:
+      <span id="v2-gonel">200</span></label>
+    <input type="range" id="v2-gone" min="0" max="400" value="200" step="20" aria-label="Entries that vanished from the sitemap">
+
+    <div class="vz-seg" role="group" aria-label="What a vanished URL returns when fetched" style="margin-top:12px">
+      <button id="v2-s200" aria-pressed="true">fetch returns 200</button>
+      <button id="v2-s404" aria-pressed="false">404</button>
+      <button id="v2-s410" aria-pressed="false">410 Gone</button>
+    </div>
+
+    <div class="v2-polls">
+      <button id="v2-minus" aria-label="Fewer consecutive polls">−</button>
+      <span>consecutive polls absent: <b id="v2-polls">1</b></span>
+      <button id="v2-plus" aria-label="More consecutive polls">+</button>
+    </div>
+
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note"><b>lastmod is a publisher claim, not a content timestamp</b> — some sites stamp it on
+    every deployment, others never touch it, so prioritise recrawls with it only after measuring its
+    reliability per source. And an <code>ETag</code> validator describes the <b>sitemap file</b>: a
+    <code>304</code> proves nothing about the pages it lists.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-fetch b{color:var(--viz-accent)}
+    .v2-polls{display:flex;align-items:center;gap:10px;margin-top:12px;font-size:12.5px}
+    .v2-polls button{min-width:44px;min-height:44px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-size:17px;font-weight:800}
+    .v2-polls b{font-family:ui-monospace,Consolas,monospace;color:var(--viz-accent)}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b.hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var YESTERDAY = 100000, TODAY = 100500, NEW = 500, BYTES_PER_ENTRY = 125;
+    var cond = true, changed = false, status = 200, polls = 1;
+    var bCond = document.getElementById('v2-cond'), bChg = document.getElementById('v2-changed');
+    var s200 = document.getElementById('v2-s200'), s404 = document.getElementById('v2-s404'), s410 = document.getElementById('v2-s410');
+    var gone = document.getElementById('v2-gone'), gonel = document.getElementById('v2-gonel');
+    var minus = document.getElementById('v2-minus'), plus = document.getElementById('v2-plus'), pollsEl = document.getElementById('v2-polls');
+    var fetchEl = document.getElementById('v2-fetch'), why = document.getElementById('v2-why');
+
+    function mb(n){ return (n * BYTES_PER_ENTRY / 1048576).toFixed(2); }
+    function render(){
+      bCond.setAttribute('aria-pressed', cond ? 'true' : 'false');
+      bCond.textContent = 'conditional request: ' + (cond ? 'ON' : 'OFF');
+      bChg.setAttribute('aria-pressed', changed ? 'true' : 'false');
+      s200.setAttribute('aria-pressed', status === 200 ? 'true' : 'false');
+      s404.setAttribute('aria-pressed', status === 404 ? 'true' : 'false');
+      s410.setAttribute('aria-pressed', status === 410 ? 'true' : 'false');
+      gonel.textContent = gone.value;
+      pollsEl.textContent = polls;
+
+      var g = Number(gone.value);
+      var lines = ['GET /sitemap.xml'];
+      if (cond) lines.push('If-None-Match: "a91f…"   If-Modified-Since: yesterday');
+      if (cond && !changed) {
+        lines.push('→ <b>304 Not Modified</b> · 0 bytes · body never parsed');
+        lines.push('   new candidates: 0    (nothing to diff)');
+      } else {
+        lines.push('→ <b>200 OK</b> · ' + mb(TODAY) + ' MB · ' + TODAY.toLocaleString() + ' entries parsed');
+        lines.push('   yesterday ' + YESTERDAY.toLocaleString() + ' → today ' + TODAY.toLocaleString() +
+          '    set difference: <b>' + (changed ? NEW : 0) + '</b> new candidates');
+      }
+      fetchEl.innerHTML = lines.join('\n');
+
+      var head, body;
+      if (cond && !changed) {
+        head = '<b class="hd" style="color:var(--viz-green)">A 304 skipped 12 MB and a full parse.</b>';
+        body = 'Persisting the response <code>ETag</code> and <code>Last-Modified</code> and replaying them as <code>If-None-Match</code> / <code>If-Modified-Since</code> is what makes frequent polling affordable for you and unobtrusive for the publisher. ' +
+          '<br><br>But read the guarantee precisely: the validator describes <em>the sitemap resource</em>. An unchanged sitemap does not prove the listed pages are unchanged — plenty of sites edit a document in place without touching the inventory at all.';
+      } else if (!cond && !changed) {
+        head = '<b class="hd" style="color:var(--viz-red)">' + mb(TODAY) + ' MB downloaded and parsed for nothing.</b>';
+        body = 'The file is byte-identical to yesterday and you paid for all of it, every cycle, and so did the publisher. This is the cost that conditional requests exist to remove.';
+      } else {
+        head = '<b class="hd">' + NEW + ' new candidates from the entry-level diff.</b>';
+        body = 'A changed file still has to be diffed entry by entry — the ' + NEW + ' additions are the discovery event, and each one is normalized and run through scope policy before it reaches the frontier. ' +
+          (cond ? 'The conditional request saved nothing this cycle, and that is fine: it is insurance you only notice on the quiet days.' : 'Without a conditional request you would have paid this transfer on the quiet days too.');
+      }
+
+      var vhead, vbody;
+      if (g === 0) {
+        vhead = '<b class="hd">Nothing vanished this cycle.</b>';
+        vbody = 'Slide it up: disappearance is where inventories are most often misread.';
+      } else if (status === 200) {
+        vhead = '<b class="hd" style="color:var(--viz-red)">Do not remove those ' + g + '.</b>';
+        vbody = 'They still serve <code>200 OK</code>. Absence from the file is a <em>publishing</em> event, not a content event — the site may have split its sitemap across more files, hit a per-file cap, or changed which sections it lists. Deleting indexed content on this evidence silently shrinks your corpus.';
+      } else if (polls < (status === 410 ? 2 : 3)) {
+        vhead = '<b class="hd" style="color:var(--viz-amber)">Not yet — ' + polls + ' absence' + (polls === 1 ? '' : 's') + ' is not evidence.</b>';
+        vbody = 'A ' + status + ' plus repeated absence is the bar. One poll can catch a deploy mid-flight, a partial file, or a transient error. Hold the URLs in a pending-removal set and re-check.';
+      } else {
+        vhead = '<b class="hd" style="color:var(--viz-green)">Confirmed: remove those ' + g + '.</b>';
+        vbody = 'Status ' + status + (status === 410 ? ' is an explicit "gone", so two polls suffice' : ' plus ' + polls + ' consecutive absences') + '. Two independent signals agree, which is the standard the whole lesson keeps applying to publisher claims.';
+      }
+      why.innerHTML = head + body + '<br><br>' + vhead + vbody;
+    }
+    bCond.addEventListener('click', function(){ cond = !cond; render(); });
+    bChg.addEventListener('click', function(){ changed = !changed; render(); });
+    s200.addEventListener('click', function(){ status = 200; render(); });
+    s404.addEventListener('click', function(){ status = 404; render(); });
+    s410.addEventListener('click', function(){ status = 410; render(); });
+    gone.addEventListener('input', render);
+    minus.addEventListener('click', function(){ polls = Math.max(1, polls - 1); render(); });
+    plus.addEventListener('click', function(){ polls = Math.min(5, polls + 1); render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Events Out Of Order</h2>
+  <p class="vz-lede">Change notifications are delivered <em>at least once</em>, in no guaranteed order.
+    Deliver the five events for document <code>d42</code> and watch what your sink ends up storing.
+    <b>Like post arriving out of sequence: apply every letter as it lands and last week's news overwrites
+    today's.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Sink policy">
+    <button id="v3-mono" aria-pressed="true">accept only if newer</button>
+    <button id="v3-arr" aria-pressed="false">apply arrival order</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-state" id="v3-state"></div>
+    <div class="v3-queue" id="v3-queue"></div>
+    <div class="v3-controls">
+      <button id="v3-next">Deliver next event</button>
+      <button id="v3-reset">Reset</button>
+    </div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">A version guard fixes duplication and reordering. It cannot fix <b>loss</b> — a webhook
+    dropped by an integration defect never arrives to be compared against anything. That is why the design
+    pairs notifications with a periodic <b>reconciliation scan</b> over the feed or sitemap: push for
+    latency, poll for truth.</p>
+
+  <style>
+    .v3-state{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:800;
+      border:1.5px solid var(--viz-line);border-radius:10px;padding:11px 12px;background:var(--viz-bg);margin-bottom:11px}
+    .v3-queue{display:flex;flex-direction:column;gap:4px}
+    .v3-e{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.35}
+    .v3-e.is-pending{opacity:.45;border-style:dashed}
+    .v3-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit;text-align:right}
+    .v3-controls{display:flex;gap:8px;margin-top:12px}
+    .v3-controls button{flex:1 1 auto;min-height:44px;border:1.5px solid var(--viz-accent);border-radius:10px;
+      background:var(--viz-accent);color:#fff;font:inherit;font-weight:800;font-size:12.5px}
+    .v3-controls button:last-child{background:var(--viz-surface);color:var(--viz-muted);border-color:var(--viz-line)}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b.hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var EVENTS = [
+      { v:6, l:'created' },
+      { v:8, l:'update' },
+      { v:7, l:'earlier edit, delivered late' },
+      { v:8, l:'duplicate re-delivery' },
+      { v:9, l:'update' }
+    ];
+    var mono = true, done = 0;
+    var bM = document.getElementById('v3-mono'), bA = document.getElementById('v3-arr');
+    var stateEl = document.getElementById('v3-state'), queue = document.getElementById('v3-queue');
+    var next = document.getElementById('v3-next'), reset = document.getElementById('v3-reset');
+    var why = document.getElementById('v3-why');
+
+    function replay(){
+      var stored = 0, out = [], regressed = false;
+      for (var i = 0; i < done; i++) {
+        var e = EVENTS[i];
+        if (mono) {
+          if (e.v > stored) { stored = e.v; out.push('applied → v' + stored); }
+          else out.push(e.v === stored ? 'ignored · duplicate' : 'ignored · older than v' + stored);
+        } else {
+          var back = stored > 0 && e.v < stored;   // i = 0 has nothing to regress from
+          if (back) regressed = true;
+          stored = e.v;
+          out.push('applied → v' + stored + (back ? '  ⚠ regression' : ''));
+        }
+      }
+      return { stored:stored, out:out, regressed:regressed };
+    }
+    function render(){
+      bM.setAttribute('aria-pressed', mono ? 'true' : 'false');
+      bA.setAttribute('aria-pressed', mono ? 'false' : 'true');
+      var r = replay();
+      var live = r.stored === 0 ? '—' : 'v' + r.stored;
+      var mark = r.stored === 0 ? '' : (r.regressed ? '  ← REGRESSED, older text is live'
+        : (r.stored === Math.max.apply(null, EVENTS.slice(0, done).map(function(e){ return e.v; })) ? '  ← current' : ''));
+      var col = r.regressed ? 'var(--viz-red)' : (r.stored ? 'var(--viz-green)' : 'var(--viz-muted)');
+      stateEl.innerHTML = 'd42 stored version: <span style="color:' + col + '">' + live + mark + '</span>';
+
+      queue.innerHTML = EVENTS.map(function(e, i){
+        var did = i < done;
+        var outcome = did ? r.out[i] : 'pending';
+        var c = !did ? 'var(--viz-muted)'
+          : (/regression/.test(outcome) ? 'var(--viz-red)' : (/ignored/.test(outcome) ? 'var(--viz-amber)' : 'var(--viz-green)'));
+        return '<div class="v3-e' + (did ? '' : ' is-pending') + '">' +
+          '<span>event ' + (i + 1) + ' · version ' + e.v + '</span><span>' + e.l + '</span>' +
+          '<span class="v3-tag" style="color:' + c + '">' + outcome + '</span></div>';
+      }).join('');
+      next.textContent = done >= EVENTS.length ? 'All events delivered' : 'Deliver next event';
+
+      var head, body;
+      if (done === 0) {
+        head = '<b class="hd">Nothing delivered yet.</b>';
+        body = 'The queue below is what a real integration hands you: an out-of-order pair and a duplicate, both of which are normal rather than faults.';
+      } else if (mono) {
+        head = '<b class="hd" style="color:var(--viz-green)">The version guard holds.</b>';
+        body = 'One rule — <b>accept an update only if its source version is newer than the one you hold</b> — buys two properties at once. Reordering tolerance: version 7 arriving after version 8 is <em>ignored</em>, because it is older than what is stored. And idempotence: the duplicate version 8 is ignored for exactly the same reason, so at-least-once delivery costs you nothing. ' +
+          '<br><br>Note what the sink does <b>not</b> need: no knowledge of delivery order, no deduplication table of event IDs, no coordination. Comparing against a monotonic source version is the whole mechanism.';
+      } else if (r.regressed) {
+        head = '<b class="hd" style="color:var(--viz-red)">Content regressed, and nothing logged an error.</b>';
+        body = 'Version 7 arrived after version 8 because queues reorder, and a sink that applies arrival order faithfully wrote the older text over the newer. Every component behaved as designed; only the corpus is wrong. ' +
+          '<br><br>This is the failure mode to recognise on sight: the document is <em>stale in a way no freshness check catches</em>, because it was updated recently — just to the wrong content.';
+      } else {
+        head = '<b class="hd">So far, arrival order happens to be correct.</b>';
+        body = 'Keep delivering. The reordered pair is still ahead, and correctness that depends on the network behaving is not correctness.';
+      }
+      why.innerHTML = head + body;
+    }
+    bM.addEventListener('click', function(){ mono = true; render(); });
+    bA.addEventListener('click', function(){ mono = false; render(); });
+    next.addEventListener('click', function(){ if (done < EVENTS.length) done += 1; render(); });
+    reset.addEventListener('click', function(){ done = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Cost Per Unique Page</h2>
+  <p class="vz-lede">A search API bills per request and pays out in <em>unique</em> pages, and those two
+    numbers grow at very different rates. Drag the plan and watch the last page of results become the
+    expensive one. <b>Like panning a river: the first pan holds most of the gold, the tenth is mostly
+    gravel you already own.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-q">Planned queries: <span id="v4-ql">1,000</span></label>
+    <input type="range" id="v4-q" min="100" max="2000" value="1000" step="100" aria-label="Planned queries">
+
+    <label class="v4-lab" for="v4-p" style="margin-top:12px">Pages fetched per query: <span id="v4-pl">5</span></label>
+    <input type="range" id="v4-p" min="1" max="10" value="5" step="1" aria-label="Pages per query">
+
+    <label class="v4-lab" for="v4-c" style="margin-top:12px">Price per request: <span id="v4-cl">$0.005</span></label>
+    <input type="range" id="v4-c" min="1" max="40" value="10" step="1" aria-label="Price per request">
+
+    <div class="v4-stats" id="v4-stats"></div>
+    <div class="v4-table vz-mono" id="v4-table"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Three real queries — <code>site:cloud.google.com vertex vector search</code>,
+    <code>site:cloud.google.com bigquery vector_search</code>,
+    <code>site:research.google retrieval embeddings</code> — returning 100 results each do <b>not</b> give
+    300 unique pages: high-authority pages rank for many queries. Deduplicate by canonical URL, and keep
+    <b>every</b> discovery-query record, so later you can still say why a page entered scope.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-stats{margin-top:15px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-table{margin-top:13px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg);overflow-x:auto}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b.hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Unique in-scope URLs per request on page 1, decaying by DECAY per page:
+    // deeper pages return the head results you already hold. Calibrated so the
+    // lesson's worked plan (1,000 queries x 5 pages) lands on ~2,000 unique URLs.
+    var Y0 = 0.8676, DECAY = 0.6;
+    var q = document.getElementById('v4-q'), ql = document.getElementById('v4-ql');
+    var p = document.getElementById('v4-p'), pl = document.getElementById('v4-pl');
+    var c = document.getElementById('v4-c'), cl = document.getElementById('v4-cl');
+    var stats = document.getElementById('v4-stats'), table = document.getElementById('v4-table');
+    var why = document.getElementById('v4-why');
+
+    function money(x){ return '$' + x.toFixed(2); }
+    function render(){
+      var Q = Number(q.value), P = Number(p.value), C = Number(c.value) / 2000; // 1 → $0.0005
+      ql.textContent = Q.toLocaleString();
+      pl.textContent = P;
+      cl.textContent = '$' + C.toFixed(4);
+
+      var calls = Q * P, cost = calls * C;
+      var unique = Math.round(Q * Y0 * (1 - Math.pow(DECAY, P)) / (1 - DECAY));
+      var perUnique = unique > 0 ? cost / unique : null;
+
+      var pu = perUnique === null ? '—' : (perUnique * 100).toFixed(2) + '¢';
+      var puC = perUnique === null ? 'var(--viz-muted)' : (perUnique > 0.03 ? 'var(--viz-red)' : 'var(--viz-green)');
+      stats.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + calls.toLocaleString() + ' calls</span>' +
+        '<span class="v4-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + money(cost) + ' before any fetch</span>' +
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + unique.toLocaleString() + ' unique in-scope URLs</span>' +
+        '<span class="v4-pill" style="color:' + puC + ';border-color:' + puC + '">' + pu + ' per unique discovery</span>';
+
+      var first = Q * Y0, rows = ['page   unique found   cost per unique   verdict'];
+      var dying = 0;
+      for (var i = 0; i < P; i++) {
+        var pageUnique = Q * Y0 * Math.pow(DECAY, i);
+        var marg = pageUnique >= 0.5 ? (Q * C) / pageUnique : null;
+        var ratio = pageUnique >= 0.5 ? (first / pageUnique) : Infinity;
+        var verdict = ratio >= 3 ? 'diminishing — stop here' : 'paying';
+        if (ratio >= 3) dying += 1;
+        rows.push(
+          String(i + 1).padEnd(7) +
+          (pageUnique >= 0.5 ? Math.round(pageUnique).toLocaleString() : '<1').padEnd(15) +
+          (marg === null ? '—' : ((marg * 100).toFixed(2) + '¢')).padEnd(18) +
+          verdict);
+      }
+      table.textContent = rows.join('\n');
+
+      var head, body;
+      if (unique === 0) {
+        head = '<b class="hd" style="color:var(--viz-red)">No unique discoveries — every request is pure cost.</b>';
+        body = 'Cost per unique discovery is undefined, which is the honest answer: a query family returning nothing new should be retired, not repriced.';
+      } else if (P >= 8) {
+        head = '<b class="hd" style="color:var(--viz-red)">Deep pagination is where the budget goes to die.</b>';
+        body = 'Page ' + P + ' costs the same per request as page 1 and returns a fraction of the unique URLs, so the marginal cost has risen roughly ' + Math.round(Math.pow(1 / DECAY, P - 1)) + '× since the first page. ' +
+          'Providers also cap retrievable depth, personalize, and suppress near-duplicates, so the tail is partly unreachable in principle. ' +
+          '<br><br>The stop rule is not "spend the budget": it is <b>unique eligible in-scope discoveries per request</b>, watched per query family and cut when it collapses.';
+      } else {
+        head = '<b class="hd">' + calls.toLocaleString() + ' calls · ' + money(cost) + ' · ' + unique.toLocaleString() + ' unique pages · ' + pu + ' each.</b>';
+        body = 'The arithmetic is the easy half: queries × pages = calls, calls × price = spend, spend ÷ unique = the only number that means anything. ' +
+          (dying ? 'The table already flags ' + dying + ' page' + (dying === 1 ? '' : 's') + ' where the marginal cost has tripled. ' : '') +
+          '<br><br>The hard half is that this is <em>discovery</em> cost only — nothing has been fetched, extracted or indexed yet. And it buys a <b>ranked sample</b>, not an inventory: repeating one broad query never approaches exhaustive coverage, because the same head pages occupy the whole window. A query matrix across subtopics, entities, time ranges, languages and file types is what widens it, and coverage stays empirical even then.';
+      }
+      why.innerHTML = head + body;
+    }
+    q.addEventListener('input', render);
+    p.addEventListener('input', render);
+    c.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Seeds And Scope Gate</h2>
+  <p class="vz-lede">Seeds decide what is <em>reachable</em>; scope policy decides what is <em>allowed</em>.
+    Pick seeds and watch the union of corpus regions they cover, then set the parameter and redirect rules
+    and watch eight candidate URLs pass or fail. <b>Like planning a trip: which stops you can reach, and
+    which ones you are actually permitted to enter.</b></p>
+
+  <div class="v5-seedbox">
+    <h5>Seeds — select a set that covers the corpus</h5>
+    <div class="v5-seeds" id="v5-seeds"></div>
+    <div class="v5-cover" id="v5-cover"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Query parameter policy" style="margin-top:14px">
+    <button id="v5-pk" aria-pressed="false">keep every parameter</button>
+    <button id="v5-ps" aria-pressed="true">per-source semantics</button>
+    <button id="v5-pa" aria-pressed="false">strip every parameter</button>
+  </div>
+  <div class="vz-seg" role="group" aria-label="Redirect policy">
+    <button id="v5-redir" aria-pressed="true">re-check redirect targets: ON</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-urls" id="v5-urls"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Enforce scope at discovery, at fetch, at storage and at downstream indexing — defence
+    in depth, because "crawl broadly and delete later" is unsafe: the fetch itself may breach terms, and
+    untrusted content is already inside. Permission, robots, credentials and tenant isolation are stricter
+    than reachability: <b>"the crawler can fetch it" is not authorization</b>.</p>
+
+  <style>
+    .v5-seedbox{border:1.5px solid var(--viz-line);border-radius:12px;padding:12px;background:var(--viz-surface)}
+    .v5-seedbox h5{margin:0 0 8px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-seeds{display:flex;flex-direction:column;gap:5px}
+    .v5-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:10px;padding:8px 10px;font:inherit;font-size:11.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.35;font-family:ui-monospace,Consolas,monospace}
+    .v5-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-mk{flex:0 0 auto;font-weight:800;width:14px;font-family:inherit}
+    .v5-marg{margin-left:auto;font-size:10px;font-weight:800;font-family:inherit;text-align:right}
+    .v5-cover{margin-top:10px;display:flex;gap:6px;flex-wrap:wrap}
+    .v5-reg{font-size:10.5px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid}
+    .v5-urls{display:flex;flex-direction:column;gap:5px}
+    .v5-u{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:10px;padding:8px 10px;font:inherit;font-size:11px;
+      display:flex;flex-direction:column;gap:3px;line-height:1.4;font-family:ui-monospace,Consolas,monospace}
+    .v5-verd{font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b.hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var REGIONS = { docs:'product docs', api:'API references', notes:'release notes', research:'research', support:'support' };
+    var SEEDS = [
+      { u:'cloud.google.com/  (homepage)',        r:['docs', 'notes'], on:true },
+      { u:'cloud.google.com/products',            r:['docs'], on:false },
+      { u:'cloud.google.com/vertex-ai/docs',      r:['docs', 'api'], on:false },
+      { u:'cloud.google.com/bigquery/docs',       r:['docs', 'api'], on:false },
+      { u:'cloud.google.com/sitemap.xml',         r:['docs', 'api', 'notes', 'support'], on:false },
+      { u:'research.google/pubs/',                r:['research'], on:false }
+    ];
+    var param = 'semantic', redir = true;
+    var seedsEl = document.getElementById('v5-seeds'), coverEl = document.getElementById('v5-cover');
+    var pk = document.getElementById('v5-pk'), ps = document.getElementById('v5-ps'), pa = document.getElementById('v5-pa');
+    var bRedir = document.getElementById('v5-redir');
+    var urlsEl = document.getElementById('v5-urls'), why = document.getElementById('v5-why');
+
+    function verdicts(){
+      var keep = param === 'keep', strip = param === 'strip';
+      return [
+        { u:'https://cloud.google.com/vertex-ai/docs/vector-search?utm_source=nl',
+          ok: !keep,
+          why: keep ? 'DUPLICATED — every campaign variant becomes its own frontier entry'
+                    : 'ACCEPTED — tracking parameter dropped, one canonical URL' },
+        { u:'https://cloud.google.com/bigquery/docs/reference?version=v2',
+          ok: !strip,
+          why: strip ? 'MERGED WITH ?version=v1 — two different documents collapse into one'
+                     : 'ACCEPTED — documented semantic parameter retained' },
+        { u:'http://cloud.google.com/vertex-ai/docs/overview',
+          ok:false, why:'REJECTED — scheme: policy allows https only' },
+        { u:'https://cloud.google.com/search?q=vector',
+          ok:false, why:'REJECTED — denied pattern /search (and a classic infinite trap)' },
+        { u:'https://cloud.google.com/vertex-ai/docs/go  →  https://intranet.corp.example/wiki',
+          ok: !redir,
+          why: redir ? 'REJECTED AT THE REDIRECT — target host is not on the allowlist'
+                     : 'FETCHED ANYWAY — an allowed URL walked you onto an internal host' },
+        { u:'https://user-123.cloud-sites.example/notes',
+          ok:false, why:'REJECTED — host not on the allowlist; "same domain" is not a rule' },
+        { u:'http://169.254.169.254/latest/meta-data/',
+          ok:false, why:'REJECTED — link-local address, blocked before DNS is trusted (SSRF)' },
+        { u:'https://research.google/pubs/pub12345.pdf',
+          ok:true, why:'ACCEPTED — allowed host, /pubs/ prefix, PDF is an allowed content type' }
+      ];
+    }
+    function render(){
+      var chosen = SEEDS.filter(function(s){ return s.on; });
+      var union = {};
+      chosen.forEach(function(s){ s.r.forEach(function(k){ union[k] = 1; }); });
+
+      seedsEl.innerHTML = '';
+      SEEDS.forEach(function(s, i){
+        var others = {};
+        SEEDS.forEach(function(o, j){ if (o.on && j !== i) o.r.forEach(function(k){ others[k] = 1; }); });
+        var addsN = s.r.filter(function(k){ return !others[k]; }).length;
+        var b = document.createElement('button');
+        b.className = 'v5-s';
+        b.setAttribute('aria-pressed', s.on ? 'true' : 'false');
+        var tag = !s.on ? ('would add ' + s.r.filter(function(k){ return !union[k]; }).length)
+                        : (addsN === 0 ? 'adds nothing — drop it' : 'uniquely covers ' + addsN);
+        var col = !s.on ? 'var(--viz-muted)' : (addsN === 0 ? 'var(--viz-amber)' : 'var(--viz-green)');
+        b.innerHTML = '<span class="v5-mk" style="color:' + (s.on ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' +
+          (s.on ? '■' : '□') + '</span><span>' + s.u + '</span>' +
+          '<span class="v5-marg" style="color:' + col + '">' + tag + '</span>';
+        b.addEventListener('click', function(){ SEEDS[i].on = !SEEDS[i].on; render(); });
+        seedsEl.appendChild(b);
+      });
+
+      var keys = Object.keys(REGIONS), got = keys.filter(function(k){ return union[k]; }).length;
+      coverEl.innerHTML = keys.map(function(k){
+        var hit = !!union[k];
+        var c = hit ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<span class="v5-reg" style="color:' + c + ';border-color:' + c + '">' +
+          (hit ? '✓ ' : '✗ ') + REGIONS[k] + '</span>';
+      }).join('') + '<span class="v5-reg" style="color:var(--viz-violet);border-color:var(--viz-violet)">' +
+        got + ' of ' + keys.length + ' regions · ' + chosen.length + ' seed' + (chosen.length === 1 ? '' : 's') + '</span>';
+
+      pk.setAttribute('aria-pressed', param === 'keep' ? 'true' : 'false');
+      ps.setAttribute('aria-pressed', param === 'semantic' ? 'true' : 'false');
+      pa.setAttribute('aria-pressed', param === 'strip' ? 'true' : 'false');
+      bRedir.setAttribute('aria-pressed', redir ? 'true' : 'false');
+      bRedir.textContent = 're-check redirect targets: ' + (redir ? 'ON' : 'OFF');
+
+      var V = verdicts(), pass = 0;
+      urlsEl.innerHTML = V.map(function(v){
+        if (v.ok) pass += 1;
+        var c = v.ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v5-u"><span>' + v.u + '</span>' +
+          '<span class="v5-verd" style="color:' + c + '">' + v.why + '</span></div>';
+      }).join('');
+
+      var head, body;
+      if (chosen.length === 0) {
+        head = '<b class="hd" style="color:var(--viz-red)">No seeds: nothing is reachable.</b>';
+        body = 'Scope policy has nothing to judge. Seeds come first.';
+      } else if (got < keys.length) {
+        head = '<b class="hd" style="color:var(--viz-amber)">' + got + ' of 5 regions covered by ' + chosen.length + ' seed' + (chosen.length === 1 ? '' : 's') + '.</b>';
+        body = 'Seed selection is a set-cover judgment: each seed reaches some subset of the corpus under your link and depth rules, and what matters is the <b>union</b>, not how important any one page looks. A homepage is the obvious seed and often a poor one — navigation and marketing links funnel into the pages everything else already reaches. Documentation indexes, repository roots, a sitemap URL and a research hub are usually the cheaper cover. ';
+      } else {
+        head = '<b class="hd" style="color:var(--viz-green)">All 5 regions covered by ' + chosen.length + ' seed' + (chosen.length === 1 ? '' : 's') + '.</b>';
+        body = 'Now test the set the way you would in production: <b>marginal coverage</b>. Add one seed, crawl to a fixed budget, and measure the new canonical in-scope documents beyond the current set. Any seed reading "adds nothing" is duplicate coverage and should be removed — seeds and policy are version-controlled configuration, because changing either changes the corpus. ';
+      }
+      body += '<br><br><b>' + pass + ' of 8 candidates admitted.</b> ' +
+        (param === 'keep'
+          ? 'Keeping every parameter manufactures infinite duplicates from a single page. '
+          : param === 'strip'
+            ? 'Stripping every parameter merges genuinely different resources — <code>?version=v1</code> and <code>?version=v2</code> are two documents, and you now hold one. '
+            : 'Per-source parameter semantics is the only setting that gets both the tracking case and the versioned case right. ') +
+        (redir
+          ? 'And re-checking the redirect target is what stops an allowed URL walking the crawler onto an internal host — the same reason resolved DNS and IPs are validated before the fetch.'
+          : '<span style="color:var(--viz-red)">With redirect re-checking off, an in-scope URL just carried the fetch to <code>intranet.corp.example</code>.</span> Scope must be evaluated again after every hop.');
+      why.innerHTML = head + body;
+    }
+    pk.addEventListener('click', function(){ param = 'keep'; render(); });
+    ps.addEventListener('click', function(){ param = 'semantic'; render(); });
+    pa.addEventListener('click', function(){ param = 'strip'; render(); });
+    bRedir.addEventListener('click', function(){ redir = !redir; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

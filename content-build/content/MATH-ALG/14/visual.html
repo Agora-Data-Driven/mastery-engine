@@ -1,0 +1,841 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 108px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 132px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Undoing The Exponential</button>
+  <button class="viz-tab" data-viz-tab="2">2. Same Three Numbers</button>
+  <button class="viz-tab" data-viz-tab="3">3. Three Laws One Source</button>
+  <button class="viz-tab" data-viz-tab="4">4. Change Of Base</button>
+  <button class="viz-tab" data-viz-tab="5">5. Constant Ratio</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Undoing The Exponential</h2>
+  <p class="vz-lede">Graphing exponential growth and decay gave you a machine that turns an exponent into a
+    value. Introduction to inverse functions gave you the idea of running a machine backwards. A logarithm
+    is that backwards machine — nothing more. Pick a base, drag the exponent, and watch the same pair of
+    numbers appear on both curves with their coordinates swapped.
+    <b>Like folding paper: one question is how thick it is after 6 folds, the other is how many folds got
+    it that thick.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already taught</h5><div class="vz-mono">f(x) = b^x
+input  = the exponent
+output = the value      (always &gt; 0)</div></div>
+    <div class="v1-half"><h5>this lesson</h5><div class="vz-mono">f'(x) = log_b(x)
+input  = the value      (must be &gt; 0)
+output = the exponent</div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="vz-seg" id="v1-bases" role="group" aria-label="Base of the exponential">
+      <button data-b="2" aria-pressed="true">base 2</button>
+      <button data-b="3" aria-pressed="false">base 3</button>
+      <button data-b="e" aria-pressed="false">base e</button>
+      <button data-b="10" aria-pressed="false">base 10</button>
+    </div>
+
+    <label class="vz-lab" for="v1-t">exponent t = <b><span id="v1-tl">3</span></b></label>
+    <input class="vz-range" type="range" id="v1-t" min="-100" max="100" value="96" step="1" aria-label="The exponent t">
+
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="v1-read" id="v1-read"></div>
+    <div class="vz-mono" id="v1-steps" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-presets"></div>
+  </div>
+
+  <p class="vz-note">Watch which coordinate is which, because that is what the distractors trade on. On the
+    exponential curve the point is <b>(exponent, value)</b>; on the logarithm curve the very same fact is the
+    point <b>(value, exponent)</b>. Reflecting across the dashed line y = x is not decoration — it is the
+    picture of an inverse, and it is why the domain of one is the range of the other.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+    .v1-read{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var BASES = [
+      { k:'2',  v:2 },
+      { k:'3',  v:3 },
+      { k:'e',  v:Math.E },
+      { k:'10', v:10 }
+    ];
+    var bKey = '2';
+    var bases = document.getElementById('v1-bases');
+    var slider = document.getElementById('v1-t');
+    var tl = document.getElementById('v1-tl');
+    var plot = document.getElementById('v1-plot');
+    var read = document.getElementById('v1-read');
+    var steps = document.getElementById('v1-steps');
+    var why = document.getElementById('v1-why');
+    var pres = document.getElementById('v1-presets');
+
+    // The window shows values from 0.04 to 9, so the exponent range depends on the
+    // base — otherwise 10^3 would fly off the top while 2^3 sat in the middle.
+    var U_LO = 0.04, U_HI = 9;
+
+    function baseVal(){
+      for (var i = 0; i < BASES.length; i++) if (BASES[i].k === bKey) return BASES[i].v;
+      return 2;
+    }
+    function tLo(){ return Math.log(U_LO) / Math.log(baseVal()); }
+    function tHi(){ return Math.log(U_HI) / Math.log(baseVal()); }
+    function tNow(){
+      var s = Number(slider.value);
+      if (!isFinite(s)) s = 0;
+      var lo = tLo(), hi = tHi();
+      if (!isFinite(lo) || !isFinite(hi) || hi === lo) return 1;
+      return lo + (s + 100) / 200 * (hi - lo);
+    }
+    function setT(t){
+      var lo = tLo(), hi = tHi();
+      if (!isFinite(lo) || !isFinite(hi) || hi === lo) return;
+      var c = Math.min(hi, Math.max(lo, t));
+      var s = Math.round((c - lo) / (hi - lo) * 200 - 100);
+      slider.value = String(Math.max(-100, Math.min(100, s)));
+    }
+    function n(v, d){
+      if (!isFinite(v)) return '—';
+      var p = Math.pow(10, d === undefined ? 3 : d);
+      return String(Math.round(v * p) / p);
+    }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var b = baseVal();
+      [].slice.call(bases.children).forEach(function(btn){
+        btn.setAttribute('aria-pressed', btn.getAttribute('data-b') === bKey ? 'true' : 'false');
+      });
+
+      var t = tNow();
+      var u = Math.pow(b, t);
+      if (!isFinite(u) || u <= 0) { t = 0; u = 1; }
+      tl.textContent = n(t, 2);
+
+      var XLO = -1.2, XHI = 9.6, YLO = -3.4, YHI = 9.6, W = 300, H = 300;
+      function px(x){ return (x - XLO) / (XHI - XLO) * W; }
+      function py(y){ return H - (y - YLO) / (YHI - YLO) * H; }
+      function seg(pts, col, wid, dash){
+        return '<polyline points="' + pts.join(' ') + '" style="fill:none;stroke:' + col +
+          ';stroke-width:' + wid + (dash ? ';stroke-dasharray:' + dash : '') + '"></polyline>';
+      }
+      function curve(f, x0, x1, col, wid, dash){
+        var pts = [], out = '';
+        for (var i = 0; i <= 180; i++) {
+          var x = x0 + (x1 - x0) * i / 180, y = f(x);
+          if (!isFinite(y) || y < YLO || y > YHI) { if (pts.length > 1) out += seg(pts, col, wid, dash); pts = []; continue; }
+          pts.push(px(x).toFixed(1) + ',' + py(y).toFixed(1));
+        }
+        if (pts.length > 1) out += seg(pts, col, wid, dash);
+        return out;
+      }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="An exponential curve and its logarithm reflected across the line y equals x">';
+      for (var g = -2; g <= 9; g += 2) {
+        svg += '<line x1="' + px(g).toFixed(1) + '" y1="0" x2="' + px(g).toFixed(1) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+        svg += '<line x1="0" y1="' + py(g).toFixed(1) + '" x2="' + W + '" y2="' + py(g).toFixed(1) + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+      }
+      svg += '<line x1="0" y1="' + py(0).toFixed(1) + '" x2="' + W + '" y2="' + py(0).toFixed(1) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += '<line x1="' + px(0).toFixed(1) + '" y1="0" x2="' + px(0).toFixed(1) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += curve(function(x){ return x; }, XLO, XHI, 'var(--viz-violet)', 1.4, '5 4');
+      svg += curve(function(x){ return Math.pow(b, x); }, XLO, XHI, 'var(--viz-green)', 2.6);
+      svg += curve(function(x){ return x > 0 ? Math.log(x) / Math.log(b) : NaN; }, 0.01, XHI, 'var(--viz-accent)', 2.6);
+
+      var inA = t >= XLO && t <= XHI && u >= YLO && u <= YHI;
+      var inB = u >= XLO && u <= XHI && t >= YLO && t <= YHI;
+      if (inA && inB) {
+        svg += '<line x1="' + px(t).toFixed(1) + '" y1="' + py(u).toFixed(1) + '" x2="' + px(u).toFixed(1) +
+          '" y2="' + py(t).toFixed(1) + '" style="stroke:var(--viz-amber);stroke-width:1.6;stroke-dasharray:4 4"></line>';
+      }
+      if (inA) {
+        svg += '<circle cx="' + px(t).toFixed(1) + '" cy="' + py(u).toFixed(1) + '" r="5.5" style="fill:var(--viz-green)"></circle>';
+        svg += '<text x="' + (px(t) + 8).toFixed(1) + '" y="' + (py(u) - 7).toFixed(1) + '" style="font-size:10px;fill:var(--viz-green);font-weight:700">(' + n(t, 2) + ', ' + n(u, 2) + ')</text>';
+      }
+      if (inB) {
+        svg += '<circle cx="' + px(u).toFixed(1) + '" cy="' + py(t).toFixed(1) + '" r="5.5" style="fill:var(--viz-accent)"></circle>';
+        svg += '<text x="' + (px(u) + 8).toFixed(1) + '" y="' + (py(t) + 14).toFixed(1) + '" style="font-size:10px;fill:var(--viz-accent);font-weight:700">(' + n(u, 2) + ', ' + n(t, 2) + ')</text>';
+      }
+      svg += '<text x="' + (W - 6) + '" y="' + (py(8.6)).toFixed(1) + '" text-anchor="end" style="font-size:10.5px;fill:var(--viz-green);font-weight:700">y = ' + bKey + '^x</text>';
+      svg += '<text x="' + (W - 6) + '" y="' + (py(2.1)).toFixed(1) + '" text-anchor="end" style="font-size:10.5px;fill:var(--viz-accent);font-weight:700">y = log_' + bKey + '(x)</text>';
+      svg += '<text x="' + px(7.4).toFixed(1) + '" y="' + (py(7.4) - 6).toFixed(1) + '" style="font-size:10px;fill:var(--viz-violet);font-weight:700">y = x</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      read.innerHTML =
+        pill(bKey + '^' + n(t, 2) + ' = ' + n(u, 3), 'var(--viz-green)') +
+        pill('log_' + bKey + '(' + n(u, 3) + ') = ' + n(t, 2), 'var(--viz-accent)') +
+        pill(u < 1 ? 'value below 1, so the log is negative' : (u === 1 ? 'value 1, so the log is 0' : 'value above 1, so the log is positive'),
+          u < 1 ? 'var(--viz-amber)' : 'var(--viz-muted)');
+
+      steps.textContent =
+        'start from the exponent      t = ' + n(t, 2) + '\n' +
+        'raise the base to it         ' + bKey + '^' + n(t, 2) + ' = ' + n(u, 3) + '\n' +
+        'now ask the log its question "' + bKey + ' to the what gives ' + n(u, 3) + '?"\n' +
+        'the answer IS the exponent   log_' + bKey + '(' + n(u, 3) + ') = ' + n(t, 2) + '\n' +
+        'round trip, both ways        log_' + bKey + '(' + bKey + '^t) = t   and   ' + bKey + '^(log_' + bKey + '(x)) = x';
+
+      if (Math.abs(t) < 0.005) {
+        why.innerHTML = '<b style="color:var(--viz-violet)">Exponent 0: every base agrees here.</b>' +
+          'Anything to the power 0 is 1, so log_b(1) = 0 for <em>every</em> legal base — 2, 3, e, 10, all of them. ' +
+          'That is why every logarithm curve on this screen passes through the same point (1, 0), and why the four base buttons ' +
+          'change the steepness but never that crossing. ' +
+          '<br><br>Its partner is one step along: b^1 = b, so log_b(b) = 1 always. Two free values you never have to compute.';
+      } else if (u < 1) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">A negative output is ordinary — it is the input that must stay positive.</b>' +
+          'Here ' + bKey + '^' + n(t, 2) + ' = ' + n(u, 3) + ', a value below 1, so log_' + bKey + '(' + n(u, 3) + ') = ' + n(t, 2) + ' comes back negative. ' +
+          'This is exactly the bank question log_10(0.1): 10^-1 = 0.1, so the answer is -1, and answering 10 or 1 is reading the wrong slot. ' +
+          '<br><br>The asymmetry matters: the <b>output</b> of a log ranges over every real number, positive and negative, while the ' +
+          '<b>input</b> can only ever be positive. log_b(0) and log_b(-4) do not exist, because no exponent drives a positive base to zero or below.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-accent)">One fact, two coordinates, and the reflection proves they are inverses.</b>' +
+          'The green point (' + n(t, 2) + ', ' + n(u, 2) + ') and the blue point (' + n(u, 2) + ', ' + n(t, 2) + ') carry the same information with the ' +
+          'coordinates swapped — that is what the dashed amber tie line shows, and swapping coordinates is precisely reflecting across y = x. ' +
+          '<br><br><b style="display:inline">Why this is the whole lesson:</b> the two cancellation identities, log_b(b^t) = t and b^(log_b(x)) = x, ' +
+          'are just the statement that going right along one curve and back along the other returns you to where you started. Verifying inverse functions ' +
+          'asked you to check exactly this by composition. ' +
+          '<br><br>Note the shapes: the green curve climbs away from a floor it never touches (b^x is never 0 or negative), so the blue curve ' +
+          'runs off a wall it never touches at x = 0. The domain and range simply traded places.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'2^3 = 8',      b:'2',  e:3 },
+      { t:'10^-1 = 0.1',  b:'10', e:-1 },
+      { t:'3^2 = 9',      b:'3',  e:2 },
+      { t:'e^1 = e',      b:'e',  e:1 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ bKey = p.b; setT(p.e); render(); });
+      pres.appendChild(btn);
+    });
+    [].slice.call(bases.children).forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var t = tNow();
+        bKey = btn.getAttribute('data-b');
+        setT(t);                 // keep the exponent, not the slider position
+        render();
+      });
+    });
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Same Three Numbers</h2>
+  <p class="vz-lede">A logarithmic statement and an exponential statement are the same claim about the same
+    three numbers: a base, an exponent and a result. Drag either number and watch both spellings update
+    together — then look at what happens when the three get shuffled into the wrong slots.
+    <b>Like "Ana is Ben's mother" and "Ben is Ana's son": two sentences, one fact, and swapping the names
+    breaks it.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-b">base b = <b><span id="v2-bl">3</span></b></label>
+    <input class="vz-range" type="range" id="v2-b" min="2" max="10" value="3" step="1" aria-label="The base b">
+    <label class="vz-lab" for="v2-c">exponent c = <b><span id="v2-cl">4</span></b></label>
+    <input class="vz-range" type="range" id="v2-c" min="-3" max="5" value="4" step="1" aria-label="The exponent c">
+
+    <div class="v2-forms" id="v2-forms"></div>
+    <div class="v2-wrong" id="v2-wrong"></div>
+    <div class="vz-why" id="v2-why"></div>
+    <div class="vz-pre" id="v2-presets"></div>
+  </div>
+
+  <p class="vz-note">The reading rule that never fails: <b>the base of the log stays the base of the power,
+    and the value of the log is the exponent.</b> Every wrong option in this topic is one of these three
+    numbers dropped into someone else's slot, which is why labelling the slots beats trying to remember a
+    pattern — there are only six permutations and five of them are wrong.</p>
+
+  <style>
+    .v2-forms{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v2-f{border:1.5px solid var(--viz-line);border-radius:11px;padding:11px 12px;background:var(--viz-bg)}
+    .v2-f h6{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);font-weight:800}
+    .v2-eq{font-family:ui-monospace,Consolas,monospace;font-size:17px;font-weight:700;line-height:1.5}
+    .v2-key{display:flex;gap:8px;flex-wrap:wrap;margin-top:9px;font-size:10.5px;font-weight:800}
+    .v2-wrong{margin-top:13px;display:flex;flex-direction:column;gap:5px}
+    .v2-w{display:flex;align-items:center;gap:9px;border:1.5px dashed var(--viz-line);border-radius:9px;padding:8px 10px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.4;flex-wrap:wrap}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var B = document.getElementById('v2-b'), C = document.getElementById('v2-c');
+    var bl = document.getElementById('v2-bl'), cl = document.getElementById('v2-cl');
+    var forms = document.getElementById('v2-forms'), wrong = document.getElementById('v2-wrong');
+    var why = document.getElementById('v2-why'), pres = document.getElementById('v2-presets');
+
+    function num(v){
+      if (!isFinite(v)) return 'astronomically large';
+      if (Math.abs(v) >= 1e12) return v.toExponential(2);
+      var r = Math.round(v * 1e6) / 1e6;
+      return String(r);
+    }
+    function slot(txt, col){ return '<span style="color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var b = Number(B.value), c = Number(C.value);
+      if (!isFinite(b) || b < 2) b = 2;
+      if (!isFinite(c)) c = 0;
+      bl.textContent = b; cl.textContent = c;
+      var a = Math.pow(b, c);
+      if (!isFinite(a) || a <= 0) a = 1;
+
+      var BC = 'var(--viz-accent)', EC = 'var(--viz-violet)', RC = 'var(--viz-green)';
+      var frac = c < 0 ? '  =  1 / ' + num(Math.pow(b, -c)) : '';
+
+      forms.innerHTML =
+        '<div class="v2-f"><h6>exponential form</h6><div class="v2-eq">' +
+          slot(String(b), BC) + '<sup>' + '</sup>^' + slot(String(c), EC) + '  =  ' + slot(num(a), RC) + frac +
+        '</div></div>' +
+        '<div class="v2-f"><h6>logarithmic form — the same claim</h6><div class="v2-eq">' +
+          'log<sub>' + slot(String(b), BC) + '</sub>( ' + slot(num(a), RC) + ' )  =  ' + slot(String(c), EC) +
+        '</div>' +
+        '<div class="v2-key">' +
+          '<span style="color:' + BC + '">■ base ' + b + ' — stays underneath in both</span>' +
+          '<span style="color:' + EC + '">■ exponent ' + c + ' — the log’s VALUE</span>' +
+          '<span style="color:' + RC + '">■ result ' + num(a) + ' — the log’s INPUT</span>' +
+        '</div></div>';
+
+      // The three permutations the bank offers as distractors, each priced out.
+      var rows = [
+        { txt: b + '^' + num(a) + ' = ' + c,
+          note: 'result and exponent swapped. Left side is ' + num(Math.pow(b, a)) + ', nowhere near ' + c + '.' },
+        { txt: c + '^' + b + ' = ' + num(a),
+          note: 'base and exponent swapped. Left side is ' + num(Math.pow(c, b)) + '.' },
+        { txt: 'log_' + num(a) + '(' + b + ') = ' + c,
+          note: 'base and result swapped — that asks ' + num(a) + '^' + c + ' = ' + b + ', which is false.' }
+      ];
+      wrong.innerHTML = rows.map(function(r){
+        return '<div class="v2-w"><span>' + r.txt + '</span><span style="color:var(--viz-muted);font-family:inherit">' +
+          r.note + '</span><span class="v2-tag" style="color:var(--viz-red)">WRONG SLOT</span></div>';
+      }).join('') +
+        '<div class="v2-w" style="border-style:solid;border-color:var(--viz-green)"><span>' +
+        'log_' + b + '(' + num(a) + ') = ' + c + '</span>' +
+        '<span style="color:var(--viz-muted);font-family:inherit">base underneath, exponent as the value.</span>' +
+        '<span class="v2-tag" style="color:var(--viz-green)">CORRECT</span></div>';
+
+      if (c === 0) {
+        why.innerHTML = '<b style="color:var(--viz-violet)">Exponent 0 is the free case.</b>' +
+          b + '^0 = 1 for every base, so log_' + b + '(1) = 0 — and so does log_2(1), log_10(1) and ln(1). ' +
+          'A question that hands you a 1 inside the logarithm is answered without any work at all. ' +
+          '<br><br>Drag the base across its whole range and watch the two forms: the 1 and the 0 never move.';
+      } else if (c < 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">A negative exponent puts the result below 1 — and the log below 0.</b>' +
+          b + '^' + c + ' = ' + num(a) + ', a genuine positive number, just a small one. Rewriting it as log_' + b + '(' + num(a) + ') = ' + c +
+          ' shows the logarithm returning a negative value from a positive input, which is exactly the shape of the bank question log_10(0.1) = -1. ' +
+          '<br><br>Read the definition once more and the surprise disappears: the log gives back <em>the exponent</em>, and exponents are allowed to be negative. ' +
+          'It is only the number <em>inside</em> the log that is forbidden from being zero or negative.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-accent)">Two spellings, one fact — and the translation is mechanical.</b>' +
+          'Going from log_' + b + '(' + num(a) + ') = ' + c + ' to ' + b + '^' + c + ' = ' + num(a) + ' needs no thought once you name the slots: ' +
+          'the little number under the log is the base, the number after the equals sign is the exponent, and whatever sat inside the brackets is the result. ' +
+          '<br><br><b style="display:inline">Use it in both directions.</b> "Rewrite 10^x = 1000 in logarithmic form" is the same move run backwards: ' +
+          'the base 10 goes under the log, the result 1000 goes inside, and the exponent x is what the log equals — log_10(1000) = x. ' +
+          '<br><br>The dashed rows above are the other five arrangements. None of them is a rule you have to disprove; they are just the three numbers put somewhere they do not belong.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'log_3(81) = 4',    b:3,  c:4 },
+      { t:'10^x = 1000',      b:10, c:3 },
+      { t:'2^3 = 8',          b:2,  c:3 },
+      { t:'log_5(125) = 3',   b:5,  c:3 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ B.value = String(p.b); C.value = String(p.c); render(); });
+      pres.appendChild(btn);
+    });
+    B.addEventListener('input', render);
+    C.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Three Laws One Source</h2>
+  <p class="vz-lede">Nothing new is being asserted here. Each logarithm property is an exponent property you
+    already own, read from the other side — so pick a law, drag the numbers, and watch both sides land on
+    the same value. Then pick the fake rule and watch them refuse to.
+    <b>Like a slide rule: multiplying by sliding two lengths together only works because a log turns
+    multiplication into addition.</b></p>
+
+  <div class="vz-seg" id="v3-seg" role="group" aria-label="Which law to test">
+    <button data-law="0" aria-pressed="true">product</button>
+    <button data-law="1" aria-pressed="false">quotient</button>
+    <button data-law="2" aria-pressed="false">power</button>
+    <button data-law="3" aria-pressed="false">the fake one</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-x">x = <b><span id="v3-xl">20</span></b></label>
+    <input class="vz-range" type="range" id="v3-x" min="2" max="100" value="20" step="1" aria-label="The value x">
+    <div id="v3-yrow">
+      <label class="vz-lab" for="v3-y">y = <b><span id="v3-yl">5</span></b></label>
+      <input class="vz-range" type="range" id="v3-y" min="2" max="100" value="5" step="1" aria-label="The value y">
+    </div>
+    <div id="v3-prow">
+      <label class="vz-lab" for="v3-p">exponent p = <b><span id="v3-pl">2</span></b></label>
+      <input class="vz-range" type="range" id="v3-p" min="-3" max="4" value="2" step="1" aria-label="The exponent p">
+    </div>
+
+    <div class="v3-check" id="v3-check"></div>
+    <div class="vz-mono" id="v3-alg" style="margin-top:12px"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">All three laws move a level down the arithmetic ladder: a product inside becomes a sum
+    outside, a quotient becomes a difference, a power becomes a coefficient. That is the whole pattern, and it
+    is why <b>no rule for log(x + y) can exist</b> — addition is already the bottom rung, and there is no
+    exponent property that turns b^m + b^n into b^(anything).</p>
+
+  <style>
+    .v3-check{margin-top:14px;border:1.5px solid var(--viz-line);border-radius:11px;padding:12px;background:var(--viz-bg)}
+    .v3-row{display:flex;justify-content:space-between;gap:9px;font-family:ui-monospace,Consolas,monospace;
+      font-size:12px;line-height:1.9;flex-wrap:wrap}
+    .v3-row b{font-weight:800}
+    .v3-verdict{margin-top:9px;font-size:11.5px;font-weight:800;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var seg = document.getElementById('v3-seg');
+    var X = document.getElementById('v3-x'), Y = document.getElementById('v3-y'), P = document.getElementById('v3-p');
+    var xl = document.getElementById('v3-xl'), yl = document.getElementById('v3-yl'), pl = document.getElementById('v3-pl');
+    var yrow = document.getElementById('v3-yrow'), prow = document.getElementById('v3-prow');
+    var check = document.getElementById('v3-check'), alg = document.getElementById('v3-alg'), why = document.getElementById('v3-why');
+    var law = 0;
+
+    function lg(v){ return (isFinite(v) && v > 0) ? Math.log(v) / Math.LN10 : NaN; }
+    function f(v){ return isFinite(v) ? v.toFixed(6) : '—'; }
+    function g(v){ return isFinite(v) ? String(Math.round(v * 1e6) / 1e6) : '—'; }
+
+    function render(){
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === law ? 'true' : 'false'); });
+      var x = Number(X.value), y = Number(Y.value), p = Number(P.value);
+      if (!isFinite(x) || x <= 0) x = 2;
+      if (!isFinite(y) || y <= 0) y = 2;
+      if (!isFinite(p)) p = 1;
+      xl.textContent = x; yl.textContent = y; pl.textContent = p;
+      yrow.style.display = (law === 2) ? 'none' : 'block';
+      prow.style.display = (law === 2) ? 'block' : 'none';
+
+      var lhsTxt, rhsTxt, lhs, rhs, name;
+      if (law === 0) {
+        name = 'product rule';
+        lhsTxt = 'log(' + x + ' × ' + y + ') = log(' + (x * y) + ')'; lhs = lg(x * y);
+        rhsTxt = 'log(' + x + ') + log(' + y + ')';                        rhs = lg(x) + lg(y);
+      } else if (law === 1) {
+        name = 'quotient rule';
+        lhsTxt = 'log(' + x + ' / ' + y + ') = log(' + g(x / y) + ')';     lhs = lg(x / y);
+        rhsTxt = 'log(' + x + ') - log(' + y + ')';                        rhs = lg(x) - lg(y);
+      } else if (law === 2) {
+        name = 'power rule';
+        lhsTxt = 'log(' + x + '^' + p + ') = log(' + g(Math.pow(x, p)) + ')'; lhs = lg(Math.pow(x, p));
+        rhsTxt = p + ' × log(' + x + ')';                                rhs = p * lg(x);
+      } else {
+        name = 'the fake one';
+        lhsTxt = 'log(' + x + ' + ' + y + ') = log(' + (x + y) + ')';      lhs = lg(x + y);
+        rhsTxt = 'log(' + x + ') + log(' + y + ')';                        rhs = lg(x) + lg(y);
+      }
+
+      var ok = isFinite(lhs) && isFinite(rhs) && Math.abs(lhs - rhs) < 1e-9;
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      var gap = (isFinite(lhs) && isFinite(rhs)) ? Math.abs(lhs - rhs) : NaN;
+      check.innerHTML =
+        '<div class="v3-row"><span>left side&nbsp; ' + lhsTxt + '</span><b style="color:' + col + '">' + f(lhs) + '</b></div>' +
+        '<div class="v3-row"><span>right side ' + rhsTxt + '</span><b style="color:' + col + '">' + f(rhs) + '</b></div>' +
+        '<div class="v3-row"><span style="color:var(--viz-muted)">difference</span><b style="color:' + col + '">' + f(gap) + '</b></div>' +
+        '<div class="v3-verdict" style="color:' + col + '">' +
+          (ok ? '✓ MATCH — identical for every legal x and y, because it is an exponent law in disguise'
+              : '✗ MISMATCH — the two sides are different numbers, so this is not a rule') + '</div>';
+
+      if (law === 0) {
+        alg.textContent =
+          'let m = log_b(x)   so   x = b^m\n' +
+          'let n = log_b(y)   so   y = b^n\n' +
+          'x * y = b^m * b^n = b^(m+n)        <- the exponent property you already have\n' +
+          'read that back as a log:\n' +
+          'log_b(x*y) = m + n = log_b(x) + log_b(y)';
+      } else if (law === 1) {
+        alg.textContent =
+          'let m = log_b(x)   so   x = b^m\n' +
+          'let n = log_b(y)   so   y = b^n\n' +
+          'x / y = b^m / b^n = b^(m-n)        <- same property, division side\n' +
+          'read that back as a log:\n' +
+          'log_b(x/y) = m - n = log_b(x) - log_b(y)';
+      } else if (law === 2) {
+        alg.textContent =
+          'let m = log_b(x)   so   x = b^m\n' +
+          'x^p = (b^m)^p = b^(m*p)            <- power of a power, multiply the exponents\n' +
+          'read that back as a log:\n' +
+          'log_b(x^p) = m*p = p * log_b(x)\n' +
+          'so a power inside becomes a COEFFICIENT outside, never a term added on';
+      } else {
+        alg.textContent =
+          'let m = log_b(x)   so   x = b^m\n' +
+          'let n = log_b(y)   so   y = b^n\n' +
+          'x + y = b^m + b^n = ???            <- there is NO exponent property for a sum of powers\n' +
+          'nothing can be read back, so no rule exists for log_b(x + y)';
+      }
+
+      if (law === 2) {
+        why.innerHTML = '<b style="color:var(--viz-accent)">The power rule is what condensing runs on.</b>' +
+          'It is the only law that moves a number between the coefficient position and the exponent position, so it is always the first ' +
+          'step when condensing and the last when expanding. Worked: 2*ln(x) - ln(y) becomes ln(x^2) - ln(y) by this rule, and the quotient ' +
+          'rule then closes it into ln(x^2 / y). Expanding log_3(x^2 y) runs the other way: the product rule splits it into log_3(x^2) + log_3(y), ' +
+          'then this rule finishes it as 2*log_3(x) + log_3(y). ' +
+          '<br><br><b style="display:inline">The trap it is paired with:</b> log(x^2) is NOT 2 + log(x). Drag p to 2 and read the two numbers — ' +
+          'the coefficient multiplies. Adding the exponent instead is the single most common wrong option in this topic.';
+      } else if (law === 3) {
+        why.innerHTML = '<b style="color:var(--viz-red)">The most tempting false rule, killed by one substitution.</b>' +
+          'With x = ' + x + ' and y = ' + y + ' the two sides differ by ' + f(gap) + '. Try base 10 with x = 100 and y = 10: log(110) is about 2.041, ' +
+          'while log(100) + log(10) = 3. Not close, and no choice of numbers rescues it. ' +
+          '<br><br><b style="display:inline">Why it feels right and is not:</b> the product rule turns multiplication into addition. People remember ' +
+          '"logs turn things into sums" and drop the multiplication half. The correct sentence is: <em>a product inside becomes a sum outside</em>. ' +
+          '<br><br>The same slip produces log(x/y) = log(x)/log(y). A quotient inside becomes a <em>difference</em> outside; a quotient <em>of</em> ' +
+          'logarithms is a different formula altogether, and it is the change of base rule in visual 4.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">Derived, not memorised — and that is the point.</b>' +
+          'The three lines above are the whole proof, and they only use exponent properties from earlier in this course. If you ever doubt a ' +
+          'logarithm rule mid-question, write x = b^m and y = b^n and the answer falls out in two lines. ' +
+          '<br><br><b style="display:inline">Sanity-check with round numbers:</b> log(2 × 5) = log(10) = 1, and log(2) + log(5) is about 0.301 + 0.699 = 1. ' +
+          'One check like that, done once, is worth more than a memorised list. ' +
+          '<br><br>Note what the laws let you do: they turn a single hard logarithm into a sum of easy ones, and a sum of logarithms back into one. ' +
+          'Questions in this topic are almost always asking you to run that in one direction or the other.';
+      }
+    }
+
+    [].slice.call(seg.children).forEach(function(b, j){
+      b.addEventListener('click', function(){ law = j; render(); });
+    });
+    X.addEventListener('input', render);
+    Y.addEventListener('input', render);
+    P.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Change Of Base</h2>
+  <p class="vz-lede">Your calculator has two logarithm keys and neither of them is base 2. Change of base
+    fixes that with a single ratio — and the three shapes it is confused with give visibly different numbers.
+    Drag the base and the target and watch the natural-log route and the common-log route agree exactly.
+    <b>Like converting a price into another currency: divide by the same rate top and bottom and the money
+    is unchanged.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-b">old base b = <b><span id="v4-bl">2</span></b></label>
+    <input class="vz-range" type="range" id="v4-b" min="2" max="12" value="2" step="1" aria-label="The old base b">
+    <label class="vz-lab" for="v4-x">target x = <b><span id="v4-xl">7</span></b></label>
+    <input class="vz-range" type="range" id="v4-x" min="2" max="200" value="7" step="1" aria-label="The target x">
+
+    <div class="vz-mono" id="v4-out" style="margin-top:12px"></div>
+    <div class="v4-bracket" id="v4-bracket"></div>
+    <div class="v4-wrong" id="v4-wrong"></div>
+    <div class="vz-why" id="v4-why"></div>
+    <div class="vz-pre" id="v4-presets"></div>
+  </div>
+
+  <p class="vz-note">The formula is not magic and it is worth deriving once: put c = log_b(x), so b^c = x;
+    take ln of both sides and apply the power rule to get c*ln(b) = ln(x); divide. <b>Any new base works</b> —
+    that is why the natural-log and common-log rows below always agree — so use whichever key your calculator
+    actually has.</p>
+
+  <style>
+    .v4-bracket{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-wrong{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v4-w{display:flex;align-items:center;gap:9px;border:1.5px dashed var(--viz-line);border-radius:9px;padding:8px 10px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.4;flex-wrap:wrap}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var B = document.getElementById('v4-b'), X = document.getElementById('v4-x');
+    var bl = document.getElementById('v4-bl'), xl = document.getElementById('v4-xl');
+    var out = document.getElementById('v4-out'), br = document.getElementById('v4-bracket');
+    var wrong = document.getElementById('v4-wrong'), why = document.getElementById('v4-why');
+    var pres = document.getElementById('v4-presets');
+
+    function f(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 4 : d) : '—'; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var b = Number(B.value), x = Number(X.value);
+      if (!isFinite(b) || b < 2) b = 2;
+      if (!isFinite(x) || x < 2) x = 2;
+      bl.textContent = b; xl.textContent = x;
+
+      var lnB = Math.log(b), lnX = Math.log(x);
+      var viaLn = (isFinite(lnB) && lnB !== 0) ? lnX / lnB : NaN;
+      var lgB = Math.log(b) / Math.LN10, lgX = Math.log(x) / Math.LN10;
+      var viaLog = (isFinite(lgB) && lgB !== 0) ? lgX / lgB : NaN;
+
+      out.textContent =
+        'want          log_' + b + '(' + x + ')\n' +
+        'natural logs  ln(' + x + ') / ln(' + b + ')  =  ' + f(lnX) + ' / ' + f(lnB) + '  =  ' + f(viaLn) + '\n' +
+        'common logs   log(' + x + ') / log(' + b + ') =  ' + f(lgX) + ' / ' + f(lgB) + '  =  ' + f(viaLog) + '\n' +
+        'same answer, because the new base cancels out of the ratio';
+
+      var k = isFinite(viaLn) ? Math.floor(viaLn + 1e-12) : 0;
+      var lo = Math.pow(b, k), hi = Math.pow(b, k + 1);
+      var exact = isFinite(viaLn) && Math.abs(viaLn - Math.round(viaLn)) < 1e-9;
+      br.innerHTML = exact
+        ? pill('exact: ' + b + '^' + Math.round(viaLn) + ' = ' + x, 'var(--viz-green)') +
+          pill('no calculator needed here', 'var(--viz-muted)')
+        : pill(b + '^' + k + ' = ' + f(lo, 0) + '  ≤  ' + x, 'var(--viz-accent)') +
+          pill(x + '  ≤  ' + b + '^' + (k + 1) + ' = ' + f(hi, 0), 'var(--viz-accent)') +
+          pill('so the answer sits between ' + k + ' and ' + (k + 1), 'var(--viz-green)');
+
+      var rows = [
+        { txt:'ln(' + x + ' / ' + b + ') = ' + f(Math.log(x / b)),
+          note:'a log OF a quotient. That is the quotient rule, a different statement entirely.' },
+        { txt:'ln(' + b + ') / ln(' + x + ') = ' + f((isFinite(lnX) && lnX !== 0) ? lnB / lnX : NaN),
+          note:'upside down. It answers log_' + x + '(' + b + '), the reciprocal question.' },
+        { txt:'ln(' + x + ') - ln(' + b + ') = ' + f(lnX - lnB),
+          note:'a difference, not a ratio. This equals ln(' + x + '/' + b + ') by the quotient rule.' }
+      ];
+      wrong.innerHTML =
+        '<div class="v4-w" style="border-style:solid;border-color:var(--viz-green)"><span>ln(' + x + ') / ln(' + b + ') = ' + f(viaLn) +
+        '</span><span style="color:var(--viz-muted);font-family:inherit">target on top, old base underneath.</span>' +
+        '<span class="v4-tag" style="color:var(--viz-green)">CORRECT</span></div>' +
+        rows.map(function(r){
+          return '<div class="v4-w"><span>' + r.txt + '</span>' +
+            '<span style="color:var(--viz-muted);font-family:inherit">' + r.note + '</span>' +
+            '<span class="v4-tag" style="color:var(--viz-red)">NOT THIS</span></div>';
+        }).join('');
+
+      if (exact) {
+        why.innerHTML = '<b style="color:var(--viz-green)">This one you can answer by inspection — change of base is for the ones you cannot.</b>' +
+          b + '^' + Math.round(viaLn) + ' = ' + x + ' exactly, so log_' + b + '(' + x + ') = ' + Math.round(viaLn) + ' and the ratio of natural logs merely confirms it. ' +
+          'Both routes still return ' + f(viaLn) + ', which is a useful reassurance that the formula is not doing anything strange. ' +
+          '<br><br>Drag the target off an exact power and the point of the formula appears immediately: the answer stops being an integer, ' +
+          'and only a ratio of logs will produce it.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-accent)">What the formula is FOR: any base, from the two keys you have.</b>' +
+          'log_' + b + '(' + x + ') is about ' + f(viaLn, 3) + '. Nothing on a calculator computes that directly, but ln and log both do — ' +
+          'and dividing one by the other gives it exactly. That is the whole purpose: <em>evaluate a logarithm in any base using common or natural logs.</em> ' +
+          'It does not rewrite logs so their value is 1, it does not turn a log into a ratio of its inputs, and it does not touch the domain restriction. ' +
+          '<br><br><b style="display:inline">Always bracket before you trust the number.</b> ' + b + '^' + k + ' = ' + f(lo, 0) + ' and ' + b + '^' + (k + 1) +
+          ' = ' + f(hi, 0) + ', and ' + x + ' sits between them, so the answer must land between ' + k + ' and ' + (k + 1) + '. A flipped fraction ' +
+          'fails that test instantly, which makes it the fastest check available on this topic.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'log_2(7)',   b:2, x:7 },
+      { t:'log_2(100)', b:2, x:100 },
+      { t:'log_3(81)',  b:3, x:81 },
+      { t:'log_5(125)', b:5, x:125 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ B.value = String(p.b); X.value = String(p.x); render(); });
+      pres.appendChild(btn);
+    });
+    B.addEventListener('input', render);
+    X.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Constant Ratio</h2>
+  <p class="vz-lede">An exponential model is not "adding a bit each year" — it is <em>multiplying</em> by the
+    same factor each year. Set a starting amount and a percentage, then read the two right-hand columns: the
+    differences wander, the ratios never move. That frozen ratio is the signature, and the last line is where
+    logarithms earn their keep. <b>Like a savings account: the interest is the same percentage every year,
+    which is a bigger number of dollars every year.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-a0">initial value = <b><span id="v5-a0l">500</span></b></label>
+    <input class="vz-range" type="range" id="v5-a0" min="2" max="2000" value="500" step="2" aria-label="The initial value">
+    <label class="vz-lab" for="v5-r">rate per period = <b><span id="v5-rl">+10%</span></b></label>
+    <input class="vz-range" type="range" id="v5-r" min="-95" max="200" value="10" step="1" aria-label="The percentage rate per period">
+
+    <div class="v5-model" id="v5-model"></div>
+    <div class="vz-plot" id="v5-plot" style="margin-top:10px"></div>
+    <div class="vz-mono" id="v5-table" style="margin-top:10px"></div>
+    <div class="v5-solve" id="v5-solve"></div>
+    <div class="vz-why" id="v5-why"></div>
+    <div class="vz-pre" id="v5-presets"></div>
+  </div>
+
+  <p class="vz-note">Two habits pay for themselves on every question in this topic. <b>Build the factor
+    before you build the formula</b> — 8% growth is 1.08 and 5% decay is 0.95, never 0.08 and never -0.05.
+    And <b>divide, do not subtract</b>, when a table asks you to identify the model: a constant difference is
+    linear, a constant second difference is quadratic, and a constant ratio is exponential.</p>
+
+  <style>
+    .v5-model{margin-top:14px;font-family:ui-monospace,Consolas,monospace;font-size:16px;font-weight:800;
+      border:1.5px solid var(--viz-line);border-radius:11px;padding:11px 12px;background:var(--viz-bg);line-height:1.5}
+    .v5-solve{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v5-a0'), R = document.getElementById('v5-r');
+    var al = document.getElementById('v5-a0l'), rl = document.getElementById('v5-rl');
+    var model = document.getElementById('v5-model'), plot = document.getElementById('v5-plot');
+    var table = document.getElementById('v5-table'), solve = document.getElementById('v5-solve');
+    var why = document.getElementById('v5-why'), pres = document.getElementById('v5-presets');
+
+    function num(v, d){
+      if (!isFinite(v)) return '—';
+      var p = Math.pow(10, d === undefined ? 2 : d);
+      var r = Math.round(v * p) / p;
+      return String(r);
+    }
+    function pad(s, w){ s = String(s); while (s.length < w) s = ' ' + s; return s; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var a0 = Number(A.value), r = Number(R.value);
+      if (!isFinite(a0) || a0 <= 0) a0 = 2;
+      if (!isFinite(r)) r = 0;
+      var fac = 1 + r / 100;
+      al.textContent = a0;
+      rl.textContent = (r > 0 ? '+' : '') + r + '%';
+
+      var factorTxt = r === 0 ? '1' : (r > 0 ? '1 + ' + (r / 100) + ' = ' + num(fac, 4) : '1 - ' + (-r / 100) + ' = ' + num(fac, 4));
+      model.innerHTML = 'A(t) = ' + a0 + ' × (' + num(fac, 4) + ')^t' +
+        '<div style="font-size:11px;font-weight:600;color:var(--viz-muted);margin-top:5px">' +
+        'factor = ' + factorTxt + ' — ' +
+        (r > 0 ? 'growth, so the factor is bigger than 1' : (r < 0 ? 'decay, so the factor is between 0 and 1' : 'no change at all')) +
+        '</div>';
+
+      var vals = [], t;
+      for (t = 0; t <= 5; t++) {
+        var v = a0 * Math.pow(fac, t);
+        vals.push(isFinite(v) ? v : 0);
+      }
+
+      var maxV = Math.max.apply(null, vals.concat([1]));
+      var W = 300, H = 120, bw = W / 6;
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Six bars showing the value at periods 0 through 5">';
+      for (t = 0; t <= 5; t++) {
+        var h = maxV > 0 ? (vals[t] / maxV) * (H - 24) : 0;
+        if (!isFinite(h) || h < 0) h = 0;
+        svg += '<rect x="' + (t * bw + 7).toFixed(1) + '" y="' + (H - 16 - h).toFixed(1) + '" width="' + (bw - 14).toFixed(1) +
+          '" height="' + Math.max(1, h).toFixed(1) + '" rx="3" style="fill:' + (r >= 0 ? 'var(--viz-accent)' : 'var(--viz-amber)') + ';opacity:.85"></rect>';
+        svg += '<text x="' + (t * bw + bw / 2).toFixed(1) + '" y="' + (H - 4) + '" text-anchor="middle" style="font-size:9.5px;fill:var(--viz-muted)">t=' + t + '</text>';
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var lines = [pad('t', 3) + pad('A(t)', 13) + pad('difference', 14) + pad('ratio', 10)];
+      for (t = 0; t <= 5; t++) {
+        var diff = t === 0 ? '' : num(vals[t] - vals[t - 1]);
+        var rat = (t === 0 || vals[t - 1] === 0) ? '' : num(vals[t] / vals[t - 1], 4);
+        lines.push(pad(t, 3) + pad(num(vals[t]), 13) + pad(diff === '' ? '—' : diff, 14) + pad(rat === '' ? '—' : rat, 10));
+      }
+      lines.push('');
+      lines.push('the ratio column is frozen at ' + num(fac, 4) + ' — THAT is the exponential signature');
+      lines.push('the difference column moves every row — a linear model is the other way round');
+      table.textContent = lines.join('\n');
+
+      var lnF = Math.log(fac);
+      var canSolve = isFinite(lnF) && lnF !== 0 && fac > 0;
+      var goal = fac > 1 ? 2 : 0.5;
+      var tt = canSolve ? Math.log(goal) / lnF : NaN;
+      var goalTxt = fac > 1 ? 'double' : 'halve';
+      solve.innerHTML = canSolve && isFinite(tt) && tt > 0
+        ? pill('solve ' + num(fac, 4) + '^t = ' + goal, 'var(--viz-violet)') +
+          pill('t = ln(' + goal + ') / ln(' + num(fac, 4) + ') = ' + num(tt, 2) + ' periods', 'var(--viz-green)') +
+          pill('time to ' + goalTxt, 'var(--viz-muted)')
+        : pill('factor is exactly 1 — the amount never changes, so it never doubles', 'var(--viz-amber)') +
+          pill('ln(1) = 0, and you cannot divide by it', 'var(--viz-red)');
+
+      if (r === 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Rate 0 is the degenerate case, and it is instructive.</b>' +
+          'The factor is exactly 1, so every value equals ' + a0 + ', the differences are all 0 and the ratios are all 1. ' +
+          'The model is still technically exponential, but nothing grows, and the doubling calculation dies on division by ln(1) = 0. ' +
+          '<br><br>Nudge the rate one step either way and the whole machine starts up again.';
+      } else if (r < 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Decay is a factor between 0 and 1 — subtract inside the parentheses, never outside.</b>' +
+          'Losing ' + (-r) + '% a year means keeping ' + (100 + r) + '%, so the factor is ' + num(fac, 4) + ', and one period from ' + a0 + ' lands on ' + num(vals[1]) + '. ' +
+          'That is the bank’s investment question exactly: 2000 losing 5% is 2000 × 0.95 = 1900, because 5% of 2000 is 100. ' +
+          '<br><br><b style="display:inline">The trap:</b> writing ' + a0 + ' × (' + (r / 100) + ')^t. That factor is ' + num(Math.abs(r) / 100, 4) +
+          ', which would destroy ' + (100 - Math.abs(r)) + '% of the value every period instead of ' + Math.abs(r) + '%. ' +
+          'Read the sentence as "what fraction survives", and the model writes itself. ' +
+          '<br><br>Notice the bars: decay never reaches zero, it only gets closer — the same fact as an exponential having no root, seen from the model side.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">Growth compounds, which is why you never multiply by the number of periods.</b>' +
+          'At +' + r + '% the factor is ' + num(fac, 4) + ', so after 3 periods the value is ' + a0 + ' × ' + num(fac, 4) + '^3 = ' + num(vals[3]) + '. ' +
+          'Set the initial value to 12 and the rate to +100% and you get the bank’s bacteria question: 12 × 2^3 = 96 cells after 3 hours — not 72, ' +
+          'which is what multiplying 12 by 2 by 3 would give. ' +
+          '<br><br><b style="display:inline">And this is where logarithms come back.</b> To ask <em>when</em> the amount reaches a target, t is stuck up in ' +
+          'the exponent and no amount of dividing will free it. Take ln of both sides, use the power rule, and divide: ' +
+          't = ln(' + goal + ') / ln(' + num(fac, 4) + ') = ' + num(tt, 2) + ' periods. That expression is log base ' + num(fac, 4) + ' of ' + goal + ', ' +
+          'evaluated by change of base — visual 4, doing real work.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'2000 at -5%',    a:2000, r:-5 },
+      { t:'500 at +10%',    a:500,  r:10 },
+      { t:'12 doubling',    a:12,   r:100 },
+      { t:'100 at +8%',     a:100,  r:8 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ A.value = String(p.a); R.value = String(p.r); render(); });
+      pres.appendChild(btn);
+    });
+    A.addEventListener('input', render);
+    R.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,630 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Stages Become Sensors</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Freshness Budget</button>
+  <button class="viz-tab" data-viz-tab="3">3. Sensors And Diagnosis</button>
+  <button class="viz-tab" data-viz-tab="4">4. Averages Hide Regressions</button>
+  <button class="viz-tab" data-viz-tab="5">5. Drift Defect Or Model</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Stages Become Sensors</h2>
+  <p class="vz-lede">On the left, the backbone you already drew: <b>ingestion → lake → chunks and embeddings
+    → index → RAG endpoint</b>, with its component boundaries and its derived copies. On the right, the
+    sensor each boundary has to carry, because a boundary with no sensor fails <em>quietly</em>. Tap a stage.
+    <b>Like a house with smoke alarms: the wiring did not change, but now the house can tell you which
+    room.</b></p>
+
+  <div class="v1-list" id="v1-list"></div>
+
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Notice what observability is made of: the <b>interface contracts</b> from lesson one,
+    turned into numbers. "One row per chunk, tagged with its generation" is a contract; reconciliation
+    counting vectors against documents is that same contract read out loud every hour. And because
+    documents are the single source of truth while chunks, embeddings and the index are <b>derived</b>,
+    every defect below the lake is repairable by rebuilding — which is exactly why detecting it fast is
+    the whole game.</p>
+
+  <style>
+    .v1-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v1-sla{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-accent);
+      font-weight:800;flex:0 0 auto}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b.v1-hd{display:block;font-size:13px;margin-bottom:5px}
+    .v1-kv{display:flex;gap:8px;margin:8px 0;font-size:11.5px;line-height:1.5}
+    .v1-k{flex:0 0 78px;color:var(--viz-muted);font-weight:800;text-transform:uppercase;letter-spacing:.04em;font-size:10px;padding-top:2px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { t:'source commit → raw landing', sla:'p95 60 s',
+        hd:'Ingestion lag — the first watermark.',
+        copy:'raw documents in the lake (the source of truth for everything below)',
+        contract:'document id, source timestamp, schema version on every record',
+        sensor:'lag = now − max source timestamp fully processed, per stage and per major tenant',
+        blind:'A connector that silently stops looks exactly like a quiet source. Throughput says nothing: a consumer can be busy and still falling behind, which is why the watermark, not the event rate, is the primitive.' },
+      { t:'landing → parsed, chunked, embedded', sla:'p95 5 min',
+        hd:'Pipeline lag — plus reconciliation.',
+        copy:'chunks and embeddings — derived, rebuildable, and therefore droppable without anyone noticing',
+        contract:'one row per chunk, tagged with its embedding generation, no gaps',
+        sensor:'lag, and a count of live vectors against document count per generation',
+        blind:'Chunks whose embedding call timed out vanish with no error at all. On a real rebuild that left the live vector count <b>twelve percent below</b> the document count for generation v4 — a contract violation that only a reconciliation count can see.' },
+      { t:'embedded → searchable', sla:'p95 2 min',
+        hd:'Index visibility lag.',
+        copy:'the live index, behind an alias',
+        contract:'every committed chunk is queryable, and every revoked one is not',
+        sensor:'visibility lag, plus a retrieval canary queried every minute',
+        blind:'At 09:10 an ACL was tightened under a five-minute revocation SLA. A compaction job had locked the target segment, visibility lag spiked to <b>22 minutes</b>, and the document kept answering for seventeen extra minutes. Freshness is a compliance control here, not a nicety.' },
+      { t:'index → RAG endpoint', sla:'daily',
+        hd:'What the user actually experienced.',
+        copy:'nothing durable — a response',
+        contract:'top-k, ACL-filtered, reranked, cited',
+        sensor:'hit rate and zero-hit rate, production MRR, reranker score distributions, funnel attrition',
+        blind:'Offline nDCG can hold perfectly steady while the right document slides from rank 1 to rank 4. Judged queries are not live traffic, and this is the only layer where the difference shows up.' }
+    ];
+    var list = document.getElementById('v1-list'), why = document.getElementById('v1-why');
+    function row(k, v){ return '<div class="v1-kv"><span class="v1-k">' + k + '</span><span>' + v + '</span></div>'; }
+    function show(i){
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      var s = STAGES[i];
+      why.innerHTML = '<b class="v1-hd">' + s.hd + '</b>' +
+        row('derived', s.copy) + row('contract', s.contract) + row('sensor', s.sensor) +
+        '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--viz-line)">' +
+        '<b style="color:var(--viz-amber)">Silent without it: </b>' + s.blind + '</div>';
+    }
+    STAGES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v1-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-n">' + (i + 1) + '</span><span>' + s.t + '</span>' +
+        '<span class="v1-sla">' + s.sla + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Freshness Budget</h2>
+  <p class="vz-lede">Freshness is one number the user feels and three numbers you can act on. Drag each stage
+    and watch the end-to-end p95 add up — then flip the trend, because a lag that is <em>growing</em> is a
+    different alert from a lag that is merely high. <b>Like a connecting flight: the total delay is the sum
+    of the legs, and only the leg times tell you which airline to call.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-ing">Ingestion lag — source commit to raw landing:
+      <span id="v2-ingl">45 s</span> <em>(SLA p95 60 s)</em></label>
+    <input type="range" id="v2-ing" min="0" max="300" value="45" step="5" aria-label="Ingestion lag in seconds">
+
+    <label class="v2-lab" for="v2-pipe">Pipeline lag — landing to chunked and embedded:
+      <span id="v2-pipel">3 min</span> <em>(SLA p95 5 min)</em></label>
+    <input type="range" id="v2-pipe" min="0" max="30" value="3" step="1" aria-label="Pipeline lag in minutes">
+
+    <label class="v2-lab" for="v2-vis">Visibility lag — embedded to searchable:
+      <span id="v2-visl">1 min</span> <em>(SLA p95 2 min)</em></label>
+    <input type="range" id="v2-vis" min="0" max="30" value="1" step="1" aria-label="Index visibility lag in minutes">
+
+    <div class="vz-seg" role="group" aria-label="Lag trend" style="margin:14px 0 10px">
+      <button id="v2-steady" aria-pressed="true">trend: steady</button>
+      <button id="v2-double" aria-pressed="false">trend: doubling hourly</button>
+    </div>
+
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-total" id="v2-total"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">A full rebuild has its own freshness trap that no slider here can fix: a build taking six
+    hours publishes an index that is <b>six hours stale at birth</b>. The fixes are structural — build from a
+    snapshot at a recorded timestamp, keep incremental updates flowing into the live index during the build,
+    and replay the events since the snapshot before the alias swaps. Graph staleness-at-publish like any
+    other lag.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-lab em{font-style:normal;font-weight:600;color:var(--viz-muted);font-size:11px}
+    .v2-rows{display:flex;flex-direction:column;gap:6px}
+    .v2-r{display:flex;align-items:center;gap:9px;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v2-nm{flex:0 0 74px;color:var(--viz-muted)}
+    .v2-track{position:relative;flex:1;height:15px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+    .v2-mark{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--viz-ink);opacity:.55}
+    .v2-tag{flex:0 0 84px;text-align:right;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v2-total{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b.v2-hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MAXM = 30;                       // the bar scale, in minutes
+    var growing = false;
+    var ing = document.getElementById('v2-ing'), ingl = document.getElementById('v2-ingl');
+    var pipe = document.getElementById('v2-pipe'), pipel = document.getElementById('v2-pipel');
+    var vis = document.getElementById('v2-vis'), visl = document.getElementById('v2-visl');
+    var rows = document.getElementById('v2-rows'), total = document.getElementById('v2-total');
+    var why = document.getElementById('v2-why');
+    var bS = document.getElementById('v2-steady'), bG = document.getElementById('v2-double');
+
+    function bar(name, mins, slaMins, label, slaLabel){
+      var over = mins > slaMins;
+      var col = over ? 'var(--viz-red)' : 'var(--viz-green)';
+      return '<div class="v2-r"><span class="v2-nm">' + name + '</span>' +
+        '<span class="v2-track">' +
+        '<i style="width:' + Math.max(1.5, Math.min(100, mins / MAXM * 100)) + '%;background:' + col + '"></i>' +
+        '<span class="v2-mark" style="left:' + (slaMins / MAXM * 100) + '%"></span>' +
+        '</span>' +
+        '<span class="v2-tag" style="color:' + col + '">' + label + (over ? ' BREACH' : ' ok') + '</span></div>' +
+        '<div style="font-size:10px;color:var(--viz-muted);margin:-2px 0 2px 83px">' +
+        'the tick is the SLA at ' + slaLabel + '</div>';
+    }
+
+    function render(){
+      var i = Number(ing.value), p = Number(pipe.value), v = Number(vis.value);
+      ingl.textContent = i + ' s'; pipel.textContent = p + ' min'; visl.textContent = v + ' min';
+      bS.setAttribute('aria-pressed', growing ? 'false' : 'true');
+      bG.setAttribute('aria-pressed', growing ? 'true' : 'false');
+
+      var im = i / 60, e2e = im + p + v;
+      rows.innerHTML =
+        bar('ingestion', im, 1, i + ' s', '60 s') +
+        bar('pipeline', p, 5, p + ' min', '5 min') +
+        bar('visibility', v, 2, v + ' min', '2 min');
+
+      var breaches = (i > 60 ? 1 : 0) + (p > 5 ? 1 : 0) + (v > 2 ? 1 : 0);
+      var e2eOver = e2e > 10;
+      total.innerHTML =
+        '<span class="v2-pill" style="color:' + (e2eOver ? 'var(--viz-red)' : 'var(--viz-green)') +
+          ';border-color:' + (e2eOver ? 'var(--viz-red)' : 'var(--viz-green)') + '">end to end ' +
+          (Math.round(e2e * 10) / 10) + ' min ' + (e2eOver ? '&gt;' : '≤') + ' SLA 10 min</span>' +
+        '<span class="v2-pill" style="color:' + (breaches ? 'var(--viz-amber)' : 'var(--viz-muted)') +
+          ';border-color:' + (breaches ? 'var(--viz-amber)' : 'var(--viz-line)') + '">' + breaches +
+          ' of 3 stage SLAs breached</span>';
+
+      var t = '';
+      if (growing) {
+        t = '<b class="v2-hd" style="color:var(--viz-red)">Alert shape 2: the lag is growing.</b>' +
+          'A lag that doubles every hour means the consumer is falling behind the producer — the queue-backlog ' +
+          'failure from the streaming course, visible as rising oldest-unacked-message age or growing backlog ' +
+          'latency. It will breach whatever it currently reads, so the growth rate is an alert in its own right ' +
+          'and firing it early is the only version that helps. <br><br>An absolute-breach alert alone tells you ' +
+          'this at the moment it is already too late to be graceful.';
+      } else if (breaches >= 2) {
+        t = '<b class="v2-hd" style="color:var(--viz-amber)">Two cells breached — investigate the upstream one first.</b>' +
+          'Downstream lag is usually upstream lag in disguise: an index cannot make a chunk searchable before the ' +
+          'pipeline has produced it. Chasing the visible symptom first is how a freshness incident turns into an ' +
+          'afternoon. <br><br>Every cell has an owner and an alert, which is the point of splitting one number into three.';
+      } else if (v > 10) {
+        t = '<b class="v2-hd" style="color:var(--viz-red)">This is the 09:10 incident.</b>' +
+          'A leaked document\'s ACL was tightened under a five-minute revocation SLA. Visibility lag spiked to ' +
+          '<b>22 minutes</b> because a compaction job had locked the target segment, so the document kept answering ' +
+          'for seventeen extra minutes. <br><br>The review did two things, and both are structural: compaction ' +
+          'windows got coupled to SLA alerts, and the freshness error budget got a burn-down view — so the third ' +
+          'breach in a month freezes non-essential changes until the path is fixed.';
+      } else if (e2eOver) {
+        t = '<b class="v2-hd" style="color:var(--viz-amber)">End to end breaches while every stage passes.</b>' +
+          'The budget is a sum, so three stages sitting just under their own limits can still miss the number the ' +
+          'user feels. That is a budgeting decision, not an incident: either tighten a stage or admit the ' +
+          'end-to-end SLA was set by wishful thinking.';
+      } else {
+        t = '<b class="v2-hd" style="color:var(--viz-green)">Inside budget on every stage and end to end.</b>' +
+          'Lag is <code>now − watermark</code>, where the watermark is the maximum source timestamp a stage has ' +
+          '<em>fully</em> processed — emitted per stage and per major tenant, because one large tenant can breach ' +
+          'while the aggregate looks calm. <br><br>Drag any stage past its tick, or flip the trend, to see the two ' +
+          'alert shapes behave differently.';
+      }
+      why.innerHTML = t;
+    }
+    [ing, pipe, vis].forEach(function(s){ s.addEventListener('input', render); });
+    bS.addEventListener('click', function(){ growing = false; render(); });
+    bG.addEventListener('click', function(){ growing = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Sensors And Diagnosis</h2>
+  <p class="vz-lede">A new chunker deployed Monday. By Wednesday something is wrong. Switch instruments on
+    one at a time and watch how far the diagnosis gets — the incident is identical in every case, only your
+    instrumentation changes. <b>Like a doctor with a thermometer versus a doctor with blood work: same
+    patient, very different appointment.</b></p>
+
+  <div class="v3-toggles" id="v3-toggles"></div>
+
+  <div class="vz-card">
+    <div class="v3-board" id="v3-board"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The answer-side signals are the ones users generate for free — thumbs rate, escalation
+    rate, <b>re-query rate</b> (a user rephrasing means the first answer failed) and abstention rate, which
+    rises when retrieval weakens or gates tighten. They are excellent alarms and terrible diagnoses. The
+    zero-hit rate is the earliest of them, and per-stage counts are what turn any of them into an address.</p>
+
+  <style>
+    .v3-toggles{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-t{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;font-weight:700;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v3-t[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-ink)}
+    .v3-box{flex:0 0 auto;width:17px;height:17px;border-radius:5px;border:1.5px solid var(--viz-line);
+      display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:900}
+    .v3-t[aria-pressed="true"] .v3-box{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v3-board{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v3-rd{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.35}
+    .v3-rd.is-off{opacity:.4;border-style:dashed}
+    .v3-v{margin-left:auto;font-weight:800;flex:0 0 auto;text-align:right}
+    .v3-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b.v3-hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Every reading below is the same Wednesday incident. Only visibility changes.
+    var SENSORS = [
+      { k:'thumbs',  t:'answer-side signals (thumbs, escalations, re-queries)',
+        m:'thumbs rate', v:'−8% since Monday', c:'var(--viz-red)' },
+      { k:'zero',    t:'zero-hit rate — the earliest warning number',
+        m:'zero-hit rate', v:'rising', c:'var(--viz-amber)' },
+      { k:'rerank',  t:'reranker score distribution (p10 / p50 / p90, top-1 and top-50)',
+        m:'reranker top-1 p50', v:'0.81 → 0.74', c:'var(--viz-red)' },
+      { k:'funnel',  t:'funnel attrition: candidates per source, post-ACL, post-dedupe, post-rerank',
+        m:'post-dedupe candidates', v:'halved', c:'var(--viz-red)' },
+      { k:'deploy',  t:'a deploy and build timeline to align against',
+        m:'chunker deployed', v:'Monday', c:'var(--viz-violet)' }
+    ];
+    var on = { thumbs:true, zero:false, rerank:false, funnel:false, deploy:false };
+    var togs = document.getElementById('v3-toggles');
+    var board = document.getElementById('v3-board'), why = document.getElementById('v3-why');
+
+    function verdict(){
+      var n = SENSORS.filter(function(s){ return on[s.k]; }).length;
+      if (!on.thumbs && !on.zero && n === 0) return {
+        h:'Nothing is watching.', c:'var(--viz-red)', cost:'discovered by sales, weeks later',
+        b:'The regression is real and shipping. With no instrument at all the first report arrives from outside — a churn conversation, a support escalation, an angry tenant. This is the uninstrumented baseline the whole lesson exists to beat.' };
+      if (on.funnel && on.rerank && on.deploy) return {
+        h:'Full diagnosis, in one meeting.', c:'var(--viz-green)', cost:'one meeting',
+        b:'Thumbs rate is down eight percent, reranker top-1 p50 has fallen from <b>0.81 to 0.74</b>, and post-dedupe candidates have <b>halved</b> — since a chunker deploy on Monday. Read together, those three say one thing: the new chunker emits near-duplicate chunks, deduplication collapses them, and the reranker is being starved of candidates. <br><br>Note that the reranker is not broken and the model has not changed. The stage that changed shape is upstream of both, and only the per-stage counts have its address.' };
+      if (on.funnel && on.rerank) return {
+        h:'Mechanism found, cause unanchored.', c:'var(--viz-amber)', cost:'a day',
+        b:'Weaker candidates are reaching the reranker and the funnel says where they are being lost: post-dedupe is halved. What is missing is the <b>when</b> — without a deploy timeline you cannot tie it to Monday\'s chunker, and step one of the diagnostic order is exactly that timestamp match. Cheapest step, biggest single elimination.' };
+      if (on.rerank && on.deploy) return {
+        h:'Strong suspicion, no mechanism.', c:'var(--viz-amber)', cost:'a day or two',
+        b:'Top-1 p50 fell from 0.81 to 0.74 and a chunker shipped on Monday. A distribution shift with no reranker change means the <b>inputs</b> changed, and falling top-1 score mass means the funnel is feeding it weaker candidates. But "somewhere upstream" is not a stage. Add per-stage counts and the sentence finishes itself.' };
+      if (on.rerank) return {
+        h:'The quiet sensor spoke.', c:'var(--viz-amber)', cost:'days',
+        b:'Reranker score distributions shift when the inputs shift — new query types, a new content shape, corpus growth. Falling top-1 mass points upstream, which is real information, but it does not name a stage or a change.' };
+      if (on.deploy) return {
+        h:'A suspect with no evidence.', c:'var(--viz-amber)', cost:'days',
+        b:'You know a chunker shipped Monday and that quality fell by Wednesday. Correlation with a deploy is the single cheapest diagnostic step and it is genuinely most of the diagnosis — but on its own it argues for a rollback you cannot justify and cannot learn from.' };
+      return {
+        h:'Alarm without an address.', c:'var(--viz-red)', cost:'a week of log diving',
+        b:'The answer-side signals tell you users are unhappy: thumbs down eight percent, re-queries up, abstentions up. They are the right alarms — they measure what users experience rather than judged queries, and offline nDCG can be perfectly flat while this happens. They simply cannot say <em>which stage</em>. That gap is a week of log diving.' };
+    }
+
+    function render(){
+      [].slice.call(togs.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', on[SENSORS[i].k] ? 'true' : 'false');
+        b.firstChild.textContent = on[SENSORS[i].k] ? '✓' : '';
+      });
+      board.innerHTML = SENSORS.map(function(s){
+        var live = on[s.k];
+        return '<div class="v3-rd' + (live ? '' : ' is-off') + '"><span>' + s.m + '</span>' +
+          '<span class="v3-v" style="color:' + (live ? s.c : 'var(--viz-muted)') + '">' +
+          (live ? s.v : 'not instrumented') + '</span></div>';
+      }).join('');
+      var vd = verdict();
+      why.innerHTML = '<b class="v3-hd" style="color:' + vd.c + '">' + vd.h + '</b>' +
+        '<span style="font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted)">time to diagnosis: ' +
+        vd.cost + '</span><br><br>' + vd.b;
+    }
+    SENSORS.forEach(function(s){
+      var b = document.createElement('button');
+      b.className = 'v3-t';
+      b.setAttribute('aria-pressed', 'false');
+      var box = document.createElement('span');
+      box.className = 'v3-box';
+      b.appendChild(box);
+      var lab = document.createElement('span');
+      lab.textContent = s.t;
+      b.appendChild(lab);
+      b.addEventListener('click', function(){ on[s.k] = !on[s.k]; render(); });
+      togs.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Averages Hide Regressions</h2>
+  <p class="vz-lede">One candidate index change, measured against one golden set. The per-class results never
+    move — only the <em>mix</em> of the set does. Drag it and watch the headline average flip sign while the
+    damage stays exactly where it was. <b>Like a national average temperature: perfectly true, and useless
+    to the one region that froze.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-share">Conceptual queries are <span id="v4-sharel">80%</span> of the set
+      <em>(the rest split evenly across the other four classes)</em></label>
+    <input type="range" id="v4-share" min="20" max="90" value="80" step="5" aria-label="Share of conceptual queries">
+
+    <label class="v4-lab" for="v4-size">Golden set size: <span id="v4-sizel">200 queries</span>
+      <em>(the practical range is 100–300)</em></label>
+    <input type="range" id="v4-size" min="100" max="300" value="200" step="20" aria-label="Golden set size">
+
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-verdict" id="v4-verdict"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Two failure modes belong to the practice itself, not to any one change. <b>Golden-set
+    rot</b>: queries go stale as the product and its language evolve — fixed by quarterly review and by a rule
+    that every production incident contributes its queries to the set. <b>Teaching-to-the-test</b>: parameters
+    get tuned until the set passes — fixed by holding out a slice used only for final validation, never for
+    tuning. A golden set you have optimised against has stopped being a measurement.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-lab em{font-style:normal;font-weight:600;color:var(--viz-muted);font-size:11px}
+    .v4-rows{margin-top:15px;display:flex;flex-direction:column;gap:5px}
+    .v4-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v4-r.is-thin{border-style:dashed}
+    .v4-cn{flex:0 0 76px}
+    .v4-q{flex:0 0 52px;color:var(--viz-muted)}
+    .v4-d{margin-left:auto;font-weight:800;flex:0 0 auto;text-align:right;width:96px}
+    .v4-verdict{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b.v4-hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // One change, measured per class, paired by query. The deltas are fixed; the MIX is the dial.
+    var CLASSES = [
+      { n:'exact-ID',    d:-15 },
+      { n:'conceptual',  d:  4 },
+      { n:'negation',    d:  1 },
+      { n:'multilingual',d:  1 },
+      { n:'multi-hop',   d:  1 }
+    ];
+    var THRESH = -2;                       // per-class acceptance threshold, in nDCG points
+    var sh = document.getElementById('v4-share'), shl = document.getElementById('v4-sharel');
+    var sz = document.getElementById('v4-size'), szl = document.getElementById('v4-sizel');
+    var rows = document.getElementById('v4-rows'), verdict = document.getElementById('v4-verdict');
+    var why = document.getElementById('v4-why');
+
+    function render(){
+      var share = Number(sh.value) / 100, total = Number(sz.value);
+      shl.textContent = Math.round(share * 100) + '%';
+      szl.textContent = total + ' queries';
+      var other = (1 - share) / 4;
+
+      var avg = 0, thin = 0, worst = null;
+      rows.innerHTML = CLASSES.map(function(c){
+        var w = c.n === 'conceptual' ? share : other;
+        var q = Math.round(w * total);
+        avg += w * c.d;
+        if (q < 20) thin += 1;
+        if (!worst || c.d < worst.d) worst = c;
+        var fails = c.d < THRESH;
+        var col = fails ? 'var(--viz-red)' : (c.d > 0 ? 'var(--viz-green)' : 'var(--viz-muted)');
+        return '<div class="v4-r' + (q < 20 ? ' is-thin' : '') + '">' +
+          '<span class="v4-cn">' + c.n + '</span>' +
+          '<span class="v4-q">' + q + ' q' + (q < 20 ? ' ⚠' : '') + '</span>' +
+          '<span class="v4-d" style="color:' + col + '">' + (c.d > 0 ? '+' : '') + c.d +
+          ' pts ' + (fails ? 'FAIL' : 'pass') + '</span></div>';
+      }).join('');
+
+      var a = Math.round(avg * 10) / 10;
+      var shipsOnAvg = a > 0;
+      verdict.innerHTML =
+        '<span class="v4-pill" style="color:' + (shipsOnAvg ? 'var(--viz-green)' : 'var(--viz-red)') +
+          ';border-color:' + (shipsOnAvg ? 'var(--viz-green)' : 'var(--viz-red)') + '">average ' +
+          (a > 0 ? '+' : '') + a + ' pts → ' + (shipsOnAvg ? 'SHIP' : 'BLOCK') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-red);border-color:var(--viz-red)">per class: exact-ID −15 → BLOCK</span>' +
+        (thin ? '<span class="v4-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">' + thin +
+          ' class' + (thin === 1 ? '' : 'es') + ' under 20 queries ⚠</span>' : '');
+
+      why.innerHTML = shipsOnAvg
+        ? '<b class="v4-hd" style="color:var(--viz-red)">The average says ship. The exact-ID class is destroyed.</b>' +
+          'A <b>' + (a > 0 ? '+' : '') + a + '-point average gain that costs the exact-ID class fifteen points</b> is a bad ' +
+          'trade shipping under a good headline. This is exactly why stratification gives the acceptance rule its ' +
+          'teeth: a set that is mostly conceptual queries will happily pass a change that destroys exact-ID lookup, ' +
+          'because the damaged class is too small to move the mean. <br><br>The rule is <b>per class, never per ' +
+          'average</b> — and the class proportions should roughly mirror production traffic, so the mix on screen ' +
+          'is not a free choice either.'
+        : '<b class="v4-hd" style="color:var(--viz-amber)">Now the average agrees — and it agreed for the wrong reason.</b>' +
+          'Nothing about the change moved. The exact-ID class still loses fifteen points; you simply gave it enough ' +
+          'weight to show through. An acceptance rule whose verdict depends on the mix is not measuring the change, ' +
+          'it is measuring your sampling. <br><br>Per-class thresholds are immune to this, which is the whole ' +
+          'argument for them.';
+      if (thin) {
+        why.innerHTML += '<br><br><b style="color:var(--viz-amber)">And ' + thin + ' class' +
+          (thin === 1 ? ' has' : 'es have') + ' fewer than twenty queries.</b> Below roughly twenty, a class metric ' +
+          'is noise: one query flipping moves it several points, so it can neither block a bad change nor clear a ' +
+          'good one. Every class needs enough queries for its number to mean anything.';
+      }
+      why.innerHTML += '<br><br><b>Compare paired by query.</b> Run the golden set against the old and the ' +
+        'candidate index and difference each query against itself — the paired design from IR 104, which removes ' +
+        'query-difficulty variance. Comparing two means over differently-sampled queries buries a real effect in noise.';
+    }
+    sh.addEventListener('input', render);
+    sz.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Drift Defect Or Model</h2>
+  <p class="vz-lede">Quality dropped. It belongs to one of three families and each has a signature, so triage
+    is reading evidence rather than guessing. Set each row to what your dashboards actually show and watch the
+    three candidates separate. <b>Like a diagnosis by symptom pattern: the fever alone means nothing, the
+    combination names the illness.</b></p>
+
+  <div class="v5-rows" id="v5-rows"></div>
+
+  <div class="vz-card">
+    <div class="v5-bars" id="v5-bars"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The order of those rows is not decoration — it is the diagnostic order, and it is
+    <b>cheapest-elimination-first</b>: timestamp, then offline reproduction on the golden set, then canaries,
+    then per-stage attrition, then segments. Each step eliminates a whole family, so log archaeology and
+    segment dives only happen on a field that is already narrow. And every diagnosis ends the same way: add
+    the metric or canary that would have caught it earlier, because observability compounds.</p>
+
+  <style>
+    .v5-rows{display:flex;flex-direction:column;gap:9px;margin-bottom:13px}
+    .v5-q{font-size:11.5px;font-weight:800;color:var(--viz-muted);margin:0 0 5px;letter-spacing:.02em}
+    .v5-opts{display:flex;gap:5px;flex-wrap:wrap}
+    .v5-o{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:5px 7px;line-height:1.3}
+    .v5-o[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+    .v5-bars{display:flex;flex-direction:column;gap:9px;margin-bottom:12px}
+    .v5-b h6{margin:0 0 4px;font-size:11.5px;font-weight:800;display:flex;justify-content:space-between}
+    .v5-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v5-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+    .v5-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b.v5-hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Scores are the SIGNATURES from the lesson: drift / index defect / model change.
+    var Q = [
+      { q:'1 · When did it start?',
+        o:[ { t:'gradual, over days or weeks', s:[3,0,0] },
+            { t:'step change, one timestamp', s:[0,3,2] } ] },
+      { q:'2 · What does that timestamp line up with?',
+        o:[ { t:'an index build or deploy', s:[0,3,0] },
+            { t:'a model or judge version', s:[0,0,3] },
+            { t:'nothing in the timeline', s:[3,0,0] } ] },
+      { q:'3 · Does the golden set reproduce it offline?',
+        o:[ { t:'yes, reproduces offline', s:[1,2,2] },
+            { t:'no, live traffic only', s:[2,1,0] } ] },
+      { q:'4 · Which canaries fired?',
+        o:[ { t:'retrieval canary fired', s:[0,3,0] },
+            { t:'none fired', s:[2,0,2] } ] },
+      { q:'5 · Per-stage attrition and reconciliation?',
+        o:[ { t:'a stage jumped / counts diverge', s:[0,3,0] },
+            { t:'counts stable, scores shifted', s:[3,0,1] } ] },
+      { q:'6 · Segments, and did users notice?',
+        o:[ { t:'concentrated in some segments', s:[3,1,0] },
+            { t:'uniform across all segments', s:[0,0,3] },
+            { t:'metrics moved, users did not', s:[0,0,4] } ] }
+    ];
+    var FAM = [
+      { n:'Data drift — the world changed', c:'var(--viz-violet)',
+        w:'Gradual decline over days or weeks, concentrated in specific query segments, reranker score distributions shifting while per-stage counts stay stable. New products, new vocabulary, seasonal query mix, corpus growth.',
+        r:'Refresh the evaluation sets, fine-tune on the new distribution, adapt chunking to the new content shapes. Nothing is broken — the target moved.' },
+      { n:'Index defect — the machinery broke', c:'var(--viz-red)',
+        w:'A step change aligned with a build or deploy timestamp, canaries firing, reconciliation counts diverging, attrition jumping at one stage.',
+        r:'Roll back or rebuild. The worked case: a rebuild at 23:00 Wednesday left the live vector count <b>twelve percent below</b> the document count for generation v4, because chunks whose embedding calls timed out were dropped with no quarantine gate. Roll the alias back to v3, add the gate, rebuild, and add a canary asserting chunk coverage per generation.' },
+      { n:'Model change — the model moved', c:'var(--viz-amber)',
+        w:'A shift aligned with a model-version timestamp, uniform across segments rather than concentrated — or metrics moving while user outcomes hold still, which is judge drift specifically.',
+        r:'Pin or roll back versions and recalibrate the judges. Note the trap: if only your metrics moved and thumbs, escalations and re-queries did not, the system is fine and the measuring instrument is not.' }
+    ];
+    var pick = [0, 0, 0, 0, 0, 0];
+    var rows = document.getElementById('v5-rows');
+    var bars = document.getElementById('v5-bars'), why = document.getElementById('v5-why');
+
+    function render(){
+      var sc = [0, 0, 0];
+      Q.forEach(function(row, i){
+        var s = row.o[pick[i]].s;
+        for (var k = 0; k < 3; k++) sc[k] += s[k];
+      });
+      var max = Math.max(1, sc[0], sc[1], sc[2]);
+      var lead = sc.indexOf(max);
+      var tie = sc.filter(function(v){ return v === max; }).length > 1;
+
+      bars.innerHTML = FAM.map(function(f, i){
+        return '<div class="v5-b"><h6><span>' + f.n + '</span><b style="color:' + f.c + '">' + sc[i] +
+          ' pts' + (!tie && i === lead ? ' ◄ leading' : '') + '</b></h6>' +
+          '<div class="v5-track"><i style="width:' + Math.round(sc[i] / max * 100) + '%;background:' + f.c + '"></i></div></div>';
+      }).join('');
+
+      if (tie) {
+        why.innerHTML = '<b class="v5-hd" style="color:var(--viz-amber)">The evidence is split — keep going down the order.</b>' +
+          'Two families score the same, which usually means the cheap steps have not been answered yet. Start at row 1: ' +
+          'a timestamp match is most of the diagnosis and costs one query. Then ask whether the golden set reproduces ' +
+          'it offline — a yes eliminates every live-only cause (caches, ACL state, traffic mix) in a single step, and a ' +
+          'no sends you straight to them.';
+      } else {
+        var f = FAM[lead];
+        why.innerHTML = '<b class="v5-hd" style="color:' + f.c + '">' + f.n + '</b>' +
+          '<b style="color:var(--viz-muted)">Signature: </b>' + f.w +
+          '<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--viz-line)">' +
+          '<b style="color:' + f.c + '">Response: </b>' + f.r + '</div>';
+      }
+    }
+    Q.forEach(function(row, i){
+      var wrap = document.createElement('div');
+      var h = document.createElement('p');
+      h.className = 'v5-q';
+      h.textContent = row.q;
+      wrap.appendChild(h);
+      var opts = document.createElement('div');
+      opts.className = 'v5-opts';
+      row.o.forEach(function(o, j){
+        var b = document.createElement('button');
+        b.className = 'v5-o';
+        b.textContent = o.t;
+        b.setAttribute('aria-pressed', j === 0 ? 'true' : 'false');
+        b.addEventListener('click', function(){
+          pick[i] = j;
+          [].slice.call(opts.children).forEach(function(x, k){ x.setAttribute('aria-pressed', k === j ? 'true' : 'false'); });
+          render();
+        });
+        opts.appendChild(b);
+      });
+      wrap.appendChild(opts);
+      rows.appendChild(wrap);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

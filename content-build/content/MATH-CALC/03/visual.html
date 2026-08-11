@@ -1,0 +1,1043 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button::before{content:"\25CB\00a0"}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-pills{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+input[type=range]{width:100%;min-height:44px}
+svg{display:block;width:100%;height:auto}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Undo The Derivative</button>
+  <button class="viz-tab" data-viz-tab="2">2. Rectangles To Area</button>
+  <button class="viz-tab" data-viz-tab="3">3. Signed Area Ledger</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Antiderivative Table</button>
+  <button class="viz-tab" data-viz-tab="5">5. Chain Rule Backwards</button>
+  <button class="viz-tab" data-viz-tab="6">6. Top Minus Bottom</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Undo The Derivative</h2>
+  <p class="vz-lede"><b>Derivative as slope and rate of change</b>, the <b>Derivative rules (Power rule,
+    Product, Quotient)</b> and <b>Derivatives of sin(x) and cos(x)</b> all ran one way: function in, rate
+    out. Here is the same picture read backwards. Drag the point to move along the curve, then drag C and
+    watch what refuses to change. <b>Like a photograph of a hillside: the slope at every point is fixed, but
+    the whole hill can sit at any altitude.</b></p>
+
+  <div class="vz-seg" id="v1-set" role="group" aria-label="Choose a function pair"></div>
+
+  <div class="vz-card">
+    <div id="v1-top"></div>
+    <div class="v1-link" id="v1-link"></div>
+    <div id="v1-bot"></div>
+    <label class="vz-lab" for="v1-x">Point on the curve: x = <span id="v1-xl">0.0</span></label>
+    <input type="range" id="v1-x" min="0" max="100" value="62" step="1" aria-label="Point on the curve">
+    <label class="vz-lab" for="v1-c">Constant of integration: C = <span id="v1-cl">0.0</span></label>
+    <input type="range" id="v1-c" min="-20" max="20" value="0" step="5" aria-label="Constant of integration">
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">This is why an indefinite integral is a <b>family</b> and a definite integral is a
+    <b>number</b>. Antidifferentiating loses the constant, so you write + C; but in F(b) − F(a) the two
+    copies of C cancel, which is exactly why definite integrals never carry one.</p>
+
+  <style>
+    .v1-link{font-size:11.5px;font-weight:800;text-align:center;color:var(--viz-accent);
+      font-family:ui-monospace,Consolas,monospace;margin:2px 0 4px}
+    .v1-cap{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);margin:0 0 2px}
+  </style>
+  <script>
+  (function(){
+    var PAIRS = [
+      { nm:'2x', fL:'f(x) = 2x', FL:'F(x) = x^2 + C',
+        f:function(x){ return 2*x; }, F:function(x){ return x*x; },
+        dom:[-2.2,2.2], Fr:[-4.5,8.5], fr:[-5,5],
+        rule:'Power rule forwards: d/dx x^2 = 2x. Backwards: raise the exponent, divide by the new one.' },
+      { nm:'3x^2', fL:'f(x) = 3x^2', FL:'F(x) = x^3 + C',
+        f:function(x){ return 3*x*x; }, F:function(x){ return x*x*x; },
+        dom:[-1.9,1.9], Fr:[-9,9], fr:[-1,11.5],
+        rule:'d/dx x^3 = 3x^2, so the antiderivative of 3x^2 is x^3 — and integral 3x^2 dx = x^3 + C.' },
+      { nm:'cos x', fL:'f(x) = cos(x)', FL:'F(x) = sin(x) + C',
+        f:Math.cos, F:Math.sin,
+        dom:[-3.3,3.3], Fr:[-3.2,3.2], fr:[-1.6,1.6],
+        rule:'d/dx sin(x) = cos(x), so integral cos(x) dx = sin(x) + C. The sign traps live on the other one.' }
+    ];
+    var cur = 0;
+    var setEl = document.getElementById('v1-set');
+    var topEl = document.getElementById('v1-top'), botEl = document.getElementById('v1-bot');
+    var linkEl = document.getElementById('v1-link'), whyEl = document.getElementById('v1-why');
+    var xs = document.getElementById('v1-x'), xl = document.getElementById('v1-xl');
+    var cs = document.getElementById('v1-c'), cl = document.getElementById('v1-cl');
+    var W = 320, PL = 26, PR = 8, PT = 10, PB = 18;
+
+    function mx(x, dom){ return PL + (x - dom[0]) / (dom[1] - dom[0]) * (W - PL - PR); }
+    function my(y, rng, H){ return H - PB - (y - rng[0]) / (rng[1] - rng[0]) * (H - PT - PB); }
+    function pts(fn, dom, rng, H, off){
+      var out = [];
+      for (var i = 0; i <= 200; i++) {
+        var x = dom[0] + (dom[1] - dom[0]) * i / 200;
+        var y = fn(x) + off;
+        if (!isFinite(y)) continue;
+        var py = my(y, rng, H);
+        if (py < -40 || py > H + 40) { out.push(''); continue; }
+        out.push(mx(x, dom).toFixed(1) + ',' + py.toFixed(1));
+      }
+      return out.filter(function(s){ return s; }).join(' ');
+    }
+    function axes(dom, rng, H){
+      var y0 = my(0, rng, H), x0 = mx(0, dom);
+      return '<line x1="' + PL + '" y1="' + y0.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + y0.toFixed(1) +
+        '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<line x1="' + x0.toFixed(1) + '" y1="' + PT + '" x2="' + x0.toFixed(1) + '" y2="' + (H - PB) +
+        '" stroke="var(--viz-line)" stroke-width="1"/>';
+    }
+    function fmt(v){ return isFinite(v) ? (Math.round(v * 100) / 100).toFixed(2) : '--'; }
+
+    function render(){
+      var P = PAIRS[cur];
+      [].slice.call(setEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      var C = Number(cs.value) / 10;
+      var x0 = P.dom[0] + (P.dom[1] - P.dom[0]) * Number(xs.value) / 100;
+      cl.textContent = C.toFixed(1);
+      xl.textContent = x0.toFixed(2);
+
+      var H1 = 170, H2 = 118;
+      var slope = P.f(x0);
+      var g = '';
+      [-2, 0, 2].forEach(function(d){
+        var off = C + d;
+        var isCur = d === 0;
+        g += '<polyline points="' + pts(P.F, P.dom, P.Fr, H1, off) + '" fill="none" stroke="' +
+          (isCur ? 'var(--viz-accent)' : 'var(--viz-line)') + '" stroke-width="' + (isCur ? 2.4 : 1.6) +
+          '" stroke-dasharray="' + (isCur ? '' : '4 3') + '"/>';
+        var y0 = P.F(x0) + off, dx = (P.dom[1] - P.dom[0]) * 0.16;
+        var xa = x0 - dx, xb = x0 + dx;
+        g += '<line x1="' + mx(xa, P.dom).toFixed(1) + '" y1="' + my(y0 - slope * dx, P.Fr, H1).toFixed(1) +
+          '" x2="' + mx(xb, P.dom).toFixed(1) + '" y2="' + my(y0 + slope * dx, P.Fr, H1).toFixed(1) +
+          '" stroke="var(--viz-red)" stroke-width="2"/>' +
+          '<circle cx="' + mx(x0, P.dom).toFixed(1) + '" cy="' + my(y0, P.Fr, H1).toFixed(1) +
+          '" r="3.4" fill="var(--viz-red)"/>';
+      });
+      topEl.innerHTML = '<p class="v1-cap">the antiderivative family &nbsp;' + P.FL + '</p>' +
+        '<svg viewBox="0 0 ' + W + ' ' + H1 + '" role="img" aria-label="Three parallel curves of the antiderivative family with equal tangent slopes">' +
+        axes(P.dom, P.Fr, H1) + g +
+        '<text x="' + (W - PR) + '" y="' + (PT + 10) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">solid = your C, dashed = C ± 2</text>' +
+        '</svg>';
+
+      var fy = P.f(x0);
+      botEl.innerHTML = '<p class="v1-cap">its derivative &nbsp;' + P.fL + ' &nbsp;— unchanged by C</p>' +
+        '<svg viewBox="0 0 ' + W + ' ' + H2 + '" role="img" aria-label="The derivative curve with the marked height equal to the tangent slope above">' +
+        axes(P.dom, P.fr, H2) +
+        '<polyline points="' + pts(P.f, P.dom, P.fr, H2, 0) + '" fill="none" stroke="var(--viz-green)" stroke-width="2.4"/>' +
+        '<line x1="' + mx(x0, P.dom).toFixed(1) + '" y1="' + my(0, P.fr, H2).toFixed(1) +
+        '" x2="' + mx(x0, P.dom).toFixed(1) + '" y2="' + my(fy, P.fr, H2).toFixed(1) +
+        '" stroke="var(--viz-red)" stroke-width="2" stroke-dasharray="3 3"/>' +
+        '<circle cx="' + mx(x0, P.dom).toFixed(1) + '" cy="' + my(fy, P.fr, H2).toFixed(1) +
+        '" r="3.6" fill="var(--viz-red)"/>' +
+        '</svg>';
+
+      linkEl.textContent = 'slope up here = ' + fmt(slope) + '   =   height down here = ' + fmt(fy);
+
+      whyEl.innerHTML = '<b>F is an antiderivative of f exactly when F′(x) = f(x).</b>' +
+        'At x = ' + x0.toFixed(2) + ' all three curves have the identical slope ' + fmt(slope) +
+        ', because they differ only by a constant and a constant has zero derivative. Slide C: the picture ' +
+        'moves, the red tangents stay parallel, and the green curve below never twitches. ' +
+        '<br><br>' + P.rule +
+        '<br><br><b style="color:var(--viz-amber)">Read backwards, one f has infinitely many antiderivatives.</b>' +
+        'Any two of them differ by a constant — never by f(x), and not necessarily by zero. So the honest ' +
+        'answer to "what has rate f?" is the whole family ' + P.FL + ', and that + C is the whole content of ' +
+        'the phrase indefinite integral.';
+    }
+
+    PAIRS.forEach(function(P, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = P.nm;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      setEl.appendChild(b);
+    });
+    xs.addEventListener('input', render);
+    cs.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Rectangles To Area</h2>
+  <p class="vz-lede">Four rules, one difference: where each strip gets its height. Pick a shape, pick a rule,
+    then drag n and watch the error shrink — and watch which <em>side</em> of the true value it shrinks from.
+    <b>Like paying for a curved lawn with rectangular tiles: where you measure each tile decides whether you
+    buy too many or too few.</b></p>
+
+  <div class="vz-seg" id="v2-fns" role="group" aria-label="Choose a function"></div>
+  <div class="vz-seg" id="v2-rules" role="group" aria-label="Choose a rule"></div>
+
+  <div class="vz-card">
+    <div id="v2-svg"></div>
+    <label class="vz-lab" for="v2-n">Subintervals: n = <span id="v2-nl">2</span>&nbsp; on [0, 2]</label>
+    <input type="range" id="v2-n" min="1" max="24" value="2" step="1" aria-label="Number of subintervals">
+    <div class="vz-pills" id="v2-pills"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two rules of thumb worth keeping apart. Left versus right is decided by <b>whether f
+    rises or falls</b>; trapezoidal versus midpoint is decided by <b>which way f bends</b>. And for smooth f
+    the midpoint error is usually about half the trapezoidal error and of the opposite sign — <em>usually</em>.
+    "Midpoint always beats trapezoidal on any interval" is a different, false claim.</p>
+
+  <style>
+    .v2-sub{font-size:10.5px;font-weight:600;display:block;color:var(--viz-muted);margin-top:2px}
+    .v2-tag{font-size:11px;color:var(--viz-muted);margin-top:6px;font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var A = 0, B = 2, YMAX = 4.4;
+    var FNS = [
+      { nm:'x', sub:'rises, straight', f:function(x){ return x; }, ex:2, inc:1, con:0 },
+      { nm:'x^2', sub:'rises, bends up', f:function(x){ return x * x; }, ex:8 / 3, inc:1, con:1 },
+      { nm:'4 - x^2', sub:'falls, bends down', f:function(x){ return 4 - x * x; }, ex:16 / 3, inc:-1, con:-1 },
+      { nm:'(2 - x)^2', sub:'falls, bends up', f:function(x){ return (2 - x) * (2 - x); }, ex:8 / 3, inc:-1, con:1 }
+    ];
+    var RULES = ['Left', 'Right', 'Midpoint', 'Trapezoidal'];
+    var cf = 0, cr = 0;
+    var fEl = document.getElementById('v2-fns'), rEl = document.getElementById('v2-rules');
+    var svg = document.getElementById('v2-svg'), pills = document.getElementById('v2-pills');
+    var why = document.getElementById('v2-why');
+    var ns = document.getElementById('v2-n'), nl = document.getElementById('v2-nl');
+    var W = 320, H = 190, PL = 24, PR = 8, PT = 10, PB = 20;
+
+    function mx(x){ return PL + (x - A) / (B - A) * (W - PL - PR); }
+    function my(y){ return H - PB - (y / YMAX) * (H - PT - PB); }
+
+    function sum(F, n, rule){
+      var dx = (B - A) / n, s = 0;
+      for (var i = 0; i < n; i++) {
+        var l = A + i * dx, r = l + dx;
+        if (rule === 0) s += F.f(l) * dx;
+        else if (rule === 1) s += F.f(r) * dx;
+        else if (rule === 2) s += F.f((l + r) / 2) * dx;
+        else s += (F.f(l) + F.f(r)) / 2 * dx;
+      }
+      return s;
+    }
+    function curve(F){
+      var p = [];
+      for (var i = 0; i <= 160; i++) {
+        var x = A + (B - A) * i / 160;
+        p.push(mx(x).toFixed(1) + ',' + my(F.f(x)).toFixed(1));
+      }
+      return p.join(' ');
+    }
+    function shapes(F, n, rule){
+      var dx = (B - A) / n, out = '';
+      for (var i = 0; i < n; i++) {
+        var l = A + i * dx, r = l + dx;
+        var xl = mx(l), xr = mx(r), y0 = my(0);
+        if (rule === 3) {
+          out += '<polygon points="' + xl.toFixed(1) + ',' + y0.toFixed(1) + ' ' +
+            xl.toFixed(1) + ',' + my(F.f(l)).toFixed(1) + ' ' +
+            xr.toFixed(1) + ',' + my(F.f(r)).toFixed(1) + ' ' +
+            xr.toFixed(1) + ',' + y0.toFixed(1) + '" fill="var(--viz-accent)" fill-opacity="0.28" ' +
+            'stroke="var(--viz-accent)" stroke-width="1"/>';
+        } else {
+          var hx = rule === 0 ? l : rule === 1 ? r : (l + r) / 2;
+          var hy = my(F.f(hx));
+          out += '<rect x="' + xl.toFixed(1) + '" y="' + Math.min(hy, y0).toFixed(1) +
+            '" width="' + Math.max(0.6, xr - xl).toFixed(1) + '" height="' + Math.abs(y0 - hy).toFixed(1) +
+            '" fill="var(--viz-accent)" fill-opacity="0.28" stroke="var(--viz-accent)" stroke-width="1"/>' +
+            '<circle cx="' + mx(hx).toFixed(1) + '" cy="' + hy.toFixed(1) + '" r="2.2" fill="var(--viz-red)"/>';
+        }
+      }
+      return out;
+    }
+
+    function render(){
+      var F = FNS[cf], n = Number(ns.value);
+      nl.textContent = n;
+      [].slice.call(fEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cf ? 'true' : 'false'); });
+      [].slice.call(rEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cr ? 'true' : 'false'); });
+
+      svg.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Approximating rectangles under the curve">' +
+        '<line x1="' + PL + '" y1="' + my(0).toFixed(1) + '" x2="' + (W - PR) + '" y2="' + my(0).toFixed(1) +
+        '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        shapes(F, n, cr) +
+        '<polyline points="' + curve(F) + '" fill="none" stroke="var(--viz-green)" stroke-width="2.4"/>' +
+        '<text x="' + PL + '" y="' + (H - 5) + '" font-size="10" fill="var(--viz-muted)">0</text>' +
+        '<text x="' + (W - PR) + '" y="' + (H - 5) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">2</text>' +
+        '</svg>';
+
+      var s = sum(F, n, cr), ex = F.ex, err = s - ex;
+      var exact = Math.abs(err) < 1e-9;
+      var col = exact ? 'var(--viz-green)' : (err > 0 ? 'var(--viz-red)' : 'var(--viz-amber)');
+      var word = exact ? 'EXACT' : (err > 0 ? 'OVER by ' + Math.abs(err).toFixed(4) : 'UNDER by ' + Math.abs(err).toFixed(4));
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' +
+          RULES[cr] + ' sum = ' + s.toFixed(4) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">true value = ' + ex.toFixed(4) + '</span>' +
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + word + '</span>';
+
+      var reason;
+      if (cr === 0) {
+        reason = F.inc === 0 ? '' : (F.inc > 0
+          ? 'f rises, so on every strip its smallest value is at the <b>left</b> endpoint — every rectangle sits inside the region. <b>Left sum underestimates an increasing f.</b>'
+          : 'f falls, so on every strip its largest value is at the <b>left</b> endpoint — every rectangle pokes out above. <b>Left sum overestimates a decreasing f.</b>');
+      } else if (cr === 1) {
+        reason = F.inc > 0
+          ? 'f rises, so the <b>right</b> endpoint is the tallest point of each strip. <b>Right sum overestimates an increasing f.</b>'
+          : 'f falls, so the <b>right</b> endpoint is the shortest point of each strip. <b>Right sum underestimates a decreasing f</b> — which is exactly the rule to reach for when a question demands a guaranteed underestimate of a decreasing rate.';
+      } else if (cr === 3) {
+        reason = F.con === 0
+          ? 'The top of each trapezoid is the chord between two points of the curve — and for a straight line the chord <b>is</b> the curve. Trapezoidal is exact here, at every n.'
+          : (F.con > 0
+            ? 'The top of each trapezoid is a chord, and a chord across a <b>concave-up</b> arc lies above it. <b>Trapezoidal overestimates when f bends up.</b>'
+            : 'A chord across a <b>concave-down</b> arc lies below it. <b>Trapezoidal underestimates when f bends down.</b>');
+      } else {
+        reason = F.con === 0
+          ? 'The midpoint rectangle has the same area as the tangent-line trapezoid at that midpoint — and for a straight line the tangent is the line itself, so midpoint is exact at every n.'
+          : (F.con > 0
+            ? 'A midpoint rectangle equals the area under the <b>tangent at the midpoint</b>, and a tangent to a concave-up arc lies below it. <b>Midpoint underestimates when f bends up.</b>'
+            : 'The tangent to a concave-down arc lies above it. <b>Midpoint overestimates when f bends down.</b>');
+      }
+      if (cr <= 1 && F.con === 0) {
+        reason += ' Straightness does not save it — monotonicity alone settles left and right. With n = 2 on ' +
+          '[0, 2] the heights are ' + (cr === 0 ? 'f(0) = 0 and f(1) = 1, so the left sum is 1' : 'f(1) = 1 and f(2) = 2, so the right sum is 3') +
+          ', against a true area of 2. Those two numbers are the classic pair of wrong answers.';
+      }
+
+      var dx = (B - A) / n;
+      why.innerHTML = '<b>' + RULES[cr] + ' rule, n = ' + n + ', dx = ' + dx.toFixed(4) + '.</b>' + reason +
+        '<br><br>Push n up and the error falls but the <em>sign</em> never flips: an approximation that is ' +
+        'below stays below. That is what "L<sub>n</sub> increases toward the true value from below" means for ' +
+        'a positive rising f — it is the same statement as the picture, not an extra fact. ' +
+        (Math.abs(err) < 1e-9 ? '' : 'At n = ' + n + ' you are off by ' + Math.abs(err).toFixed(4) +
+          '; the red dots mark exactly where each strip took its height.');
+    }
+
+    FNS.forEach(function(F, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = 'f(x) = ' + F.nm + '<span class="v2-sub">' + F.sub + '</span>';
+      b.addEventListener('click', function(){ cf = i; render(); });
+      fEl.appendChild(b);
+    });
+    RULES.forEach(function(R, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = R;
+      b.addEventListener('click', function(){ cr = i; render(); });
+      rEl.appendChild(b);
+    });
+    ns.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Signed Area Ledger</h2>
+  <p class="vz-lede">Let n run to infinity and the rectangles become the definite integral. Drag the upper
+    limit and watch two numbers move together: the shaded area, and the single subtraction F(b) − F(a) that
+    the Fundamental Theorem of Calculus says is the same thing. <b>Like a bank balance: deposits add,
+    withdrawals subtract, and closing minus opening is the whole story.</b></p>
+
+  <div class="vz-seg" id="v3-fns" role="group" aria-label="Choose an integrand"></div>
+
+  <div class="vz-card">
+    <div id="v3-svg"></div>
+    <label class="vz-lab" for="v3-b">Upper limit: b = <span id="v3-bl">3.00</span></label>
+    <input type="range" id="v3-b" min="0" max="100" value="100" step="1" aria-label="Upper limit of integration">
+    <div class="vz-pills" id="v3-pills"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Signed area is a feature, not a rounding error. A velocity integrated over time gives
+    <b>net displacement</b>, not distance travelled — reverse for a while and the integral shrinks. When a
+    question wants total distance or total area it will say so, and then you integrate the absolute value,
+    or split at every crossing and add the magnitudes.</p>
+
+  <style>
+    .v3-strip{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;margin-top:10px}
+    .v3-strip i{font-style:normal;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var FNS = [
+      { nm:'f(x) = x - 1', a:0, hi:3, dom:[-0.15, 3.15], rng:[-1.5, 2.4],
+        f:function(x){ return x - 1; }, F:function(x){ return x * x / 2 - x; },
+        FL:'F(x) = x^2/2 - x', v:'x', unit:'',
+        story:'The curve dips below the axis on [0, 1], so that piece of the ledger is a withdrawal.' },
+      { nm:'v(t) = 2t + 1', a:1, hi:3, dom:[-0.15, 3.15], rng:[-0.6, 7.8],
+        f:function(t){ return 2 * t + 1; }, F:function(t){ return t * t + t; },
+        FL:'F(t) = t^2 + t', v:'t', unit:' m',
+        story:'A velocity in metres per second: the integral of a rate over time is the accumulated quantity, here displacement in metres.' }
+    ];
+    var cur = 0;
+    var fEl = document.getElementById('v3-fns'), svg = document.getElementById('v3-svg');
+    var bs = document.getElementById('v3-b'), bl = document.getElementById('v3-bl');
+    var pills = document.getElementById('v3-pills'), why = document.getElementById('v3-why');
+    var W = 320, H = 190, PL = 26, PR = 8, PT = 12, PB = 22;
+
+    function mx(x, P){ return PL + (x - P.dom[0]) / (P.dom[1] - P.dom[0]) * (W - PL - PR); }
+    function my(y, P){ return H - PB - (y - P.rng[0]) / (P.rng[1] - P.rng[0]) * (H - PT - PB); }
+
+    function areas(P, b){
+      var n = 1200, dx = (b - P.a) / n, pos = 0, neg = 0;
+      if (dx <= 0) return { pos:0, neg:0 };
+      for (var i = 0; i < n; i++) {
+        var y = P.f(P.a + (i + 0.5) * dx);
+        if (!isFinite(y)) continue;
+        if (y >= 0) pos += y * dx; else neg += -y * dx;
+      }
+      return { pos:pos, neg:neg };
+    }
+
+    function render(){
+      var P = FNS[cur];
+      [].slice.call(fEl.children).forEach(function(x, j){ x.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      var b = P.a + (P.hi - P.a) * Number(bs.value) / 100;
+      bl.textContent = b.toFixed(2);
+
+      var strips = '', n = 90, dx = (b - P.a) / n;
+      if (dx > 0) {
+        for (var i = 0; i < n; i++) {
+          var xl = P.a + i * dx, xr = xl + dx, ym = P.f((xl + xr) / 2);
+          var yTop = my(Math.max(ym, 0), P), yBot = my(Math.min(ym, 0), P);
+          strips += '<rect x="' + mx(xl, P).toFixed(2) + '" y="' + yTop.toFixed(2) +
+            '" width="' + Math.max(0.4, mx(xr, P) - mx(xl, P)).toFixed(2) +
+            '" height="' + Math.max(0.4, yBot - yTop).toFixed(2) + '" fill="' +
+            (ym >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') + '" fill-opacity="0.32"/>';
+        }
+      }
+      var cv = [];
+      for (var k = 0; k <= 180; k++) {
+        var x = P.dom[0] + (P.dom[1] - P.dom[0]) * k / 180;
+        cv.push(mx(x, P).toFixed(1) + ',' + my(P.f(x), P).toFixed(1));
+      }
+      var y0 = my(0, P);
+      svg.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Signed area under the curve between a and b">' +
+        strips +
+        '<line x1="' + PL + '" y1="' + y0.toFixed(1) + '" x2="' + (W - PR) + '" y2="' + y0.toFixed(1) + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<polyline points="' + cv.join(' ') + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.4"/>' +
+        '<line x1="' + mx(P.a, P).toFixed(1) + '" y1="' + PT + '" x2="' + mx(P.a, P).toFixed(1) + '" y2="' + (H - PB) + '" stroke="var(--viz-muted)" stroke-width="1" stroke-dasharray="3 3"/>' +
+        '<line x1="' + mx(b, P).toFixed(1) + '" y1="' + PT + '" x2="' + mx(b, P).toFixed(1) + '" y2="' + (H - PB) + '" stroke="var(--viz-violet)" stroke-width="2"/>' +
+        '<text x="' + mx(P.a, P).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" fill="var(--viz-muted)">a = ' + P.a + '</text>' +
+        '<text x="' + mx(b, P).toFixed(1) + '" y="' + (PT + 9) + '" text-anchor="middle" font-size="10" fill="var(--viz-violet)">b</text>' +
+        '<text x="' + (PL + 4) + '" y="' + (y0 - 5).toFixed(1) + '" font-size="9.5" fill="var(--viz-green)">above axis: adds (+)</text>' +
+        '<text x="' + (PL + 4) + '" y="' + (y0 + 12).toFixed(1) + '" font-size="9.5" fill="var(--viz-red)">below axis: subtracts (−)</text>' +
+        '</svg>';
+
+      var Fb = P.F(b), Fa = P.F(P.a), net = Fb - Fa;
+      var ar = areas(P, b);
+      var col = Math.abs(net) < 1e-9 ? 'var(--viz-amber)' : (net > 0 ? 'var(--viz-green)' : 'var(--viz-red)');
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">integral = ' + net.toFixed(4) + P.unit + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">+ area ' + ar.pos.toFixed(4) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">− area ' + ar.neg.toFixed(4) + '</span>';
+
+      var head, body;
+      if (Math.abs(b - P.a) < 1e-9) {
+        head = 'b = a, so the integral is exactly 0.';
+        body = 'The region has zero width. Nothing has been accumulated, and F(a) − F(a) = 0 says the same ' +
+          'thing arithmetically. This is worth recognising instantly rather than computing.';
+      } else if (Math.abs(net) < 0.02 && ar.pos > 0.05 && ar.neg > 0.05) {
+        head = 'Net ≈ 0, yet area was accumulated in both directions.';
+        body = 'The withdrawal below the axis has cancelled the deposit above it. A definite integral reports ' +
+          '<b>signed</b> area, so "the integral is zero" never means "nothing happened" — here ' +
+          ar.pos.toFixed(4) + ' went up and ' + ar.neg.toFixed(4) + ' came back down.';
+      } else {
+        head = 'Fundamental Theorem of Calculus: integral from a to b of f = F(b) − F(a).';
+        body = 'The rectangles are gone. One antiderivative, two evaluations, one subtraction — and any + C ' +
+          'you carried cancels between the two terms, which is why definite integrals never show one.';
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body +
+        '<div class="v3-strip">' + P.FL +
+        '<br>F(' + b.toFixed(2) + ') = <i>' + Fb.toFixed(4) + '</i>' +
+        '<br>F(' + P.a.toFixed(2) + ') = <i>' + Fa.toFixed(4) + '</i>' +
+        '<br>difference   = <i>' + net.toFixed(4) + P.unit + '</i></div>' +
+        P.story +
+        (cur === 1 ? ' Drag b to 3 and you get F(3) − F(1) = 12 − 2 = 10 m. Note what is <em>not</em> ' +
+          'the answer: v(3) − v(1) = 4 subtracts two rates, and F(1) − F(3) has the limits backwards.' : '');
+    }
+
+    FNS.forEach(function(P, i){
+      var bt = document.createElement('button');
+      bt.type = 'button';
+      bt.setAttribute('aria-pressed', 'false');
+      bt.textContent = P.nm;
+      bt.addEventListener('click', function(){ cur = i; bs.value = '100'; render(); });
+      fEl.appendChild(bt);
+    });
+    bs.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Antiderivative Table</h2>
+  <p class="vz-lede">Almost every antiderivative in this lesson comes from one mechanical rule, plus four
+    entries you learn by heart. Drag the exponent and watch the rule work — then watch it fall over at
+    exactly one value. <b>Like a multiplication table with one square blacked out: everything is automatic
+    except the entry you have to be told.</b></p>
+
+  <div class="vz-seg" id="v4-mode" role="group" aria-label="Choose a part of the table"></div>
+
+  <div class="vz-card" id="v4-pow">
+    <label class="vz-lab" for="v4-n">Exponent: n = <span id="v4-nl">2</span></label>
+    <input type="range" id="v4-n" min="0" max="16" value="10" step="1" aria-label="Exponent n">
+    <div id="v4-eq" class="v4-eq"></div>
+    <div id="v4-curve"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" id="v4-spec">
+    <div id="v4-rows"></div>
+    <div id="v4-cycle"></div>
+    <div class="vz-why" id="v4-swhy"></div>
+  </div>
+
+  <p class="vz-note">The exception at n = −1 is arithmetic, not deep: nothing is wrong with 1/x, the
+    <em>formula</em> just divides by zero there. And the bars in ln|x| are load-bearing — 1/x is perfectly
+    happy at x = −2, so its antiderivative must be too, which on (−∞, 0) reads ln(−x) + C.</p>
+
+  <style>
+    .v4-eq{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.9;margin:6px 0 4px}
+    .v4-eq b{color:var(--viz-accent)}
+    .v4-r{width:100%;min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-family:ui-monospace,Consolas,monospace;
+      font-size:12px;display:flex;align-items:center;gap:8px;line-height:1.4;margin-bottom:6px}
+    .v4-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-r::before{content:"\25CB";color:var(--viz-muted)}
+    .v4-r[aria-pressed="true"]::before{content:"\25CF";color:var(--viz-accent)}
+    .v4-alert{border:1.5px solid var(--viz-red);border-radius:10px;padding:9px 11px;margin:8px 0 0;
+      font-size:12.5px;line-height:1.55}
+  </style>
+  <script>
+  (function(){
+    var mode = 0;
+    var modeEl = document.getElementById('v4-mode');
+    var powEl = document.getElementById('v4-pow'), specEl = document.getElementById('v4-spec');
+    var ns = document.getElementById('v4-n'), nl = document.getElementById('v4-nl');
+    var eq = document.getElementById('v4-eq'), curve = document.getElementById('v4-curve');
+    var why = document.getElementById('v4-why');
+    var rowsEl = document.getElementById('v4-rows'), cycleEl = document.getElementById('v4-cycle');
+    var swhy = document.getElementById('v4-swhy');
+
+    function gcd(a, b){ a = Math.abs(a); b = Math.abs(b); while (b) { var t = b; b = a % b; a = t; } return a || 1; }
+    function frac(num, den){
+      if (!den) return null;
+      if (den < 0) { num = -num; den = -den; }
+      var g = gcd(num, den);
+      num /= g; den /= g;
+      return den === 1 ? String(num) : (num + '/' + den);
+    }
+    function powTerm(coef, expS){
+      var base = expS === '1' ? 'x' : 'x^' + expS;
+      if (coef === '1') return base;
+      if (coef === '-1') return '-' + base;
+      return coef + ' ' + base;
+    }
+
+    /* p = 2n, an integer from -6 to 10, so every n is an exact half. */
+    function pOf(){ return -6 + Number(ns.value); }
+
+    function coefCurve(pCur){
+      var W = 320, H = 120, PL = 26, PR = 8, PT = 10, PB = 20;
+      var nMin = -3, nMax = 5, yMin = -5, yMax = 5;
+      function mx(n){ return PL + (n - nMin) / (nMax - nMin) * (W - PL - PR); }
+      function my(y){ return H - PB - (y - yMin) / (yMax - yMin) * (H - PT - PB); }
+      var left = [], right = [];
+      for (var i = 0; i <= 400; i++) {
+        var n = nMin + (nMax - nMin) * i / 400;
+        var d = n + 1;
+        if (Math.abs(d) < 1e-6) continue;
+        var y = 1 / d;
+        if (y < yMin || y > yMax) continue;
+        (n < -1 ? left : right).push(mx(n).toFixed(1) + ',' + my(y).toFixed(1));
+      }
+      var nCur = pCur / 2, dCur = nCur + 1;
+      var mark = '';
+      if (Math.abs(dCur) < 1e-9) {
+        mark = '<text x="' + mx(-1).toFixed(1) + '" y="' + (PT + 12) + '" text-anchor="middle" font-size="10.5" ' +
+          'fill="var(--viz-red)" font-weight="700">no coefficient exists here</text>';
+      } else {
+        var yv = Math.max(yMin, Math.min(yMax, 1 / dCur));
+        mark = '<circle cx="' + mx(nCur).toFixed(1) + '" cy="' + my(yv).toFixed(1) + '" r="4" fill="var(--viz-red)"/>';
+      }
+      return '<p style="font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);margin:10px 0 2px">' +
+        'the coefficient 1/(n+1), as n moves</p>' +
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The coefficient one over n plus one, blowing up at n equals minus one">' +
+        '<line x1="' + PL + '" y1="' + my(0).toFixed(1) + '" x2="' + (W - PR) + '" y2="' + my(0).toFixed(1) + '" stroke="var(--viz-line)"/>' +
+        '<line x1="' + mx(-1).toFixed(1) + '" y1="' + PT + '" x2="' + mx(-1).toFixed(1) + '" y2="' + (H - PB) +
+        '" stroke="var(--viz-red)" stroke-width="1.5" stroke-dasharray="4 3"/>' +
+        '<polyline points="' + left.join(' ') + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"/>' +
+        '<polyline points="' + right.join(' ') + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"/>' +
+        mark +
+        '<text x="' + mx(-1).toFixed(1) + '" y="' + (H - 5) + '" text-anchor="middle" font-size="10" fill="var(--viz-red)">n = -1</text>' +
+        '<text x="' + (W - PR) + '" y="' + (H - 5) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">n = 5</text>' +
+        '</svg>';
+    }
+
+    function renderPower(){
+      var p = pOf(), n = p / 2, d = p + 2;
+      nl.textContent = frac(p, 2);
+      if (d === 0) {
+        eq.innerHTML = 'integral x^n dx  =  x^(n+1) / (n+1)  + C<br>' +
+          'n = -1  →  n + 1 = <b style="color:var(--viz-red)">0</b>  →  x^0 / 0';
+        eq.innerHTML += '<div class="v4-alert"><b>The one hole in the rule.</b> Dividing by zero has no ' +
+          'output, so the Reverse Power Rule simply does not apply at n = -1. Nothing is wrong with the ' +
+          'function: 1/x has a perfectly good antiderivative, it is just a different one.<br><br>' +
+          '<b style="color:var(--viz-green)">integral (1/x) dx = ln|x| + C</b></div>';
+        curve.innerHTML = coefCurve(p);
+        why.innerHTML = '<b>Why the exception is arithmetic, not conceptual.</b>' +
+          'Every other exponent lands on x^(n+1)/(n+1), and differentiating that brings n+1 down to cancel ' +
+          'the denominator exactly. At n = -1 the new exponent is 0, so the numerator collapses to the ' +
+          'constant 1 whose derivative is 0 — it could never give you back 1/x, and the formula announces ' +
+          'that by dividing by zero. Watch the blue curve: as n approaches -1 from either side the ' +
+          'coefficient runs off to infinity in opposite directions.';
+        return;
+      }
+      var coef = frac(2, d), expS = frac(d, 2);
+      var ans = powTerm(coef, expS) + ' + C';
+      var nS = frac(p, 2);
+      eq.innerHTML = 'integral x^' + nS + ' dx  =  x^(' + nS + ' + 1) / (' + nS + ' + 1)  + C<br>' +
+        '  =  x^' + expS + ' / (' + frac(d, 2) + ')  + C<br>' +
+        '  =  <b>' + ans + '</b>';
+      if (nS === '1/2') eq.innerHTML += '<br>(x^1/2 is sqrt(x) — rewrite roots as powers first)';
+      if (nS === '0') eq.innerHTML += '<br>(n = 0 is the constant case: integral 7 dx = 7x + C)';
+      curve.innerHTML = coefCurve(p);
+      why.innerHTML = '<b>Raise the exponent, then divide by the new exponent.</b>' +
+        'Check it the only way that matters — differentiate back. d/dx [ x^' + expS + ' / (' + frac(d, 2) +
+        ') ] brings ' + frac(d, 2) + ' down in front, and it cancels the same factor underneath, leaving x^' +
+        nS + '. <br><br>The coefficient you are dividing by is plotted below the equation: it is 1/(n+1), ' +
+        'and the whole rule is that one number. Drag n toward -1 and watch it grow without bound — that ' +
+        'is the exception arriving before you reach it.';
+    }
+
+    var SPEC = [
+      { l:'integral e^x dx  =  e^x + C', k:-1,
+        w:['e^x is its own derivative, so it is its own antiderivative.',
+          'The one function that comes back unchanged in both directions. Watch for the distractors x·e^x and 1/e^x — neither differentiates to e^x.'] },
+      { l:'integral (1/x) dx  =  ln|x| + C', k:-1,
+        w:['The entry that fills the n = -1 hole.',
+          'The bars are not decoration. 1/x is defined for x &lt; 0, so its antiderivative has to be too, and ln(x) is not. On (-∞, 0) the antiderivative is ln(-x) + C; the absolute value is the single expression that covers both halves at once.'] },
+      { l:'integral sin(x) dx  =  -cos(x) + C', k:1,
+        w:['The minus is the whole question.',
+          'Read it from the derivative you already know: d/dx cos(x) = -sin(x). To land on sin(x) you must start from -cos(x), whose derivative is +sin(x). Consequently integral -sin(x) dx = cos(x) + C.'] },
+      { l:'integral cos(x) dx  =  sin(x) + C', k:0,
+        w:['The easy one, and the reason the other is hard.',
+          'd/dx sin(x) = cos(x) with no sign change, so this direction is clean. Because only one of the two picks up a minus, guessing symmetrically is what produces the classic wrong pair.'] }
+    ];
+    var sCur = 2;
+
+    function cycleSvg(k){
+      var W = 320, H = 92, names = ['cos', 'sin', '-cos', '-sin', 'cos'];
+      var bw = 56, gap = 10, x0 = 6, y = 34, bh = 26, out = '';
+      for (var i = 0; i < 5; i++) {
+        var x = x0 + i * (bw + gap);
+        out += '<rect x="' + x + '" y="' + y + '" width="' + bw + '" height="' + bh + '" rx="6" ' +
+          'fill="var(--viz-surface)" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+          '<text x="' + (x + bw / 2) + '" y="' + (y + 17) + '" text-anchor="middle" font-size="12" ' +
+          'fill="var(--viz-ink)" font-family="ui-monospace,Consolas,monospace">' + names[i] + '</text>';
+        if (i < 4) {
+          var ax = x + bw + 1, bx = x + bw + gap - 1;
+          var on = k === i;
+          out += '<line x1="' + ax + '" y1="' + (y + bh / 2) + '" x2="' + bx + '" y2="' + (y + bh / 2) +
+            '" stroke="' + (on ? 'var(--viz-green)' : 'var(--viz-line)') + '" stroke-width="' + (on ? 2.6 : 1.5) + '"/>';
+          if (on) {
+            out += '<circle cx="' + ((ax + bx) / 2) + '" cy="' + (y + bh / 2) + '" r="3.4" fill="var(--viz-green)"/>';
+          }
+        }
+      }
+      return '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The four step sign cycle from cos to sin to minus cos to minus sin">' +
+        '<text x="' + (W / 2) + '" y="16" text-anchor="middle" font-size="10.5" fill="var(--viz-green)">integrate, left to right →</text>' +
+        out +
+        '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10.5" fill="var(--viz-muted)">← differentiate, right to left</text>' +
+        '</svg>';
+    }
+
+    function renderSpec(){
+      [].slice.call(rowsEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === sCur ? 'true' : 'false'); });
+      var S = SPEC[sCur];
+      cycleEl.innerHTML = cycleSvg(S.k);
+      swhy.innerHTML = '<b>' + S.w[0] + '</b>' + S.w[1] +
+        '<br><br>Combining is linear and term by term: integral (3e^x - 2/x + sin x - 4cos x) dx = ' +
+        '<b>3e^x - 2 ln|x| - cos x - 4 sin x + C</b>. Each coefficient rides along untouched; only the signs ' +
+        'on the trigonometric pair need care.';
+    }
+
+    function render(){
+      [].slice.call(modeEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === mode ? 'true' : 'false'); });
+      powEl.style.display = mode === 0 ? '' : 'none';
+      specEl.style.display = mode === 1 ? '' : 'none';
+      if (mode === 0) renderPower(); else renderSpec();
+    }
+
+    ['Reverse Power Rule', 'e^x, 1/x, sin, cos'].forEach(function(t, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = t;
+      b.addEventListener('click', function(){ mode = i; render(); });
+      modeEl.appendChild(b);
+    });
+    SPEC.forEach(function(S, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'v4-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = S.l;
+      b.addEventListener('click', function(){ sCur = i; renderSpec(); });
+      rowsEl.appendChild(b);
+    });
+    ns.addEventListener('input', renderPower);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Chain Rule Backwards</h2>
+  <p class="vz-lede">The Chain Rule multiplies by the inner function's derivative on the way out. So an
+    integrand that already carries that factor can be run in reverse. Pick one, step through, and stop early
+    on purpose to meet the most common mistake in the topic. <b>Like reading a recipe backwards: you can only
+    undo a step if the ingredient it used is still on the counter.</b></p>
+
+  <div class="vz-seg" id="v5-list" role="group" aria-label="Choose an integral"></div>
+
+  <div class="vz-card">
+    <div class="v5-nav" id="v5-steps"></div>
+    <div class="v5-card" id="v5-card"></div>
+    <div id="v5-warn"></div>
+    <div id="v5-check">
+      <label class="vz-lab" for="v5-t">Numerical check, upper limit = <span id="v5-tl">1.00</span></label>
+      <input type="range" id="v5-t" min="0" max="100" value="70" step="1" aria-label="Upper limit for the numerical check">
+      <div class="vz-pills" id="v5-out"></div>
+    </div>
+  </div>
+  <p class="vz-note">The test is mechanical: name g(x), then look for g′(x) as a factor, up to a constant
+    multiple you can pull outside. It is there in x·cos(x²) and in cos(x)/sin(x); it is absent in cos(x²);
+    and in x²·sin(x) the x² is not a constant multiple of (x)′ = 1. Failing the test is information, not
+    defeat — it tells you the answer choices are about something else.</p>
+
+  <style>
+    .v5-nav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+    .v5-nav button{flex:0 0 auto;min-width:44px;min-height:44px;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:800;font-size:13px}
+    .v5-nav button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-card{font-size:12.5px;line-height:1.65;min-height:74px}
+    .v5-card b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:12px;margin-bottom:5px;color:var(--viz-accent)}
+    .v5-warn{border:1.5px solid var(--viz-amber);border-radius:10px;padding:9px 11px;margin-top:10px;
+      font-size:12.5px;line-height:1.55}
+    .v5-warn u{text-decoration:none;font-weight:800;color:var(--viz-amber)}
+  </style>
+  <script>
+  (function(){
+    var ITEMS = [
+      { nm:'2x (x^2+1)^3',
+        head:['spot the pattern', 'set u and du', 'rewrite in u', 'integrate in u', 'back-substitute'],
+        body:[
+          'Inner function g(x) = x^2 + 1. Its derivative g′(x) = 2x is sitting in the integrand as a factor. Pattern fits.',
+          'Let u = x^2 + 1, so du = 2x dx. The whole group 2x dx in the integrand IS du.',
+          'integral 2x (x^2+1)^3 dx  becomes  integral u^3 du. No x survives anywhere — that is the check that the substitution was complete.',
+          'Reverse Power Rule in u: integral u^3 du = u^4/4 + C.',
+          'Put u = x^2 + 1 back: the answer is (x^2 + 1)^4 / 4 + C.'],
+        stop:'u^4/4 + C', ans:'(x^2 + 1)^4 / 4 + C',
+        f:function(x){ return 2 * x * Math.pow(x * x + 1, 3); },
+        F:function(x){ return Math.pow(x * x + 1, 4) / 4; }, t0:0, t1:1.5 },
+      { nm:'cos(3x)',
+        head:['spot the pattern', 'set u and du', 'rewrite in u', 'integrate in u', 'back-substitute'],
+        body:[
+          'Inner function g(x) = 3x, and g′(x) = 3 is a constant — so the factor is there up to a number you can pull out.',
+          'Let u = 3x, so du = 3 dx, which means dx = du/3. This is the step people skip: the dx has to be replaced too.',
+          'integral cos(3x) dx  becomes  (1/3) integral cos(u) du.',
+          '(1/3) integral cos(u) du = (1/3) sin(u) + C.',
+          'Put u = 3x back: the answer is (1/3) sin(3x) + C.'],
+        stop:'(1/3) sin(u) + C', ans:'(1/3) sin(3x) + C',
+        f:function(x){ return Math.cos(3 * x); },
+        F:function(x){ return Math.sin(3 * x) / 3; }, t0:0, t1:2 },
+      { nm:'3x^2 / (x^3+2)',
+        head:['spot the pattern', 'set u and du', 'rewrite in u', 'integrate in u', 'back-substitute'],
+        body:[
+          'The denominator is g(x) = x^3 + 2 and the numerator is exactly g′(x) = 3x^2. A derivative over its own function is the ln signature.',
+          'Let u = x^3 + 2, so du = 3x^2 dx.',
+          'integral 3x^2/(x^3+2) dx  becomes  integral (1/u) du.',
+          'This is the n = -1 entry: integral (1/u) du = ln|u| + C.',
+          'Put u = x^3 + 2 back: the answer is ln|x^3 + 2| + C.'],
+        stop:'ln|u| + C', ans:'ln|x^3 + 2| + C',
+        f:function(x){ return 3 * x * x / (x * x * x + 2); },
+        F:function(x){ return Math.log(Math.abs(x * x * x + 2)); }, t0:0, t1:2 },
+      { nm:'cos(ln x) / x',
+        head:['spot the pattern', 'set u and du', 'rewrite in u', 'integrate in u', 'back-substitute'],
+        body:[
+          'Inner function g(x) = ln x, and g′(x) = 1/x is the other factor. The substitution is hiding in plain sight.',
+          'Let u = ln x, so du = dx/x.',
+          'integral cos(ln x)/x dx  becomes  integral cos(u) du.',
+          'integral cos(u) du = sin(u) + C.',
+          'Put u = ln x back: the answer is sin(ln x) + C.'],
+        stop:'sin(u) + C', ans:'sin(ln x) + C',
+        f:function(x){ return Math.cos(Math.log(x)) / x; },
+        F:function(x){ return Math.sin(Math.log(x)); }, t0:1, t1:4 },
+      { nm:'x e^(x^2)',
+        head:['spot the pattern', 'set u and du', 'rewrite in u', 'integrate in u', 'back-substitute'],
+        body:[
+          'Inner function g(x) = x^2, and g′(x) = 2x — the integrand has x, which is half of it. Half a factor is fine; a missing one is not.',
+          'Let u = x^2, so du = 2x dx, i.e. x dx = du/2. Choosing u = e^(x^2) instead leads nowhere.',
+          'integral x e^(x^2) dx  becomes  (1/2) integral e^u du.',
+          '(1/2) integral e^u du = (1/2) e^u + C.',
+          'Put u = x^2 back: the answer is (1/2) e^(x^2) + C.'],
+        stop:'(1/2) e^u + C', ans:'(1/2) e^(x^2) + C',
+        f:function(x){ return x * Math.exp(x * x); },
+        F:function(x){ return Math.exp(x * x) / 2; }, t0:0, t1:1.4 },
+      { nm:'x^2 sin(x)   (fails)',
+        head:['run the test'],
+        body:['Try g(x) = x. Then g′(x) = 1, and the other factor is x^2 — which is not a constant multiple of 1, so it cannot be absorbed into du. Try g(x) = x^2 instead and you need a factor of x, but the integrand offers x^2. Neither choice closes.\n\nThis integrand is a product of two unrelated pieces, not a composite with its inner derivative attached. u-substitution is the wrong tool, and in a multiple-choice question that is precisely what is being asked.'],
+        stop:'', ans:'', f:null, F:null, t0:0, t1:1 }
+    ];
+    var ci = 0, cs = 0;
+    var listEl = document.getElementById('v5-list'), stepsEl = document.getElementById('v5-steps');
+    var cardEl = document.getElementById('v5-card'), warnEl = document.getElementById('v5-warn');
+    var checkEl = document.getElementById('v5-check'), outEl = document.getElementById('v5-out');
+    var ts = document.getElementById('v5-t'), tl = document.getElementById('v5-tl');
+
+    function riemann(f, a, b){
+      var n = 800, dx = (b - a) / n, s = 0;
+      if (!(dx > 0)) return 0;
+      for (var i = 0; i < n; i++) {
+        var y = f(a + (i + 0.5) * dx);
+        if (!isFinite(y)) return NaN;
+        s += y * dx;
+      }
+      return s;
+    }
+    function num(v){ return isFinite(v) ? v.toFixed(4) : '--'; }
+
+    function renderSteps(){
+      var I = ITEMS[ci];
+      stepsEl.innerHTML = '';
+      I.head.forEach(function(h, j){
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.setAttribute('aria-pressed', j === cs ? 'true' : 'false');
+        b.setAttribute('aria-label', 'Step ' + (j + 1) + ': ' + h);
+        b.textContent = String(j + 1);
+        b.addEventListener('click', function(){ cs = j; renderStep(); });
+        stepsEl.appendChild(b);
+      });
+    }
+    function renderStep(){
+      var I = ITEMS[ci];
+      // Items have different step counts, so a stale index must never index past the end.
+      if (!(cs >= 0) || cs >= I.head.length) cs = 0;
+      [].slice.call(stepsEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cs ? 'true' : 'false'); });
+      cardEl.innerHTML = '<b>step ' + (cs + 1) + ' · ' + I.head[cs] + '</b>' +
+        I.body[cs].replace(/\n\n/g, '<br><br>');
+      if (I.f && cs === 3) {
+        warnEl.innerHTML = '<div class="v5-warn"><u>Stop here and you are wrong.</u> ' + I.stop +
+          ' is an answer in u, and u is a variable you invented. The question was about x. ' +
+          'Forgetting to back-substitute is the single most-tested error in this topic — more common than ' +
+          'picking the wrong u, and more common than dropping the + C.</div>';
+      } else if (I.f && cs === 4) {
+        warnEl.innerHTML = '<div class="v5-warn" style="border-color:var(--viz-green)">' +
+          '<u style="color:var(--viz-green)">Finished, in x.</u> ' + I.ans +
+          ' — and you can verify it in one line by differentiating: the Chain Rule puts the inner ' +
+          'derivative back and reproduces the integrand.</div>';
+      } else {
+        warnEl.innerHTML = '';
+      }
+    }
+    function renderCheck(){
+      var I = ITEMS[ci];
+      if (!I.f) { checkEl.style.display = 'none'; return; }
+      checkEl.style.display = '';
+      var t = I.t0 + (I.t1 - I.t0) * Number(ts.value) / 100;
+      tl.textContent = t.toFixed(2);
+      var approx = riemann(I.f, I.t0, t);
+      var exact = I.F(t) - I.F(I.t0);
+      var gap = Math.abs(approx - exact);
+      var ok = isFinite(gap) && gap < 5e-4;
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-amber)';
+      outEl.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">rectangles: ' + num(approx) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">F(b) − F(a): ' + num(exact) + '</span>' +
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' +
+          (ok ? 'agree ✓' : 'gap ' + num(gap)) + '</span>';
+    }
+    function renderAll(){
+      [].slice.call(listEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === ci ? 'true' : 'false'); });
+      renderSteps();
+      renderStep();
+      renderCheck();
+    }
+
+    ITEMS.forEach(function(I, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = I.nm;
+      b.addEventListener('click', function(){ ci = i; cs = 0; ts.value = '70'; renderAll(); });
+      listEl.appendChild(b);
+    });
+    ts.addEventListener('input', renderCheck);
+    renderAll();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. Top Minus Bottom</h2>
+  <p class="vz-lede">Point the machinery at a region rather than at a curve and one decision comes first:
+    which function is on top. Drag the right-hand edge past the crossing point with splitting switched off,
+    and watch a real area report itself as zero. <b>Like measuring the gap between two roads on a map: you
+    subtract the lower from the upper, and where they cross you start a new measurement.</b></p>
+
+  <div class="vz-card">
+    <div id="v6-svg"></div>
+    <label class="vz-lab" for="v6-b">Right-hand edge: b = <span id="v6-bl">1.00</span></label>
+    <input type="range" id="v6-b" min="20" max="160" value="100" step="1" aria-label="Right hand edge of the region">
+    <div class="vz-seg" role="group" aria-label="Splitting at the crossing point">
+      <button id="v6-split" type="button" aria-pressed="true">split at every crossing</button>
+      <button id="v6-nosplit" type="button" aria-pressed="false">one integral, no split</button>
+    </div>
+    <div class="vz-pills" id="v6-pills"></div>
+    <div class="vz-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">Where do the crossings come from? Solve top = bottom: x = x² gives x(1 − x) = 0, so
+    x = 0 and x = 1. Find those before you write any integral, and the "which curve is on top" question
+    answers itself on each piece. An area is a size, so a negative answer is never the area — it is a sign
+    that the subtraction ran the wrong way round somewhere.</p>
+
+  <style>
+    .v6-key{display:flex;gap:12px;flex-wrap:wrap;font-size:11.5px;margin-top:8px;color:var(--viz-muted)}
+    .v6-key b{font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var split = true;
+    var bs = document.getElementById('v6-b'), bl = document.getElementById('v6-bl');
+    var svg = document.getElementById('v6-svg'), pills = document.getElementById('v6-pills');
+    var why = document.getElementById('v6-why');
+    var bSp = document.getElementById('v6-split'), bNo = document.getElementById('v6-nosplit');
+    var W = 320, H = 200, PL = 26, PR = 10, PT = 12, PB = 22;
+    var X0 = 0, X1 = 1.7, Y0 = 0, Y1 = 2.9;
+
+    function mx(x){ return PL + (x - X0) / (X1 - X0) * (W - PL - PR); }
+    function my(y){ return H - PB - (y - Y0) / (Y1 - Y0) * (H - PT - PB); }
+    function line(fn){
+      var p = [];
+      for (var i = 0; i <= 170; i++) {
+        var x = X0 + (X1 - X0) * i / 170;
+        p.push(mx(x).toFixed(1) + ',' + my(fn(x)).toFixed(1));
+      }
+      return p.join(' ');
+    }
+    var f = function(x){ return x; }, g = function(x){ return x * x; };
+
+    function render(){
+      var b = Number(bs.value) / 100;
+      bl.textContent = b.toFixed(2);
+      bSp.setAttribute('aria-pressed', split ? 'true' : 'false');
+      bNo.setAttribute('aria-pressed', split ? 'false' : 'true');
+
+      var strips = '', n = 110, dx = b / n;
+      for (var i = 0; i < n; i++) {
+        var xl = i * dx, xr = xl + dx, xm = (xl + xr) / 2;
+        var hi = Math.max(f(xm), g(xm)), lo = Math.min(f(xm), g(xm));
+        var xOnTop = f(xm) >= g(xm);
+        strips += '<rect x="' + mx(xl).toFixed(2) + '" y="' + my(hi).toFixed(2) +
+          '" width="' + Math.max(0.4, mx(xr) - mx(xl)).toFixed(2) +
+          '" height="' + Math.max(0.4, my(lo) - my(hi)).toFixed(2) + '" fill="' +
+          (xOnTop ? 'var(--viz-green)' : 'var(--viz-red)') + '" fill-opacity="0.32"/>';
+      }
+      svg.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The region between the line y equals x and the parabola y equals x squared">' +
+        strips +
+        '<line x1="' + PL + '" y1="' + my(0).toFixed(1) + '" x2="' + (W - PR) + '" y2="' + my(0).toFixed(1) + '" stroke="var(--viz-line)"/>' +
+        '<polyline points="' + line(f) + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.4"/>' +
+        '<polyline points="' + line(g) + '" fill="none" stroke="var(--viz-violet)" stroke-width="2.4"/>' +
+        '<circle cx="' + mx(1).toFixed(1) + '" cy="' + my(1).toFixed(1) + '" r="4" fill="var(--viz-amber)"/>' +
+        '<text x="' + mx(1).toFixed(1) + '" y="' + (my(1) - 8).toFixed(1) + '" text-anchor="middle" font-size="10" fill="var(--viz-amber)">cross at x = 1</text>' +
+        '<line x1="' + mx(b).toFixed(1) + '" y1="' + PT + '" x2="' + mx(b).toFixed(1) + '" y2="' + (H - PB) + '" stroke="var(--viz-ink)" stroke-width="1.6" stroke-dasharray="4 3"/>' +
+        '<text x="' + mx(b).toFixed(1) + '" y="' + (H - 6) + '" text-anchor="middle" font-size="10" fill="var(--viz-muted)">b</text>' +
+        '<text x="' + (W - PR) + '" y="' + (PT + 10) + '" text-anchor="end" font-size="10" fill="var(--viz-accent)">y = x</text>' +
+        '<text x="' + (W - PR) + '" y="' + (PT + 23) + '" text-anchor="end" font-size="10" fill="var(--viz-violet)">y = x^2</text>' +
+        '</svg>' +
+        '<div class="v6-key"><span><b style="color:var(--viz-green)">shaded green</b> = y = x on top</span>' +
+        '<span><b style="color:var(--viz-red)">shaded red</b> = y = x^2 on top</span></div>';
+
+      function G(x){ return x * x / 2 - x * x * x / 3; }
+      var naive = G(b) - G(0);
+      var area = b <= 1 ? naive : (G(1) - G(0)) + ((G(1) - G(b)));
+      var shown = split ? area : naive;
+      var col = shown < -1e-9 ? 'var(--viz-red)' : (split ? 'var(--viz-green)' : 'var(--viz-amber)');
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">one integral of (x − x^2): ' + naive.toFixed(4) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">split answer: ' + area.toFixed(4) + '</span>' +
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">reported: ' + shown.toFixed(4) + '</span>';
+
+      var head, body;
+      if (b <= 1.0000001) {
+        head = 'On [0, ' + b.toFixed(2) + '] the line is above the parabola everywhere.';
+        body = 'One integral is correct here, because "top" never changes hands: x ≥ x^2 on the whole ' +
+          'interval, so area = integral (x − x^2) dx. At b = 1 that is 1/2 − 1/3 = <b>1/6 ≈ 0.1667</b>, ' +
+          'the standard result. Splitting is harmless — there is nothing to split.';
+      } else if (!split) {
+        head = 'Past x = 1 the parabola takes over, and one integral starts cancelling.';
+        body = 'On [1, ' + b.toFixed(2) + '] the integrand (x − x^2) is <b>negative</b>, so that piece is ' +
+          'subtracted from the piece before it instead of added to it. At b = 1.50 the single integral reports ' +
+          '<b>0.0000</b> while the real area is <b>0.3333</b> — two equal regions annihilating each other. ' +
+          'Push b further and the number goes negative, which no area can be.';
+      } else {
+        head = 'Split at x = 1 and each piece uses its own top curve.';
+        body = 'integral from 0 to 1 of (x − x^2) dx  +  integral from 1 to ' + b.toFixed(2) +
+          ' of (x^2 − x) dx = ' + (G(1) - G(0)).toFixed(4) + ' + ' + (G(1) - G(b)).toFixed(4) +
+          ' = <b>' + area.toFixed(4) + '</b>. Each term is a genuine (top − bottom), so each is nonnegative ' +
+          'and they add rather than cancel.';
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body +
+        '<br><br>The order of subtraction is the whole method: <b>integral (top − bottom) dx</b>, never ' +
+        'bottom minus top, and never f(b) − g(a) with endpoints from different curves. Decide the top ' +
+        'first, on each piece; the integral is the easy part afterwards.';
+    }
+
+    bSp.addEventListener('click', function(){ split = true; render(); });
+    bNo.addEventListener('click', function(){ split = false; render(); });
+    bs.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

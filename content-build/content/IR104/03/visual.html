@@ -1,0 +1,792 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Sample The Traffic</button>
+  <button class="viz-tab" data-viz-tab="2">2. Depth Of The Pool</button>
+  <button class="viz-tab" data-viz-tab="3">3. Fooling The Judge</button>
+  <button class="viz-tab" data-viz-tab="4">4. Grade Drift Dial</button>
+  <button class="viz-tab" data-viz-tab="5">5. Benchmark Transfer</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Sample The Traffic</h2>
+  <p class="vz-lede"><b>Precision@k and Recall@k</b>, <b>Average Precision and MAP</b>, <b>Reciprocal Rank
+    and MRR</b> and <b>nDCG</b> all produce ONE number — an average over a set of queries somebody chose.
+    Choose the set here and watch the same change look like a win or a disaster.
+    <b>Like a nationwide poll that only phoned one city: the arithmetic is perfect and the answer is
+    wrong.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Sampling method">
+    <button id="v1-uni" aria-pressed="true">uniform sample of logs</button>
+    <button id="v1-str" aria-pressed="false">stratified sample</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Query set size: <span id="v1-nl">100</span>
+      &nbsp;·&nbsp; traffic is <b>60% navigational</b></label>
+    <input type="range" id="v1-n" min="50" max="500" value="100" step="50" aria-label="Query set size">
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-pills" id="v1-pills"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">"Golden" does not mean perfect or permanent — it means trusted, versioned and
+    deliberately constructed. Two more rules ride on this panel. <b>Never admit a query because the current
+    system succeeded on it</b>: click-gated sampling quietly deletes abandonment and zero-result failures.
+    And keep the set alive — <b>800 queries as a stable core with 200 refreshed each quarter</b> keeps trend
+    lines interpretable while new feature names and new wording keep arriving.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-rows{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v1-r{display:flex;align-items:center;gap:8px;font-size:11px;line-height:1.3}
+    .v1-nm{flex:0 0 108px}
+    .v1-bar{flex:1;height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden;min-width:24px}
+    .v1-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v1-c{flex:0 0 30px;text-align:right;font-family:ui-monospace,Consolas,monospace;font-weight:800}
+    .v1-tag{flex:0 0 92px;font-size:9.5px;font-weight:800;letter-spacing:.03em;text-align:right}
+    .v1-pills{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Traffic mix of a support search, its per-class nDCG, and the change under test:
+    // a ranking tweak that helps the head and quietly breaks compliance answers.
+    var CLASSES = [
+      { n:'navigational',     pct:0.60, s:0.88, d: 0.09 },
+      { n:'how-to questions', pct:0.16, s:0.72, d: 0.02 },
+      { n:'symptom text',     pct:0.12, s:0.61, d: 0.01 },
+      { n:'exact error codes',pct:0.06, s:0.55, d:-0.03 },
+      { n:'compliance',       pct:0.03, s:0.48, d:-0.30 },
+      { n:'multilingual',     pct:0.02, s:0.40, d: 0.00 },
+      { n:'no-answer',        pct:0.01, s:0.30, d:-0.05 }
+    ];
+    var MIN_DIAG = 5;                 // fewer queries than this in a class diagnoses nothing
+    var K = CLASSES.length, strat = false;
+    var bU = document.getElementById('v1-uni'), bS = document.getElementById('v1-str');
+    var sl = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var rows = document.getElementById('v1-rows'), pills = document.getElementById('v1-pills');
+    var why = document.getElementById('v1-why');
+
+    function counts(N){
+      return CLASSES.map(function(c){
+        // Uniform mirrors traffic. Stratified splits the budget: half spread evenly
+        // across the classes, half proportional — capacity reserved for rare classes.
+        var raw = strat ? N * (0.5 / K + 0.5 * c.pct) : N * c.pct;
+        return Math.max(strat ? 1 : 0, Math.round(raw));
+      });
+    }
+    function pill(txt, col){
+      return '<span class="v1-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+    function render(){
+      var N = Number(sl.value); nl.textContent = N;
+      bU.setAttribute('aria-pressed', strat ? 'false' : 'true');
+      bS.setAttribute('aria-pressed', strat ? 'true' : 'false');
+      var c = counts(N);
+      var total = c.reduce(function(a, b){ return a + b; }, 0);
+      var maxC = Math.max.apply(null, c) || 1;
+
+      var macroA = 0, macroB = 0, wA = 0, wB = 0, diag = 0;
+      rows.innerHTML = CLASSES.map(function(cl, i){
+        var n = c[i];
+        macroA += n * cl.s; macroB += n * (cl.s + cl.d);
+        wA += cl.pct * cl.s; wB += cl.pct * (cl.s + cl.d);
+        var ok = n >= MIN_DIAG;
+        if (ok) diag += 1;
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        var tag = ok ? '✓ diagnosable' : '✕ too few (' + n + ')';
+        var dl = (cl.d >= 0 ? '+' : '') + Math.round(cl.d * 100);
+        return '<div class="v1-r"><span class="v1-nm">' + cl.n + ' <span style="color:var(--viz-muted)">' +
+          dl + ' pts</span></span>' +
+          '<span class="v1-bar"><i style="width:' + Math.round(n / maxC * 100) + '%"></i></span>' +
+          '<span class="v1-c">' + n + '</span>' +
+          '<span class="v1-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      // Guard: an empty sample would divide by zero and print NaN in every pill.
+      var mA = total > 0 ? macroA / total : 0, mB = total > 0 ? macroB / total : 0;
+      var dMacro = Math.round((mB - mA) * 1000) / 10;
+      var dWeight = Math.round((wB - wA) * 1000) / 10;
+      var compN = c[4];
+      pills.innerHTML =
+        pill('macro nDCG ' + (dMacro >= 0 ? '+' : '') + dMacro.toFixed(1) + ' pts',
+             dMacro >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill('traffic-weighted ' + (dWeight >= 0 ? '+' : '') + dWeight.toFixed(1) + ' pts',
+             dWeight >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill('compliance −30.0 pts', 'var(--viz-red)') +
+        pill(diag + ' of ' + K + ' classes diagnosable', diag === K ? 'var(--viz-green)' : 'var(--viz-amber)') +
+        pill(total + ' queries judged', 'var(--viz-muted)');
+
+      why.innerHTML = !strat
+        ? '<b style="color:var(--viz-red)">The head eats the set.</b>' +
+          'Sixty percent of traffic is navigational, so a uniform sample of ' + N + ' queries spends ' +
+          c[0] + ' of them there and leaves <b>' + compN + '</b> for compliance and ' + c[6] + ' for ' +
+          'no-answer. The headline moves <b>' + (dMacro >= 0 ? '+' : '') + dMacro.toFixed(1) + ' points</b> ' +
+          'and reads as a clean win, while the compliance stratum has fallen 30 points underneath it. ' +
+          'You cannot diagnose a class you sampled ' + compN + ' quer' + (compN === 1 ? 'y' : 'ies') + ' from: ' +
+          'the drop is real, and it is inside the noise of a handful of queries.' +
+          '<br><br>Uniform sampling is not wrong, it is just answering a different question — "how is traffic ' +
+          'doing" — and then being read as "how is the product doing".'
+        : '<b style="color:var(--viz-green)">Capacity reserved, weights recorded.</b>' +
+          'Stratified sampling buys ' + compN + ' compliance queries out of ' + total + ' — enough to see the ' +
+          '30-point regression as a fact rather than a rumour. Note what it costs: the sample is now ' +
+          '<em>deliberately not traffic-shaped</em>, so its macro average (' +
+          (dMacro >= 0 ? '+' : '') + dMacro.toFixed(1) + ' pts, each query counting equally) is no longer an ' +
+          'estimate of the fleet. That is exactly why the weights are stored: the traffic-weighted number (' +
+          (dWeight >= 0 ? '+' : '') + dWeight.toFixed(1) + ' pts) reconstructs the population estimate from ' +
+          'the same run.' +
+          '<br><br><b style="display:inline;font-size:inherit">Report both, and slice by stratum every time.</b> ' +
+          'Macro answers "does this work for each kind of user", traffic-weighted answers "what happens to ' +
+          'the business", and only the slice tells you which class you just broke.';
+    }
+    bU.addEventListener('click', function(){ strat = false; render(); });
+    bS.addEventListener('click', function(){ strat = true; render(); });
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Depth Of The Pool</h2>
+  <p class="vz-lede">You cannot judge every document, so you judge the union of what several systems
+    retrieve — and everything you never judged is scored as irrelevant. Switch contributors on and change
+    the depth, then watch a challenger win or lose a comparison it never changed.
+    <b>Like marking an exam where any answer the markers did not read counts as blank.</b></p>
+
+  <div class="v2-grid">
+    <div><h5>pool contributors</h5><div class="v2-btns" id="v2-sys"></div></div>
+    <div><h5>depth per contributor</h5><div class="v2-btns" id="v2-depth"></div></div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-pills" id="v2-pills"></div>
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="v2-docs" id="v2-docs"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two habits fall out of this. <b>Judge blind</b> — hide the contributing system and the
+    rank, or the assessor infers that a top result deserves a high grade and the evaluation just measures
+    the ranking it was meant to test. And <b>record provenance</b>: system versions, retrieval dates, depth
+    per contributor, snapshots. The stopping question is never "is everything judged", it is whether the
+    remaining incompleteness could reverse <em>this</em> decision.</p>
+
+  <style>
+    .v2-grid{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+    .v2-grid > div{flex:1 1 160px}
+    .v2-grid h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v2-btns{display:flex;flex-direction:column;gap:5px}
+    .v2-b{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:7px 10px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:8px;line-height:1.3}
+    .v2-b[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-mk{flex:0 0 16px;font-weight:800;color:var(--viz-muted)}
+    .v2-b[aria-pressed="true"] .v2-mk{color:var(--viz-accent)}
+    .v2-pills{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-bars{display:flex;flex-direction:column;gap:9px}
+    .v2-bb h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between}
+    .v2-bb h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-tr{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-tr i{display:block;height:100%}
+    .v2-docs{margin-top:13px;display:flex;flex-direction:column;gap:4px}
+    .v2-d{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v2-d.is-out{opacity:.55;border-style:dashed}
+    .v2-dt{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;font-family:inherit;text-align:right}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // One query, TEN truly relevant documents. Each row records the rank at which
+    // a given system retrieves it — that is what decides whether it ever gets judged.
+    // ch = the challenger's own rank (a dense retriever); bm = the lexical incumbent.
+    var DOCS = [
+      { id:'r1', bm:2,   ch:0,  fresh:0, spec:0,  dense:0  },
+      { id:'r2', bm:5,   ch:0,  fresh:0, spec:0,  dense:0  },
+      { id:'r3', bm:9,   ch:0,  fresh:0, spec:0,  dense:0  },
+      { id:'r4', bm:150, ch:0,  fresh:0, spec:4,  dense:0  },
+      { id:'d1', bm:3,   ch:1,  fresh:8, spec:0,  dense:1  },
+      { id:'d2', bm:64,  ch:2,  fresh:0, spec:0,  dense:2  },
+      { id:'d3', bm:12,  ch:4,  fresh:0, spec:0,  dense:4  },
+      { id:'d4', bm:210, ch:5,  fresh:0, spec:0,  dense:5  },
+      { id:'d5', bm:41,  ch:7,  fresh:0, spec:0,  dense:7  },
+      { id:'d6', bm:0,   ch:10, fresh:0, spec:0,  dense:10 }
+    ];
+    var SYS = [
+      { k:'bm',    label:'BM25 lexical',        nov:1.00, on:true  },
+      { k:'lex2',  label:'2nd lexical variant', nov:0.25, on:true  },
+      { k:'fresh', label:'freshness-ranked',    nov:0.30, on:true  },
+      { k:'spec',  label:'specialised fields',  nov:0.20, on:true  },
+      { k:'dense', label:'dense semantic',      nov:0.55, on:false },
+      { k:'rand',  label:'random controls',     nov:1.00, on:false }
+    ];
+    var DEPTHS = [10, 20, 50, 100], depth = 20;
+    var sysBox = document.getElementById('v2-sys'), depBox = document.getElementById('v2-depth');
+    var pills = document.getElementById('v2-pills'), bars = document.getElementById('v2-bars');
+    var docsBox = document.getElementById('v2-docs'), why = document.getElementById('v2-why');
+
+    function active(k){ for (var i = 0; i < SYS.length; i++) if (SYS[i].k === k) return SYS[i].on; return false; }
+    function finder(doc){
+      // Which contributing system pulls this document inside the pool, if any?
+      var tries = [['bm', doc.bm, 'BM25'], ['fresh', doc.fresh, 'freshness'],
+                   ['spec', doc.spec, 'field search'], ['dense', doc.dense, 'dense']];
+      for (var i = 0; i < tries.length; i++) {
+        var k = tries[i][0], r = tries[i][1];
+        if (r > 0 && r <= depth && active(k)) return tries[i][2] + '@' + r;
+      }
+      return '';
+    }
+    var disc = function(r){ return 1 / Math.log2(1 + r); };
+    function pill(t, c){ return '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function bar(t, v, c, sub){
+      var w = Math.max(1, Math.round(Math.min(v, 1) * 100));
+      return '<div class="v2-bb"><h6><span>' + t + '</span><b style="color:' + c + '">nDCG@10 ' + v.toFixed(3) +
+        '</b></h6><div class="v2-tr"><i style="width:' + w + '%;background:' + c + '"></i></div>' +
+        '<div style="font-size:10.5px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+    }
+
+    function render(){
+      [].slice.call(sysBox.children).forEach(function(b, i){ b.setAttribute('aria-pressed', SYS[i].on ? 'true' : 'false');
+        b.firstChild.textContent = SYS[i].on ? '■' : '□'; });
+      [].slice.call(depBox.children).forEach(function(b, i){ b.setAttribute('aria-pressed', DEPTHS[i] === depth ? 'true' : 'false'); });
+
+      var pool = 0;
+      SYS.forEach(function(s){ if (s.on) pool += Math.round(depth * s.nov); });
+
+      var judged = DOCS.map(finder);
+      var nR = judged.filter(function(f){ return f; }).length;
+      var idcg = 0;
+      for (var i = 1; i <= Math.min(nR, 10); i++) idcg += disc(i);
+
+      var chD = 0, incD = 0, missed = 0;
+      DOCS.forEach(function(d, i){
+        if (!judged[i]) { if (d.ch > 0 && d.ch <= 10) missed += 1; return; }
+        if (d.ch > 0 && d.ch <= 10) chD += disc(d.ch);
+        if (d.bm > 0 && d.bm <= 10) incD += disc(d.bm);
+      });
+      // Guard: with nothing judged there is no ideal ranking and no ratio to show.
+      var chN = idcg > 0 ? chD / idcg : 0, incN = idcg > 0 ? incD / idcg : 0;
+      var winner = nR === 0 ? 'nothing judged' : (chN > incN ? 'challenger' : (incN > chN ? 'incumbent' : 'tied'));
+
+      pills.innerHTML =
+        pill(pool + ' documents to judge', 'var(--viz-accent)') +
+        pill(nR + ' of 10 relevant judged', nR >= 9 ? 'var(--viz-green)' : 'var(--viz-amber)') +
+        pill('measured winner: ' + winner, winner === 'challenger' ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill('depth ' + depth, 'var(--viz-muted)');
+
+      bars.innerHTML =
+        bar('incumbent BM25', incN, 'var(--viz-violet)', '4 relevant documents inside its own top 10 — and it built the pool.') +
+        bar('challenger (dense)', chN, 'var(--viz-accent)', '6 relevant documents inside its top 10; ' + missed + ' of them unjudged, so worth zero.');
+
+      docsBox.innerHTML = DOCS.filter(function(d){ return d.ch > 0; }).map(function(d, i){
+        var idx = DOCS.indexOf(d), f = judged[idx];
+        return '<div class="v2-d' + (f ? '' : ' is-out') + '"><span>challenger rank ' + d.ch + '</span>' +
+          '<span class="v2-dt" style="color:' + (f ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (f ? '✓ judged · ' + f : '✕ UNJUDGED → scored irrelevant') + '</span></div>';
+      }).join('');
+
+      why.innerHTML = missed > 0
+        ? '<b style="color:var(--viz-red)">Pooling bias, and it always favours the incumbent.</b>' +
+          missed + ' of the challenger’s 6 relevant documents sit outside the pool, so they contribute ' +
+          '<b>nothing</b> to its DCG while still counting toward the ideal. It is scored ' + chN.toFixed(3) +
+          ' against ' + incN.toFixed(3) + ' — and it did nothing wrong: the pool simply never looked where ' +
+          'it was looking. This is the textbook failure of judging a semantic retriever against a pool built ' +
+          'from lexical systems only.' +
+          '<br><br>Two dials fix it and both are on this panel. Turn on <b>dense semantic</b> as a ' +
+          'contributor, or push <b>depth</b> up so the lexical systems drag those documents in from ranks ' +
+          '41 and 64. Pooling is iterative for exactly this reason.'
+        : '<b style="color:var(--viz-green)">Coverage restored — and the order can flip.</b>' +
+          'Every relevant document the challenger ranks is now judged, and the comparison reads ' +
+          chN.toFixed(3) + ' against ' + incN.toFixed(3) + '. Nothing about either system changed between ' +
+          'those two verdicts; only which documents somebody bothered to look at did.' +
+          '<br><br>That is the stability test in one move: <b>if system order changes as depth grows, your ' +
+          'shallow pool was weak evidence</b> about the ordering you were trying to establish. Depth 10 is ' +
+          'cheap and covers the obvious winners; depth 100 buys recall of relevant material at real cost. ' +
+          'Random controls (try them) enlarge the pool honestly but yield almost nothing.';
+    }
+
+    SYS.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v2-b'; b.setAttribute('aria-pressed', s.on ? 'true' : 'false');
+      var mk = document.createElement('span'); mk.className = 'v2-mk'; mk.textContent = s.on ? '■' : '□';
+      var tx = document.createElement('span'); tx.textContent = s.label;
+      b.appendChild(mk); b.appendChild(tx);
+      b.addEventListener('click', function(){ SYS[i].on = !SYS[i].on; render(); });
+      sysBox.appendChild(b);
+    });
+    DEPTHS.forEach(function(d){
+      var b = document.createElement('button');
+      b.className = 'v2-b'; b.setAttribute('aria-pressed', d === depth ? 'true' : 'false');
+      var mk = document.createElement('span'); mk.className = 'v2-mk'; mk.textContent = '●';
+      var tx = document.createElement('span'); tx.textContent = 'top ' + d + ' per system';
+      b.appendChild(mk); b.appendChild(tx);
+      b.addEventListener('click', function(){ depth = d; render(); });
+      depBox.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Fooling The Judge</h2>
+  <p class="vz-lede">An LLM relevance judge is an instrument with calibration error, not an oracle. Change
+    ONE feature of the same document at a time — the paired-counterexample test — and the grade it moves is
+    the bias, measured. <b>Like a job interview where the confident suit outscores the better candidate.</b></p>
+
+  <div class="v3-cols">
+    <div><h5>change one feature</h5><div class="v3-btns" id="v3-feats"></div></div>
+    <div><h5>mitigations</h5><div class="v3-btns" id="v3-mits"></div></div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-scale" id="v3-scale"></div>
+    <div class="v3-tab" id="v3-table"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two more things belong in the prompt, not in your hopes. Define relevance
+    <b>operationally</b> — does topicality, completeness, authority, recency or harmfulness move the grade —
+    with boundary examples and a structured output such as <code>{grade, rationale, evidence}</code>. And
+    version everything: model identifier, prompt, decoding settings, truncation, rubric. A provider update
+    silently relabels your whole collection, so recalibrate before adopting a new judge.</p>
+
+  <style>
+    .v3-cols{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+    .v3-cols > div{flex:1 1 168px}
+    .v3-cols h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-btns{display:flex;flex-direction:column;gap:5px}
+    .v3-b{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:7px 10px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:8px;line-height:1.3}
+    .v3-b[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-mk{flex:0 0 16px;font-weight:800;color:var(--viz-muted)}
+    .v3-b[aria-pressed="true"] .v3-mk{color:var(--viz-accent)}
+    .v3-scale{display:flex;gap:6px}
+    .v3-g{flex:1;border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 4px;text-align:center;
+      background:var(--viz-bg);font-size:10.5px}
+    .v3-g b{display:block;font-size:17px;font-family:ui-monospace,Consolas,monospace}
+    .v3-g.is-h{border-color:var(--viz-green)}
+    .v3-g.is-j{border-color:var(--viz-red)}
+    .v3-g.is-both{border-color:var(--viz-accent)}
+    .v3-tab{margin-top:12px;display:flex;flex-direction:column;gap:4px}
+    .v3-row{display:flex;align-items:center;gap:8px;font-size:11.5px;border:1px solid var(--viz-line);
+      border-radius:8px;padding:6px 9px;background:var(--viz-bg)}
+    .v3-d{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-weight:800;font-size:11.5px}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // One marginally-relevant document (human grade 1). Each feature is a surface
+    // property that should not move relevance, and does. "adv" is the adversarial
+    // case: query terms present, answer wrong — the human grade drops to 0.
+    var FEATS = [
+      { k:'pos', label:'shown first in the list', eff:0.6, on:false, why:'position bias' },
+      { k:'ver', label:'long, repeats the query', eff:0.8, on:false, why:'verbosity bias' },
+      { k:'sty', label:'polished prose',          eff:0.5, on:false, why:'style bias' },
+      { k:'cit', label:'citation formatting',     eff:0.7, on:false, why:'authority by formatting' },
+      { k:'adv', label:'query terms, wrong answer', eff:0.9, on:false, why:'adversarial document' }
+    ];
+    var MITS = [
+      { k:'blind', label:'blind + randomise order', on:false },
+      { k:'evid',  label:'require verified evidence', on:false }
+    ];
+    var feats = document.getElementById('v3-feats'), mits = document.getElementById('v3-mits');
+    var scale = document.getElementById('v3-scale'), tab = document.getElementById('v3-table');
+    var why = document.getElementById('v3-why');
+    var get = function(list, k){ for (var i = 0; i < list.length; i++) if (list[i].k === k) return list[i]; return null; };
+    var clamp = function(g){ return Math.max(0, Math.min(3, g)); };
+
+    function humanGrade(){ return get(FEATS, 'adv').on ? 0 : 1; }
+    function judgeGrade(override){
+      var blind = get(MITS, 'blind').on, evid = get(MITS, 'evid').on;
+      var raw = 1;
+      FEATS.forEach(function(f){
+        var on = (override && override.k === f.k) ? override.on : f.on;
+        if (!on) return;
+        if (f.k === 'pos' && blind) return;              // blinding removes position bias outright
+        if (f.k === 'adv' && evid) return;               // the cited passage is not in the document
+        raw += f.eff;
+      });
+      var advOn = (override && override.k === 'adv') ? override.on : get(FEATS, 'adv').on;
+      if (advOn && evid) return 0;                       // caught: evidence does not exist
+      return clamp(Math.round(raw));
+    }
+
+    function render(){
+      [].slice.call(feats.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', FEATS[i].on ? 'true' : 'false');
+        b.firstChild.textContent = FEATS[i].on ? '■' : '□';
+      });
+      [].slice.call(mits.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', MITS[i].on ? 'true' : 'false');
+        b.firstChild.textContent = MITS[i].on ? '■' : '□';
+      });
+
+      var h = humanGrade(), j = judgeGrade(null);
+      var NAMES = ['0 irrelevant', '1 marginal', '2 relevant', '3 perfect'];
+      scale.innerHTML = [0, 1, 2, 3].map(function(g){
+        var isH = g === h, isJ = g === j;
+        var cls = isH && isJ ? 'is-both' : (isH ? 'is-h' : (isJ ? 'is-j' : ''));
+        var mark = isH && isJ ? 'HUMAN + JUDGE' : (isH ? 'HUMAN' : (isJ ? 'JUDGE' : ' '));
+        return '<div class="v3-g ' + cls + '"><b>' + g + '</b>' + NAMES[g].slice(2) +
+          '<div style="margin-top:4px;font-weight:800;font-size:9.5px;letter-spacing:.03em">' + mark + '</div></div>';
+      }).join('');
+
+      // The paired counterexample: same document, ONE feature flipped, grades differenced.
+      tab.innerHTML = FEATS.map(function(f){
+        var withF = judgeGrade({ k:f.k, on:true }), without = judgeGrade({ k:f.k, on:false });
+        var d = withF - without;
+        var col = d > 0 ? 'var(--viz-red)' : 'var(--viz-muted)';
+        var word = d > 0 ? 'inflates' : 'no effect';
+        return '<div class="v3-row"><span>' + f.label + '</span>' +
+          '<span style="color:var(--viz-muted);font-size:10.5px">' + f.why + '</span>' +
+          '<span class="v3-d" style="color:' + col + '">' + word + ' ' + (d > 0 ? '+' + d : '±0') + '</span></div>';
+      }).join('');
+
+      var advOn = get(FEATS, 'adv').on, evid = get(MITS, 'evid').on;
+      var gap = j - h;
+      why.innerHTML = advOn && evid
+        ? '<b style="color:var(--viz-green)">Caught by evidence, not by confidence.</b>' +
+          'The judge was required to quote the passage supporting its grade, and the quoted text does not ' +
+          'appear in the document. That is hallucinated support, and it is invisible to any amount of ' +
+          'reading the rationale: <b>a confident rationale is not proof the grade is correct</b>. ' +
+          'Adversarial documents — full of the query terms, carrying the wrong answer — are exactly what ' +
+          'this check exists for.' +
+          '<br><br>Keep humans on the high-stakes and genuinely ambiguous cases anyway. Route by confidence ' +
+          'if you like — auto-accept clear grade-0s, escalate the rest, audit random accepted ones — but ' +
+          'first prove that the confidence predicts correctness.'
+        : gap > 0
+          ? '<b style="color:var(--viz-red)">' + gap + ' grade' + (gap === 1 ? '' : 's') + ' above the human, on surface features alone.</b>' +
+            'Nothing about the document’s actual relevance changed. Length, polish, repeated query wording ' +
+            'and citation-style formatting are all cues the model has learned to associate with quality, and ' +
+            'position bias arrives free the moment you show candidates in ranked order or with the incumbent’s ' +
+            'scores attached.' +
+            '<br><br>The numbers in the table are the <b>paired counterexample</b> in action: the same document, ' +
+            'one feature flipped, grades differenced. That difference is a measurement of the bias, not an ' +
+            'impression of it — and it is the only honest way to argue that a judge is fit to label your ' +
+            'collection.'
+          : '<b style="color:var(--viz-green)">Judge and human agree — for now.</b>' +
+            'Agreement on one document is not calibration. Draw a human-labelled sample <em>from the query ' +
+            'classes you actually care about</em> and report a confusion matrix and per-grade precision, never ' +
+            'one accuracy number: a judge can be 90 percent right overall and wrong on every compliance query.' +
+            '<br><br>Watch for the shared-bias case too. A retriever and a judge from similar training ' +
+            'distributions reward the same familiar phrasing, so the judge agrees with the system for reasons ' +
+            'that have nothing to do with the user. Use more than one judge family, or human audits.';
+    }
+
+    function mk(list, box){
+      list.forEach(function(item, i){
+        var b = document.createElement('button');
+        b.className = 'v3-b'; b.setAttribute('aria-pressed', 'false');
+        var m = document.createElement('span'); m.className = 'v3-mk'; m.textContent = '□';
+        var t = document.createElement('span'); t.textContent = item.label;
+        b.appendChild(m); b.appendChild(t);
+        b.addEventListener('click', function(){ list[i].on = !list[i].on; render(); });
+        box.appendChild(b);
+      });
+    }
+    mk(FEATS, feats); mk(MITS, mits);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Grade Drift Dial</h2>
+  <p class="vz-lede">"The judge is one grade off" sounds small. Under exponential gain it is not: grade 2 is
+    worth 3 and grade 3 is worth 7. Move the drift and watch nDCG detach from the truth.
+    <b>Like a thermometer reading two degrees high — harmless for a bath, catastrophic for an oven.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-a">Judge calls <span id="v4-al">0</span> of the three grade-2 documents a 3</label>
+    <input type="range" id="v4-a" min="0" max="3" value="0" step="1" aria-label="Grade 2 documents inflated to grade 3">
+    <label class="v4-lab" for="v4-b" style="margin-top:10px">Judge calls <span id="v4-bl">0</span> of the two grade-1 documents a 0</label>
+    <input type="range" id="v4-b" min="0" max="2" value="0" step="1" aria-label="Grade 1 documents deflated to grade 0">
+    <div class="vz-seg" id="v4-gain" role="group" aria-label="Gain function" style="margin-top:14px"></div>
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-out" id="v4-out"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">This is why calibration is reported as a <b>confusion matrix</b>. "87 percent agreement"
+    cannot tell you whether the disagreements are 0-versus-1 (nearly harmless) or 2-versus-3 (a 2.33×
+    reweighting of your best documents). And it is why <b>collapsing grades</b> is a real fix rather than a
+    retreat: if the 2/3 distinction is unreliable, a metric that never depends on it cannot be distorted
+    by it.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-rows{margin-top:6px;display:flex;flex-direction:column;gap:3px}
+    .v4-r{display:flex;align-items:center;gap:8px;border:1px solid var(--viz-line);border-radius:8px;
+      padding:5px 9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v4-r.is-drift{border-color:var(--viz-amber)}
+    .v4-w{margin-left:auto;font-weight:800}
+    .v4-out{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var HUMAN = [3, 2, 2, 1, 0, 2, 1, 0];        // human grades at ranks 1..8 of one ranked list
+    var GAINS = [
+      { k:'exp',    label:'2^g − 1', f:function(g){ return Math.pow(2, g) - 1; } },
+      { k:'linear', label:'linear g',      f:function(g){ return g; } },
+      { k:'binary', label:'collapse to 0/1', f:function(g){ return g >= 1 ? 1 : 0; } }
+    ];
+    var gain = 0;
+    var sa = document.getElementById('v4-a'), al = document.getElementById('v4-al');
+    var sb = document.getElementById('v4-b'), bl = document.getElementById('v4-bl');
+    var gbox = document.getElementById('v4-gain'), rows = document.getElementById('v4-rows');
+    var out = document.getElementById('v4-out'), why = document.getElementById('v4-why');
+
+    function judged(){
+      var a = Number(sa.value), b = Number(sb.value), twos = 0, ones = 0;
+      return HUMAN.map(function(g){
+        if (g === 2) { twos += 1; return twos <= a ? 3 : 2; }
+        if (g === 1) { ones += 1; return ones <= b ? 0 : 1; }
+        return g;
+      });
+    }
+    function ndcg(grades){
+      var f = GAINS[gain].f, dcg = 0, idcg = 0;
+      grades.forEach(function(g, i){ dcg += f(g) / Math.log2(i + 2); });
+      grades.slice().sort(function(x, y){ return y - x; })
+        .forEach(function(g, i){ idcg += f(g) / Math.log2(i + 2); });
+      return idcg > 0 ? dcg / idcg : 0;      // guard: all-zero gains would divide by zero
+    }
+    function pill(t, c){ return '<span class="v4-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      al.textContent = sa.value; bl.textContent = sb.value;
+      [].slice.call(gbox.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === gain ? 'true' : 'false'); });
+      var J = judged(), f = GAINS[gain].f;
+
+      rows.innerHTML = HUMAN.map(function(h, i){
+        var j = J[i], drift = h !== j;
+        return '<div class="v4-r' + (drift ? ' is-drift' : '') + '"><span>rank ' + (i + 1) + '</span>' +
+          '<span>human ' + h + ' → judge ' + j + (drift ? '  ⚠ drift' : '') + '</span>' +
+          '<span class="v4-w" style="color:' + (drift ? 'var(--viz-amber)' : 'var(--viz-muted)') + '">gain ' +
+          f(h) + ' → ' + f(j) + '</span></div>';
+      }).join('');
+
+      var nH = ndcg(HUMAN), nJ = ndcg(J);
+      var delta = Math.round((nJ - nH) * 1000) / 10;
+      out.innerHTML =
+        pill('truth ' + nH.toFixed(4), 'var(--viz-green)') +
+        pill('judge says ' + nJ.toFixed(4), 'var(--viz-violet)') +
+        pill('error ' + (delta >= 0 ? '+' : '') + delta.toFixed(1) + ' pts',
+             Math.abs(delta) < 0.5 ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      var a = Number(sa.value), b = Number(sb.value);
+      why.innerHTML = GAINS[gain].k === 'binary'
+        ? '<b style="color:var(--viz-green)">Collapse the grades and the 2-versus-3 confusion cannot bite.</b>' +
+          'Under a binary relevance model every grade above 0 is worth the same, so inflating a 2 to a 3 ' +
+          'changes nothing at all — the whole ' + a + '-document drift you dialled in is invisible here. ' +
+          'What still moves the number is the ' + b + ' document' + (b === 1 ? '' : 's') + ' pushed from 1 down ' +
+          'to 0, because that crosses the only boundary this model has.' +
+          '<br><br>That is the trade, stated plainly: <b>collapse grades when the distinction is unreliable</b>. ' +
+          'You lose the ability to say "excellent versus adequate" and you gain a metric your judge can ' +
+          'actually support. Choosing between MAP-style binary relevance and nDCG-style graded relevance is ' +
+          'partly a question about your labels, not only about your users.'
+        : a > 0
+          ? '<b style="color:var(--viz-red)">One grade off, ' + Math.abs(delta).toFixed(1) + ' points of error.</b>' +
+            'With exponential gain, grade 2 is worth <code>2^2 − 1 = 3</code> and grade 3 is worth ' +
+            '<code>2^3 − 1 = 7</code>. A judge that maps a human 2 onto a 3 therefore multiplies that ' +
+            'document’s contribution by <b>7/3 ≈ 2.33</b> before the rank discount is applied at all — and ' +
+            'near the top of the list the discount is small, so almost all of that inflation survives.' +
+            '<br><br>Switch the gain to <b>linear</b> and watch the same drift shrink: the distortion is a ' +
+            'property of the gain function, not of the mistake. This is the single most useful thing to know ' +
+            'about an LLM judge whose confusion matrix leans one grade high.'
+          : '<b style="color:var(--viz-green)">No drift, no error — start dialling.</b>' +
+            'The judge currently reproduces the human labels exactly, so nDCG is the truth. Push either ' +
+            'slider and the two numbers separate. Notice which one hurts more: <b>inflating a 2 to a 3</b> ' +
+            'near the top of the list moves the metric far more than demoting a 1 to a 0 further down, ' +
+            'because gain grows exponentially while the discount only falls logarithmically.' +
+            '<br><br>Calibrate against a human-labelled sample drawn from the query classes you care about, ' +
+            'and report per-grade precision. An overall accuracy figure averages the harmless disagreements ' +
+            'together with this one.';
+    }
+    GAINS.forEach(function(g, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === gain ? 'true' : 'false');
+      b.textContent = g.label;
+      b.addEventListener('click', function(){ gain = i; render(); });
+      gbox.appendChild(b);
+    });
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Benchmark Transfer</h2>
+  <p class="vz-lede">MS MARCO and BEIR are shared reference points, not proof of production quality. Pick
+    the product you are actually building and see which public evidence survives the trip — tap any row for
+    the mechanism. <b>Like a driving licence earned in Arizona and used in a Norwegian winter.</b></p>
+
+  <div class="vz-seg" id="v5-profs" role="group" aria-label="Product profile"></div>
+
+  <div class="v5-btns" id="v5-risk"></div>
+
+  <div class="vz-card">
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">One last discipline in the reporting itself. State dataset and task version, corpus,
+    query split, metric cutoff, judgment handling and <b>resource budget</b> — a one-point nDCG gain bought
+    with a hundredfold latency increase is irrelevant to production, and two numbers produced under
+    different preprocessing or evaluation scripts were never the same measurement.</p>
+
+  <style>
+    .v5-btns{display:flex;flex-direction:column;gap:5px;margin:0 0 12px}
+    .v5-b{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:7px 10px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:8px;line-height:1.3}
+    .v5-b[aria-pressed="true"]{border-color:var(--viz-amber)}
+    .v5-mk{flex:0 0 16px;font-weight:800;color:var(--viz-muted)}
+    .v5-b[aria-pressed="true"] .v5-mk{color:var(--viz-amber)}
+    .v5-rows{display:flex;flex-direction:column;gap:5px}
+    .v5-r{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:8px 10px;background:var(--viz-bg);color:var(--viz-ink);font:inherit;font-size:11.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v5-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-vd{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;text-align:right;flex:0 0 96px}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PROFS = [
+      { k:'sup',   label:'support search, error codes' },
+      { k:'multi', label:'multilingual catalogue' },
+      { k:'bio',   label:'biomedical claims' },
+      { k:'web',   label:'English web Q&A' }
+    ];
+    // 3 = decides, 2 = transfers, 1 = partial, 0 = does not transfer.
+    var ROWS = [
+      { n:'MS MARCO passage ranking',
+        v:{ sup:1, multi:0, bio:0, web:2 },
+        why:'Real search queries paired with passages, and the benchmark that pushed rerankers, dense retrieval and efficient first-stage systems. It is the right tool for one job in every profile: <b>reproduce a published baseline first</b>, because a number that misses it is usually an indexing or metric bug, not a model. Its labels are relatively sparse, so unjudged relevant passages sit inside every score you read from it.' },
+      { n:'BEIR average across datasets',
+        v:{ sup:1, multi:1, bio:1, web:2 },
+        why:'A heterogeneous suite for <b>zero-shot</b> retrieval: its value is breadth, since a method strong on a web-style corpus may collapse on scientific claims, biomedical text or arguments. But the average is the least informative thing in it. Report it <em>alongside</em> per-dataset results, or you cannot tell a broad gain from one dataset carrying the whole number.' },
+      { n:'BEIR scientific claims',
+        v:{ sup:0, multi:0, bio:2, web:1 },
+        why:'Claim-style queries against technical prose. Transfer here is about <b>domain terminology and document length</b>, not about the retriever family in the abstract — the same model can be excellent on short web questions and helpless when the query is a claim to be verified.' },
+      { n:'BEIR biomedical retrieval',
+        v:{ sup:0, multi:0, bio:2, web:0 },
+        why:'Specialist vocabulary, long documents, and a corpus whose freshness matters. Strong results here say almost nothing about a consumer catalogue, and the reverse is equally true. <b>Transfer depends on matching mechanisms</b>: language, lexical exactness, terminology, freshness, document length, query intent.' },
+      { n:'BEIR argument retrieval',
+        v:{ sup:0, multi:0, bio:0, web:1 },
+        why:'Included precisely because it is unlike the others. Its job in a report is to expose a method that only works on one query shape — which is a service to you, not a criticism of the method.' },
+      { n:'YOUR private golden set',
+        v:{ sup:3, multi:3, bio:3, web:3 },
+        why:'The set you built in visual 1: your users, your documents, your constraints, your failure costs. <b>Public benchmarks verify implementations and compare broad approaches; this decides product questions.</b> It is also the only layer immune to contamination and to test-set tuning, because you control who has seen it.' }
+    ];
+    var VERD = [
+      { w:'✕ no transfer', c:'var(--viz-red)' },
+      { w:'~ partial',          c:'var(--viz-amber)' },
+      { w:'✓ transfers',   c:'var(--viz-green)' },
+      { w:'★ decides',     c:'var(--viz-accent)' }
+    ];
+    var prof = 0, risk = false, cur = 0;
+    var pbox = document.getElementById('v5-profs'), rbox = document.getElementById('v5-risk');
+    var rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+
+    function level(r){
+      var v = r.v[PROFS[prof].k];
+      if (v === 3) return 3;                       // your own set is never downgraded
+      return risk ? Math.max(0, v - 1) : v;
+    }
+    function render(){
+      [].slice.call(pbox.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === prof ? 'true' : 'false'); });
+      var rb = rbox.firstChild;
+      rb.setAttribute('aria-pressed', risk ? 'true' : 'false');
+      rb.firstChild.textContent = risk ? '■' : '□';
+
+      rows.innerHTML = '';
+      ROWS.forEach(function(r, i){
+        var lv = level(r), v = VERD[lv];
+        var b = document.createElement('button');
+        b.className = 'v5-r'; b.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+        b.innerHTML = '<span>' + r.n + '</span><span class="v5-vd" style="color:' + v.c + '">' + v.w + '</span>';
+        b.addEventListener('click', function(){ cur = i; render(); });
+        rows.appendChild(b);
+      });
+
+      var r = ROWS[cur], lv = level(r);
+      why.innerHTML = '<b>' + r.n + ' → ' + VERD[lv].w.replace(/^\S+\s/, '') +
+        ' for a ' + PROFS[prof].label + '</b>' + r.why +
+        (risk && lv < 3
+          ? '<br><br><b style="display:inline;font-size:inherit;color:var(--viz-amber)">Downgraded by contamination and test-set tuning.</b> ' +
+            'Widely available benchmark documents and queries may sit in model training data, so a strong ' +
+            'score can partly reflect familiarity rather than retrieval ability — describe that risk rather ' +
+            'than claiming purity. And once you have selected prompts, fusion weights or checkpoints on test ' +
+            'results, the test set <em>is</em> development data. Use held-out private tests and temporally ' +
+            'newer material to recover an honest reading.'
+          : '<br><br>Workflow, in order: reproduce established baselines to catch indexing and metric bugs, ' +
+            'then test across heterogeneous datasets to find general strengths and weaknesses, then evaluate ' +
+            'on the private golden set that reflects your actual users. Public benchmarks are one layer, ' +
+            'never the verdict.');
+    }
+    PROFS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === prof ? 'true' : 'false');
+      b.textContent = p.label;
+      b.addEventListener('click', function(){ prof = i; render(); });
+      pbox.appendChild(b);
+    });
+    (function(){
+      var b = document.createElement('button');
+      b.className = 'v5-b'; b.setAttribute('aria-pressed', 'false');
+      var m = document.createElement('span'); m.className = 'v5-mk'; m.textContent = '□';
+      var t = document.createElement('span'); t.textContent = 'assume contamination + tuning on the test set';
+      b.appendChild(m); b.appendChild(t);
+      b.addEventListener('click', function(){ risk = !risk; render(); });
+      rbox.appendChild(b);
+    })();
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,642 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Bytes To Answers</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Staleness Dial</button>
+  <button class="viz-tab" data-viz-tab="3">3. Why It Was Slow</button>
+  <button class="viz-tab" data-viz-tab="4">4. Model Then Manifest</button>
+  <button class="viz-tab" data-viz-tab="5">5. Recall Versus Speed</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Bytes To Answers</h2>
+  <p class="vz-lede"><b>Partitioning and Clustering in BigQuery</b> taught the engine to skip bytes, and
+    <b>On-Demand vs Capacity Pricing</b> put a price on the ones it still reads. This lesson stacks two
+    accelerators on top — a materialized view and BI Engine. Switch each layer on and watch what the
+    stack is actually worth. <b>Like a fast lane that only helps if you already turned off the motorway
+    at the right exit.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Layers to switch on">
+    <button id="v1-proj" aria-pressed="false">4 of 40 columns</button>
+    <button id="v1-part" aria-pressed="false">30 of 365 days</button>
+    <button id="v1-mv" aria-pressed="false">materialized view</button>
+    <button id="v1-bi" aria-pressed="false">BI Engine</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">The economic test is repeated avoided work versus maintenance and reservation cost.
+    A view refreshed hourly and matched by nobody is a bill with no benefit — so track refresh jobs,
+    rejected rewrites, bytes processed, latency and freshness, and delete the ones that never win.</p>
+
+  <style>
+    .v1-bars{display:flex;flex-direction:column;gap:11px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.5}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var st = { proj:false, part:false, mv:false, bi:false };
+    var BTN = {
+      proj: document.getElementById('v1-proj'),
+      part: document.getElementById('v1-part'),
+      mv:   document.getElementById('v1-mv'),
+      bi:   document.getElementById('v1-bi')
+    };
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+    var FULL = 2048;                       // 2 TB table, 40 equal columns, daily partitions over a year
+
+    function bar(title, value, unit, pct, colour, sub){
+      return '<div class="v1-b"><h6><span>' + title + '</span><b style="color:' + colour + '">' +
+        value + ' ' + unit + '</b></h6><div class="v1-track"><i style="width:' +
+        Math.max(1.5, Math.min(100, pct)) + '%;background:' + colour + '"></i></div>' +
+        '<div class="v1-sub">' + sub + '</div></div>';
+    }
+
+    function render(){
+      Object.keys(st).forEach(function(k){ BTN[k].setAttribute('aria-pressed', st[k] ? 'true' : 'false'); });
+
+      var gb = FULL;
+      if (st.proj) gb = gb * 4 / 40;
+      if (st.part) gb = gb * 30 / 365;
+
+      // Smart tuning can only substitute a view that covers the columns AND the rows asked for.
+      var mvUsed = st.mv && st.proj && st.part;
+      if (mvUsed) gb = 0.42;
+
+      var secs = 1.1 + gb * 0.018;
+      var accel = st.bi && (mvUsed || gb <= 25);
+      if (st.bi) secs = accel ? Math.max(0.35, secs * 0.22) : secs * 0.85;
+
+      var scanCol = gb > 200 ? 'var(--viz-red)' : (gb > 20 ? 'var(--viz-amber)' : 'var(--viz-green)');
+      var latCol  = secs > 8 ? 'var(--viz-red)' : (secs > 2 ? 'var(--viz-amber)' : 'var(--viz-green)');
+
+      bars.innerHTML =
+        bar('bytes read', gb >= 10 ? Math.round(gb).toLocaleString() : gb.toFixed(2), 'GB',
+            gb / FULL * 100, scanCol,
+            mvUsed ? 'The stored result of the view is read instead of the base table.'
+                   : (st.part ? '30 of 365 partitions' : 'every partition — no pruneable filter') +
+                     ' × ' + (st.proj ? '4 of 40 columns' : 'all 40 columns')) +
+        bar('dashboard latency', secs.toFixed(2), 's', secs / 38 * 100, latCol,
+            st.bi ? (accel ? 'BI Engine accelerated the supported stages of this query.'
+                           : 'Partial acceleration only — the rest fell back to ordinary execution, correct and slow.')
+                  : 'No in-memory acceleration.');
+
+      var head, body;
+      if (st.mv && !mvUsed) {
+        head = '<b style="color:var(--viz-red)">Rewrite rejected — the view does not cover this query.</b>';
+        body = 'Smart tuning substitutes a materialized view only when it covers the required tables, ' +
+          '<b>columns, rows and supported shapes</b>. Ask for columns or a date range the view never ' +
+          'materialised and the optimizer reads the base table instead. Creating a view guarantees nothing: ' +
+          'the query plan and the materialized-view statistics are where you find out whether it was selected.';
+      } else if (!st.part) {
+        head = '<b style="color:var(--viz-red)">An unbounded scan, accelerated.</b>';
+        body = 'Without a pruneable partition filter this query reads ' + Math.round(gb).toLocaleString() +
+          ' GB every single time. ' + (st.bi
+            ? 'BI Engine caches what fits its reservation and the rest falls back — the answer stays correct and the bill stays large. '
+            : '') +
+          'This is the sentence the whole lesson turns on: <b>acceleration features do not rescue an unbounded scan or a broken data model.</b>';
+      } else if (mvUsed && st.bi) {
+        head = '<b style="color:var(--viz-green)">The stack pays — because the physical design paid first.</b>';
+        body = 'The view pre-aggregates and flattens the repeated dashboard query down to 0.42 GB; BI Engine ' +
+          'caches that small hot representation in memory and runs its vectorized engine over the supported ' +
+          'stages. Partitioning still decides how much ever needs accelerating — only recent partitions are hot.';
+      } else if (mvUsed) {
+        head = '<b style="color:var(--viz-green)">Repeated work, computed once.</b>';
+        body = 'The view stores the precomputed result and BigQuery refreshes it incrementally from changed ' +
+          'base content. Queries still reflect current base-table state: if the cached data is stale it is ' +
+          'merged with the base changes. <b>Correctness is never what you trade — cost and latency are.</b> ' +
+          'Add BI Engine to cache this smaller representation in memory.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">Physical design first, accelerators second.</b>';
+        body = 'Pruning and projection have taken ' + FULL.toLocaleString() + ' GB down to ' +
+          (gb >= 10 ? Math.round(gb).toLocaleString() : gb.toFixed(2)) + ' GB. Now a materialized view can ' +
+          'store the repeated aggregate instead of recomputing it, and BI Engine can hold the result in memory.';
+      }
+      why.innerHTML = head + body;
+    }
+
+    Object.keys(BTN).forEach(function(k){
+      BTN[k].addEventListener('click', function(){ st[k] = !st[k]; render(); });
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Staleness Dial</h2>
+  <p class="vz-lede">One setting, <code>max_staleness</code>, decides whether a query may skip merging the
+    newest base changes. Drag it, then switch the workload it serves — the right number is a statement
+    about the business, not about the table. <b>Like the "best before" date on milk: four hours old is
+    fine in your coffee and unacceptable in a lab test.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v2-lab" for="v2-s">max_staleness: <span id="v2-sl">4 hours</span></label>
+    <input type="range" id="v2-s" min="0" max="8" value="4" step="1" aria-label="Maximum staleness in hours">
+    <div class="v2-pills" id="v2-pills"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Workload served">
+    <button id="v2-dash" aria-pressed="true">hourly sales dashboard</button>
+    <button id="v2-alert" aria-pressed="false">fraud alert on transactions</button>
+  </div>
+
+  <div class="vz-card"><div class="v2-why" id="v2-why"></div></div>
+
+  <p class="vz-note">Note what never moves on this dial: <b>the answer stays correct</b>. Stale cached data
+    is combined with base changes when the query needs it — what staleness buys is predictable latency, and
+    what it costs is freshness. The failure is never a wrong row; it is a tolerance that was inherited from
+    a neighbouring workload instead of stated by the one that owns it.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-pills{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CHURN = 1200000;                        // rows landing in the base table per hour
+    var s = document.getElementById('v2-s'), sl = document.getElementById('v2-sl');
+    var pills = document.getElementById('v2-pills'), why = document.getElementById('v2-why');
+    var bD = document.getElementById('v2-dash'), bA = document.getElementById('v2-alert');
+    var alerting = false;
+
+    function render(){
+      var h = Number(s.value);
+      sl.textContent = h === 0 ? 'off (0 hours)' : h + (h === 1 ? ' hour' : ' hours');
+      bD.setAttribute('aria-pressed', alerting ? 'false' : 'true');
+      bA.setAttribute('aria-pressed', alerting ? 'true' : 'false');
+
+      // Inside the window a query serves cached data and skips the merge; at 0 every query merges.
+      var merged = h === 0 ? Math.round(CHURN * 0.25) : 0;
+      var latency = 0.8 + merged / 1000000 * 1.4;
+      var ok = alerting ? (h === 0) : (h > 0 && h <= 4);
+      var col = ok ? 'var(--viz-green)' : (alerting ? 'var(--viz-red)' : 'var(--viz-amber)');
+
+      pills.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">freshness gap: up to ' +
+          (h === 0 ? '0 min' : h + 'h') + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">base rows merged per query: ' +
+          merged.toLocaleString() + '</span>' +
+        '<span class="v2-pill" style="color:' + col + ';border-color:' + col + '">query latency ' + latency.toFixed(2) + ' s ' +
+          (h === 0 ? '(varies with churn)' : '(predictable)') + '</span>';
+
+      var head, body;
+      if (alerting && h > 0) {
+        head = '<b style="color:var(--viz-red)">Wrong for this workload — an alert may not inherit a dashboard setting.</b>';
+        body = 'A fraud alert that requires current transactions cannot answer from cached data that skipped ' +
+          'the last ' + h + (h === 1 ? ' hour' : ' hours') + ' of base changes. Every row it returns is correct, ' +
+          'and the decision it drives is still ' + h + 'h late. <b>State the business tolerance explicitly per workload</b> ' +
+          'rather than copying the number off the dashboard next to it.';
+      } else if (alerting) {
+        head = '<b style="color:var(--viz-green)">Correct for an alert — and now you pay for it.</b>';
+        body = 'With staleness off, every query merges the newest base content: about ' + merged.toLocaleString() +
+          ' rows for a 15-minute gap at this churn, and the latency moves with the churn rather than sitting still. ' +
+          'That is the honest trade — this workload bought freshness with predictability.';
+      } else if (h === 0) {
+        head = '<b style="color:var(--viz-amber)">Freshness the dashboard never asked for.</b>';
+        body = 'Every refresh of the dashboard now merges ' + merged.toLocaleString() + ' base rows before answering. ' +
+          'Nobody reading an hourly sales chart can perceive the difference, and the acceleration you built the ' +
+          'view for is spent on it. Staleness is the dial that turns that spend off.';
+      } else if (h <= 4) {
+        head = '<b style="color:var(--viz-green)">A stated tolerance, and predictable latency.</b>';
+        body = 'The dashboard tolerates data up to ' + h + 'h old, so within that interval queries can avoid ' +
+          'merging the newest base changes altogether — latency stops depending on how busy the source table ' +
+          'has been. This is the four-hour case: written down once, owned by the dashboard, not borrowed.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">Beyond what anyone agreed to.</b>';
+        body = 'Nothing breaks at ' + h + 'h — the mechanism is identical. But a tolerance nobody stated has a ' +
+          'way of becoming the tolerance every neighbouring query inherits. If ' + h + ' hours really is ' +
+          'acceptable, say so in the same place the dashboard is defined.';
+      }
+      why.innerHTML = head + body;
+    }
+
+    s.addEventListener('input', render);
+    bD.addEventListener('click', function(){ alerting = false; render(); });
+    bA.addEventListener('click', function(){ alerting = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Why It Was Slow</h2>
+  <p class="vz-lede">Five jobs, all of them 96 seconds of wall time, all of them slow for different reasons.
+    Pick a job, read its statistics, then choose the fix — the evidence is the only thing that separates
+    them. <b>Like a fever: the temperature tells you something is wrong and never which illness it is.</b></p>
+
+  <div class="v3-jobs" id="v3-jobs"></div>
+  <div class="vz-card vz-mono" id="v3-ev" style="margin-bottom:12px"></div>
+
+  <div class="vz-seg" role="group" aria-label="Proposed fix">
+    <button id="v3-f1" aria-pressed="false">read fewer bytes</button>
+    <button id="v3-f2" aria-pressed="false">reshape join or grouping</button>
+    <button id="v3-f3" aria-pressed="false">add capacity or reschedule</button>
+    <button id="v3-f4" aria-pressed="false">stage the workflow</button>
+  </div>
+
+  <div class="vz-card"><div class="v3-why" id="v3-why"></div></div>
+
+  <p class="vz-note">Whatever you change, prove it with a controlled before-and-after test on representative
+    parameters — bytes, slots, latency distribution, result equivalence and cost. A rewrite that wins on one
+    date range routinely loses on another, and a new materialization moves cost into maintenance where the
+    query plan will never show it to you.</p>
+
+  <style>
+    .v3-jobs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-j{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-j[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var JOBS = [
+      { t:'Job A — nightly export, 96 s',
+        ev:['bytes read        2,048 GB', 'slot ms           5,240,000', 'shuffle output    3 GB',
+            'spill             0', 'wait / queued     0.4 s', 'slowest ÷ median  1.1×', 'stages            9'],
+        fix:1, cls:'scan-bound',
+        ok:'Two thousand gigabytes to answer one question. Select only the columns you need instead of ' +
+           '<code>SELECT *</code>, put a pruneable predicate on the partition column, and use the clustering ' +
+           'filters. A <code>LIMIT</code> would not have helped: it applies after the scan.' },
+      { t:'Job B — sessions joined to orders, 96 s',
+        ev:['bytes read        42 GB', 'slot ms           7,100,000', 'shuffle output    610 GB',
+            'spill             88 GB', 'wait / queued     0.6 s', 'slowest ÷ median  1.3×', 'stages            14'],
+        fix:2, cls:'shuffle-bound',
+        ok:'Shuffle output fifteen times the bytes read, and it spilled. Joins, grouping, distinct and global ' +
+           'sorts all redistribute data. Pre-aggregate before joining where the business grain permits, filter ' +
+           'both sides, and check for many-to-many fanout — which inflates cost <b>and</b> silently corrupts measures.' },
+      { t:'Job C — revenue by account, 96 s',
+        ev:['bytes read        40 GB', 'slot ms           6,900,000', 'shuffle output    95 GB',
+            'spill             12 GB', 'wait / queued     0.5 s', 'slowest ÷ median  47×', 'stages            11'],
+        fix:2, cls:'skewed',
+        ok:'One worker took 47 times the median: a single key owns a large fraction of the rows, so one straggler ' +
+           'decides the wall time while everything else finished. Total bytes look manageable and are not the ' +
+           'problem. More slots buy nothing — the work is not divisible until the key is.' },
+      { t:'Job D — small ad-hoc query, 96 s',
+        ev:['bytes read        6 GB', 'slot ms           240,000', 'shuffle output    2 GB',
+            'spill             0', 'wait / queued     71 s', 'slowest ÷ median  1.2×', 'stages            6'],
+        fix:3, cls:'concurrency-limited',
+        ok:'Seventy-one of the ninety-six seconds were spent waiting. This query barely used any CPU; the ' +
+           'reservation was saturated by another workload. Inspect slot utilization, job timelines, reservation ' +
+           'assignments and autoscaling — <b>optimizing SQL cannot remove a capacity queue someone else created.</b>' },
+      { t:'Job E — 600-line nested transform, 96 s',
+        ev:['bytes read        18 GB', 'slot ms           3,900,000', 'shuffle output    40 GB',
+            'spill             4 GB', 'wait / queued     0.3 s', 'slowest ÷ median  1.4×', 'stages            214'],
+        fix:4, cls:'plan complexity',
+        ok:'Two hundred and fourteen stages from eighteen gigabytes. Extremely complex nested SQL produces an ' +
+           'execution graph that is hard to optimize. Break the workflow into staged, versioned results — or ' +
+           'materialize the repeated transformation — accepting the extra storage in exchange for reuse and debuggability.' }
+    ];
+    var FIXES = [
+      { id:'v3-f1', label:'read fewer bytes' },
+      { id:'v3-f2', label:'reshape join or grouping' },
+      { id:'v3-f3', label:'add capacity or reschedule' },
+      { id:'v3-f4', label:'stage the workflow' }
+    ];
+    var WRONG = {
+      1:'Bytes are not this job’s problem — look again at which statistic is out of proportion.',
+      2:'The join and grouping shape is not what this job’s statistics point at.',
+      3:'Capacity is not the constraint here: the queue time is negligible, so the slots were available.',
+      4:'Staging the workflow addresses plan complexity, and this plan is not complex.'
+    };
+
+    var jobsEl = document.getElementById('v3-jobs'), ev = document.getElementById('v3-ev'), why = document.getElementById('v3-why');
+    var fixEls = FIXES.map(function(f){ return document.getElementById(f.id); });
+    var cur = 0, picked = 0;
+
+    function render(){
+      [].slice.call(jobsEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      fixEls.forEach(function(b, i){ b.setAttribute('aria-pressed', picked === i + 1 ? 'true' : 'false'); });
+      var job = JOBS[cur];
+      ev.innerHTML = 'wall time         96 s   ← identical in all five\n' + job.ev.join('\n');
+
+      if (!picked) {
+        why.innerHTML = '<b>Read the statistics before choosing.</b>Wall time is the same in every job here, so it ' +
+          'names no cause. Bytes read, slot milliseconds, shuffle output, spill, the slowest-to-median worker ratio ' +
+          'and queue time are what tell scan-bound from shuffle-bound from skewed from concurrency-limited from ' +
+          'a plan too complex to optimize.';
+      } else if (picked === job.fix) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Correct — this job is ' + job.cls + '.</b>' + job.ok;
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-red)">Not this one.</b>' + WRONG[picked] +
+          ' The statistic that stands out in job ' + 'ABCDE'.charAt(cur) + ' is the one furthest from what the ' +
+          'others show — compare it against the four healthy-looking numbers beside it.';
+      }
+    }
+
+    JOBS.forEach(function(job, i){
+      var b = document.createElement('button');
+      b.className = 'v3-j';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-n">' + 'ABCDE'.charAt(i) + '</span><span>' + job.t + '</span>';
+      b.addEventListener('click', function(){ cur = i; picked = 0; render(); });
+      jobsEl.appendChild(b);
+    });
+    fixEls.forEach(function(b, i){ b.addEventListener('click', function(){ picked = i + 1; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Model Then Manifest</h2>
+  <p class="vz-lede">A thousand PDFs become a retrieval corpus in five steps, and every step keeps a record
+    that the next one depends on. Walk the steps, then decide whether to read the per-row status column.
+    <b>Like a delivery round: the van coming back empty proves nothing until you compare the signatures
+    against the list you set out with.</b></p>
+
+  <div class="v4-steps" id="v4-steps"></div>
+
+  <div class="vz-seg" role="group" aria-label="How the job is checked">
+    <button id="v4-status" aria-pressed="true">check the status column</button>
+    <button id="v4-swap" aria-pressed="false">swap model: 768 → 1536 dims</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">BigQuery ML at awareness level is exactly this posture: SQL lowers the barrier to
+    creating, evaluating and predicting with a model, and it removes none of the discipline. A random split
+    can leak time, a current dimension can leak the future, and a strong aggregate score can hide a weak
+    minority class — so record the dataset snapshot, the model options, the preprocessing and the metrics
+    <b>by slice</b>, exactly as you record the embedding lineage here.</p>
+
+  <style>
+    .v4-steps{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v4-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v4-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{font-size:12.5px;line-height:1.6;padding-top:12px;border-top:1px dashed var(--viz-line)}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [
+      { t:'Object table over 1,000 PDFs in Cloud Storage',
+        h:'A read-only metadata index over objects — not a parser.',
+        b:'It gives you immutable source identity, size, update time and permissions, and it does not extract ' +
+          'one word of text. Everything downstream still has to be built: extracted text, stable source ' +
+          'versions, chunks, embeddings and citation lineage.' },
+      { t:'Parse with versioned tools → 986 parsed, 14 quarantined',
+        h:'Parsing failures are quarantined, never dropped.',
+        b:'Parse HTML, PDF or office formats with tools whose version you record, preserve page, section, block ' +
+          'or offset mappings so a citation can point at a span, remove known boilerplate and detect duplicates. ' +
+          'The 14 that failed are named, not silently absent — a corpus missing 14 documents nobody can list is ' +
+          'a corpus you cannot reason about.' },
+      { t:'Chunk → 12,400 chunks, each with an ID and a position',
+        h:'Chunking defines retrieval grain, and its bookkeeping is the deliverable.',
+        b:'Store chunk ID, document-version ID, ordered position, boundaries, chunker version, content hash, the ' +
+          'text and the metadata you will filter on. Choose size and overlap from retrieval and answer-grounding ' +
+          'evaluation — not from a default token count somebody copied from a blog post.' },
+      { t:'Create the remote model through a BigQuery connection',
+        h:'A BigQuery ML model standing in for a supported embedding endpoint.',
+        b:'It is created over a connection with its own permissions, so pin the endpoint or model revision where ' +
+          'you can and record task type, output dimensionality and preprocessing. Syntax and options vary by model ' +
+          'and region: production SQL follows that model’s documentation, not a remembered signature.' },
+      { t:'ML.GENERATE_EMBEDDING over the 12,400 chunks',
+        h:'The job completes. That is not the same as the data being complete.',
+        b:'Rows come back with an embedding array <b>plus status information</b>. Remote inference fails per row on ' +
+          'quota or bad input while the query job itself succeeds — so the status column is the only place the ' +
+          'truth is written down.' },
+      { t:'Reconcile against the manifest of expected chunks',
+        h:'Expected IDs in, successful embeddings out, difference named.',
+        b:'Retry only the retryable failures, quarantine the permanent ones, and use idempotent keys so a retry ' +
+          'cannot duplicate artifacts. The manifest is what converts "some rows failed" into a list somebody can act on.' }
+    ];
+    var stepsEl = document.getElementById('v4-steps'), pills = document.getElementById('v4-pills'), why = document.getElementById('v4-why');
+    var bStatus = document.getElementById('v4-status'), bSwap = document.getElementById('v4-swap');
+    var cur = 0, checked = true, swapped = false;
+
+    function render(){
+      [].slice.call(stepsEl.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      bStatus.setAttribute('aria-pressed', checked ? 'true' : 'false');
+      bSwap.setAttribute('aria-pressed', swapped ? 'true' : 'false');
+
+      var expected = 12400, embedded = checked ? 12330 : 12090, missing = expected - embedded;
+      var pct = (embedded / expected * 100).toFixed(1);
+      var col = checked ? 'var(--viz-green)' : 'var(--viz-red)';
+
+      pills.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">expected chunks ' + expected.toLocaleString() + '</span>' +
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">embedded ' + embedded.toLocaleString() + ' · ' + pct + '%</span>' +
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' +
+          (checked ? '70 quarantined and named' : '310 missing, unnamed') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">vector space ' +
+          (swapped ? '1536-dim (new)' : '768-dim') + '</span>';
+
+      var s = STEPS[cur];
+      var extra = '';
+      if (swapped) {
+        extra = '<br><br><b style="color:var(--viz-violet)">Model swapped — every vector above is now the wrong shape.</b>' +
+          'All compared vectors must inhabit the same compatible space, so changing the model or the output ' +
+          'dimensionality creates a <b>new embedding generation</b> and normally a new vector index. All ' +
+          embedded.toLocaleString() + ' chunks are re-embedded, the old index is rebuilt, and the model version ' +
+          'stored on each row is what lets you tell the two generations apart instead of silently mixing them.';
+      } else if (cur >= 4) {
+        extra = checked
+          ? '<br><br>Of the 310 rows that failed, 240 were quota failures and retried clean; 70 were permanent ' +
+            'input problems and went to quarantine with their reasons. The corpus is 99.4% complete <b>and you ' +
+            'can name the other 0.6%.</b>'
+          : '<br><br><b style="color:var(--viz-red)">Status ignored: 310 chunks are simply absent.</b>' +
+            'The job returned success, the table has 12,090 rows, and nothing anywhere says which 310 documents ' +
+            'your retrieval will never find. Every later evaluation number — recall, groundedness, citation ' +
+            'correctness — is measured against a corpus you believe is whole.';
+      }
+      why.innerHTML = '<b>' + s.h + '</b>' + s.b + extra;
+    }
+
+    STEPS.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v4-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-n">' + (i + 1) + '</span><span>' + s.t + '</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      stepsEl.appendChild(b);
+    });
+    bStatus.addEventListener('click', function(){ checked = !checked; render(); });
+    bSwap.addEventListener('click', function(){ swapped = !swapped; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Recall Versus Speed</h2>
+  <p class="vz-lede">A vector index makes <code>VECTOR_SEARCH</code> fast by not looking everywhere — which
+    means it can miss. Widen the candidate set, switch between exact and approximate, and move the
+    permission filter to the other side of the search. <b>Like skim-reading a shelf: quicker every time,
+    and the book you needed was the one you skipped.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Search mode">
+    <button id="v5-exact" aria-pressed="false">exact scan</button>
+    <button id="v5-ann" aria-pressed="true">vector index (approximate)</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v5-lab" for="v5-c">Candidates examined: <span id="v5-cl">5× k</span></label>
+    <input type="range" id="v5-c" min="1" max="20" value="5" step="1" aria-label="Candidate multiplier">
+    <div class="v5-strip" id="v5-strip"></div>
+    <div class="v5-pills" id="v5-pills"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Where the permission filter runs">
+    <button id="v5-pre" aria-pressed="true">filter inside the search</button>
+    <button id="v5-post" aria-pressed="false">filter the results afterwards</button>
+  </div>
+
+  <div class="vz-card"><div class="v5-why" id="v5-why"></div></div>
+
+  <p class="vz-note">Recall is not a property of the index; it is a measurement you either took or did not.
+    Evaluate against brute-force <code>VECTOR_SEARCH</code> on sampled queries, and watch index population
+    after table changes — a query that cannot use the index falls back to a path with a completely different
+    cost. And for a filter this selective, exact search over the eligible 1,032,000 vectors is a legitimate
+    answer: simpler, exact, and impossible to get subtly wrong.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-strip{margin-top:14px;display:flex;gap:3px;flex-wrap:wrap}
+    .v5-dot{width:20px;height:20px;border-radius:5px;border:1.5px solid var(--viz-line);display:flex;
+      align-items:center;justify-content:center;font-size:10px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v5-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CORPUS = 8600000, K = 10, ELIGIBLE = 0.12;
+    var c = document.getElementById('v5-c'), cl = document.getElementById('v5-cl');
+    var strip = document.getElementById('v5-strip'), pills = document.getElementById('v5-pills'), why = document.getElementById('v5-why');
+    var bE = document.getElementById('v5-exact'), bA = document.getElementById('v5-ann');
+    var bPre = document.getElementById('v5-pre'), bPost = document.getElementById('v5-post');
+    var exact = false, post = false;
+
+    function render(){
+      var mult = Number(c.value);
+      bE.setAttribute('aria-pressed', exact ? 'true' : 'false');
+      bA.setAttribute('aria-pressed', exact ? 'false' : 'true');
+      bPre.setAttribute('aria-pressed', post ? 'false' : 'true');
+      bPost.setAttribute('aria-pressed', post ? 'true' : 'false');
+      cl.textContent = exact ? 'every vector in the table' : mult + '× k';
+
+      var hits = exact ? K : Math.min(K, Math.round(10 * Math.min(1, 0.62 + 0.13 * Math.log(mult))));
+      var recall = hits / K;
+      var ms = exact ? 4200 : Math.round((45 + 18 * mult) * (post ? 1 : 1.6));
+      var eligible = post ? Math.round(hits * ELIGIBLE) : hits;
+
+      var dots = '';
+      for (var i = 0; i < K; i++) {
+        var found = i < hits;
+        var kept = post ? (i < eligible) : found;
+        dots += '<span class="v5-dot" style="border-color:' +
+          (found ? (kept ? 'var(--viz-green)' : 'var(--viz-amber)') : 'var(--viz-red)') + ';color:' +
+          (found ? (kept ? 'var(--viz-green)' : 'var(--viz-amber)') : 'var(--viz-red)') + '">' +
+          (found ? (kept ? '✓' : '⊘') : '✗') + '</span>';
+      }
+      strip.innerHTML = dots;
+
+      var rCol = recall === 1 ? 'var(--viz-green)' : (recall >= 0.9 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      var eCol = eligible >= K ? 'var(--viz-green)' : 'var(--viz-red)';
+      pills.innerHTML =
+        '<span class="v5-pill" style="color:' + rCol + ';border-color:' + rCol + '">recall@10 = ' + recall.toFixed(2) +
+          ' — matched ' + hits + ' of the 10 exact neighbours</span>' +
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + ms.toLocaleString() + ' ms</span>' +
+        '<span class="v5-pill" style="color:' + eCol + ';border-color:' + eCol + '">' + eligible +
+          ' rows this user may actually see</span>';
+
+      var head, body;
+      if (post) {
+        head = '<b style="color:var(--viz-red)">Post-filtering returned ' + eligible + ' row' + (eligible === 1 ? '' : 's') + ', not 10.</b>';
+        body = 'The search returned its ' + hits + ' nearest candidates and the permission filter then removed ' +
+          'everyone this user is not entitled to see — 12% of the corpus is theirs, so almost nothing survives. ' +
+          'The marked <span style="color:var(--viz-amber)">⊘</span> rows are neighbours that were found and then ' +
+          'discarded. Worse than the empty result: those candidates <b>left the trusted boundary before the ' +
+          'filter ran</b>. Metadata filtering has to match the authorization requirement, which means running ' +
+          'inside the search, not after it.';
+      } else if (exact) {
+        head = '<b style="color:var(--viz-green)">Exact search: recall 1.00 by definition, and it scans.</b>';
+        body = 'With no usable vector index, <code>VECTOR_SEARCH</code> compares the query vector against the base ' +
+          'vectors — all ' + CORPUS.toLocaleString() + ' of them — and returns the true nearest ' + K + ' plus their ' +
+          'distances. Nothing is approximated, so nothing needs evaluating. This is also the <b>baseline</b> you ' +
+          'measure an index against: brute-force results on sampled queries are what the word "recall" refers to.';
+      } else if (recall === 1) {
+        head = '<b style="color:var(--viz-green)">Full recall at ' + mult + '× k — and you paid for it in latency.</b>';
+        body = 'Widening the candidate set moves approximate search back toward exhaustive search: ' + ms + ' ms here ' +
+          'against ' + (4200).toLocaleString() + ' ms exact. The dial is real, the numbers are yours to measure, and ' +
+          'the only reason you know the recall is 1.00 is that you compared against brute force.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">' + (K - hits) + ' of the true 10 neighbours were never examined.</b>';
+        body = 'Approximate nearest-neighbour search wins its speed by not looking everywhere: ' + ms + ' ms instead ' +
+          'of ' + (4200).toLocaleString() + ' ms, at recall@10 = ' + recall.toFixed(2) + '. The rows marked ' +
+          '<span style="color:var(--viz-red)">✗</span> are the neighbours the index skipped, and no error is raised — ' +
+          'a retrieval answer simply comes back thinner. Whether that is acceptable is a question about the ' +
+          'application, and it is unanswerable until somebody measures it.';
+      }
+      why.innerHTML = head + body;
+    }
+
+    c.addEventListener('input', function(){ exact = false; render(); });
+    bE.addEventListener('click', function(){ exact = true; render(); });
+    bA.addEventListener('click', function(){ exact = false; render(); });
+    bPre.addEventListener('click', function(){ post = false; render(); });
+    bPost.addEventListener('click', function(){ post = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

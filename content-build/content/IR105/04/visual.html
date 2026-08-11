@@ -1,0 +1,656 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Which Side Moves</button>
+  <button class="viz-tab" data-viz-tab="2">2. Move The Query Vector</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Interpolation Dial</button>
+  <button class="viz-tab" data-viz-tab="4">4. Depth Drift Duplicates</button>
+  <button class="viz-tab" data-viz-tab="5">5. Anchor Then Expand</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Which Side Moves</h2>
+  <p class="vz-lede"><b>The Assembled BM25 Formula</b>, <b>Tuning k1 and b in Practice</b> and
+    <b>Jelinek-Mercer vs Dirichlet Smoothing</b> all tuned how a <em>document</em> is scored against a
+    query that never changed. Pick a side and turn its dial. <b>Like adjusting your glasses versus
+    rewording the question you actually asked.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which side you tune">
+    <button id="v1-doc" aria-pressed="true">tune the document side (k1, b, mu)</button>
+    <button id="v1-qry" aria-pressed="false">tune the query side (feedback)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-r">Rounds of tuning: <span id="v1-rl">1</span></label>
+    <input type="range" id="v1-r" min="0" max="3" value="1" step="1" aria-label="Rounds of tuning">
+    <div class="v1-vec vz-mono" id="v1-vec"></div>
+    <div class="v1-pills" id="v1-pills"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The whole course so far has been the left button. Relevance feedback is the right
+    one: <b>evidence about which results were useful changes the query representation</b>, so the next
+    ranking expresses the need more fully. Everything after this panel is about doing that without
+    losing what the user actually asked for.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    #v1-r{width:100%;min-height:44px}
+    .v1-vec{margin-top:12px;border:1.5px solid var(--viz-line);border-radius:9px;padding:10px 11px;background:var(--viz-bg)}
+    .v1-pills{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Rocchio applied repeatedly to the lesson's own example: q0=[1,0],
+    // relevant centroid [0.5,1.5], nonrelevant [0,1], alpha 1 / beta 0.8 / gamma 0.2.
+    var CR = [0.5, 1.5], CNR = [0, 1], A = 1, B = 0.8, G = 0.2;
+    var mode = 'doc';
+    var bd = document.getElementById('v1-doc'), bq = document.getElementById('v1-qry');
+    var s = document.getElementById('v1-r'), rl = document.getElementById('v1-rl');
+    var vec = document.getElementById('v1-vec'), pills = document.getElementById('v1-pills'), why = document.getElementById('v1-why');
+
+    function render(){
+      var n = Number(s.value);
+      rl.textContent = n;
+      bd.setAttribute('aria-pressed', mode === 'doc' ? 'true' : 'false');
+      bq.setAttribute('aria-pressed', mode === 'qry' ? 'true' : 'false');
+
+      var q = [1, 0], lines = ['round 0   q = [1.00, 0.00]   (the words the user typed)'];
+      for (var i = 1; i <= n; i++) {
+        if (mode === 'qry') {
+          q = [A * q[0] + B * CR[0] - G * CNR[0], A * q[1] + B * CR[1] - G * CNR[1]];
+          lines.push('round ' + i + '   q = [' + q[0].toFixed(2) + ', ' + q[1].toFixed(2) + ']   ' +
+            '= 1·q + 0.8·[0.5,1.5] − 0.2·[0,1]');
+        } else {
+          lines.push('round ' + i + '   q = [1.00, 0.00]   k1/b/mu changed the SCORE, not the query');
+        }
+      }
+      vec.textContent = lines.join('\n');
+
+      var l1 = Math.abs(q[0]) + Math.abs(q[1]);
+      var share = l1 > 0 ? Math.round(1 / l1 * 100) : 100;   // q0 contributes weight 1, once
+      var t2 = q[1];
+      var t2col = t2 > 0 ? 'var(--viz-green)' : 'var(--viz-red)';
+      var shCol = share >= 40 ? 'var(--viz-green)' : (share >= 25 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      pills.innerHTML =
+        '<span class="v1-pill" style="color:' + t2col + ';border-color:' + t2col + '">term 2 weight ' + t2.toFixed(2) + (t2 > 0 ? ' — reachable' : ' — unreachable') + '</span>' +
+        '<span class="v1-pill" style="color:' + shCol + ';border-color:' + shCol + '">user wording = ' + share + '% of q</span>';
+
+      why.innerHTML = mode === 'doc'
+        ? '<b style="color:var(--viz-amber)">No document-side dial can give term 2 a query weight.</b>' +
+          'Saturation (<code>k1</code>), length normalization (<code>b</code>) and smoothing (<code>mu</code> or the ' +
+          'Jelinek-Mercer mixture) all re-weight evidence for terms that are <em>already in the query</em>. ' +
+          'A document whose useful vocabulary is <code>connection pool</code> when the user typed <code>database timeout</code> ' +
+          'scores zero on that vocabulary however you tune them — the mismatch is in the query, and the query is fixed. ' +
+          '<br><br>That is the gap this lesson closes, and it is the same gap the whole of modern query expansion inherits.'
+        : (n === 0
+          ? '<b>Round 0 is where every previous lesson left you.</b>' +
+            'One shot: the user types, the system ranks, the interaction ends. Drag the slider to spend the results ' +
+            'as evidence instead — Rocchio, next panel, is the mechanism.'
+          : '<b style="color:' + (share >= 40 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+            'Term 2 arrived at weight ' + t2.toFixed(2) + ', and the user’s own wording is now ' + share + '% of the vector.</b>' +
+            'The second term was <b>absent from the original query</b> and now carries real weight, because it characterises the ' +
+            'relevant examples. That is the entire benefit. ' +
+            (n >= 2
+              ? '<br><br>But look at the second pill. Repeated feedback is allowed, and each round must preserve provenance ' +
+                'and an <b>original-query anchor</b> — otherwise small early mistakes compound and by round ' + n + ' the ranking ' +
+                'is chasing the feedback set rather than the question.'
+              : '<br><br>Push to round 2 and 3 and watch the anchor erode: that is why every method in this lesson keeps ' +
+                'an explicit weight on the original query.'));
+    }
+    bd.addEventListener('click', function(){ mode = 'doc'; render(); });
+    bq.addEventListener('click', function(){ mode = 'qry'; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Move The Query Vector</h2>
+  <p class="vz-lede">Rocchio is geometry: <code>q_m = alpha·q0 + beta·centroid(D_r) − gamma·centroid(D_nr)</code>.
+    Drag the three weights over the lesson's own example and watch the query walk across the space.
+    <b>Like steering toward the friends who gave good directions and away from the one who sent you the wrong way.</b></p>
+
+  <div class="vz-card">
+    <div class="v2-sl">
+      <label for="v2-a">alpha (keep the original) <b id="v2-al">1.0</b></label>
+      <input type="range" id="v2-a" min="0" max="1.5" value="1" step="0.1" aria-label="alpha">
+      <label for="v2-b">beta (pull toward relevant) <b id="v2-bl">0.8</b></label>
+      <input type="range" id="v2-b" min="0" max="1.5" value="0.8" step="0.1" aria-label="beta">
+      <label for="v2-g">gamma (push off nonrelevant) <b id="v2-gl">0.2</b></label>
+      <input type="range" id="v2-g" min="0" max="1.5" value="0.2" step="0.1" aria-label="gamma">
+    </div>
+    <div class="vz-seg" role="group" aria-label="Feedback set">
+      <button id="v2-two" aria-pressed="true">2 relevant docs</button>
+      <button id="v2-one" aria-pressed="false">only 1 positive</button>
+      <button id="v2-clip" aria-pressed="false">clip negatives to 0</button>
+    </div>
+    <div id="v2-plot"></div>
+    <div class="v2-math vz-mono" id="v2-math"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Document vectors normally use <b>tf-idf or another retrieval-aware weighting</b>; on raw
+    counts, common terms dominate the centroid and the "learned" expansion is noise. Afterwards the ranker
+    typically keeps only the highest-weight expansion terms — for query cost, and so a person can read what
+    changed and undo it.</p>
+
+  <style>
+    .v2-sl label{display:flex;justify-content:space-between;font-size:12px;font-weight:700;margin:6px 0 2px}
+    .v2-sl label b{font-family:ui-monospace,Consolas,monospace;color:var(--viz-accent)}
+    .v2-sl input[type="range"]{width:100%;min-height:36px}
+    #v2-plot{margin:10px 0 4px}
+    #v2-plot svg{width:100%;height:auto;display:block}
+    .v2-math{border:1.5px solid var(--viz-line);border-radius:9px;padding:10px 11px;background:var(--viz-bg)}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DR2 = [[1, 1], [0, 2]], DR1 = [[1, 1]], DNR = [[0, 1]], Q0 = [1, 0];
+    var two = true, clip = false;
+    var ea = document.getElementById('v2-a'), eb = document.getElementById('v2-b'), eg = document.getElementById('v2-g');
+    var la = document.getElementById('v2-al'), lb = document.getElementById('v2-bl'), lg = document.getElementById('v2-gl');
+    var bTwo = document.getElementById('v2-two'), bOne = document.getElementById('v2-one'), bClip = document.getElementById('v2-clip');
+    var plot = document.getElementById('v2-plot'), math = document.getElementById('v2-math'), why = document.getElementById('v2-why');
+
+    function centroid(set){
+      if (!set.length) return [0, 0];                       // never divide by an empty set
+      var x = 0, y = 0;
+      set.forEach(function(d){ x += d[0]; y += d[1]; });
+      return [x / set.length, y / set.length];
+    }
+    function px(x){ return 34 + Math.max(0, Math.min(3, x)) / 3 * 250; }
+    function py(y){ return 190 - Math.max(0, Math.min(3, y)) / 3 * 168; }
+    function dot(x, y, col, lab, filled){
+      return '<circle cx="' + px(x) + '" cy="' + py(y) + '" r="5.5" fill="' + (filled ? col : 'var(--viz-bg)') +
+        '" stroke="' + col + '" stroke-width="2"/>' +
+        '<text x="' + (px(x) + 9) + '" y="' + (py(y) + 4) + '" font-size="10.5" fill="' + col + '">' + lab + '</text>';
+    }
+
+    function render(){
+      var a = Number(ea.value), b = Number(eb.value), g = Number(eg.value);
+      la.textContent = a.toFixed(1); lb.textContent = b.toFixed(1); lg.textContent = g.toFixed(1);
+      bTwo.setAttribute('aria-pressed', two ? 'true' : 'false');
+      bOne.setAttribute('aria-pressed', two ? 'false' : 'true');
+      bClip.setAttribute('aria-pressed', clip ? 'true' : 'false');
+
+      var set = two ? DR2 : DR1;
+      var cr = centroid(set), cnr = centroid(DNR);
+      var raw = [a * Q0[0] + b * cr[0] - g * cnr[0], a * Q0[1] + b * cr[1] - g * cnr[1]];
+      var qm = clip ? [Math.max(0, raw[0]), Math.max(0, raw[1])] : raw;
+
+      var pts = set.map(function(d, i){ return dot(d[0], d[1], 'var(--viz-green)', 'R' + (i + 1), true); }).join('') +
+        dot(DNR[0][0], DNR[0][1], 'var(--viz-red)', 'N (nonrelevant)', true) +
+        dot(cr[0], cr[1], 'var(--viz-green)', 'centroid D_r', false) +
+        dot(Q0[0], Q0[1], 'var(--viz-accent)', 'q0', true) +
+        dot(qm[0], qm[1], 'var(--viz-violet)', 'q_m (updated)', true);
+
+      plot.innerHTML =
+        '<svg viewBox="0 0 300 210" role="img" aria-label="Query vector before and after the Rocchio update">' +
+        '<line x1="34" y1="190" x2="292" y2="190" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        '<line x1="34" y1="14" x2="34" y2="190" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        '<text x="250" y="204" font-size="9.5" fill="var(--viz-muted)">term 1</text>' +
+        '<text x="2" y="16" font-size="9.5" fill="var(--viz-muted)">term 2</text>' +
+        '<line x1="' + px(Q0[0]) + '" y1="' + py(Q0[1]) + '" x2="' + px(qm[0]) + '" y2="' + py(qm[1]) +
+        '" stroke="var(--viz-violet)" stroke-width="2" stroke-dasharray="4 3"/>' + pts + '</svg>';
+
+      math.textContent =
+        'centroid(D_r)  = [' + cr[0].toFixed(2) + ', ' + cr[1].toFixed(2) + ']   from ' + set.length + ' relevant doc(s)\n' +
+        'centroid(D_nr) = [' + cnr[0].toFixed(2) + ', ' + cnr[1].toFixed(2) + ']\n' +
+        'q_m = ' + a.toFixed(1) + '·[1,0] + ' + b.toFixed(1) + '·[' + cr[0].toFixed(2) + ',' + cr[1].toFixed(2) + '] − ' +
+        g.toFixed(1) + '·[' + cnr[0].toFixed(2) + ',' + cnr[1].toFixed(2) + ']\n' +
+        '    = [' + raw[0].toFixed(2) + ', ' + raw[1].toFixed(2) + ']' +
+        (clip && (raw[0] < 0 || raw[1] < 0) ? '  →  clipped to [' + qm[0].toFixed(2) + ', ' + qm[1].toFixed(2) + ']' : '');
+
+      var neg = raw[0] < 0 || raw[1] < 0;
+      var head, body;
+      if (!two) {
+        head = '<b style="color:var(--viz-amber)">One positive example — shrink the move.</b>';
+        body = 'The centroid is now the single document <code>[1,1]</code>, so the estimate has <b>high variance</b>: ' +
+          'every idiosyncrasy of that one document is being read as a property of relevance. The correct response is to ' +
+          'shrink the update toward <code>q0</code> — lower beta, higher alpha — until more independent relevant examples ' +
+          'justify a stronger movement. Near-duplicate positives are the same problem wearing a disguise: three copies of ' +
+          'one source are one piece of evidence, so deduplicate before you average.';
+      } else if (neg) {
+        head = '<b style="color:var(--viz-red)">Gamma has driven a coordinate negative.</b>';
+        body = 'Most retrieval systems expect nonnegative query weights, so negative coordinates are <b>clipped to zero</b> — ' +
+          'try the clip toggle. But the deeper point is that gamma is normally the <em>smallest</em> of the three: ' +
+          'nonrelevance is diverse, because documents can fail for many unrelated reasons, so their centroid may not describe ' +
+          'one coherent direction at all. When explicit nonrelevant judgments are scarce, the negative term is often dropped entirely.';
+      } else if (b >= a * 1.6) {
+        head = '<b style="color:var(--viz-amber)">Beta is now dominating alpha.</b>';
+        body = 'A high beta lets relevant examples introduce vocabulary strongly — which is what you want when the judgments are ' +
+          'clean and diverse, and exactly what you do not want when one mislabeled document is in the set. Its off-topic terms ' +
+          'go straight into the query at full strength. <b>Feedback quality matters more than algebraic elegance.</b>';
+      } else {
+        head = '<b style="color:var(--viz-green)">Alpha anchors, beta pulls in, gamma pushes off.</b>';
+        body = 'Term 2 has weight <b>' + qm[1].toFixed(2) + '</b> despite being absent from the query the user typed — it entered ' +
+          'purely because it characterises the relevant examples. The three parameters express <b>trust</b>: alpha in the user’s ' +
+          'wording, beta in the positive judgments, gamma in the negative ones. ' +
+          '<br><br>And note the assumption underneath: this works when the relevant documents form one coherent region. For an ' +
+          'ambiguous query such as <code>jaguar</code>, mixing animal and automobile feedback puts the centroid <em>between</em> ' +
+          'clusters and emphasises terms belonging to neither reading.';
+      }
+      why.innerHTML = head + body;
+    }
+    [ea, eb, eg].forEach(function(el){ el.addEventListener('input', render); });
+    bTwo.addEventListener('click', function(){ two = true; render(); });
+    bOne.addEventListener('click', function(){ two = false; render(); });
+    bClip.addEventListener('click', function(){ clip = !clip; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Interpolation Dial</h2>
+  <p class="vz-lede">RM3 estimates a relevance language model from the pseudo-relevant documents and mixes it
+    with the original query model. Drag lambda, then flip which side of the mixture lambda is <em>named</em>
+    after. <b>Like a tap that blends hot and cold — with the labels swapped between two brands of tap.</b></p>
+
+  <div class="vz-card">
+    <div class="v3-eq vz-mono">P(t|q_expanded) = lambda·P(t|q_original) + (1−lambda)·P(t|R)</div>
+    <label class="v3-lab" for="v3-l">lambda = <span id="v3-ll">0.60</span></label>
+    <input type="range" id="v3-l" min="0" max="1" value="0.6" step="0.05" aria-label="lambda">
+    <div class="vz-seg" role="group" aria-label="What lambda names">
+      <button id="v3-orig" aria-pressed="true">lambda = original-query weight</button>
+      <button id="v3-fb" aria-pressed="false">lambda = feedback weight</button>
+    </div>
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">RM3 must not simply pick the most frequent feedback words. <b>Collection-aware estimation
+    or background correction</b> stops terms that occur everywhere from winning, and stop-word handling, field
+    choice and document length all shape the estimate: titles yield focused terms, full bodies give coverage
+    and noise.</p>
+
+  <style>
+    .v3-eq{border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 11px;background:var(--viz-bg);margin-bottom:12px}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    #v3-l{width:100%;min-height:44px;margin-bottom:12px}
+    .v3-bars{display:flex;flex-direction:column;gap:9px;margin-top:4px}
+    .v3-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v3-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v3-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-sub{font-size:10.5px;color:var(--viz-muted);margin-top:3px;font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The lesson's own numbers: an original query model over two terms, and a
+    // feedback model estimated from the pseudo-relevant set.
+    var TERMS = [
+      { t:'database',   o:0.5, f:0.20, src:'both' },
+      { t:'timeout',    o:0.5, f:0.20, src:'both' },
+      { t:'connection', o:0.0, f:0.35, src:'feedback only' },
+      { t:'pool',       o:0.0, f:0.25, src:'feedback only' }
+    ];
+    var origMode = true;
+    var s = document.getElementById('v3-l'), ll = document.getElementById('v3-ll');
+    var bO = document.getElementById('v3-orig'), bF = document.getElementById('v3-fb');
+    var bars = document.getElementById('v3-bars'), why = document.getElementById('v3-why');
+
+    function render(){
+      var lam = Number(s.value);
+      ll.textContent = lam.toFixed(2);
+      bO.setAttribute('aria-pressed', origMode ? 'true' : 'false');
+      bF.setAttribute('aria-pressed', origMode ? 'false' : 'true');
+      var wo = origMode ? lam : 1 - lam;            // weight actually placed on the ORIGINAL model
+
+      var rows = TERMS.map(function(x){
+        return { t:x.t, src:x.src, p:wo * x.o + (1 - wo) * x.f };
+      }).sort(function(a, b){ return b.p - a.p; });
+      var top = Math.max(rows[0].p, 0.0001);        // never divide by zero on a flat mixture
+
+      bars.innerHTML = rows.map(function(r, i){
+        var own = r.src === 'both';
+        var col = own ? 'var(--viz-accent)' : 'var(--viz-violet)';
+        return '<div class="v3-b"><h6><span>' + (i + 1) + '. ' + r.t + '</span><b style="color:' + col + '">' +
+          r.p.toFixed(3) + '</b></h6>' +
+          '<div class="v3-track"><i style="width:' + Math.max(2, r.p / top * 100) + '%;background:' + col + '"></i></div>' +
+          '<div class="v3-sub">' + (own ? 'user typed it' : 'added by feedback') + ' · orig ' + (own ? '0.500' : '0.000') +
+          ' · feedback ' + (r.t === 'connection' ? '0.350' : r.t === 'pool' ? '0.250' : '0.200') + '</div></div>';
+      }).join('');
+
+      var userMass = rows.filter(function(r){ return r.src === 'both'; })
+        .reduce(function(a, r){ return a + r.p; }, 0);
+      var drift = rows[0].src !== 'both';
+
+      why.innerHTML = drift
+        ? '<b style="color:var(--viz-red)">Drift: a term the user never typed now outranks the ones they did.</b>' +
+          'At this setting the original wording holds only <b>' + Math.round(userMass * 100) + '%</b> of the mixture, so ' +
+          '<code>' + rows[0].t + '</code> — evidence from the feedback set alone — is the strongest term in the query. ' +
+          'For an ambiguous query whose first pass favoured the wrong intent, this is precisely how the wrong reading gets ' +
+          'reinforced; for a rare exact identifier it is how generic boilerplate dilutes the identifier itself. ' +
+          '<br><br>Controls that work: anchor strongly to the original terms, limit the expansion count, require ' +
+          'discriminative terms, and disable PRF for query classes where it loses.'
+        : '<b style="color:var(--viz-green)">Original intent dominant, vocabulary broadened.</b>' +
+          '<code>database</code> and <code>timeout</code> hold <b>' + Math.round(userMass * 100) + '%</b> of the mass while ' +
+          '<code>connection</code> and <code>pool</code> ride along to reach documents that phrase the same problem differently. ' +
+          'The shape is the one you already derived: this is a <b>Jelinek-Mercer mixture</b>, applied to the query instead of the document. ' +
+          '<br><br>Now flip the two buttons without moving the slider. The same <code>lambda = ' + lam.toFixed(2) + '</code> produces a ' +
+          'different query, because some implementations define the parameter as the <b>feedback</b> weight. Configuration must say ' +
+          'which side it names — a run reproduced with the number and not the convention is not reproduced.';
+    }
+    s.addEventListener('input', render);
+    bO.addEventListener('click', function(){ origMode = true; render(); });
+    bF.addEventListener('click', function(){ origMode = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Depth Drift Duplicates</h2>
+  <p class="vz-lede">Pseudo-relevance feedback <em>assumes</em> the top documents are relevant, which converts
+    ranking errors into expansion evidence. Choose a query, set the feedback depth, and tap any document to
+    drop it. <b>Like asking the first three people you meet for directions and averaging their answers.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Query">
+    <button id="v4-amb" aria-pressed="true">query: jaguar</button>
+    <button id="v4-id" aria-pressed="false">query: ERR-5521 timeout</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-m">Feedback depth m = <span id="v4-ml">3</span> of 8</label>
+    <input type="range" id="v4-m" min="1" max="8" value="3" step="1" aria-label="Feedback depth">
+    <div class="v4-list" id="v4-list"></div>
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Evaluate the <b>whole two-pass system, latency included</b>, and slice by initial retrieval
+    quality — PRF helps when early results are good enough to supply vocabulary and harms when the first pass is
+    wrong. An <b>oracle</b> run over truly relevant feedback documents gives the ceiling; the gap between oracle
+    and pseudo-feedback is the measured cost of selection errors.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    #v4-m{width:100%;min-height:44px;margin-bottom:10px}
+    .v4-list{display:flex;flex-direction:column;gap:5px}
+    .v4-d{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:9px;padding:7px 10px;font:inherit;font-size:11.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v4-d.is-out{opacity:.4}
+    .v4-rk{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--viz-muted);width:16px}
+    .v4-tag{margin-left:auto;flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;text-align:right}
+    .v4-pills{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Two illustrative first-pass result lists, one per documented drift shape.
+    var QUERIES = {
+      amb: { a:'animal', b:'car', label:'jaguar', docs:[
+        { t:'Jaguar (Panthera onca): range and habitat', c:'animal', dup:'g1' },
+        { t:'Jaguar range and habitat — syndicated copy', c:'animal', dup:'g1' },
+        { t:'Jaguar F-PACE review: pricing and specs',   c:'car',    dup:'g2' },
+        { t:'Jaguar conservation status in the Pantanal', c:'animal', dup:'g3' },
+        { t:'Jaguar XF service intervals',                c:'car',    dup:'g4' },
+        { t:'Big cats of the Americas: jaguar profile',   c:'animal', dup:'g5' },
+        { t:'Jaguar dealer network by region',            c:'car',    dup:'g6' },
+        { t:'Jaguar cub survival rates',                  c:'animal', dup:'g7' }
+      ] },
+      id: { a:'contains ERR-5521', b:'boilerplate', label:'ERR-5521 timeout', docs:[
+        { t:'Release notes: fixed ERR-5521 on pooled connections', c:'contains ERR-5521', dup:'h1' },
+        { t:'Support portal: how to read error codes',             c:'boilerplate',       dup:'h2' },
+        { t:'Knowledge base index — errors A to Z',                c:'boilerplate',       dup:'h3' },
+        { t:'Troubleshooting timeouts: a general guide',           c:'boilerplate',       dup:'h4' },
+        { t:'Incident 4482 postmortem: ERR-5521 storm',            c:'contains ERR-5521', dup:'h5' },
+        { t:'Open a support ticket',                               c:'boilerplate',       dup:'h6' },
+        { t:'Glossary of error terminology',                       c:'boilerplate',       dup:'h7' },
+        { t:'Status page archive, 2024',                           c:'boilerplate',       dup:'h8' }
+      ] }
+    };
+    var key = 'amb', dropped = {};
+    var bA = document.getElementById('v4-amb'), bI = document.getElementById('v4-id');
+    var s = document.getElementById('v4-m'), ml = document.getElementById('v4-ml');
+    var list = document.getElementById('v4-list'), pills = document.getElementById('v4-pills'), why = document.getElementById('v4-why');
+
+    function render(){
+      var Q = QUERIES[key], m = Number(s.value);
+      ml.textContent = m;
+      bA.setAttribute('aria-pressed', key === 'amb' ? 'true' : 'false');
+      bI.setAttribute('aria-pressed', key === 'id' ? 'true' : 'false');
+
+      list.innerHTML = '';
+      var na = 0, nb = 0, groups = {};
+      Q.docs.forEach(function(d, i){
+        var inSet = i < m, out = !!dropped[key + i];
+        var b = document.createElement('button');
+        b.className = 'v4-d' + (inSet && !out ? '' : ' is-out');
+        var col = d.c === Q.a ? 'var(--viz-green)' : 'var(--viz-amber)';
+        var state = !inSet ? 'below depth' : (out ? 'dropped by you' : 'IN feedback set');
+        b.innerHTML = '<span class="v4-rk">' + (i + 1) + '</span><span>' + d.t + '</span>' +
+          '<span class="v4-tag" style="color:' + col + '">' + d.c + '<br>' +
+          '<span style="color:var(--viz-muted)">' + state + '</span></span>';
+        b.addEventListener('click', function(){ dropped[key + i] = !dropped[key + i]; render(); });
+        list.appendChild(b);
+        if (inSet && !out) {
+          if (d.c === Q.a) na += 1; else nb += 1;
+          groups[d.dup] = true;
+        }
+      });
+
+      var used = na + nb, eff = Object.keys(groups).length;
+      var share = used > 0 ? Math.round(Math.max(na, nb) / used * 100) : 0;   // guard an empty set
+      var mixed = na > 0 && nb > 0;
+      var pc = used === 0 ? 'var(--viz-red)' : (mixed ? 'var(--viz-amber)' : 'var(--viz-green)');
+      pills.innerHTML =
+        '<span class="v4-pill" style="color:' + pc + ';border-color:' + pc + '">' + used + ' feedback doc' + (used === 1 ? '' : 's') + ' used</span>' +
+        '<span class="v4-pill" style="color:' + (eff < used ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (eff < used ? 'var(--viz-red)' : 'var(--viz-line)') + '">' +
+          eff + ' independent after dedup</span>' +
+        '<span class="v4-pill" style="color:' + (used === 0 ? 'var(--viz-muted)' : pc) + ';border-color:' + (used === 0 ? 'var(--viz-line)' : pc) + '">' +
+          Q.a + ' ' + na + ' · ' + Q.b + ' ' + nb + (used > 0 ? ' (' + share + '% majority)' : '') + '</span>';
+
+      var head, body;
+      if (used === 0) {
+        head = '<b style="color:var(--viz-red)">Nothing left to estimate from.</b>';
+        body = 'You have dropped every document inside the depth, so there is no feedback model at all — the expanded query ' +
+          'collapses back to the original. That is the safe failure, and it is why systems keep an original-query anchor rather ' +
+          'than replacing the query outright.';
+      } else if (eff < used) {
+        head = '<b style="color:var(--viz-red)">Near-duplicates are one piece of evidence, not ' + used + '.</b>';
+        body = 'Two of these documents are the same text from different hosts, so the centroid or language model built from them ' +
+          '<b>overweights one source</b>. Deduplicating the feedback set is not tidying — it changes the estimate. ' +
+          'The same caution applies to click-derived judgments: position and presentation bias make them implicit signals, ' +
+          'not clean relevance labels.';
+      } else if (mixed && key === 'amb') {
+        head = '<b style="color:var(--viz-amber)">Two intents in one feedback set.</b>';
+        body = 'The set holds ' + na + ' ' + Q.a + ' document(s) and ' + nb + ' ' + Q.b + ' document(s). Averaging them puts the ' +
+          'expansion <em>between</em> two clusters and emphasises terms characteristic of neither useful reading. Intent selection, ' +
+          'clustering, or two separate reformulations beat one averaged vector here — and if the first pass had leaned entirely to ' +
+          'the wrong intent, PRF would have reinforced it with no signal that anything was wrong.';
+      } else if (mixed && key === 'id') {
+        head = '<b style="color:var(--viz-amber)">The identifier is being diluted.</b>';
+        body = 'Only ' + na + ' of the ' + used + ' feedback documents actually contain <code>ERR-5521</code>; the rest share generic ' +
+          'support boilerplate that will dominate the extracted terms. For a rare exact identifier this is the standard failure, and ' +
+          'the standard controls are to require <b>discriminative</b> terms, cap the expansion count, or route this query class past PRF entirely.';
+      } else {
+        head = '<b style="color:var(--viz-green)">A single coherent intent — the case PRF was built for.</b>';
+        body = 'All ' + used + ' feedback documents agree, so the extracted vocabulary describes one region and recall should improve. ' +
+          'Note the shape of the depth dial, though: <b>too few</b> documents make the estimate fragile and duplicate-driven, ' +
+          '<b>too many</b> pull in weaker and mixed-intent results. Depth and expansion-term count are non-monotonic and must be ' +
+          'tuned <em>jointly</em> on held-out queries — and every extra term also lengthens posting traversal.';
+      }
+      why.innerHTML = head + body;
+    }
+    bA.addEventListener('click', function(){ key = 'amb'; render(); });
+    bI.addEventListener('click', function(){ key = 'id'; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Anchor Then Expand</h2>
+  <p class="vz-lede">Every modern expansion channel is the same move with a different generator: infer a better
+    representation of the need, then retrieve again. Pick a channel, set how much of the original query survives,
+    and add candidates. <b>Like getting a second opinion — worth having, unless all five doctors trained under
+    the same one.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Expansion channel">
+    <button id="v5-c0" aria-pressed="true">Rocchio</button>
+    <button id="v5-c1" aria-pressed="false">RM3</button>
+    <button id="v5-c2" aria-pressed="false">sparse learned</button>
+    <button id="v5-c3" aria-pressed="false">dense encoder</button>
+    <button id="v5-c4" aria-pressed="false">generative rewrite</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-rows" id="v5-rows"></div>
+    <label class="v5-lab" for="v5-anchor">Weight kept on the original query: <span id="v5-al">0.60</span></label>
+    <input type="range" id="v5-anchor" min="0" max="1" value="0.6" step="0.05" aria-label="Anchor weight">
+    <label class="v5-lab" for="v5-n">Candidate representations: <span id="v5-nl">3</span></label>
+    <input type="range" id="v5-n" min="1" max="5" value="3" step="1" aria-label="Candidate count">
+    <div class="vz-seg" role="group" aria-label="Candidate variety">
+      <button id="v5-para" aria-pressed="true">all paraphrase one reading</button>
+      <button id="v5-div" aria-pressed="false">intent-diverse</button>
+    </div>
+    <div class="v5-pills" id="v5-pills"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Evaluate three systems, not one: <b>no expansion, oracle expansion, and the deployable
+    thing</b> — tracking top-k relevance, recall, latency, drift rate, exact-match retention and performance by
+    query class. And apply access control <b>before</b> feedback extraction: an expansion derived from documents
+    the user cannot see leaks vocabulary across permissions.</p>
+
+  <style>
+    .v5-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-r{display:flex;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;
+      background:var(--viz-bg);font-size:11.5px;line-height:1.4}
+    .v5-k{flex:0 0 82px;font-weight:800;color:var(--viz-muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    #v5-anchor,#v5-n{width:100%;min-height:44px}
+    .v5-pills{margin-top:6px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CH = [
+      { n:'Rocchio', adds:'directions supported by relevant document vectors',
+        scope:'local — uses results for this query', expl:'full: every movement traces to weighted document coordinates',
+        cost:'a few extra query terms' },
+      { n:'RM3', adds:'terms supported by a pseudo-relevant language model',
+        scope:'local — uses results for this query', expl:'full: the term weights are inspectable',
+        cost:'a second retrieval pass' },
+      { n:'sparse learned expansion', adds:'weights on vocabulary terms not literally present — heart attack activates myocardial infarction',
+        scope:'global — a trained model, available before retrieval', expl:'term-level explanations survive, and inverted-index matching still works',
+        cost:'more terms lengthen postings traversal' },
+      { n:'dense query encoder', adds:'implicit expansion: related language mapped near one another in embedding space',
+        scope:'global — a trained model, available before retrieval', expl:'none at term level; you see a vector, not words',
+        cost:'more vector-search calls' },
+      { n:'generative rewrite', adds:'alternate queries, or a hypothetical answer passage whose vocabulary guides retrieval',
+        scope:'global — the model, not this query’s results', expl:'the rewrite is readable, its reasoning is not',
+        cost:'model latency on the critical path' }
+    ];
+    var cur = 0, diverse = false;
+    var btns = [document.getElementById('v5-c0'), document.getElementById('v5-c1'), document.getElementById('v5-c2'),
+                document.getElementById('v5-c3'), document.getElementById('v5-c4')];
+    var an = document.getElementById('v5-anchor'), al = document.getElementById('v5-al');
+    var nn = document.getElementById('v5-n'), nl = document.getElementById('v5-nl');
+    var bP = document.getElementById('v5-para'), bD = document.getElementById('v5-div');
+    var rows = document.getElementById('v5-rows'), pills = document.getElementById('v5-pills'), why = document.getElementById('v5-why');
+
+    function render(){
+      var c = CH[cur], a = Number(an.value), n = Number(nn.value);
+      al.textContent = a.toFixed(2); nl.textContent = n;
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+      bP.setAttribute('aria-pressed', diverse ? 'false' : 'true');
+      bD.setAttribute('aria-pressed', diverse ? 'true' : 'false');
+
+      rows.innerHTML =
+        '<div class="v5-r"><span class="v5-k">adds</span><span>' + c.adds + '</span></div>' +
+        '<div class="v5-r"><span class="v5-k">local/global</span><span>' + c.scope + '</span></div>' +
+        '<div class="v5-r"><span class="v5-k">explainable</span><span>' + c.expl + '</span></div>' +
+        '<div class="v5-r"><span class="v5-k">what it costs</span><span>' + c.cost + '</span></div>';
+
+      var intents = diverse ? Math.min(n, 3) : 1;
+      var pct = Math.round(a * 100);
+      var aCol = a >= 0.5 ? 'var(--viz-green)' : (a > 0 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      var iCol = intents > 1 ? 'var(--viz-green)' : (n >= 3 ? 'var(--viz-red)' : 'var(--viz-muted)');
+      pills.innerHTML =
+        '<span class="v5-pill" style="color:' + aCol + ';border-color:' + aCol + '">user wording ' + pct + '% of the query</span>' +
+        '<span class="v5-pill" style="color:' + aCol + ';border-color:' + aCol + '">exact match ' + (a > 0 ? 'retained' : 'AT RISK') + '</span>' +
+        '<span class="v5-pill" style="color:' + iCol + ';border-color:' + iCol + '">' + n + ' candidate' + (n === 1 ? '' : 's') +
+          ' · ' + intents + ' distinct reading' + (intents === 1 ? '' : 's') + '</span>';
+
+      var head, body;
+      if (a === 0) {
+        head = '<b style="color:var(--viz-red)">No anchor: the expansion has replaced the question.</b>';
+        body = 'This is the failure the classical interpolation lesson was already warning about. An unconstrained rewrite ' +
+          'can <b>omit an exact identifier</b>, negate a condition incorrectly, or commit to one reading of an ambiguous query — ' +
+          'and nothing downstream can recover the dropped evidence. The standard fix is not a better generator: retrieve with ' +
+          '<b>both the original and the expanded representation</b>, then fuse candidates or scores, keeping exact evidence while ' +
+          'gaining semantic breadth.';
+      } else if (!diverse && n >= 3) {
+        head = '<b style="color:var(--viz-red)">' + n + ' candidates, one interpretation — false confidence.</b>';
+        body = 'If ' + n + ' generated rewrites are paraphrases of the same mistaken reading, they create the <em>appearance</em> of ' +
+          'coverage without any of it. Encourage controlled alternatives, deduplicate candidates, and <b>cap the contribution from any ' +
+          'single expansion channel</b>. For ambiguous queries, intent-diverse expansions beat one highly confident rewrite — which is ' +
+          'the same judgment that made a mixed-intent Rocchio centroid a bad idea two panels ago.';
+      } else {
+        head = '<b style="color:var(--viz-green)">Anchored, and the lineage is visible.</b>';
+        body = 'Rocchio adds directions supported by relevant vectors; RM3 adds terms supported by pseudo-relevant language models; ' +
+          'learned systems add tokens, sparse weights, dense vectors, synthetic passages or structured constraints supported by a model. ' +
+          'All of them exist to bridge the same gap: <b>short user wording against document vocabulary</b>. ' +
+          '<br><br>Local channels adapt to the current query but inherit its first-pass mistakes; global ones are available before ' +
+          'retrieval but can add contextually wrong meanings. If expansion improves broad informational queries and harms product codes, ' +
+          '<b>route it conditionally</b> rather than hunting for one global setting.';
+      }
+      why.innerHTML = head + body;
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ cur = i; render(); }); });
+    an.addEventListener('input', render);
+    nn.addEventListener('input', render);
+    bP.addEventListener('click', function(){ diverse = false; render(); });
+    bD.addEventListener('click', function(){ diverse = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,895 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, sliders, the segmented control. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour —
+   each visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);background:var(--viz-bg)}
+.vz-seg button[aria-pressed="true"]::before{content:"\2713\00a0"}
+.vz-range{width:100%;min-height:44px;accent-color:var(--viz-accent)}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:0}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+.vz-pills{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid var(--viz-line);
+  color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:4px 12px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Linearity Test</button>
+  <button class="viz-tab" data-viz-tab="2">2. Add, Scale, Dot</button>
+  <button class="viz-tab" data-viz-tab="3">3. Where The Basis Goes</button>
+  <button class="viz-tab" data-viz-tab="4">4. Rows Dot, Columns Combine</button>
+  <button class="viz-tab" data-viz-tab="5">5. Order Changes Everything</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Linearity Test</h2>
+  <p class="vz-lede">You already know how to test a function: feed it things and check the algebra. Linear
+    algebra keeps that test word for word and only changes what goes in — a number becomes an arrow. Pick a
+    rule, move the two inputs, and watch the same two equations decide both sides.
+    <b>Like a scale that stays honest whether you weigh the shopping in one trip or two.</b></p>
+
+  <div class="vz-seg" id="v1-rules" role="group" aria-label="Choose a rule"></div>
+
+  <div class="vz-card">
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v1-u">first input <b id="v1-ul">u = 2</b></label>
+        <input class="vz-range" type="range" id="v1-u" min="-4" max="4" step="1" value="2" aria-label="First input u">
+      </div>
+      <div>
+        <label class="vz-lab" for="v1-v">second input <b id="v1-vl">v = 3</b></label>
+        <input class="vz-range" type="range" id="v1-v" min="-4" max="4" step="1" value="3" aria-label="Second input v">
+      </div>
+    </div>
+
+    <div class="v1-side" id="v1-scalar"></div>
+    <div class="v1-side" id="v1-vector"></div>
+    <div class="vz-why" id="v1-verdict"></div>
+  </div>
+
+  <p class="vz-note">Why a <b>table</b> of numbers and not just one? A linear rule on the number line is
+    pinned down by a single answer, <code>f(1)</code>. In the plane there are two independent directions to
+    ask about, so it takes two answers — where <code>e1 = (1, 0)</code> goes and where <code>e2 = (0, 1)</code>
+    goes — and those two answers, written side by side as columns, <em>are</em> the matrix. Visual 3 is that
+    sentence made visible.</p>
+
+  <style>
+    .v1-side{margin-top:14px}
+    .v1-hd{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      font-weight:800;margin-bottom:6px}
+    .v1-rule{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:var(--viz-ink);
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:8px;padding:6px 9px;margin-bottom:7px}
+    .v1-row{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;line-height:1.4;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 9px;margin-bottom:4px;background:var(--viz-bg);flex-wrap:wrap}
+    .v1-row.is-ok{border-color:var(--viz-green)}
+    .v1-row.is-no{border-color:var(--viz-red)}
+    .v1-mk{margin-left:auto;font-weight:800;font-family:inherit;font-size:10.5px;letter-spacing:.03em}
+    .v1-row.is-ok .v1-mk{color:var(--viz-green)}
+    .v1-row.is-no .v1-mk{color:var(--viz-red)}
+    .v1-law{flex:0 0 auto;font-weight:800;color:var(--viz-muted);width:74px}
+  </style>
+  <script>
+  (function(){
+    var RULES = [
+      { tab:'f(x) = 3x', ok:true, kind:'linear',
+        s:'f(x) = 3x', f:function(x){ return 3*x; },
+        t:'T(x, y) = (2x - y, x + 3y)', T:function(p){ return [2*p[0]-p[1], p[0]+3*p[1]]; } },
+      { tab:'f(x) = 3x + 2', ok:false, kind:'affine',
+        s:'f(x) = 3x + 2', f:function(x){ return 3*x+2; },
+        t:'T(x, y) = (2x - y + 1, x + 3y)', T:function(p){ return [2*p[0]-p[1]+1, p[0]+3*p[1]]; } },
+      { tab:'f(x) = x^2', ok:false, kind:'square',
+        s:'f(x) = x^2', f:function(x){ return x*x; },
+        t:'T(x, y) = (x^2, y)', T:function(p){ return [p[0]*p[0], p[1]]; } }
+    ];
+    var cur = 0;
+    var seg = document.getElementById('v1-rules');
+    var su = document.getElementById('v1-u'), sv = document.getElementById('v1-v');
+    var ul = document.getElementById('v1-ul'), vl = document.getElementById('v1-vl');
+    var sc = document.getElementById('v1-scalar'), vc = document.getElementById('v1-vector');
+    var verdict = document.getElementById('v1-verdict');
+
+    function n(x){ return isFinite(x) ? String(Math.round(x*100)/100) : '—'; }
+    function vec(p){ return '(' + n(p[0]) + ', ' + n(p[1]) + ')'; }
+    function same(a, b){ return Math.abs(a-b) < 1e-9; }
+    function samev(a, b){ return same(a[0],b[0]) && same(a[1],b[1]); }
+    function add(a, b){ return [a[0]+b[0], a[1]+b[1]]; }
+    function scale(k, a){ return [k*a[0], k*a[1]]; }
+
+    function row(law, left, right, ok){
+      return '<div class="v1-row ' + (ok ? 'is-ok' : 'is-no') + '"><span class="v1-law">' + law + '</span>' +
+        '<span>' + left + '</span><span style="color:var(--viz-muted)">vs</span><span>' + right + '</span>' +
+        '<span class="v1-mk">' + (ok ? 'MATCH' : 'DIFFERENT') + '</span></div>';
+    }
+
+    function render(){
+      var r = RULES[cur];
+      var u = Number(su.value), v = Number(sv.value);
+      ul.textContent = 'u = ' + u; vl.textContent = 'v = ' + v;
+      [].slice.call(seg.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var a1 = r.f(u+v), a2 = r.f(u) + r.f(v);
+      var h1 = r.f(2*u), h2 = 2*r.f(u);
+      var z1 = r.f(0);
+      sc.innerHTML = '<div class="v1-hd">what you already know · one number in, one number out</div>' +
+        '<div class="v1-rule">' + r.s + '</div>' +
+        row('add', 'f(u+v) = ' + n(a1), 'f(u)+f(v) = ' + n(a2), same(a1, a2)) +
+        row('scale', 'f(2u) = ' + n(h1), '2·f(u) = ' + n(h2), same(h1, h2)) +
+        row('origin', 'f(0) = ' + n(z1), '0', same(z1, 0));
+
+      var U = [u, 1], V = [1, v];
+      var A1 = r.T(add(U, V)), A2 = add(r.T(U), r.T(V));
+      var H1 = r.T(scale(2, U)), H2 = scale(2, r.T(U));
+      var Z1 = r.T([0, 0]);
+      vc.innerHTML = '<div class="v1-hd">this lesson · one arrow in, one arrow out &nbsp;·&nbsp; u = ' +
+          vec(U) + ', v = ' + vec(V) + '</div>' +
+        '<div class="v1-rule">' + r.t + '</div>' +
+        row('add', 'T(u+v) = ' + vec(A1), 'T(u)+T(v) = ' + vec(A2), samev(A1, A2)) +
+        row('scale', 'T(2u) = ' + vec(H1), '2·T(u) = ' + vec(H2), samev(H1, H2)) +
+        row('origin', 'T(0,0) = ' + vec(Z1), '(0, 0)', samev(Z1, [0,0]));
+
+      var accident = (r.kind === 'square' && same(a1, a2));
+      verdict.innerHTML = r.ok
+        ? '<b style="color:var(--viz-green)">Linear — both laws hold for every input, so a table of numbers can store the whole rule.</b>' +
+          'Because <code>T(x, y) = x·T(1,0) + y·T(0,1)</code>, knowing two answers knows all of them. Here ' +
+          '<code>T(1,0) = (2, 1)</code> and <code>T(0,1) = (-1, 3)</code>, and writing those two as columns gives the matrix ' +
+          '<code>[[2, -1], [1, 3]]</code>. Nothing was added to the function — the matrix <em>is</em> the function, tabulated.'
+        : r.kind === 'affine'
+          ? '<b style="color:var(--viz-red)">Not linear — the origin moved, and that alone settles it.</b>' +
+            'The constant <code>+ 2</code> (and <code>+ 1</code> on the vector side) survives the test: adding first counts it once, adding after counts it twice. ' +
+            'This shape has a name, <b>affine</b>, and it is the single most common thing mistaken for linear — a straight line on a graph is not enough. ' +
+            'Watch the origin row: under any linear transformation the origin is sent to the origin itself, so a moved origin is a one-line disqualification.'
+          : '<b style="color:var(--viz-amber)">Not linear — and note that the origin test passes anyway.</b>' +
+            'Squaring holds <code>(0, 0)</code> perfectly still, so a fixed origin is <b>necessary but not sufficient</b>. ' +
+            'Addition is where it breaks: <code>(u+v)^2</code> exceeds <code>u^2 + v^2</code> by the cross term <code>2uv</code>. ' +
+            (accident
+              ? '<br><br>Right now the two sides <em>agree</em>, because one of your inputs is 0 and the cross term vanishes. A rule is not linear for passing one pair — it must hold for <b>every</b> pair. Move the other slider and it breaks.'
+              : '<br><br>Set either slider to 0 and watch the two sides agree by accident. That is why the real check uses general symbols rather than a chosen pair of numbers.');
+    }
+
+    RULES.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = r.tab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(b);
+    });
+    su.addEventListener('input', render);
+    sv.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Add, Scale, Dot</h2>
+  <p class="vz-lede">Three operations, and only two of them return an arrow. Drag the components and watch
+    tip-to-tail addition, stretching along a line through the origin, and the one operation that answers with
+    a plain number — the angle between them.
+    <b>Like two walks across a field: adding is doing both walks, the dot product is asking how much the
+    second walk agreed with the first.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v2-ux">u, across <b id="v2-ul">u = (3, 1)</b></label>
+        <input class="vz-range" type="range" id="v2-ux" min="-4" max="4" step="1" value="3" aria-label="u x component">
+        <label class="vz-lab" for="v2-uy">u, up</label>
+        <input class="vz-range" type="range" id="v2-uy" min="-4" max="4" step="1" value="1" aria-label="u y component">
+      </div>
+      <div>
+        <label class="vz-lab" for="v2-vx">v, across <b id="v2-vl">v = (-1, 3)</b></label>
+        <input class="vz-range" type="range" id="v2-vx" min="-4" max="4" step="1" value="-1" aria-label="v x component">
+        <label class="vz-lab" for="v2-vy">v, up</label>
+        <input class="vz-range" type="range" id="v2-vy" min="-4" max="4" step="1" value="3" aria-label="v y component">
+      </div>
+    </div>
+    <label class="vz-lab" for="v2-c" style="margin-top:6px">scalar <b id="v2-cl">c = 2</b> &nbsp;·&nbsp; the amber arrow is c·u</label>
+    <input class="vz-range" type="range" id="v2-c" min="-2" max="3" step="0.5" value="2" aria-label="Scalar c">
+
+    <div id="v2-plane" style="margin-top:8px"></div>
+    <div class="vz-pills" id="v2-read"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Keep the return types straight, because every later formula depends on it: addition and
+    scalar multiplication give <b>arrows</b>, the dot product gives a <b>number</b>. That number is the atom of
+    everything ahead — every single entry of a matrix product is one dot product, which is what visuals 4 and 5
+    are built out of.</p>
+
+  <style>
+    .v2-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v2-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v2-u{stroke:var(--viz-accent);stroke-width:2.6;fill:none}   .v2-uh{fill:var(--viz-accent)}
+    .v2-v{stroke:var(--viz-violet);stroke-width:2.6;fill:none}   .v2-vh{fill:var(--viz-violet)}
+    .v2-s{stroke:var(--viz-green);stroke-width:2.6;fill:none}    .v2-sh{fill:var(--viz-green)}
+    .v2-c{stroke:var(--viz-amber);stroke-width:2.6;fill:none}    .v2-ch{fill:var(--viz-amber)}
+    .v2-gh{stroke:var(--viz-violet);stroke-width:1.4;fill:none;stroke-dasharray:4 3;opacity:.75}
+    .v2-t{font-size:10.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v2-tu{fill:var(--viz-accent)} .v2-tv{fill:var(--viz-violet)}
+    .v2-ts{fill:var(--viz-green)} .v2-tc{fill:var(--viz-amber)}
+    .v2-svg{width:100%;height:auto;max-width:320px;display:block;margin:0 auto;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+  </style>
+  <script>
+  (function(){
+    var S = 260, R = 5, K = S / (2*R);
+    var ids = ['v2-ux','v2-uy','v2-vx','v2-vy','v2-c'];
+    var ux = document.getElementById('v2-ux'), uy = document.getElementById('v2-uy');
+    var vx = document.getElementById('v2-vx'), vy = document.getElementById('v2-vy');
+    var sc = document.getElementById('v2-c');
+    var ul = document.getElementById('v2-ul'), vl = document.getElementById('v2-vl'), cl = document.getElementById('v2-cl');
+    var plane = document.getElementById('v2-plane'), read = document.getElementById('v2-read'), why = document.getElementById('v2-why');
+
+    function PX(x){ return S/2 + x*K; }
+    function PY(y){ return S/2 - y*K; }
+    function n(x){ return isFinite(x) ? String(Math.round(x*100)/100) : '—'; }
+    function vs(p){ return '(' + n(p[0]) + ', ' + n(p[1]) + ')'; }
+
+    function arw(p, q, cls, label, tcls){
+      var x1 = PX(p[0]), y1 = PY(p[1]), x2 = PX(q[0]), y2 = PY(q[1]);
+      var dx = x2-x1, dy = y2-y1, L = Math.sqrt(dx*dx + dy*dy);
+      var out = '<line class="' + cls + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 7) {
+        var a = Math.atan2(dy, dx), h = 9, w = 4.6;
+        var bx = x2 - h*Math.cos(a), by = y2 - h*Math.sin(a);
+        out += '<polygon class="' + cls + 'h" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w*Math.sin(a)) + ',' + (by - w*Math.cos(a)) + ' ' +
+          (bx - w*Math.sin(a)) + ',' + (by + w*Math.cos(a)) + '"/>';
+      }
+      if (label) out += '<text class="v2-t ' + tcls + '" x="' + (x2 + 5) + '" y="' + (y2 - 5) + '">' + label + '</text>';
+      return out;
+    }
+
+    function grid(){
+      var g = '';
+      for (var i = -R; i <= R; i++) {
+        g += '<line class="v2-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v2-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v2-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v2-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      return g;
+    }
+
+    function render(){
+      var u = [Number(ux.value), Number(uy.value)];
+      var v = [Number(vx.value), Number(vy.value)];
+      var c = Number(sc.value);
+      ul.textContent = 'u = ' + vs(u); vl.textContent = 'v = ' + vs(v); cl.textContent = 'c = ' + n(c);
+
+      var sum = [u[0]+v[0], u[1]+v[1]];
+      var dif = [u[0]-v[0], u[1]-v[1]];
+      var cu = [c*u[0], c*u[1]];
+      var dot = u[0]*v[0] + u[1]*v[1];
+      var lu = Math.sqrt(u[0]*u[0] + u[1]*u[1]);
+      var lv = Math.sqrt(v[0]*v[0] + v[1]*v[1]);
+      var den = lu * lv;
+      var known = den > 1e-9;
+      var cosT = known ? Math.max(-1, Math.min(1, dot/den)) : NaN;
+      var ang = known ? Math.acos(cosT) * 180 / Math.PI : NaN;
+
+      plane.innerHTML = '<svg class="v2-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="u, v, their sum and a scaled copy of u drawn from the origin">' + grid() +
+        arw([0,0], cu, 'v2-c', 'c·u', 'v2-tc') +
+        arw(u, sum, 'v2-gh', '', '') +
+        arw([0,0], u, 'v2-u', 'u', 'v2-tu') +
+        arw([0,0], v, 'v2-v', 'v', 'v2-tv') +
+        arw([0,0], sum, 'v2-s', 'u+v', 'v2-ts') +
+        '</svg>';
+
+      var rel = !known ? 'zero vector — no direction'
+        : Math.abs(dot) < 1e-9 ? 'dot = 0 · perpendicular'
+        : dot > 0 ? 'dot > 0 · acute' : 'dot < 0 · obtuse';
+      read.innerHTML =
+        '<span class="vz-pill">u+v = ' + vs(sum) + '</span>' +
+        '<span class="vz-pill">u-v = ' + vs(dif) + '</span>' +
+        '<span class="vz-pill">c·u = ' + vs(cu) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-ink);border-color:var(--viz-accent)">u·v = ' + n(dot) + '</span>' +
+        '<span class="vz-pill">|u| = ' + n(lu) + ' &nbsp;|v| = ' + n(lv) + '</span>' +
+        '<span class="vz-pill">angle = ' + (known ? n(ang) + '°' : '—') + '</span>' +
+        '<span class="vz-pill">' + rel + '</span>';
+
+      why.innerHTML = '<b>Component by component, every time.</b>' +
+        'Addition is <code>(' + n(u[0]) + ' + ' + n(v[0]) + ', ' + n(u[1]) + ' + ' + n(v[1]) + ') = ' + vs(sum) + '</code>' +
+        ' — the dashed copy of <b>v</b> starting at the tip of <b>u</b> is the same statement drawn instead of written. ' +
+        'Scalar multiplication is <code>' + n(c) + '·' + vs(u) + ' = ' + vs(cu) + '</code>: the amber arrow can only slide along the line through the origin and <b>u</b>' +
+        (c < 0 ? ', and a negative scalar puts it on the far side, reversing the direction while keeping the line.' : ', never off it.') +
+        '<br><br><b>The dot product is different in kind.</b> <code>u·v = ' + n(u[0]) + '·' + n(v[0]) + ' + ' + n(u[1]) + '·' + n(v[1]) + ' = ' + n(dot) + '</code> is a <em>number</em>, not an arrow. ' +
+        (known
+          ? 'It also carries the geometry: <code>u·v = |u||v|cos(angle)</code>, so <code>cos = ' + n(dot) + ' / ' + n(den) + ' = ' + n(cosT) + '</code>, an angle of <b>' + n(ang) + '°</b>. ' +
+            (Math.abs(dot) < 1e-9
+              ? 'At exactly zero the arrows are <b>perpendicular</b> — which is the whole test, no protractor needed.'
+              : dot > 0 ? 'Positive means the arrows lean the same way (acute).' : 'Negative means they lean apart (obtuse).')
+          : 'With a zero vector the length is 0, so <code>cos = 0/0</code> is <b>undefined</b> — a zero vector has no direction and no angle. The dot product is still perfectly defined and equals 0.') +
+        '<br><br>Length is the same operation pointed at itself: <code>|u| = sqrt(u·u) = sqrt(' + n(lu*lu) + ') = ' + n(lu) + '</code>.';
+    }
+
+    ids.forEach(function(id){ document.getElementById(id).addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Where The Basis Goes</h2>
+  <p class="vz-lede">A matrix is not four numbers, it is two answers: where <code>e1</code> lands and where
+    <code>e2</code> lands, written as columns. Move them and the whole plane follows — watch the unit square
+    become the image of the whole grid, and the origin never move.
+    <b>Like bending a wire fence: you only need to say where two adjacent posts moved, and every panel follows.</b></p>
+
+  <div class="vz-seg" id="v3-presets" role="group" aria-label="Preset transformations"></div>
+
+  <div class="vz-card">
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v3-a">e1 goes across <b id="v3-al">a = 1</b></label>
+        <input class="vz-range" type="range" id="v3-a" min="-3" max="3" step="1" value="1" aria-label="first column x">
+        <label class="vz-lab" for="v3-c">e1 goes up <b id="v3-cl">c = 0</b></label>
+        <input class="vz-range" type="range" id="v3-c" min="-3" max="3" step="1" value="0" aria-label="first column y">
+      </div>
+      <div>
+        <label class="vz-lab" for="v3-b">e2 goes across <b id="v3-bl">b = 0</b></label>
+        <input class="vz-range" type="range" id="v3-b" min="-3" max="3" step="1" value="0" aria-label="second column x">
+        <label class="vz-lab" for="v3-d">e2 goes up <b id="v3-dl">d = 1</b></label>
+        <input class="vz-range" type="range" id="v3-d" min="-3" max="3" step="1" value="1" aria-label="second column y">
+      </div>
+    </div>
+    <div class="vz-grid2" style="margin-top:6px">
+      <div>
+        <label class="vz-lab" for="v3-vx">test vector, across <b id="v3-vl">v = (2, 1)</b></label>
+        <input class="vz-range" type="range" id="v3-vx" min="-4" max="4" step="1" value="2" aria-label="test vector x">
+      </div>
+      <div>
+        <label class="vz-lab" for="v3-vy">test vector, up</label>
+        <input class="vz-range" type="range" id="v3-vy" min="-4" max="4" step="1" value="1" aria-label="test vector y">
+      </div>
+    </div>
+
+    <div id="v3-plane" style="margin-top:8px"></div>
+    <div class="vz-pills" id="v3-read"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">Try the trap on purpose: set the shear, note where the test vector <code>(2, 1)</code>
+    lands, then set the horizontal scaling. <b>Same image, different transformation.</b> One vector can never
+    identify the rule — which is exactly why the fundamental square spanned by the standard basis vectors is
+    the thing to look at, and why exam questions hand you a matrix and expect you to read its columns.</p>
+
+  <style>
+    .v3-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v3-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v3-sq0{fill:var(--viz-muted);opacity:.14;stroke:var(--viz-muted);stroke-width:1.2;stroke-dasharray:4 3}
+    .v3-sq1{fill:var(--viz-accent);opacity:.20;stroke:var(--viz-accent);stroke-width:1.6}
+    .v3-e{stroke:var(--viz-muted);stroke-width:1.6;fill:none;stroke-dasharray:3 3} .v3-eh{fill:var(--viz-muted)}
+    .v3-1{stroke:var(--viz-accent);stroke-width:2.6;fill:none}  .v3-1h{fill:var(--viz-accent)}
+    .v3-2{stroke:var(--viz-violet);stroke-width:2.6;fill:none}  .v3-2h{fill:var(--viz-violet)}
+    .v3-v{stroke:var(--viz-amber);stroke-width:2.2;fill:none;stroke-dasharray:5 3}  .v3-vh{fill:var(--viz-amber)}
+    .v3-w{stroke:var(--viz-green);stroke-width:2.6;fill:none}   .v3-wh{fill:var(--viz-green)}
+    .v3-t{font-size:10.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v3-t1{fill:var(--viz-accent)} .v3-t2{fill:var(--viz-violet)}
+    .v3-tv{fill:var(--viz-amber)} .v3-tw{fill:var(--viz-green)}
+    .v3-svg{width:100%;height:auto;max-width:320px;display:block;margin:0 auto;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+    .v3-mat{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:800;color:var(--viz-ink)}
+  </style>
+  <script>
+  (function(){
+    var S = 260, R = 5, K = S / (2*R);
+    var PRESETS = [
+      { tab:'identity', m:[1,0,0,1] },
+      { tab:'rotate 90°', m:[0,-1,1,0] },
+      { tab:'reflect x-axis', m:[1,0,0,-1] },
+      { tab:'shear by 2', m:[1,2,0,1] },
+      { tab:'scale x by 2', m:[2,0,0,1] }
+    ];
+    var sa = document.getElementById('v3-a'), sb = document.getElementById('v3-b');
+    var sc = document.getElementById('v3-c'), sd = document.getElementById('v3-d');
+    var svx = document.getElementById('v3-vx'), svy = document.getElementById('v3-vy');
+    var la = document.getElementById('v3-al'), lb = document.getElementById('v3-bl');
+    var lc = document.getElementById('v3-cl'), ld = document.getElementById('v3-dl');
+    var lv = document.getElementById('v3-vl');
+    var seg = document.getElementById('v3-presets');
+    var plane = document.getElementById('v3-plane'), read = document.getElementById('v3-read'), why = document.getElementById('v3-why');
+
+    function PX(x){ return S/2 + x*K; }
+    function PY(y){ return S/2 - y*K; }
+    function n(x){ return isFinite(x) ? String(Math.round(x*100)/100) : '—'; }
+    function vs(p){ return '(' + n(p[0]) + ', ' + n(p[1]) + ')'; }
+
+    function arw(p, q, cls, label, tcls){
+      var x1 = PX(p[0]), y1 = PY(p[1]), x2 = PX(q[0]), y2 = PY(q[1]);
+      var dx = x2-x1, dy = y2-y1, L = Math.sqrt(dx*dx + dy*dy);
+      var out = '<line class="' + cls + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 7) {
+        var a = Math.atan2(dy, dx), h = 9, w = 4.6;
+        var bx = x2 - h*Math.cos(a), by = y2 - h*Math.sin(a);
+        out += '<polygon class="' + cls + 'h" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w*Math.sin(a)) + ',' + (by - w*Math.cos(a)) + ' ' +
+          (bx - w*Math.sin(a)) + ',' + (by + w*Math.cos(a)) + '"/>';
+      }
+      if (label) out += '<text class="v3-t ' + tcls + '" x="' + (x2 + 5) + '" y="' + (y2 - 5) + '">' + label + '</text>';
+      return out;
+    }
+    function poly(pts, cls){
+      return '<polygon class="' + cls + '" points="' + pts.map(function(p){ return PX(p[0]) + ',' + PY(p[1]); }).join(' ') + '"/>';
+    }
+    function grid(){
+      var g = '';
+      for (var i = -R; i <= R; i++) {
+        g += '<line class="v3-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v3-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v3-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v3-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      return g;
+    }
+    function nameOf(a, b, c, d){
+      if (a===1 && b===0 && c===0 && d===1) return 'the identity — every point stays put';
+      if (a===0 && b===-1 && c===1 && d===0) return 'rotation by 90° counterclockwise about the origin';
+      if (a===0 && b===1 && c===-1 && d===0) return 'rotation by 90° clockwise about the origin';
+      if (a===-1 && b===0 && c===0 && d===-1) return 'rotation by 180° about the origin';
+      if (a===1 && b===0 && c===0 && d===-1) return 'reflection across the x-axis';
+      if (a===-1 && b===0 && c===0 && d===1) return 'reflection across the y-axis';
+      if (a===0 && b===1 && c===1 && d===0) return 'reflection across the line y = x';
+      if (a===1 && c===0 && d===1 && b!==0) return 'horizontal shear — heights unchanged, sideways slide grows with height';
+      if (a===1 && b===0 && d===1 && c!==0) return 'vertical shear — widths unchanged, lift grows with distance across';
+      if (b===0 && c===0) return 'scaling: ' + a + '× across, ' + d + '× up';
+      return 'a general linear transformation — read it as its two columns';
+    }
+
+    function render(){
+      var a = Number(sa.value), b = Number(sb.value), c = Number(sc.value), d = Number(sd.value);
+      var vx = Number(svx.value), vy = Number(svy.value);
+      la.textContent = 'a = ' + a; lb.textContent = 'b = ' + b;
+      lc.textContent = 'c = ' + c; ld.textContent = 'd = ' + d;
+      lv.textContent = 'v = (' + vx + ', ' + vy + ')';
+      [].slice.call(seg.children).forEach(function(btn, i){
+        var m = PRESETS[i].m;
+        btn.setAttribute('aria-pressed', (m[0]===a && m[1]===b && m[2]===c && m[3]===d) ? 'true' : 'false');
+      });
+
+      var c1 = [a, c], c2 = [b, d];
+      var img = [a*vx + b*vy, c*vx + d*vy];
+      var flat = (a*d - b*c) === 0;
+      var far = [c1, c2, img, [a+b, c+d]].some(function(p){ return Math.abs(p[0]) > R || Math.abs(p[1]) > R; });
+
+      plane.innerHTML = '<svg class="v3-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="the unit square, its image, the basis images and a test vector">' + grid() +
+        poly([[0,0],[1,0],[1,1],[0,1]], 'v3-sq0') +
+        poly([[0,0], c1, [a+b, c+d], c2], 'v3-sq1') +
+        arw([0,0], [1,0], 'v3-e', '', '') +
+        arw([0,0], [0,1], 'v3-e', '', '') +
+        arw([0,0], [vx, vy], 'v3-v', 'v', 'v3-tv') +
+        arw([0,0], c1, 'v3-1', 'T(e1)', 'v3-t1') +
+        arw([0,0], c2, 'v3-2', 'T(e2)', 'v3-t2') +
+        arw([0,0], img, 'v3-w', 'T(v)', 'v3-tw') +
+        '</svg>';
+
+      read.innerHTML =
+        '<span class="vz-pill v3-mat">A = [[' + a + ', ' + b + '], [' + c + ', ' + d + ']]</span>' +
+        '<span class="vz-pill" style="border-color:var(--viz-accent)">T(e1) = column 1 = ' + vs(c1) + '</span>' +
+        '<span class="vz-pill" style="border-color:var(--viz-violet)">T(e2) = column 2 = ' + vs(c2) + '</span>' +
+        '<span class="vz-pill" style="border-color:var(--viz-green)">T(v) = ' + vs(img) + '</span>' +
+        '<span class="vz-pill">origin → origin, always</span>' +
+        (far ? '<span class="vz-pill" style="border-color:var(--viz-amber)">some arrows run past the window</span>' : '') +
+        (flat ? '<span class="vz-pill" style="border-color:var(--viz-red)">flattened onto a line</span>' : '');
+
+      why.innerHTML = '<b>' + nameOf(a, b, c, d) + '</b>' +
+        'The two columns are literally the answers to "where does <code>e1</code> go" and "where does <code>e2</code> go". ' +
+        'Everything else follows by linearity: <code>v = ' + vx + '·e1 + ' + vy + '·e2</code>, so ' +
+        '<code>T(v) = ' + vx + '·' + vs(c1) + ' + ' + vy + '·' + vs(c2) + ' = ' + vs(img) + '</code>. ' +
+        'That is matrix-vector multiplication, and you have just done it as a <b>combination of the columns</b> rather than as a rule to memorise.' +
+        '<br><br>Notice what the grid does: straight lines stay straight, parallel lines stay parallel, and the corner at ' +
+        '<code>(0, 0)</code> never moves — <b>the origin is a fixed point of every linear transformation</b>, not a computed one. ' +
+        (flat
+          ? '<br><br><b style="color:var(--viz-red)">Right now the two columns lie on one line</b>, so the square has no area left: the entire plane is being squashed onto that line, and different inputs are landing on the same output. Lesson 2 asks what that costs you when you try to solve backwards.'
+          : '<br><br>Drag <code>b</code> away from 0 with <code>a = 1, c = 0, d = 1</code> and you get a shear: the top of the square slides while the bottom stays. Drag <code>a</code> instead and you get a stretch. The test vector cannot tell those apart on its own — the square can.');
+    }
+
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('aria-pressed', 'false');
+      btn.textContent = p.tab;
+      btn.addEventListener('click', function(){
+        sa.value = p.m[0]; sb.value = p.m[1]; sc.value = p.m[2]; sd.value = p.m[3];
+        render();
+      });
+      seg.appendChild(btn);
+    });
+    [sa, sb, sc, sd, svx, svy].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Rows Dot, Columns Combine</h2>
+  <p class="vz-lede">One product, two honest readings. Rows dotted with the input give you the arithmetic;
+    columns weighted by the input give you the picture. Switch between them and watch the same answer arrive
+    twice — then check when a product is even allowed to exist.
+    <b>Like a recipe read two ways: per-ingredient totals, or "two of these plus three of those".</b></p>
+
+  <div class="vz-seg" id="v4-mode" role="group" aria-label="Reading"></div>
+
+  <div class="vz-card">
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v4-x">input x <b id="v4-xl">x = 2</b></label>
+        <input class="vz-range" type="range" id="v4-x" min="-3" max="3" step="1" value="2" aria-label="input x">
+      </div>
+      <div>
+        <label class="vz-lab" for="v4-y">input y <b id="v4-yl">y = 1</b></label>
+        <input class="vz-range" type="range" id="v4-y" min="-3" max="3" step="1" value="1" aria-label="input y">
+      </div>
+    </div>
+    <div class="v4-work vz-mono" id="v4-work"></div>
+    <div id="v4-plane"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v4-hd">is the product AB even defined?</div>
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v4-m">rows of A <b id="v4-ml">2</b></label>
+        <input class="vz-range" type="range" id="v4-m" min="1" max="5" step="1" value="2" aria-label="rows of A">
+        <label class="vz-lab" for="v4-n">columns of A <b id="v4-nl">3</b></label>
+        <input class="vz-range" type="range" id="v4-n" min="1" max="5" step="1" value="3" aria-label="columns of A">
+      </div>
+      <div>
+        <label class="vz-lab" for="v4-p">rows of B <b id="v4-pl">3</b></label>
+        <input class="vz-range" type="range" id="v4-p" min="1" max="5" step="1" value="3" aria-label="rows of B">
+        <label class="vz-lab" for="v4-q">columns of B <b id="v4-ql">4</b></label>
+        <input class="vz-range" type="range" id="v4-q" min="1" max="5" step="1" value="4" aria-label="columns of B">
+      </div>
+    </div>
+    <div class="v4-shape" id="v4-shape"></div>
+  </div>
+
+  <p class="vz-note">The row reading is how you compute and the column reading is how you think. Keep both:
+    the row reading is why every entry of any product is a <b>dot product</b>, and the column reading is why
+    the output of <code>Ax</code> is called a linear combination of the columns — the fact lesson 2 turns into
+    "which right-hand sides are reachable at all".</p>
+
+  <style>
+    .v4-hd{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      font-weight:800;margin-bottom:8px}
+    .v4-work{margin-top:12px;background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px;
+      padding:11px 12px;white-space:pre-wrap;overflow-x:auto}
+    .v4-hi{color:var(--viz-accent);font-weight:800}
+    .v4-hi2{color:var(--viz-violet);font-weight:800}
+    .v4-res{color:var(--viz-green);font-weight:800}
+    .v4-shape{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+      font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:800}
+    .v4-box{border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 11px;color:var(--viz-ink)}
+    .v4-box.is-ok{border-color:var(--viz-green)}
+    .v4-box.is-no{border-color:var(--viz-red)}
+    .v4-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v4-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v4-c1{stroke:var(--viz-accent);stroke-width:2.6;fill:none} .v4-c1h{fill:var(--viz-accent)}
+    .v4-c2{stroke:var(--viz-violet);stroke-width:2.6;fill:none} .v4-c2h{fill:var(--viz-violet)}
+    .v4-r{stroke:var(--viz-green);stroke-width:2.6;fill:none}   .v4-rh{fill:var(--viz-green)}
+    .v4-t{font-size:10.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v4-t1{fill:var(--viz-accent)} .v4-t2{fill:var(--viz-violet)} .v4-tr{fill:var(--viz-green)}
+    .v4-svg{width:100%;height:auto;max-width:300px;display:block;margin:10px auto 0;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+  </style>
+  <script>
+  (function(){
+    var A = [[2, -1], [1, 3]];
+    var S = 240, R = 6, K = S / (2*R);
+    var MODES = ['row reading', 'column reading'];
+    var mode = 0;
+
+    var seg = document.getElementById('v4-mode');
+    var sx = document.getElementById('v4-x'), sy = document.getElementById('v4-y');
+    var xl = document.getElementById('v4-xl'), yl = document.getElementById('v4-yl');
+    var work = document.getElementById('v4-work'), plane = document.getElementById('v4-plane'), why = document.getElementById('v4-why');
+    var sm = document.getElementById('v4-m'), sn = document.getElementById('v4-n');
+    var sp = document.getElementById('v4-p'), sq = document.getElementById('v4-q');
+    var ml = document.getElementById('v4-ml'), nl = document.getElementById('v4-nl');
+    var pl = document.getElementById('v4-pl'), ql = document.getElementById('v4-ql');
+    var shape = document.getElementById('v4-shape');
+
+    function PX(x){ return S/2 + x*K; }
+    function PY(y){ return S/2 - y*K; }
+    function n(v){ return isFinite(v) ? String(Math.round(v*100)/100) : '—'; }
+    function vs(p){ return '(' + n(p[0]) + ', ' + n(p[1]) + ')'; }
+
+    function arw(p, q, cls, label, tcls){
+      var x1 = PX(p[0]), y1 = PY(p[1]), x2 = PX(q[0]), y2 = PY(q[1]);
+      var dx = x2-x1, dy = y2-y1, L = Math.sqrt(dx*dx + dy*dy);
+      var out = '<line class="' + cls + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 7) {
+        var a = Math.atan2(dy, dx), h = 9, w = 4.6;
+        var bx = x2 - h*Math.cos(a), by = y2 - h*Math.sin(a);
+        out += '<polygon class="' + cls + 'h" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w*Math.sin(a)) + ',' + (by - w*Math.cos(a)) + ' ' +
+          (bx - w*Math.sin(a)) + ',' + (by + w*Math.cos(a)) + '"/>';
+      }
+      if (label) out += '<text class="v4-t ' + tcls + '" x="' + (x2 + 5) + '" y="' + (y2 - 5) + '">' + label + '</text>';
+      return out;
+    }
+    function grid(){
+      var g = '';
+      for (var i = -R; i <= R; i++) {
+        g += '<line class="v4-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v4-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v4-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v4-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      return g;
+    }
+
+    function render(){
+      var x = Number(sx.value), y = Number(sy.value);
+      xl.textContent = 'x = ' + x; yl.textContent = 'y = ' + y;
+      [].slice.call(seg.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+
+      var out = [A[0][0]*x + A[0][1]*y, A[1][0]*x + A[1][1]*y];
+      var s1 = [A[0][0]*x, A[1][0]*x];
+      var s2 = [A[0][1]*y, A[1][1]*y];
+
+      work.innerHTML = mode === 0
+        ? 'A = [[ 2, -1],      x = (' + x + ', ' + y + ')\n     [ 1,  3]]\n\n' +
+          'row 1 · x = <span class="v4-hi">(2, -1)</span> · (' + x + ', ' + y + ') = 2·' + x + ' + (-1)·' + y + ' = <span class="v4-res">' + n(out[0]) + '</span>\n' +
+          'row 2 · x = <span class="v4-hi2">(1,  3)</span> · (' + x + ', ' + y + ') = 1·' + x + ' + 3·' + y + '  = <span class="v4-res">' + n(out[1]) + '</span>\n\n' +
+          'A x = <span class="v4-res">' + vs(out) + '</span>   ← one dot product per output entry'
+        : 'columns of A: <span class="v4-hi">col1 = (2, 1)</span>   <span class="v4-hi2">col2 = (-1, 3)</span>\n\n' +
+          'A x = x·col1 + y·col2\n' +
+          '    = ' + x + '·<span class="v4-hi">(2, 1)</span> + ' + y + '·<span class="v4-hi2">(-1, 3)</span>\n' +
+          '    = <span class="v4-hi">' + vs(s1) + '</span> + <span class="v4-hi2">' + vs(s2) + '</span>\n' +
+          '    = <span class="v4-res">' + vs(out) + '</span>   ← a linear combination of the columns';
+
+      plane.innerHTML = '<svg class="v4-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="the two scaled columns laid tip to tail reaching the output">' + grid() +
+        arw([0,0], s1, 'v4-c1', 'x·col1', 'v4-t1') +
+        arw(s1, out, 'v4-c2', 'y·col2', 'v4-t2') +
+        arw([0,0], out, 'v4-r', 'Ax', 'v4-tr') +
+        '</svg>';
+
+      why.innerHTML = mode === 0
+        ? '<b>Row reading: entry i is row i dotted with the input.</b>' +
+          'This is the arithmetic you will actually perform, and it is the same dot product from visual 2 — sum of products, one number out. ' +
+          'It scales without change: an m-row matrix produces m entries, one dot product each. ' +
+          '<br><br>What it hides is the geometry. Nothing in "2·' + x + ' + (-1)·' + y + '" tells you the plane is being rotated, sheared or flattened. Switch readings for that.'
+        : '<b>Column reading: the output is x copies of column 1 plus y copies of column 2.</b>' +
+          'The picture is the two scaled columns laid <b>tip to tail</b>, exactly the addition from visual 2 — and it is the direct consequence of linearity, since <code>x = ' + x + '·e1 + ' + y + '·e2</code>. ' +
+          '<br><br>So <code>Ax</code> can only ever land somewhere reachable by combining the columns. Both readings give <code>' + vs(out) + '</code>; they are the same computation grouped differently.';
+
+      var m = Number(sm.value), nn = Number(sn.value), p = Number(sp.value), q = Number(sq.value);
+      ml.textContent = m; nl.textContent = nn; pl.textContent = p; ql.textContent = q;
+      var ok = nn === p;
+      shape.innerHTML =
+        '<span class="v4-box">A: ' + m + ' × <span class="v4-hi">' + nn + '</span></span>' +
+        '<span style="color:var(--viz-muted)">×</span>' +
+        '<span class="v4-box">B: <span class="v4-hi">' + p + '</span> × ' + q + '</span>' +
+        '<span class="v4-box ' + (ok ? 'is-ok' : 'is-no') + '">' +
+          (ok ? '✓ defined — AB is ' + m + ' × ' + q
+              : '✗ not defined — inner pair ' + nn + ' and ' + p + ' disagree') + '</span>' +
+        '<div style="font-weight:400;font-size:12px;line-height:1.55;color:var(--viz-muted);margin-top:4px">' +
+          'The rule is the <b>columns of A equal the rows of B</b> — the inner pair, highlighted. They must match because entry (i, j) is <b>row i of A dotted with column j of B</b>, and a dot product needs two lists of the same length. The outer pair survives as the shape of the answer' +
+          (ok ? ', so ' + m + ' × ' + nn + ' times ' + p + ' × ' + q + ' is ' + m + ' × ' + q + '.'
+              : '. Note that swapping to BA does not generally rescue it either — that needs ' + q + ' to equal ' + m + '.') +
+        '</div>';
+    }
+
+    MODES.forEach(function(t, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = t;
+      b.addEventListener('click', function(){ mode = i; render(); });
+      seg.appendChild(b);
+    });
+    [sx, sy, sm, sn, sp, sq].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Order Changes Everything</h2>
+  <p class="vz-lede">Multiplying matrices is doing one transformation after another. Pick which happens first,
+    watch the square travel through both stages, and tap any entry of the product to see the single dot product
+    that made it. <b>Like getting dressed: socks then shoes is not shoes then socks.</b></p>
+
+  <div class="v5-hd">happens first (nearest the vector)</div>
+  <div class="vz-seg" id="v5-first" role="group" aria-label="First transformation"></div>
+  <div class="v5-hd">happens second</div>
+  <div class="vz-seg" id="v5-second" role="group" aria-label="Second transformation"></div>
+
+  <div class="vz-card">
+    <div class="v5-stages" id="v5-stages"></div>
+    <div class="v5-order vz-mono" id="v5-order"></div>
+    <div class="v5-cells" id="v5-cells"></div>
+    <div class="v5-work vz-mono" id="v5-work"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Composition is <b>associative</b> — you may group the multiplications however you like —
+    but almost never <b>commutative</b>. Every chained pipeline you meet later (rotate then project, whiten then
+    rotate, a stack of network layers) is this same product, and its order is part of its meaning, not a
+    formatting choice.</p>
+
+  <style>
+    .v5-hd{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      font-weight:800;margin:0 0 6px}
+    .v5-stages{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+    .v5-st{flex:1 1 104px;max-width:150px;text-align:center}
+    .v5-st h6{margin:0 0 4px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-svg{width:100%;height:auto;background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:9px}
+    .v5-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v5-ax{stroke:var(--viz-muted);stroke-width:1}
+    .v5-q0{fill:var(--viz-muted);opacity:.16;stroke:var(--viz-muted);stroke-width:1.1;stroke-dasharray:3 3}
+    .v5-q1{fill:var(--viz-accent);opacity:.22;stroke:var(--viz-accent);stroke-width:1.5}
+    .v5-e1{stroke:var(--viz-accent);stroke-width:2.2;fill:none} .v5-e1h{fill:var(--viz-accent)}
+    .v5-e2{stroke:var(--viz-violet);stroke-width:2.2;fill:none} .v5-e2h{fill:var(--viz-violet)}
+    .v5-order{margin-top:12px;background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px;
+      padding:10px 12px;line-height:1.6}
+    .v5-cells{display:grid;grid-template-columns:1fr 1fr;gap:6px;max-width:250px;margin:12px auto 0}
+    .v5-cells button{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:800;
+      font-family:ui-monospace,Consolas,monospace;font-size:13px}
+    .v5-cells button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-cells button[aria-pressed="true"]::after{content:"\00a0\25c0"}
+    .v5-work{margin-top:10px;background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px;
+      padding:10px 12px;white-space:pre-wrap;overflow-x:auto}
+    .v5-hi{color:var(--viz-accent);font-weight:800}
+    .v5-hi2{color:var(--viz-violet);font-weight:800}
+    .v5-res{color:var(--viz-green);font-weight:800}
+  </style>
+  <script>
+  (function(){
+    var T = [
+      { key:'R', tab:'rotate 90°', m:[0,-1,1,0], word:'rotation by 90° counterclockwise' },
+      { key:'S', tab:'shear by 2', m:[1,2,0,1], word:'horizontal shear' },
+      { key:'F', tab:'reflect x-axis', m:[1,0,0,-1], word:'reflection across the x-axis' }
+    ];
+    var first = 1, second = 0, cell = 0;
+    var S = 118, R = 3.2, K = S / (2*R);
+
+    var segA = document.getElementById('v5-first'), segB = document.getElementById('v5-second');
+    var stages = document.getElementById('v5-stages'), order = document.getElementById('v5-order');
+    var cells = document.getElementById('v5-cells'), work = document.getElementById('v5-work'), why = document.getElementById('v5-why');
+
+    function PX(x){ return S/2 + x*K; }
+    function PY(y){ return S/2 - y*K; }
+    function mul(B, A){
+      return [ B[0]*A[0] + B[1]*A[2], B[0]*A[1] + B[1]*A[3],
+               B[2]*A[0] + B[3]*A[2], B[2]*A[1] + B[3]*A[3] ];
+    }
+    function same(a, b){ return a.every(function(v, i){ return v === b[i]; }); }
+    function mstr(m){ return '[[' + m[0] + ', ' + m[1] + '], [' + m[2] + ', ' + m[3] + ']]'; }
+
+    function arw(p, q, cls){
+      var x1 = PX(p[0]), y1 = PY(p[1]), x2 = PX(q[0]), y2 = PY(q[1]);
+      var dx = x2-x1, dy = y2-y1, L = Math.sqrt(dx*dx + dy*dy);
+      var out = '<line class="' + cls + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 6) {
+        var a = Math.atan2(dy, dx), h = 7.5, w = 4;
+        var bx = x2 - h*Math.cos(a), by = y2 - h*Math.sin(a);
+        out += '<polygon class="' + cls + 'h" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w*Math.sin(a)) + ',' + (by - w*Math.cos(a)) + ' ' +
+          (bx - w*Math.sin(a)) + ',' + (by + w*Math.cos(a)) + '"/>';
+      }
+      return out;
+    }
+    function stage(title, m, isStart){
+      var g = '';
+      for (var i = -3; i <= 3; i++) {
+        g += '<line class="v5-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v5-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v5-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v5-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      var c1 = [m[0], m[2]], c2 = [m[1], m[3]];
+      var pts = [[0,0], c1, [m[0]+m[1], m[2]+m[3]], c2];
+      g += '<polygon class="v5-q0" points="' + [[0,0],[1,0],[1,1],[0,1]].map(function(p){ return PX(p[0]) + ',' + PY(p[1]); }).join(' ') + '"/>';
+      if (!isStart) g += '<polygon class="v5-q1" points="' + pts.map(function(p){ return PX(p[0]) + ',' + PY(p[1]); }).join(' ') + '"/>';
+      g += arw([0,0], c1, 'v5-e1') + arw([0,0], c2, 'v5-e2');
+      return '<div class="v5-st"><h6>' + title + '</h6><svg class="v5-svg" viewBox="0 0 ' + S + ' ' + S +
+        '" role="img" aria-label="' + title + '">' + g + '</svg></div>';
+    }
+
+    function render(){
+      var A = T[first], B = T[second];
+      [].slice.call(segA.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === first ? 'true' : 'false'); });
+      [].slice.call(segB.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === second ? 'true' : 'false'); });
+
+      var P = mul(B.m, A.m);
+      var Q = mul(A.m, B.m);
+      var commutes = same(P, Q);
+
+      stages.innerHTML =
+        stage('start', [1,0,0,1], true) +
+        stage('after ' + A.key + ' (' + A.tab + ')', A.m, false) +
+        stage('then ' + B.key + ' — result', P, false);
+
+      order.innerHTML =
+        '<span class="v5-hi2">' + B.key + '</span> <span class="v5-hi">' + A.key + '</span> x' +
+        '&nbsp;&nbsp;<span style="color:var(--viz-muted)">← the vector sits on the RIGHT, so <b>' + A.key + '</b> (' + A.tab + ') touches it first</span>\n' +
+        B.key + ' = ' + mstr(B.m) + '   ' + A.key + ' = ' + mstr(A.m) + '\n' +
+        '<span class="v5-res">' + B.key + A.key + ' = ' + mstr(P) + '</span>   ' +
+        'the other order gives ' + A.key + B.key + ' = ' + mstr(Q);
+
+      [].slice.call(cells.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', i === cell ? 'true' : 'false');
+        b.textContent = P[i];
+      });
+
+      var i0 = cell < 2 ? 0 : 1, j0 = cell % 2;
+      var rowB = i0 === 0 ? [B.m[0], B.m[1]] : [B.m[2], B.m[3]];
+      var colA = j0 === 0 ? [A.m[0], A.m[2]] : [A.m[1], A.m[3]];
+      var val = rowB[0]*colA[0] + rowB[1]*colA[1];
+      work.innerHTML =
+        'entry (' + (i0+1) + ', ' + (j0+1) + ') of ' + B.key + A.key + '\n' +
+        '  = row ' + (i0+1) + ' of <span class="v5-hi2">' + B.key + '</span> · column ' + (j0+1) + ' of <span class="v5-hi">' + A.key + '</span>\n' +
+        '  = (' + rowB[0] + ', ' + rowB[1] + ') · (' + colA[0] + ', ' + colA[1] + ')\n' +
+        '  = ' + rowB[0] + '·' + colA[0] + ' + ' + rowB[1] + '·' + colA[1] + ' = <span class="v5-res">' + val + '</span>' +
+        (j0 === 0
+          ? '\n\ncolumn 1 of the product is also just ' + B.key + ' applied to column 1 of ' + A.key + ' — where the pair sends e1.'
+          : '\n\ncolumn 2 of the product is also just ' + B.key + ' applied to column 2 of ' + A.key + ' — where the pair sends e2.');
+
+      why.innerHTML = '<b>' + (commutes
+          ? 'These two happen to commute — rare, and never the rule.'
+          : 'Swap the order and you get a different transformation.') + '</b>' +
+        'Doing <b>' + A.word + '</b> first and <b>' + B.word + '</b> second is the single matrix <code>' + mstr(P) + '</code>. ' +
+        'The reverse order is <code>' + mstr(Q) + '</code>' + (commutes ? ' — identical here, which is the exception.' : ' — a different rule entirely, so <code>' + B.key + A.key + ' ≠ ' + A.key + B.key + '</code>.') +
+        '<br><br>Track <code>e1 = (1, 0)</code> through the panes: it ends at <code>(' + P[0] + ', ' + P[2] + ')</code> this way round and at <code>(' + Q[0] + ', ' + Q[2] + ')</code> the other. ' +
+        'That first column <em>is</em> the answer to "where does e1 end up", which is why the product matrix can replace both steps at once — one matrix, one multiplication, same result as running the pair. ' +
+        '<br><br>And the written order is not a convention to memorise: <code>' + B.key + A.key + 'x</code> means <code>' + B.key + '(' + A.key + 'x)</code>, so reading right to left reads chronologically.';
+    }
+
+    T.forEach(function(t, i){
+      var a = document.createElement('button');
+      a.type = 'button'; a.setAttribute('aria-pressed', 'false'); a.textContent = t.key + ' · ' + t.tab;
+      a.addEventListener('click', function(){ first = i; render(); });
+      segA.appendChild(a);
+      var b = document.createElement('button');
+      b.type = 'button'; b.setAttribute('aria-pressed', 'false'); b.textContent = t.key + ' · ' + t.tab;
+      b.addEventListener('click', function(){ second = i; render(); });
+      segB.appendChild(b);
+    });
+    for (var k = 0; k < 4; k++) {
+      (function(idx){
+        var b = document.createElement('button');
+        b.type = 'button'; b.setAttribute('aria-pressed', 'false'); b.textContent = '0';
+        b.setAttribute('aria-label', 'product entry ' + (idx < 2 ? 1 : 2) + ' ' + ((idx % 2) + 1));
+        b.addEventListener('click', function(){ cell = idx; render(); });
+        cells.appendChild(b);
+      })(k);
+    }
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

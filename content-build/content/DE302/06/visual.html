@@ -1,0 +1,578 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\2713\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Unbundling The Lake</button>
+  <button class="viz-tab" data-viz-tab="2">2. Delegating File Access</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Metadata Cache</button>
+  <button class="viz-tab" data-viz-tab="4">4. Zones And Aspects</button>
+  <button class="viz-tab" data-viz-tab="5">5. Copies Or Links</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Unbundling The Lake</h2>
+  <p class="vz-lede"><b>Storage-Compute Separation and the Columnar Engine</b> already split compute from the
+    bytes. A lakehouse keeps going and splits off three more things that used to travel with storage.
+    Flip the model, then tap a concern to see who owns it and what breaks when you confuse two of them.
+    <b>Like a house that used to be one room: the same living happens, but now the kitchen, the filing
+    cabinet and the front door are separate places with separate keys.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Architecture model">
+    <button id="v1-old" aria-pressed="false">bundled warehouse</button>
+    <button id="v1-new" aria-pressed="true">lakehouse (unbundled)</button>
+  </div>
+
+  <div class="v1-rows" id="v1-rows"></div>
+
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">This split is the whole exam skill for this lesson. Nearly every distractor in this
+    domain is the <b>correct service for a different concern</b> — Dataplex offered where the requirement is
+    query access, BigLake offered where the requirement is discovery, a copy pipeline offered where the
+    requirement is governed distribution. Name the concern before you read the options.</p>
+
+  <style>
+    .v1-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-r{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-size:12.5px;display:flex;align-items:center;gap:9px;line-height:1.35;flex-wrap:wrap}
+    .v1-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-k{flex:0 0 92px;font-weight:800;font-size:11.5px}
+    .v1-o{flex:1 1 130px;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted)}
+    .v1-tag{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;border:1px solid;
+      border-radius:999px;padding:2px 7px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Left side = ground the course already covered; right side = this lesson's service.
+    var C = [
+      { k:'storage', old:'warehouse-managed blocks',
+        now:'Cloud Storage objects, untouched',
+        known:'GCS Storage Classes and Lifecycle Management',
+        tag:'known',
+        why:['The bytes stop moving — and that is the premise of everything else.',
+          'You already know where lake bytes live and how lifecycle rules age them. What changes here is that nothing has to copy them into BigQuery-managed storage before an analyst can use them. Copying is still allowed; it is now a <b>choice about ownership and cost</b>, not a precondition for querying.'] },
+      { k:'query access', old:'only the owning engine can read',
+        now:'BigLake external table + connection',
+        known:'Storage-Compute Separation and the Columnar Engine',
+        tag:'BigLake',
+        why:['A governed external table: GoogleSQL over files that stay outside BigQuery-managed storage.',
+          'Supported designs include Cloud Storage and, through BigQuery Omni, supported Amazon S3 and Azure Blob Storage scenarios. Visual 2 is the delegation that makes it <em>governed</em> rather than merely external.' +
+          '<br><br><b>Confusion to avoid:</b> "we need a catalog so people can query the lake" — a catalog helps them <em>find</em> it. Reading it is the BigLake question.'] },
+      { k:'metadata', old:'one warehouse’s own schema views',
+        now:'Dataplex Knowledge Catalog entries + aspects',
+        known:'Partitioning and Clustering in BigQuery',
+        tag:'Dataplex',
+        why:['Searchable inventory and context across systems, not inside one of them.',
+          'An <b>entry</b> is a cataloged resource; an <b>entry type</b> defines its required structure; <b>aspects</b> attach reusable metadata fields (sensitivity class, owner, retention tier). Dataplex Universal Catalog is now called <b>Knowledge Catalog</b>, while existing Dataplex APIs and <code>gcloud dataplex</code> commands continue to operate — same product lineage, newer name.'] },
+      { k:'governance', old:'grants on warehouse tables only',
+        now:'delegation, zones, row/column policy',
+        known:'The Workload-Driven Storage Decision Matrix',
+        tag:'both',
+        why:['Governance now spans two systems, so it can be defeated in either one.',
+          'Row-level security, column-level security and dynamic data masking apply at the table for applicable Cloud Storage tables — and none of it constrains a user who still holds a broad direct object role. Dataplex lakes and zones make ownership visible on the other side. <b>Two sides, one boundary.</b>'] },
+      { k:'distribution', old:'export a copy per consumer',
+        now:'Analytics Hub listing → linked dataset',
+        known:'Pub/Sub: Topics, Subscriptions, and Delivery Guarantees',
+        tag:'Analytics Hub',
+        why:['Publish-and-subscribe, applied to governed data products.',
+          'You met exchange/topic/subscription semantics in Pub/Sub; the shapes rhyme. A <b>data exchange</b> is the access boundary, a <b>listing</b> is the discoverable description, a <b>subscription</b> creates a read-only linked dataset in the consumer project. Sharing covers Pub/Sub topics too — visual 5 keeps those two outcomes apart.'] }
+    ];
+    var mode = 'now';
+    var bOld = document.getElementById('v1-old'), bNew = document.getElementById('v1-new');
+    var rows = document.getElementById('v1-rows'), why = document.getElementById('v1-why');
+    var cur = 1;
+
+    function paint(){
+      bOld.setAttribute('aria-pressed', mode === 'old' ? 'true' : 'false');
+      bNew.setAttribute('aria-pressed', mode === 'now' ? 'true' : 'false');
+      [].slice.call(rows.children).forEach(function(b, i){
+        var c = C[i];
+        var owner = mode === 'old' ? c.old : c.now;
+        var col = mode === 'old' ? 'var(--viz-muted)' : 'var(--viz-accent)';
+        b.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+        b.innerHTML = '<span class="v1-k">' + c.k + '</span>' +
+          '<span class="v1-o">' + owner + '</span>' +
+          '<span class="v1-tag" style="color:' + col + ';border-color:' + col + '">' +
+          (mode === 'old' ? 'bundled' : c.tag) + '</span>';
+      });
+      var c = C[cur];
+      why.innerHTML = '<b>' + c.k + ' — ' + c.why[0] + '</b>' +
+        '<span style="color:var(--viz-muted)">builds on: ' + c.known + '</span><br><br>' + c.why[1];
+    }
+    C.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v1-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ cur = i; paint(); });
+      rows.appendChild(b);
+    });
+    bOld.addEventListener('click', function(){ mode = 'old'; paint(); });
+    bNew.addEventListener('click', function(){ mode = 'now'; paint(); });
+    paint();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Delegating File Access</h2>
+  <p class="vz-lede">A BigLake table's defining trick is that <em>nobody but the connection</em> needs a
+    permission on the objects. Drag the team size, switch the model, then leave one direct bucket role in
+    place and watch the policy stop meaning anything. <b>Like a hotel safe: guests get a room key, one
+    manager holds the master — unless somebody left a back door propped open.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Access model">
+    <button id="v2-direct" aria-pressed="false">direct bucket grants</button>
+    <button id="v2-bl" aria-pressed="true">BigLake connection</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-n">Analysts who need the data: <span id="v2-nl">40</span></label>
+    <input type="range" id="v2-n" min="1" max="40" value="40" step="1" aria-label="Number of analysts">
+    <div class="v2-grants" id="v2-grants"></div>
+    <button class="v2-bypass" id="v2-bypass" aria-pressed="false">one analyst also kept a broad Cloud Storage role</button>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Troubleshoot this stack <b>layer by layer</b>: a permission error can come from the
+    querying principal, from the connection itself, or from the connection service account's object
+    permissions — three different fixes behind one message. And note what BigLake never claims: it governs
+    the table path, so auditing direct bucket roles is part of the design, not an afterthought.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-grants{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+    .v2-g{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.35;flex-wrap:wrap}
+    .v2-g b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v2-mk{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+    .v2-bypass{margin-top:13px;min-height:44px;width:100%;text-align:left;border:1.5px dashed var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-size:12px;font-weight:700}
+    .v2-bypass[aria-pressed="true"]{border-style:solid;border-color:var(--viz-red);color:var(--viz-red)}
+    .v2-bypass::before{content:"\2610\00a0\00a0"}
+    .v2-bypass[aria-pressed="true"]::before{content:"\2611\00a0\00a0"}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var mode = 'biglake', bypass = false;
+    var s = document.getElementById('v2-n'), nl = document.getElementById('v2-nl');
+    var bD = document.getElementById('v2-direct'), bB = document.getElementById('v2-bl');
+    var grants = document.getElementById('v2-grants'), why = document.getElementById('v2-why');
+    var byp = document.getElementById('v2-bypass');
+
+    function row(what, count, note, colour, mark){
+      return '<div class="v2-g"><b style="color:' + colour + '">' + count + '</b>' +
+        '<span>' + what + '<br><span style="color:var(--viz-muted)">' + note + '</span></span>' +
+        '<span class="v2-mk" style="color:' + colour + '">' + mark + '</span></div>';
+    }
+    function render(){
+      var n = Number(s.value);
+      nl.textContent = n;
+      bD.setAttribute('aria-pressed', mode === 'direct' ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', mode === 'biglake' ? 'true' : 'false');
+      byp.setAttribute('aria-pressed', bypass ? 'true' : 'false');
+
+      var objGrants = mode === 'direct' ? n : 1 + (bypass ? 1 : 0);
+      var canBypass = mode === 'direct' ? n : (bypass ? 1 : 0);
+
+      grants.innerHTML =
+        row('identities holding a role on the OBJECTS',
+            objGrants,
+            mode === 'direct' ? 'every analyst reads the bucket for themselves'
+                              : 'the external connection service account' + (bypass ? ', plus the one left-over analyst' : ' — and nobody else'),
+            objGrants > 1 ? 'var(--viz-red)' : 'var(--viz-green)',
+            objGrants > 1 ? 'WIDE' : 'NARROW') +
+        row('identities holding a role on the TABLE',
+            mode === 'direct' ? 0 : n,
+            mode === 'direct' ? 'there is no table layer to grant' : 'consumers are granted the table, never the files',
+            mode === 'direct' ? 'var(--viz-muted)' : 'var(--viz-accent)',
+            mode === 'direct' ? 'n/a' : 'GOVERNED') +
+        row('people who can read around row/column policy and masking',
+            canBypass,
+            canBypass === 0 ? 'the only path to the bytes runs through the table'
+                            : 'they can read the raw objects directly — no error is raised',
+            canBypass === 0 ? 'var(--viz-green)' : 'var(--viz-red)',
+            canBypass === 0 ? 'SEALED' : 'LEAK');
+
+      why.innerHTML = mode === 'direct'
+        ? '<b style="color:var(--viz-red)">' + n + ' object-level grants, and no table layer to enforce.</b>' +
+          'Every analyst reads the files for themselves, so row-level security, column-level security and dynamic data masking have nothing to attach to — an ordinary external table without a connection is not a governance boundary. ' +
+          '<br><br>Revoking access here means revoking ' + n + ' storage roles and hoping none was inherited from a group.'
+        : bypass
+          ? '<b style="color:var(--viz-red)">The trust boundary has two sides, and one is open.</b>' +
+            'BigLake still delegates properly — the connection identity reads the objects and ' + n + ' consumers hold only table permissions. But one analyst kept a broad direct Cloud Storage role, so for that person the masked column, the row filter and the audit story are all decoration. ' +
+            '<b>The console still renders the mask; the raw file is still readable; nothing errors.</b>' +
+            '<br><br>This is why administrators grant the connection identity only the object permissions it needs, protect who may use or modify the connection, <em>and</em> audit direct bucket roles.'
+          : '<b style="color:var(--viz-green)">One identity reaches the objects; ' + n + ' reach only the table.</b>' +
+            'The external connection’s service account holds the storage role, so consumers can be given table-level access instead of object-level access. That decoupling is exactly what makes row-level security, column-level security and dynamic data masking real for applicable Cloud Storage tables — there is no path around them. ' +
+            '<br><br>Notice the scaling: adding the 41st analyst changes nothing about who can touch the bucket.';
+    }
+    s.addEventListener('input', render);
+    bD.addEventListener('click', function(){ mode = 'direct'; render(); });
+    bB.addEventListener('click', function(){ mode = 'biglake'; render(); });
+    byp.addEventListener('click', function(){ bypass = !bypass; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Metadata Cache</h2>
+  <p class="vz-lede">Before a byte is scanned, a query over object storage has to work out what exists.
+    Drag the object count, switch the cache on, then set how stale its answer may be — the two dials pull in
+    opposite directions. <b>Like a warehouse stocktake: keeping yesterday's list makes you fast and
+    occasionally wrong about this morning's delivery.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Cache mode">
+    <button id="v3-off" aria-pressed="false">cache OFF</button>
+    <button id="v3-auto" aria-pressed="true">cache ON · automatic</button>
+    <button id="v3-man" aria-pressed="false">cache ON · manual</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-obj">Objects behind the table: <span id="v3-objl">2,000,000</span></label>
+    <input type="range" id="v3-obj" min="0" max="5" value="4" step="1" aria-label="Object count">
+    <label class="v3-lab" for="v3-stale">Maximum staleness: <span id="v3-stalel">1 hour</span></label>
+    <input type="range" id="v3-stale" min="0" max="4" value="2" step="1" aria-label="Maximum staleness">
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The cache buys <b>discovery</b> time, never <b>scan</b> time. Millions of tiny files, a
+    non-columnar format or a partition column nobody filters on stay exactly as expensive with caching on —
+    that is a job for Parquet, stable schemas and partitioning on the filters people actually use. Slow
+    planning and slow scanning are different diagnoses.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:12px 0 6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v3-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v3-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v3-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v3-steps{margin-top:13px;font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.7;
+      color:var(--viz-muted);border:1.5px dashed var(--viz-line);border-radius:9px;padding:9px 11px}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var OBJ = [
+      { l:'1,000', n:1000 }, { l:'10,000', n:10000 }, { l:'100,000', n:100000 },
+      { l:'500,000', n:500000 }, { l:'2,000,000', n:2000000 }, { l:'5,000,000', n:5000000 }
+    ];
+    var STALE = [
+      { l:'0 (always fresh)', min:0 }, { l:'15 minutes', min:15 }, { l:'1 hour', min:60 },
+      { l:'4 hours', min:240 }, { l:'24 hours', min:1440 }
+    ];
+    var mode = 'auto';
+    var so = document.getElementById('v3-obj'), sol = document.getElementById('v3-objl');
+    var ss = document.getElementById('v3-stale'), ssl = document.getElementById('v3-stalel');
+    var bOff = document.getElementById('v3-off'), bAuto = document.getElementById('v3-auto'), bMan = document.getElementById('v3-man');
+    var bars = document.getElementById('v3-bars'), why = document.getElementById('v3-why');
+
+    // An illustrative model, not a benchmark: listing work grows with the object
+    // count, cached planning is near-flat because the listing is already stored.
+    function bar(t, val, max, colour, sub){
+      return '<div class="v3-b"><h6><span>' + t + '</span><b style="color:' + colour + '">' + val + '</b></h6>' +
+        '<div class="v3-track"><i style="width:' + Math.max(2, Math.round(max * 100)) + '%;background:' + colour + '"></i></div>' +
+        '<div class="v3-sub">' + sub + '</div></div>';
+    }
+    function render(){
+      var o = OBJ[Number(so.value)], st = STALE[Number(ss.value)];
+      sol.textContent = o.l; ssl.textContent = st.l;
+      bOff.setAttribute('aria-pressed', mode === 'off' ? 'true' : 'false');
+      bAuto.setAttribute('aria-pressed', mode === 'auto' ? 'true' : 'false');
+      bMan.setAttribute('aria-pressed', mode === 'man' ? 'true' : 'false');
+
+      var cached = mode !== 'off';
+      var frac = o.n / 5000000;                    // discovery work, relative to the worst case
+      var planFrac = cached ? 0.06 + frac * 0.05 : 0.10 + frac * 0.90;
+      var staleFrac = !cached ? 0 : Math.min(1, st.min / 1440);
+
+      bars.innerHTML =
+        bar('planning: listing files, partitions, file metadata',
+            cached ? 'reads the cache' : 'lists ' + o.l + ' objects',
+            planFrac, cached ? 'var(--viz-green)' : 'var(--viz-red)',
+            cached
+              ? 'Cached file names, partition information and physical file metadata let BigQuery skip the listing and prune files sooner.'
+              : 'Every query re-discovers all ' + o.l + ' objects before touching a byte of data. Hive-partitioned layouts and huge object counts are the painful case.') +
+        bar('freshness risk: how old the answer may be',
+            !cached ? 'none — always current' : (st.min === 0 ? 'no staleness allowed' : 'up to ' + st.l + ' old'),
+            Math.max(0.02, staleFrac), (!cached || st.min <= 15) ? 'var(--viz-green)' : (st.min <= 60 ? 'var(--viz-amber)' : 'var(--viz-red)'),
+            !cached
+              ? 'Nothing is remembered, so nothing can be out of date. You pay for that with every query.'
+              : 'Queries can observe the object versions the cache represents rather than newly replaced ones. Maximum staleness is a contract you are choosing.') +
+        (mode === 'man'
+          ? '<div class="v3-steps">manual refresh — the orchestrator owns the order:\n' +
+            '  1  complete the write\n  2  verify the partition\n  3  call the metadata refresh procedure\n  4  publish readiness</div>'
+          : '');
+
+      why.innerHTML = !cached
+        ? '<b style="color:var(--viz-red)">Correct, and it pays the discovery bill on every single query.</b>' +
+          'With ' + o.l + ' objects the planner lists files, inspects partitions and reads file metadata before any scan begins. At this scale a table can spend serious time simply working out what exists — and none of that work is the query. ' +
+          '<br><br>Caching is for exactly this shape: many files, or a Hive-partitioned layout.'
+        : mode === 'auto'
+          ? '<b style="color:' + (st.min > 60 ? 'var(--viz-amber)' : 'var(--viz-green)') + '">Automatic refresh: convenient when objects arrive unpredictably.</b>' +
+            'The system refreshes on its own schedule and maximum staleness bounds how old the metadata may be — here, ' + st.l + '. Set it tight and you refresh often; set it loose and a query written against a just-replaced file may answer from the version the cache remembers. ' +
+            (st.min >= 240 ? '<b>At ' + st.l + ' a downstream consumer can easily see yesterday’s partition and no error will say so.</b> ' : '') +
+            '<br><br>For Cloud Storage BigLake tables over Parquet, statistics gathered during the refresh can also improve query planning — and a materialized view over a metadata cache-enabled table accelerates repeated patterns.'
+          : '<b style="color:var(--viz-green)">Manual refresh: for a pipeline that knows exactly when a partition is ready.</b>' +
+            'The orchestrator completes the write, verifies the partition, calls the metadata refresh procedure, and only then publishes readiness. Skip step 3 and consumers keep reading the previous object versions — the classic "my query does not see the new files" ticket, which is a cache symptom and not a query bug. ' +
+            '<br><br>Manual mode trades convenience for a guarantee: nothing is announced before the catalogue of it is true.';
+    }
+    so.addEventListener('input', render);
+    ss.addEventListener('input', render);
+    bOff.addEventListener('click', function(){ mode = 'off'; render(); });
+    bAuto.addEventListener('click', function(){ mode = 'auto'; render(); });
+    bMan.addEventListener('click', function(){ mode = 'man'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Zones And Aspects</h2>
+  <p class="vz-lede">Dataplex gives distributed data a logical shape — lake, zone, asset — and hangs
+    structured metadata on it. Pick the zone, then switch on the kinds of metadata this table actually
+    carries and read the verdict a consumer would reach. <b>Like a jar in someone else's kitchen: a label
+    tells you what it is, a date tells you if it is still good, and a name tells you who to ask.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Zone">
+    <button id="v4-raw" aria-pressed="false">raw zone</button>
+    <button id="v4-cur" aria-pressed="true">curated zone</button>
+  </div>
+
+  <div class="v4-tree vz-mono" id="v4-tree"></div>
+
+  <div class="vz-card">
+    <div class="v4-chips">
+      <button class="v4-c" id="v4-tech" aria-pressed="true">technical<span>schema · format · location</span></button>
+      <button class="v4-c" id="v4-ops" aria-pressed="false">operational<span>freshness · quality · lineage</span></button>
+      <button class="v4-c" id="v4-biz" aria-pressed="false">business<span>definition · owner · sensitivity</span></button>
+    </div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Zones are only governance when they carry <b>different policies</b> — eight zones under
+    three distinct rules produce taxonomy, not control. And keep three tools apart: <b>lineage</b> names who
+    is affected, <b>profiling</b> describes what the data looks like, <b>quality rules</b> decide whether
+    that is acceptable. A glossary gives <em>active customer</em> a shared meaning; it cannot supply the
+    agreement, which is an owner's job.</p>
+
+  <style>
+    .v4-tree{border:1.5px solid var(--viz-line);border-radius:10px;padding:11px 12px;margin-bottom:12px;
+      background:var(--viz-bg)}
+    .v4-chips{display:flex;flex-direction:column;gap:7px}
+    .v4-c{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-muted);border-radius:10px;padding:8px 11px;font:inherit;
+      font-weight:800;font-size:12.5px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .v4-c span{font-weight:600;font-size:11px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v4-c::before{content:"\2610\00a0"}
+    .v4-c[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v4-c[aria-pressed="true"]::before{content:"\2611\00a0"}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var zone = 'cur';
+    var on = { tech:true, ops:false, biz:false };
+    var bRaw = document.getElementById('v4-raw'), bCur = document.getElementById('v4-cur');
+    var tree = document.getElementById('v4-tree'), why = document.getElementById('v4-why');
+    var chips = { tech:document.getElementById('v4-tech'), ops:document.getElementById('v4-ops'), biz:document.getElementById('v4-biz') };
+
+    function render(){
+      bRaw.setAttribute('aria-pressed', zone === 'raw' ? 'true' : 'false');
+      bCur.setAttribute('aria-pressed', zone === 'cur' ? 'true' : 'false');
+      Object.keys(chips).forEach(function(k){ chips[k].setAttribute('aria-pressed', on[k] ? 'true' : 'false'); });
+
+      tree.innerHTML = zone === 'raw'
+        ? 'lake  sales-domain\n' +
+          '  zone  raw          ← you are here\n' +
+          '    asset  gs://sales-landing/      (Cloud Storage bucket)\n' +
+          '    asset  gs://sales-landing-eu/   (Cloud Storage bucket)\n' +
+          '  zone  curated\n' +
+          '    asset  bq://sales_curated       (BigQuery dataset)'
+        : 'lake  sales-domain\n' +
+          '  zone  raw\n' +
+          '    asset  gs://sales-landing/      (Cloud Storage bucket)\n' +
+          '  zone  curated      ← you are here\n' +
+          '    asset  bq://sales_curated       (BigQuery dataset)\n' +
+          '    asset  gs://sales-parquet/      (BigLake-backed files)';
+
+      var score = (on.tech ? 1 : 0) + (on.ops ? 1 : 0) + (on.biz ? 1 : 0);
+      var verdict, colour, mark;
+      if (score === 3) { verdict = 'A consumer can find it, judge it and know who to ask.'; colour = 'var(--viz-green)'; mark = 'TRUSTABLE'; }
+      else if (score === 0) { verdict = 'An entry with no aspects: it exists in the catalog and answers nothing.'; colour = 'var(--viz-red)'; mark = 'UNUSABLE'; }
+      else { verdict = 'Partial context — the reader is left guessing on the missing side.'; colour = 'var(--viz-amber)'; mark = 'INCOMPLETE'; }
+
+      var gaps = [];
+      if (!on.tech) gaps.push('no schema, format or location, so nobody can even write the query');
+      if (!on.ops) gaps.push('no freshness, quality outcome or lineage, so a perfectly documented schema still cannot be trusted — did it refresh?');
+      if (!on.biz) gaps.push('no definition, owner, certification or sensitivity, so nobody can approve a use or answer a question about it');
+
+      why.innerHTML = '<b style="color:' + colour + '">' + mark + ' · ' + verdict + '</b>' +
+        (zone === 'raw'
+          ? '<b style="display:inline;font-size:12.5px">Raw zone contract:</b> externally sourced data that still needs processing, in varied formats. It prioritises <em>faithful landing and replay</em> — you should be able to reprocess history from here, which is why the bar for schema conformance is deliberately low.<br><br>'
+          : '<b style="display:inline;font-size:12.5px">Curated zone contract:</b> data prepared for consumption, with stronger schema and layout expectations. It prioritises <em>trusted use</em>, so an incomplete catalog entry hurts far more here than in raw.<br><br>') +
+        (gaps.length
+          ? 'Missing: <span style="color:var(--viz-red)">' + gaps.join('; ') + '</span>.<br><br>'
+          : 'Technical, operational and business metadata are all present — which is the actual bar, because strong discovery needs all three.<br><br>') +
+        'Structurally, all of this hangs off <b>entries</b> (the cataloged resource), <b>entry types</b> (the required structure) and <b>aspects</b> (reusable metadata templates: a sensitivity class, a data contract status, a retention tier). ' +
+        'The lake itself replaces no storage system — assets point at the bucket and the dataset, which keep their own IAM, location constraints and lifecycle.';
+    }
+    bRaw.addEventListener('click', function(){ zone = 'raw'; render(); });
+    bCur.addEventListener('click', function(){ zone = 'cur'; render(); });
+    Object.keys(chips).forEach(function(k){
+      chips[k].addEventListener('click', function(){ on[k] = !on[k]; render(); });
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Copies Or Links</h2>
+  <p class="vz-lede">Every consumer wants the same dataset. You can hand out copies or you can publish a
+    listing. Drag the number of consumers, switch the model, and change what is being shared — because a
+    dataset and a Pub/Sub topic create different things in the subscriber's project. <b>Like lending a
+    book: photocopy it forty times, or give forty people a library card.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Distribution model">
+    <button id="v5-exp" aria-pressed="false">scheduled exports</button>
+    <button id="v5-share" aria-pressed="true">Analytics Hub listing</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-n">Consumers: <span id="v5-nl">40</span></label>
+    <input type="range" id="v5-n" min="1" max="40" value="40" step="1" aria-label="Number of consumers">
+    <div class="v5-seg2" role="group" aria-label="Shared resource">
+      <button id="v5-ds" aria-pressed="true">dataset listing</button>
+      <button id="v5-topic" aria-pressed="false">Pub/Sub topic listing</button>
+    </div>
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Zero-copy is not zero-governance: exchange and listing IAM decide who may discover or
+    subscribe, row-level and column-level controls decide what a consumer sees, and a public exchange has a
+    different risk profile from a private one. The counter-case is real, though — <b>independent retention,
+    offline access, an incompatible region or isolation from publisher changes</b> all argue for exports.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-seg2{display:flex;gap:6px;margin:14px 0 0;flex-wrap:wrap}
+    .v5-seg2 button{flex:1 1 130px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 8px}
+    .v5-seg2 button[aria-pressed="true"]{border-color:var(--viz-violet);color:var(--viz-violet)}
+    .v5-seg2 button[aria-pressed="true"]::before{content:"\2713\00a0"}
+    .v5-rows{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+    .v5-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.35;flex-wrap:wrap}
+    .v5-r b{font-family:ui-monospace,Consolas,monospace;font-size:12px;flex:0 0 auto}
+    .v5-mk{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var mode = 'share', res = 'ds';
+    var s = document.getElementById('v5-n'), nl = document.getElementById('v5-nl');
+    var bE = document.getElementById('v5-exp'), bS = document.getElementById('v5-share');
+    var bD = document.getElementById('v5-ds'), bT = document.getElementById('v5-topic');
+    var rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+
+    function row(label, value, note, colour, mark){
+      return '<div class="v5-r"><b style="color:' + colour + '">' + value + '</b>' +
+        '<span>' + label + '<br><span style="color:var(--viz-muted)">' + note + '</span></span>' +
+        '<span class="v5-mk" style="color:' + colour + '">' + mark + '</span></div>';
+    }
+    function render(){
+      var n = Number(s.value);
+      nl.textContent = n;
+      bE.setAttribute('aria-pressed', mode === 'exp' ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', mode === 'share' ? 'true' : 'false');
+      bD.setAttribute('aria-pressed', res === 'ds' ? 'true' : 'false');
+      bT.setAttribute('aria-pressed', res === 'topic' ? 'true' : 'false');
+
+      var copies = mode === 'exp' ? n + 1 : 1;
+      var pipes = mode === 'exp' ? n : 0;
+      var created = mode === 'exp'
+        ? 'a full copy of the data, ageing from the moment it lands'
+        : (res === 'ds' ? 'a read-only LINKED DATASET, queried like any dataset'
+                        : 'a linked Pub/Sub SUBSCRIPTION, which delivers messages');
+
+      rows.innerHTML =
+        row('stored copies of the data', copies,
+            mode === 'exp' ? 'publisher’s original plus one per consumer' : 'the shared dataset stays in the publisher’s project',
+            copies > 1 ? 'var(--viz-red)' : 'var(--viz-green)',
+            copies > 1 ? 'SPRAWL' : 'ZERO-COPY') +
+        row('pipelines to build, schedule and watch', pipes,
+            pipes ? 'each one can fail, drift or silently stop' : 'subscription replaces the pipeline entirely',
+            pipes ? 'var(--viz-red)' : 'var(--viz-green)',
+            pipes ? 'OPERATIONS' : 'NONE') +
+        row('what appears in the consumer’s project', n + '×',
+            created, 'var(--viz-violet)', mode === 'exp' ? 'COPY' : 'LINK') +
+        row('who pays', '—',
+            mode === 'exp'
+              ? 'publisher pays export compute; every consumer pays to store their own copy'
+              : 'publisher keeps paying for its stored data; subscribers generally pay for the queries they run',
+            'var(--viz-accent)', 'BILLING');
+
+      why.innerHTML = mode === 'exp'
+        ? '<b style="color:var(--viz-red)">' + n + ' copies, ' + n + ' pipelines, ' + n + ' versions of the truth.</b>' +
+          'Nothing here is wrong — this is the right answer when a consumer needs <b>independent retention, offline access, an incompatible region, or isolation from publisher changes</b>. But notice the cost is per consumer on every axis, and the freshness question moves to each pipeline. ' +
+          '<br><br>Switch to a listing and compare which numbers change with ' + n + ' and which do not.'
+        : res === 'ds'
+          ? '<b style="color:var(--viz-green)">One shared dataset, ' + n + ' linked datasets, no copy per consumer.</b>' +
+            'A <b>data exchange</b> is the curated collection and access boundary; a <b>listing</b> is the discoverable description the publisher places in it, with documentation, contacts, sample queries and terms; a <b>subscription</b> creates the read-only linked dataset. Supported objects include tables, views, materialized views, routines, models and external tables. ' +
+            '<br><br>Governance does not disappear: consumers still need permissions to create and query the linked dataset, and row-level and column-level controls on supported shared datasets still decide what they see. Region matters too — a linked dataset has a location, and joins have location constraints.'
+          : '<b style="color:var(--viz-violet)">A topic listing creates a linked Pub/Sub SUBSCRIPTION, not a dataset.</b>' +
+            'Sharing also covers Pub/Sub topics, and the outcome is genuinely different: the consumer receives <em>messages</em> rather than something to query. Nothing is copied here either, but throughput, retention, delivery behaviour and each side’s charges are now the design questions. ' +
+            '<br><br>This is a favourite exam trap. <b>Linked dataset = queried. Linked subscription = delivered.</b> Read the resource type before the verb.';
+    }
+    s.addEventListener('input', render);
+    bE.addEventListener('click', function(){ mode = 'exp'; render(); });
+    bS.addEventListener('click', function(){ mode = 'share'; render(); });
+    bD.addEventListener('click', function(){ res = 'ds'; render(); });
+    bT.addEventListener('click', function(){ res = 'topic'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

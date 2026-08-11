@@ -1,0 +1,693 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button::before{content:"○ ";font-weight:800}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"✓ "}
+.vz-act{min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-surface);color:var(--viz-accent);
+  border-radius:10px;font:inherit;font-weight:800;font-size:12.5px;padding:8px 14px}
+.vz-act[disabled]{border-color:var(--viz-line);color:var(--viz-muted)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+.vz-lab span{color:var(--viz-accent)}
+input[type=range]{width:100%;min-height:44px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Where Postings Come From</button>
+  <button class="viz-tab" data-viz-tab="2">2. Build Runs, Merge Runs</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Binary Counter</button>
+  <button class="viz-tab" data-viz-tab="4">4. Segments And Tombstones</button>
+  <button class="viz-tab" data-viz-tab="5">5. Rebuild Or Merge</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Where Postings Come From</h2>
+  <p class="vz-lede"><b>The Inverted Index: Dictionary and Postings</b> handed you the structure;
+    <b>Boolean Query Processing by Intersecting Postings</b>, <b>Query Optimization: Processing Rarest Terms
+    First</b> and <b>Skip Pointers</b> spent it. All three assumed it was already there, sorted and holding
+    still. Drag the memory budget and watch what it takes to <em>make</em> it.
+    <b>Like a phone book: every lesson so far taught you to look someone up — this one is about printing
+    it.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side">
+      <h5>lessons 01–03 · you already know</h5>
+      <div class="v1-chip">dictionary → postings list</div>
+      <div class="v1-chip">intersect, rarest term first</div>
+      <div class="v1-chip">skip pointers, positions</div>
+    </div>
+    <div class="v1-arrow" aria-hidden="true">◀ built by ▶</div>
+    <div class="v1-side">
+      <h5>lesson 04 · this lesson</h5>
+      <div class="v1-chip">blocks under a memory bound</div>
+      <div class="v1-chip">sorted, immutable runs</div>
+      <div class="v1-chip">one sequential merge → manifest</div>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-m">Block capacity M = <span id="v1-ml">50 M</span> occurrences
+      &nbsp;·&nbsp; corpus emits T = 1,000,000,000 occurrence records</label>
+    <input type="range" id="v1-m" min="0" max="5" value="2" step="1" aria-label="Block capacity in occurrences">
+    <div class="v1-pills" id="v1-runs"></div>
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Notice which number barely moves. Sort work is <b>O(T log M)</b> — the logarithm is over
+    the <em>block</em>, not the corpus — so shrinking M by 50× changes comparisons by about a fifth while
+    changing peak memory by 50×. That asymmetry is the whole reason blocked construction exists: you buy a
+    hard memory bound almost for free, and pay for it in runs to merge and temporary storage.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:8px;align-items:stretch;margin-bottom:12px;flex-wrap:wrap}
+    .v1-side{flex:1 1 150px;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px;
+      background:var(--viz-surface)}
+    .v1-side h5{margin:0 0 7px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-chip{font-family:ui-monospace,Consolas,monospace;font-size:11px;border:1px solid var(--viz-line);
+      border-radius:8px;padding:5px 7px;margin-bottom:5px;color:var(--viz-ink)}
+    .v1-arrow{flex:0 0 auto;align-self:center;font-size:10.5px;font-weight:800;color:var(--viz-violet);
+      letter-spacing:.03em}
+    .v1-pills{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+  </style>
+  <script>
+  (function(){
+    var T = 1e9;
+    var MS = [
+      { l:'10 M', m:1e7 }, { l:'25 M', m:2.5e7 }, { l:'50 M', m:5e7 },
+      { l:'100 M', m:1e8 }, { l:'200 M', m:2e8 }, { l:'500 M', m:5e8 }
+    ];
+    var s = document.getElementById('v1-m'), lab = document.getElementById('v1-ml');
+    var pills = document.getElementById('v1-runs'), bars = document.getElementById('v1-bars'),
+        why = document.getElementById('v1-why');
+
+    function bn(x){ return (Math.round(x / 1e8) / 10).toFixed(1); }   // → "billions", 1 dp
+
+    function render(){
+      var i = Math.min(MS.length - 1, Math.max(0, Number(s.value) || 0));
+      var M = MS[i].m;
+      lab.textContent = MS[i].l;
+
+      var runs = Math.ceil(T / Math.max(M, 1));
+      var cmp = T * Math.log2(Math.max(M, 2));            // Σ over runs of O(M log M)
+      var mono = T * Math.log2(T);                        // the sort you cannot do
+      var few = runs <= 5, many = runs >= 40;
+      var c = (few || many) ? 'var(--viz-amber)' : 'var(--viz-green)';
+
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">⌈T/M⌉ = ' + runs + ' run' + (runs === 1 ? '' : 's') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">sort ≈ ' + bn(cmp) + ' B comparisons</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">one global sort ≈ ' + bn(mono) + ' B</span>';
+
+      function bar(t, v, total, col, sub){
+        var pct = Math.max(1, Math.round(v / Math.max(total, 1) * 100));
+        return '<div class="v1-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + (Math.round(v / 1e6)).toLocaleString() + ' M records</b></h6>' +
+          '<div class="v1-track"><i style="width:' + pct + '%;background:' + col + '"></i></div>' +
+          '<div class="v1-sub">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('one in-memory term map (what will not fit)', T, T, 'var(--viz-red)',
+          'Every occurrence resident at once, with random insertion into one giant postings structure. This is the build that dies.') +
+        bar('blocked build · peak memory', M, T, 'var(--viz-green)',
+          'Parse → emit (term, doc_id, position) → sort by term, then doc, then position → write an immutable run. Then the block is dropped and the next one starts.');
+
+      why.innerHTML = many
+        ? '<b style="color:var(--viz-amber)">Small blocks: cheap retries, many runs to merge.</b>' +
+          runs + ' runs all have to be merged, and every occurrence still travels through one or more merge levels, so I/O per level is proportional to the whole dataset. You also need temporary storage for the runs <em>plus</em> the final output at once. ' +
+          '<br><br>What you gain: a failed block costs almost nothing to redo, because a run is written under a temporary name, validated against counts and a checksum, and only then added to the manifest.'
+        : few
+          ? '<b style="color:var(--viz-amber)">Big blocks: less merge work, a much more expensive failure.</b>' +
+            'Only ' + runs + ' runs to merge — but peak memory is now ' + MS[i].l + ' records, and that budget must cover token strings, positions, sort pointers, runtime overhead <em>and</em> output buffers, not just the raw records. ' +
+            '<br><br>A repetitive or unusually long document can blow the assumption, so builders cap document size or spill safely rather than crash the block. And a block that dies at 95% has to be redone from the start.'
+          : '<b style="color:var(--viz-green)">A workable bound.</b>' +
+            runs + ' runs, peak memory ' + MS[i].l + ' records, and the merge is <b>sequential over immutable files</b> — only the current term heads and postings buffers are ever live. ' +
+            '<br><br>Parallel workers can build these blocks independently, because document-ID ranges or input partitions define ownership. That only works with deterministic IDs and one analyzer version: local counters or a different tokenizer produce collisions and inconsistent keys that the merge cannot detect.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Build Runs, Merge Runs</h2>
+  <p class="vz-lede">Three sorted runs go in, one dictionary comes out. Step the merge and watch equal terms
+    from different runs meet, their already-sorted postings joining into one list.
+    <b>Like three alphabetised card boxes being combined into one: you only ever look at the front card of
+    each.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Local aggregation">
+    <button id="v2-agg" aria-pressed="false">local aggregation in the block</button>
+  </div>
+  <div class="v2-agg" id="v2-aggline"></div>
+
+  <div class="v2-runs" id="v2-runs"></div>
+
+  <div class="vz-card">
+    <div class="v2-out vz-mono" id="v2-out"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <div class="v2-ctl">
+    <button class="vz-act" id="v2-step">Step the merge ▶</button>
+    <button class="vz-act" id="v2-reset">Reset</button>
+  </div>
+
+  <p class="vz-note">The final writer records dictionary offsets and encodes document and position gaps — the
+    next lesson. What it cannot do is recognise <b>semantic</b> duplicates: if the same document was ingested
+    twice under two IDs, the merge dutifully produces two postings. That is a job for stable source IDs and
+    build policy, and it is why the manifest carries each run's input scope, checksum, record counts, term
+    range and analyzer version.</p>
+
+  <style>
+    .v2-agg{font-size:11.5px;color:var(--viz-muted);line-height:1.5;margin:-4px 0 12px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-runs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v2-r{flex:1 1 150px;border:1.5px solid var(--viz-line);border-radius:11px;padding:9px 10px;
+      background:var(--viz-surface)}
+    .v2-r h5{margin:0 0 7px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v2-t{font-family:ui-monospace,Consolas,monospace;font-size:11px;padding:4px 6px;border-radius:7px;
+      border:1px solid var(--viz-line);margin-bottom:4px;display:flex;justify-content:space-between;gap:6px}
+    .v2-t.is-head{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:700}
+    .v2-t.is-done{opacity:.4;border-style:dashed}
+    .v2-t small{font-weight:800;letter-spacing:.03em}
+    .v2-out{min-height:76px}
+    .v2-ctl{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+    .v2-ctl button{flex:1 1 140px}
+  </style>
+  <script>
+  (function(){
+    // The worked example, verbatim: run A, run B, run C.
+    var RUNS = [
+      { n:'run A', terms:[ { t:'cloud', p:[1,4] }, { t:'vector', p:[2] } ] },
+      { n:'run B', terms:[ { t:'database', p:[5] }, { t:'vector', p:[3,6] } ] },
+      { n:'run C', terms:[ { t:'cloud', p:[8] }, { t:'search', p:[7] }, { t:'vector', p:[9] } ] }
+    ];
+    var NOTE = {
+      cloud: 'Two runs had a head of <code>cloud</code>. Equal terms meet in the merge and their sorted postings are merged: [1,4] from A and [8] from C give <b>[1,4,8]</b> — no re-sorting, just a walk.',
+      database: 'Only run B holds <code>database</code>. A term present on one side passes straight through, unchanged.',
+      search: 'Same again for <code>search</code> from run C. The merge never needs the whole vocabulary in memory — just one head per run.',
+      vector: 'All three runs held <code>vector</code>, so all three postings streams are consumed at once: [2] + [3,6] + [9] = <b>[2,3,6,9]</b>. Because each run was already sorted by document ID, the output is sorted for free.'
+    };
+    var agg = false, emitted = [];
+    var runsEl = document.getElementById('v2-runs'), outEl = document.getElementById('v2-out'),
+        whyEl = document.getElementById('v2-why'), aggEl = document.getElementById('v2-aggline'),
+        stepB = document.getElementById('v2-step'), resetB = document.getElementById('v2-reset'),
+        aggB = document.getElementById('v2-agg');
+
+    function nextTerm(){
+      var heads = [];
+      RUNS.forEach(function(r){
+        r.terms.forEach(function(x){ if (emitted.indexOf(x.t) === -1) heads.push(x.t); });
+      });
+      if (!heads.length) return null;
+      heads.sort();
+      return heads[0];
+    }
+
+    function render(msg){
+      var pending = nextTerm();
+      runsEl.innerHTML = RUNS.map(function(r){
+        var rows = r.terms.map(function(x){
+          var done = emitted.indexOf(x.t) !== -1;
+          var head = !done && x.t === pending;
+          var tag = done ? '<small style="color:var(--viz-muted)">merged</small>'
+            : (head ? '<small style="color:var(--viz-accent)">HEAD</small>' : '');
+          return '<div class="v2-t ' + (done ? 'is-done' : (head ? 'is-head' : '')) + '">' +
+            '<span>' + x.t + ' → [' + x.p.join(',') + ']</span>' + tag + '</div>';
+        }).join('');
+        return '<div class="v2-r"><h5>' + r.n + '</h5>' + rows + '</div>';
+      }).join('');
+
+      outEl.innerHTML = emitted.length
+        ? emitted.map(function(t){
+            var post = [];
+            RUNS.forEach(function(r){ r.terms.forEach(function(x){ if (x.t === t) post = post.concat(x.p); }); });
+            post.sort(function(a, b){ return a - b; });
+            var pad = t;
+            while (pad.length < 9) pad += ' ';
+            return pad + '-> [' + post.join(',') + ']';
+          }).join('\n')
+        : 'final dictionary + postings\n(nothing emitted yet — press Step)';
+
+      stepB.disabled = !pending;
+      stepB.textContent = pending ? 'Step the merge ▶' : 'merge complete';
+      whyEl.innerHTML = msg;
+    }
+
+    function aggLine(){
+      aggEl.innerHTML = agg
+        ? 'run C · vector in doc 9: <b style="color:var(--viz-green)">1 posting</b> carrying 5 positions — written once'
+        : 'run C · vector in doc 9: <b style="color:var(--viz-amber)">5 separate records</b> — one per occurrence';
+      aggB.setAttribute('aria-pressed', agg ? 'true' : 'false');
+    }
+
+    function start(){
+      emitted = [];
+      render('<b>Sorted runs, one head each.</b>The merge picks the smallest head term across the runs. ' +
+        'Only the current heads and postings buffers need to be live, so this is a <b>sequential pass over immutable files</b> rather than random insertion into one giant structure.');
+    }
+
+    stepB.addEventListener('click', function(){
+      var t = nextTerm();
+      if (!t) return;
+      emitted.push(t);
+      var left = nextTerm();
+      render('<b>Emitted <code>' + t + '</code>.</b>' + NOTE[t] +
+        (left ? '' : '<br><br><b style="display:inline;color:var(--viz-green)">Done.</b> Four terms, one pass. ' +
+          'The output is written under a temporary name and validated against counts and a checksum <em>before</em> it enters the manifest — which is what makes a failed build resumable instead of ruinous.'));
+    });
+    resetB.addEventListener('click', start);
+    aggB.addEventListener('click', function(){
+      agg = !agg;
+      aggLine();
+      whyEl.innerHTML = agg
+        ? '<b style="color:var(--viz-green)">Local aggregation shrinks the run before it is written.</b>' +
+          'Five occurrences of <code>vector</code> inside one document become one posting carrying five positions. Same information, a fifth of the records to sort, spill and merge — and the positional payload the phrase queries of lesson 03 need is preserved exactly.'
+        : '<b style="color:var(--viz-amber)">No aggregation: one record per occurrence.</b>' +
+          'Every repeat of a term in a document is sorted, written and merged separately. Correct, and needlessly expensive — the block already has everything it needs to combine them.';
+    });
+
+    aggLine();
+    start();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Binary Counter</h2>
+  <p class="vz-lede">Logarithmic merge keeps immutable indexes whose capacities double: B, 2B, 4B… Add a
+    batch and the carries cascade exactly like adding one to a binary number. B = 1,000 documents.
+    <b>Like an odometer: most clicks move one wheel, and occasionally the whole row rolls over.</b></p>
+
+  <div class="v3-levels" id="v3-levels"></div>
+
+  <div class="vz-card">
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <div class="v3-ctl">
+    <button class="vz-act" id="v3-add">Add a batch of 1,000 ▶</button>
+    <button class="vz-act" id="v3-reset">Reset</button>
+  </div>
+
+  <p class="vz-note">Write amplification here is the price of <em>not</em> rebuilding: a document is rewritten
+    at most once per level as merges carry it upward, which is O(log N) — against O(N) if every batch rebuilt
+    the corpus. The knobs are the size ratio, level versus tier strategy, merge concurrency and throttling;
+    the things to monitor are segment count, tombstone ratio, merge backlog, bytes written per source byte,
+    and query latency.</p>
+
+  <style>
+    .v3-levels{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v3-l{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-surface);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      min-height:44px}
+    .v3-l.is-full{border-color:var(--viz-accent)}
+    .v3-l.is-new{border-color:var(--viz-green)}
+    .v3-lb{flex:0 0 26px;font-weight:800;color:var(--viz-muted)}
+    .v3-cap{flex:0 0 86px;color:var(--viz-muted)}
+    .v3-bar{flex:1;height:14px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v3-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v3-mk{flex:0 0 96px;text-align:right;font-size:10.5px;font-weight:800;letter-spacing:.03em}
+    .v3-stats{display:flex;gap:8px;flex-wrap:wrap}
+    .v3-ctl{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+    .v3-ctl button{flex:1 1 160px}
+  </style>
+  <script>
+  (function(){
+    var B = 1000, LEVELS = 5;
+    var levels = [], batches = 0, written = 0, lastMsg = '';
+    var lvEl = document.getElementById('v3-levels'), stEl = document.getElementById('v3-stats'),
+        whyEl = document.getElementById('v3-why'),
+        addB = document.getElementById('v3-add'), resetB = document.getElementById('v3-reset');
+    var touched = {};
+
+    function reset(){
+      levels = []; for (var i = 0; i < LEVELS; i++) levels.push(0);
+      batches = 0; written = 0; touched = {};
+      lastMsg = '<b>Empty.</b>Each level holds at most one immutable segment, and level i holds up to 2<sup>i</sup>×B documents. Press add — and watch batches 2 and 4 in particular.';
+      render();
+    }
+
+    function addBatch(){
+      touched = {};
+      batches += 1;
+      var carry = B;                 // the new level-0 segment is itself written
+      written += carry;
+      var i = 0, merges = 0;
+      while (i < LEVELS - 1 && levels[i] > 0) {
+        carry = levels[i] + carry;   // merging two segments writes the merged output
+        written += carry;
+        levels[i] = 0;
+        touched[i] = 'emptied';
+        merges += 1;
+        i += 1;
+      }
+      // The top level has nowhere to carry to, so it simply absorbs — otherwise a
+      // 33rd batch would overwrite it and the document count would silently drop.
+      if (levels[i] > 0) { carry = levels[i] + carry; written += carry; merges += 1; }
+      levels[i] = carry;
+      touched[i] = 'new';
+
+      var segs = levels.filter(function(x){ return x > 0; }).length;
+      lastMsg = merges === 0
+        ? '<b style="color:var(--viz-green)">Batch ' + batches + ': no collision — a plain write.</b>' +
+          'Level 0 was free, so the new 1,000 documents land there as a small sorted segment and nothing else moves. This is the cheap case, and it is the common one: half of all batches stop here.'
+        : '<b style="color:var(--viz-amber)">Batch ' + batches + ': ' + (merges === 1 ? 'one carry' : merges + ' carries') + ' up the levels.</b>' +
+          'Level 0 was occupied, so the two size-B segments merged into one 2B segment' +
+          (merges > 1 ? ' — which collided again, and carried on up to level ' + i + ', now holding ' + carry.toLocaleString() + ' documents.' : ' at level 1.') +
+          ' Merging walks both term dictionaries in order: equal terms have their sorted postings merged and duplicate document IDs resolved by generation; terms on one side pass through. ' +
+          'Because output is new and immutable, readers keep using the old segments until a manifest atomically swaps in the new set.';
+      lastMsg += '<br><br>' + segs + ' live segment' + (segs === 1 ? '' : 's') + ' now — and <b>every query must search all of them</b> and merge the results.';
+      render();
+    }
+
+    function render(){
+      var total = 0, segs = 0;
+      lvEl.innerHTML = levels.map(function(v, i){
+        var cap = B * Math.pow(2, i);
+        total += v; if (v > 0) segs += 1;
+        var st = touched[i];
+        var cls = v > 0 ? (st === 'new' ? 'is-new' : 'is-full') : '';
+        var mark = v > 0
+          ? '<span class="v3-mk" style="color:' + (st === 'new' ? 'var(--viz-green)' : 'var(--viz-accent)') + '">' +
+            (st === 'new' ? 'NEW · ' : 'held · ') + v.toLocaleString() + '</span>'
+          : '<span class="v3-mk" style="color:var(--viz-muted)">' + (st === 'emptied' ? 'merged away' : 'empty') + '</span>';
+        return '<div class="v3-l ' + cls + '"><span class="v3-lb">L' + i + '</span>' +
+          '<span class="v3-cap">≤ ' + cap.toLocaleString() + '</span>' +
+          '<span class="v3-bar"><i style="width:' + Math.min(100, Math.round(v / Math.max(cap, 1) * 100)) + '%"></i></span>' + mark + '</div>';
+      }).join('');
+
+      var amp = total > 0 ? written / total : 0;
+      var rebuildEach = B * batches * (batches + 1) / 2;   // rebuilding the corpus every batch
+      stEl.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + batches + ' batches · ' + total.toLocaleString() + ' docs</span>' +
+        '<span class="vz-pill" style="color:' + (segs > 3 ? 'var(--viz-amber)' : 'var(--viz-green)') + ';border-color:' + (segs > 3 ? 'var(--viz-amber)' : 'var(--viz-green)') + '">' + segs + ' segment' + (segs === 1 ? '' : 's') + ' = ' + segs + ' dictionary probes / term</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + written.toLocaleString() + ' doc-writes = ' + (total > 0 ? amp.toFixed(2) + '× amplification' : 'no writes yet') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">rebuild-every-batch would be ' + rebuildEach.toLocaleString() + '</span>';
+      whyEl.innerHTML = lastMsg;
+      addB.disabled = false;
+    }
+
+    addB.addEventListener('click', addBatch);
+    resetB.addEventListener('click', reset);
+    reset();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Segments And Tombstones</h2>
+  <p class="vz-lede">Merging buys read speed with write I/O, and a delete is not gone until a merge sees both
+    the tombstone and the data it suppresses. Move the policy, then switch off generation ordering and watch
+    a deleted document come back. <b>Like crossing a name off a list in pencil: it is still on the page until
+    somebody retypes the list.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="vz-lab" for="v4-seg">Merge policy: <span id="v4-segl">6 live segments</span></label>
+    <input type="range" id="v4-seg" min="1" max="12" value="6" step="1" aria-label="Live segment count">
+    <div class="v4-strip" id="v4-strip"></div>
+    <div class="v4-stats" id="v4-stats"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Duplicate resolution">
+    <button id="v4-gen" aria-pressed="true">resolve by generation</button>
+    <button id="v4-naive" aria-pressed="false">naive union of segments</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-q" id="v4-q"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Concurrency rests on generation IDs too: a merge <b>snapshots</b> its inputs, documents
+    arriving meanwhile land in another segment and are not lost, and at commit you verify the inputs are
+    still live before publishing the new manifest. Old segments are garbage-collected only once no reader
+    references them — which is exactly why nothing is ever edited in place.</p>
+
+  <style>
+    .v4-strip{margin-top:14px;display:flex;gap:3px;flex-wrap:wrap;min-height:26px}
+    .v4-sg{height:22px;border-radius:4px;background:var(--viz-accent);opacity:.8;flex:0 0 auto}
+    .v4-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-q{display:flex;flex-direction:column;gap:5px}
+    .v4-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      flex-wrap:wrap}
+    .v4-row.is-out{opacity:.45;border-style:dashed}
+    .v4-row.is-bad{border-color:var(--viz-red)}
+    .v4-row.is-ok{border-color:var(--viz-green)}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var BASE = 12, DOCS_PER = 1000, DELETES = 2000;
+    var s = document.getElementById('v4-seg'), lab = document.getElementById('v4-segl');
+    var strip = document.getElementById('v4-strip'), stats = document.getElementById('v4-stats');
+    var qEl = document.getElementById('v4-q'), whyEl = document.getElementById('v4-why');
+    var bGen = document.getElementById('v4-gen'), bNaive = document.getElementById('v4-naive');
+    var byGen = true;
+
+    // One query, four live segments, newest first. Generation decides who wins.
+    var HITS = [
+      { seg:'segment 4', gen:4, what:'doc 7 · version 2 (edited today)', kind:'new' },
+      { seg:'segment 4', gen:4, what:'doc 12 · TOMBSTONE (deleted today)', kind:'tomb' },
+      { seg:'segment 3', gen:3, what:'doc 3 · only copy', kind:'plain' },
+      { seg:'segment 2', gen:2, what:'doc 12 · body still on disk', kind:'dead' },
+      { seg:'segment 1', gen:1, what:'doc 7 · version 1 (superseded)', kind:'stale' }
+    ];
+
+    function renderTrade(){
+      var n = Math.min(BASE, Math.max(1, Number(s.value) || 1));
+      lab.textContent = n + ' live segment' + (n === 1 ? '' : 's');
+
+      var w = Math.max(6, Math.round(300 / n));
+      strip.innerHTML = Array.from({ length: n }, function(){
+        return '<div class="v4-sg" style="width:' + w + 'px"></div>';
+      }).join('');
+
+      // merging BASE base segments down to n rewrites each document about log2(BASE/n) times
+      var passes = Math.log2(BASE / n);
+      var rewritten = Math.round(BASE * DOCS_PER * Math.max(passes, 0));
+      var stale = Math.round(DELETES * (n - 1) / (BASE - 1));
+      var lazy = n >= 9, tight = n <= 2;
+
+      stats.innerHTML =
+        '<span class="vz-pill" style="color:' + (lazy ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (lazy ? 'var(--viz-red)' : 'var(--viz-green)') + '">read: ' + n + ' dictionary probe' + (n === 1 ? '' : 's') + ' per query term</span>' +
+        '<span class="vz-pill" style="color:' + (tight ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (tight ? 'var(--viz-red)' : 'var(--viz-line)') + '">write: ~' + rewritten.toLocaleString() + ' doc-rewrites to get here</span>' +
+        '<span class="vz-pill" style="color:' + (lazy ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' + (lazy ? 'var(--viz-amber)' : 'var(--viz-line)') + '">' + stale.toLocaleString() + ' deleted docs still carried</span>';
+      return { n:n, lazy:lazy, tight:tight, stale:stale, rewritten:rewritten };
+    }
+
+    function renderQuery(t){
+      qEl.innerHTML = HITS.map(function(h){
+        var out, tag, col, cls;
+        if (byGen) {
+          out = (h.kind === 'stale' || h.kind === 'dead' || h.kind === 'tomb');
+          tag = h.kind === 'stale' ? '✕ superseded by gen 4'
+            : h.kind === 'dead' ? '✕ suppressed by tombstone'
+            : h.kind === 'tomb' ? '✕ tombstone, not a result'
+            : '✓ returned';
+          col = out ? 'var(--viz-muted)' : 'var(--viz-green)';
+          cls = out ? 'is-out' : 'is-ok';
+        } else {
+          out = (h.kind === 'tomb');
+          tag = h.kind === 'stale' ? '⚠ duplicate, stale body'
+            : h.kind === 'dead' ? '⚠ DELETED doc returned'
+            : h.kind === 'tomb' ? '✕ tombstone ignored'
+            : '✓ returned';
+          col = h.kind === 'stale' || h.kind === 'dead' ? 'var(--viz-red)' : (out ? 'var(--viz-muted)' : 'var(--viz-green)');
+          cls = h.kind === 'stale' || h.kind === 'dead' ? 'is-bad' : (out ? 'is-out' : 'is-ok');
+        }
+        return '<div class="v4-row ' + cls + '"><span style="color:var(--viz-muted)">' + h.seg + ' · gen ' + h.gen + '</span>' +
+          '<span>' + h.what + '</span><span class="v4-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      whyEl.innerHTML = byGen
+        ? '<b style="color:var(--viz-green)">Newest generation wins, tombstones suppress.</b>' +
+          'Term lookup probes every live segment dictionary, then results are combined — and a stable document ID appearing in two segments is resolved by generation, so doc 7 returns once, as version 2. Doc 12\'s tombstone suppresses the body still sitting in segment 2. ' +
+          '<br><br>Those bytes are not gone: <b>the record disappears physically only when a merge includes both the tombstone and the obsolete data</b>. At ' + t.n + ' segments this model still carries about ' + t.stale.toLocaleString() + ' deleted documents, costing space and query work on every search.'
+        : '<b style="color:var(--viz-red)">Without version semantics the index lies twice.</b>' +
+          'Doc 7 comes back as two hits, one of them the superseded body — and doc 12, deleted today, is returned as a live result because its tombstone was never consulted. ' +
+          '<br><br>This is why merge-based updates need generation IDs and a live-doc/version map, not just an append. The same requirement bites the merge itself: when equal terms meet, duplicate document IDs are resolved <em>by generation</em>, or the merged segment bakes the wrong version in permanently.';
+      if (t.lazy) {
+        whyEl.innerHTML += '<br><br><b style="display:inline;color:var(--viz-amber)">Lazy policy:</b> high write throughput, but ' + t.n + ' probes per term, a long merge backlog and stale bytes accumulating.';
+      } else if (t.tight) {
+        whyEl.innerHTML += '<br><br><b style="display:inline;color:var(--viz-amber)">Aggressive policy:</b> minimal fan-out and deletes reclaimed — paid for with ~' + t.rewritten.toLocaleString() + ' doc-rewrites of I/O and CPU that competes with ingestion and queries.';
+      }
+    }
+
+    function all(){ renderQuery(renderTrade()); }
+    s.addEventListener('input', all);
+    bGen.addEventListener('click', function(){ byGen = true; bGen.setAttribute('aria-pressed','true'); bNaive.setAttribute('aria-pressed','false'); all(); });
+    bNaive.addEventListener('click', function(){ byGen = false; bGen.setAttribute('aria-pressed','false'); bNaive.setAttribute('aria-pressed','true'); all(); });
+    all();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Rebuild Or Merge</h2>
+  <p class="vz-lede">Corpus size S, daily changed documents Δ, merge write amplification W. Incremental costs
+    about WΔ a day; a rebuild costs about S. Then tick a trigger and watch the arithmetic stop mattering.
+    <b>Like repainting one wall versus the whole house — until you change the colour, and then it is the
+    whole house whatever the paint costs.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Worked scenarios">
+    <button id="v5-p1" aria-pressed="true">research corpus · 10M docs</button>
+    <button id="v5-p2" aria-pressed="false">policy corpus · 50k docs</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="vz-lab" for="v5-s">Corpus S = <span id="v5-sl">10,000,000</span> docs</label>
+    <input type="range" id="v5-s" min="0" max="5" value="3" step="1" aria-label="Corpus size">
+    <label class="vz-lab" for="v5-d" style="margin-top:8px">Changed per day Δ = <span id="v5-dl">5,000</span> docs</label>
+    <input type="range" id="v5-d" min="0" max="5" value="2" step="1" aria-label="Documents changed per day">
+    <label class="vz-lab" for="v5-w" style="margin-top:8px">Merge write amplification W = <span id="v5-wl">3</span>×</label>
+    <input type="range" id="v5-w" min="1" max="6" value="3" step="1" aria-label="Merge write amplification">
+    <div class="v5-stats" id="v5-stats"></div>
+  </div>
+
+  <div class="v5-trig" id="v5-trig"></div>
+
+  <div class="vz-card">
+    <div class="vz-why" id="v5-why" style="margin-top:0;padding-top:0;border-top:0"></div>
+  </div>
+
+  <p class="vz-note">The professional default is hybrid, and the closing question is the useful one:
+    <b>what failure should the system heal automatically?</b> A rebuild heals historical index state from the
+    source. A merge preserves existing state efficiently — including any undetected mistake in it. Either
+    way, stable IDs, deterministic analysis, manifests, counts, golden queries and rollback versions are what
+    make this a reversible engineering choice rather than a leap of faith.</p>
+
+  <style>
+    .v5-stats{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-trig{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v5-t{flex:1 1 150px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:7px 9px;
+      text-align:left;line-height:1.35}
+    .v5-t::before{content:"○ ";font-weight:800}
+    .v5-t[aria-pressed="true"]{border-color:var(--viz-red);color:var(--viz-red)}
+    .v5-t[aria-pressed="true"]::before{content:"▲ "}
+  </style>
+  <script>
+  (function(){
+    var SS = [50000, 250000, 1000000, 10000000, 100000000, 1000000000];
+    var DD = [50, 500, 5000, 50000, 500000, 5000000];
+    var TRIGGERS = [
+      { l:'analyzer change (new stemming or tokenization)',
+        why:'New stemming or tokenization changes the keys and the term statistics. Mixing old and new analysis across segments creates inconsistent retrieval, so you build a complete new version or reprocess every old segment — there is no third option.' },
+      { l:'schema change: add positions',
+        why:'A merge cannot invent a payload that old postings never stored. Adding positions means reindexing the source text, which is a rebuild by another name.' },
+      { l:'40% of documents deleted',
+        why:'Writing tombstones and carrying dead postings through several merges wastes space and query work on every search. A rebuild emits only live data. (Small frequent deletes are the opposite case: tombstones plus normal compaction.)' },
+      { l:'unexplained count drift vs source',
+        why:'Merge preserves state, including mistakes; only re-deriving from the authoritative corpus proves the index still matches source truth. This is also the reason to schedule a periodic rebuild or reconciliation even when incremental is winning on cost.' }
+    ];
+    var si = document.getElementById('v5-s'), di = document.getElementById('v5-d'), wi = document.getElementById('v5-w');
+    var sl = document.getElementById('v5-sl'), dl = document.getElementById('v5-dl'), wl = document.getElementById('v5-wl');
+    var stats = document.getElementById('v5-stats'), trig = document.getElementById('v5-trig'), why = document.getElementById('v5-why');
+    var p1 = document.getElementById('v5-p1'), p2 = document.getElementById('v5-p2');
+    var on = [false, false, false, false];
+
+    TRIGGERS.forEach(function(t, i){
+      var b = document.createElement('button');
+      b.className = 'v5-t';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = t.l;
+      b.addEventListener('click', function(){
+        on[i] = !on[i];
+        b.setAttribute('aria-pressed', on[i] ? 'true' : 'false');
+        render();
+      });
+      trig.appendChild(b);
+    });
+
+    function render(){
+      var S = SS[Math.min(5, Math.max(0, Number(si.value) || 0))];
+      var D = DD[Math.min(5, Math.max(0, Number(di.value) || 0))];
+      var W = Math.min(6, Math.max(1, Number(wi.value) || 1));
+      sl.textContent = S.toLocaleString();
+      dl.textContent = D.toLocaleString();
+      wl.textContent = W;
+
+      var daily = W * D;                       // ≈ WΔ
+      var days = daily > 0 ? S / daily : 0;    // rebuilds' worth of merging
+      var pct = S > 0 ? (D / S) * 100 : 0;
+      var small = S <= 250000;
+      var fired = TRIGGERS.filter(function(t, i){ return on[i]; });
+
+      p1.setAttribute('aria-pressed', (S === 10000000 && D === 5000 && W === 3) ? 'true' : 'false');
+      p2.setAttribute('aria-pressed', (S === 50000 && D === 500 && W === 3) ? 'true' : 'false');
+
+      stats.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">Δ/S = ' + (pct < 0.01 ? pct.toFixed(4) : pct.toFixed(2)) + '% changed per day</span>' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">incremental: ' + daily.toLocaleString() + ' doc-writes/day</span>' +
+        '<span class="vz-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">rebuild: ' + S.toLocaleString() + ' doc-writes</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + (daily > 0 ? '1 rebuild ≈ ' + Math.round(days).toLocaleString() + ' days of merging' : 'nothing changing') + '</span>';
+
+      var head, body;
+      if (fired.length) {
+        head = '<b style="color:var(--viz-red)">▲ REBUILD — the trigger overrides the arithmetic.</b>';
+        body = fired.map(function(t){ return '<b style="display:inline">' + t.l + '.</b> ' + t.why; }).join('<br><br>') +
+          '<br><br>Note that ' + (days >= 30 ? 'incremental still wins the cost comparison outright (' + Math.round(days).toLocaleString() + ' days of merging per rebuild)' : 'the cost comparison is close anyway') +
+          ' — and it does not matter. These are correctness and drift questions, not price questions.';
+      } else if (small) {
+        head = '<b style="color:var(--viz-amber)">Full replacement — simplicity has measurable value.</b>';
+        body = 'At ' + S.toLocaleString() + ' documents the build is minutes, not hours: the 50,000-document policy corpus in the notes builds in four minutes. A rebuild is one coherent artifact under one analyzer and schema version, physically free of deletes and fragmentation, self-healing because it is derived again from the authoritative source, and trivially rolled back through a build-version alias. ' +
+          '<br><br>Weigh that against permanent merge machinery: segments, tombstones, version precedence, background backlog and mixed analyzer generations, all of it to save ' + (S - daily > 0 ? (S - daily).toLocaleString() + ' doc-writes a day' : 'very little') + '. Include operational labour and incident risk, not just bytes.';
+      } else if (days >= 30) {
+        head = '<b style="color:var(--viz-green)">Incremental merge — the delta is tiny relative to the corpus.</b>';
+        body = 'A nightly rebuild would rewrite all ' + S.toLocaleString() + ' documents for a ' + (pct < 0.01 ? pct.toFixed(4) : pct.toFixed(2)) + '% change: one rebuild costs about ' + Math.round(days).toLocaleString() + ' days of merging. Small daily segments plus scheduled merging do work proportional to the change, times W. ' +
+          '<br><br>The tax is operational state, and it is real. So bound the drift: a monthly full rebuild or a source-to-index reconciliation proves the index still matches source truth. That hybrid — incremental for freshness, merges for fan-out, periodic rebuild for proof — is the professional default.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">Close call — merge cost is approaching replacement cost.</b>';
+        body = 'At ' + daily.toLocaleString() + ' doc-writes a day against a rebuild of ' + S.toLocaleString() + ', one rebuild is only ' + (days < 1 ? 'a fraction of a day' : Math.round(days) + ' day' + (Math.round(days) === 1 ? '' : 's')) + ' of merging. Cumulative merge cost approaching replacement cost is itself a documented trigger to rebuild — you are paying rebuild prices for incremental complexity. ' +
+          '<br><br>Either lower W (fewer, larger merges) or accept periodic replacement. And remember what the raw numbers exclude: query read amplification from all those live segments, operational labour, and incident risk.';
+      }
+      why.innerHTML = head + body;
+    }
+
+    p1.addEventListener('click', function(){ si.value = 3; di.value = 2; wi.value = 3; render(); });
+    p2.addEventListener('click', function(){ si.value = 0; di.value = 1; wi.value = 3; render(); });
+    si.addEventListener('input', render);
+    di.addEventListener('input', render);
+    wi.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

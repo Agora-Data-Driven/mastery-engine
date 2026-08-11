@@ -1,0 +1,651 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 128px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Pipeline To Product</button>
+  <button class="viz-tab" data-viz-tab="2">2. Probing IVF Lists</button>
+  <button class="viz-tab" data-viz-tab="3">3. Five Index Profiles</button>
+  <button class="viz-tab" data-viz-tab="4">4. Sync Without Dual Writes</button>
+  <button class="viz-tab" data-viz-tab="5">5. Exact Search First</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Pipeline To Product</h2>
+  <p class="vz-lede"><b>Chunk-and-Embed as an Idempotent Batch Job</b>, <b>Storing Vectors Beside Metadata</b>
+    and <b>Pre-Filter vs Post-Filter in ANN Search</b> built the thing that produces vectors. A vector
+    database is what <em>serves</em> them. Tap a stage, then flip who owns the truth.
+    <b>Like a printed catalogue: useful, reprintable, and never the shop's actual stock ledger.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Who owns the truth">
+    <button id="v1-derived" aria-pressed="true">index = derived projection</button>
+    <button id="v1-owned" aria-pressed="false">index = the only copy</button>
+  </div>
+
+  <div class="v1-stages" id="v1-stages"></div>
+
+  <div class="vz-card">
+    <div class="v1-bar" id="v1-rebuild"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">A vector database is an operational system for indexing vectors, applying metadata
+    constraints, updating state, and serving similarity queries under <b>latency and availability goals</b>.
+    That is a product category, not a data structure — which is why the rest of this lesson is about
+    operational profile, synchronization and cost rather than about distance functions.</p>
+
+  <style>
+    .v1-stages{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-s{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-size:12.5px;display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-n{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-muted);width:14px}
+    .v1-tag{margin-left:auto;flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;
+      border:1.5px solid;border-radius:999px;padding:2px 8px}
+    .v1-bar{display:flex;align-items:center;gap:9px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;font-weight:800;border:1.5px solid;border-radius:9px;padding:8px 10px}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { t:'parse and extract', tag:'BUILT',
+        d:['Lesson 04 owns this — parsing and extraction as pipeline stages.',
+           'Nothing here changes. What changes is that the extracted text now has a <b>stable source identity</b> and a <b>source version</b> attached to it, because a serving projection downstream has to be able to say which version of the document it is currently showing.'],
+        o:['Still built — but now unreproducible.',
+           'If the index is the only copy, the extraction that produced it is a one-off event. Rebuilding after corruption means re-scraping a corpus that has moved on since.'] },
+      { t:'chunk (idempotent batch job)', tag:'BUILT',
+        d:['The same job, re-runnable, now carrying a <b>chunk version</b>.',
+           'Idempotency was already the contract: run it twice, get the same chunks. That contract is what makes a rebuild-and-swap index generation possible at all — you can regenerate the exact inputs the current generation was built from.'],
+        o:['The idempotency you paid for buys you nothing.',
+           'A re-runnable job is only valuable if something downstream is allowed to be thrown away and rebuilt. Declare the index authoritative and you have made the batch job ceremonial.'] },
+      { t:'embed (embedding_version pinned)', tag:'BUILT',
+        d:['Every record records which model produced it.',
+           'This is the field reconciliation uses to detect <b>wrong model versions</b> and <b>dimension mismatches</b> — two records that both look present and both answer queries, one of them from a model you retired six weeks ago.'],
+        o:['You cannot detect a mixed-model index.',
+           'With no authoritative expectation to diff against, a half-migrated collection returns plausible neighbours from two different vector spaces and nothing reports an error.'] },
+      { t:'store vectors beside metadata', tag:'BUILT',
+        d:['Payload fields travel with the vector — plus <b>metadata version</b> and <b>lifecycle state</b>.',
+           'Lifecycle state is the new one: active, restricted, deleted. It is what lets a delete or a revocation be expressed as a state change that every index generation and cache must honour, rather than as a row that quietly disappears from one of them.'],
+        o:['Deletes and revocations become unverifiable.',
+           'There is no manifest saying what should be searchable, so "is this revoked document still returnable somewhere?" has no answer short of querying for it and hoping.'] },
+      { t:'build an ANN index', tag:'NEW',
+        d:['Visual 3 — chosen by operational profile, not benchmark recall.',
+           'Recall, latency, build time, memory, disk, update behaviour, filtering, concurrency and recovery. Two indexes with similar benchmark recall can behave completely differently here, and only one of those nine dimensions appears on a leaderboard.'],
+        o:['The index choice becomes irreversible.',
+           'Rebuild-and-swap, generation manifests and rollback all assume you can construct the thing again from something else. Without that, changing index type is a migration project rather than a build.'] },
+      { t:'filter and serve under an SLO', tag:'NEW',
+        d:['Pre-filter versus post-filter returns as a <b>graph connectivity</b> question.',
+           'In a proximity graph, restricting traversal to eligible nodes can <b>disconnect eligible regions</b> — so metadata pre-filter behaviour is implementation-dependent, not a property of the query language. Serving also now owns freshness lag, revocation latency and recovery time.'],
+        o:['Recovery has no floor.',
+           'An index that meets steady-state latency but takes <b>twelve hours to restore</b> may violate the availability goal — and if it is the only copy, twelve hours is optimistic.'] }
+    ];
+    var derived = true, cur = 4;
+    var bD = document.getElementById('v1-derived'), bO = document.getElementById('v1-owned');
+    var list = document.getElementById('v1-stages'), bar = document.getElementById('v1-rebuild'), why = document.getElementById('v1-why');
+
+    function render(){
+      bD.setAttribute('aria-pressed', derived ? 'true' : 'false');
+      bO.setAttribute('aria-pressed', derived ? 'false' : 'true');
+      list.innerHTML = '';
+      STAGES.forEach(function(st, i){
+        var b = document.createElement('button');
+        b.className = 'v1-s';
+        b.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+        var col = st.tag === 'BUILT' ? 'var(--viz-green)' : 'var(--viz-violet)';
+        var word = st.tag === 'BUILT' ? 'BUILT ✓' : 'NEW ★';
+        b.innerHTML = '<span class="v1-n">' + (i + 1) + '</span><span>' + st.t + '</span>' +
+          '<span class="v1-tag" style="color:' + col + ';border-color:' + col + '">' + word + '</span>';
+        b.addEventListener('click', function(){ cur = i; render(); });
+        list.appendChild(b);
+      });
+      var c = derived ? 'var(--viz-green)' : 'var(--viz-red)';
+      bar.style.color = c; bar.style.borderColor = c;
+      bar.innerHTML = derived
+        ? '<span>REBUILDABLE ✓</span><span style="font-weight:600">corpus snapshot → chunks → embeddings → index generation → read alias</span>'
+        : '<span>REBUILDABLE ✗</span><span style="font-weight:600">nothing upstream can reconstruct what is being served</span>';
+      var st = STAGES[cur], txt = derived ? st.d : st.o;
+      why.innerHTML = '<b>' + txt[0] + '</b>' + txt[1] +
+        (derived
+          ? '<br><br><b style="display:inline;font-size:12.5px">The rule for the whole lesson:</b> the source of truth is the authoritative corpus or feature catalog, <em>not</em> the ANN index. The vector store is a derived serving projection that can be rebuilt.'
+          : '<br><br>Every failure on this setting is the same failure: an index promoted to source of truth has no manifest to be checked against, so <em>correct</em> and <em>corrupt</em> look identical from the outside.');
+    }
+    bD.addEventListener('click', function(){ derived = true; render(); });
+    bO.addEventListener('click', function(){ derived = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Probing IVF Lists</h2>
+  <p class="vz-lede">An inverted-file index trains centroids, assigns every vector to a coarse cluster, and at
+    query time searches only a few of them. Drag <code>nprobe</code> — then let the distribution drift and
+    watch the same knob stop meaning what it meant. <b>Like searching a warehouse by aisle: fine until
+    someone crams half the stock into three aisles.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Cluster balance">
+    <button id="v2-bal" aria-pressed="true">balanced lists</button>
+    <button id="v2-drift" aria-pressed="false">after distribution drift</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-nprobe">10,000 lists &nbsp;·&nbsp; <code>nprobe</code> =
+      <span id="v2-npl">20</span></label>
+    <input type="range" id="v2-nprobe" min="1" max="200" value="20" step="1" aria-label="nprobe, lists probed per query">
+    <div class="v2-grid" id="v2-grid"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Report this as a <b>curve, not a default</b>. The same discipline applies to HNSW's
+    <code>efSearch</code>, which controls how many candidates the graph traversal explores: larger values
+    usually improve recall and cost latency. A single tuned number in a benchmark table hides the only thing
+    a reviewer needs — the shape of the trade.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-grid{margin-top:15px;display:grid;grid-template-columns:repeat(20,1fr);gap:2px;align-items:end;min-height:34px}
+    .v2-c{background:var(--viz-line);border-radius:1.5px}
+    .v2-c.is-probe{background:var(--viz-accent)}
+    .v2-legend{font-size:10.5px;color:var(--viz-muted);margin-top:7px;line-height:1.5}
+    .v2-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LISTS = 10000, CELLS = 100, SKEW = 5.4;   // each cell = 100 lists; SKEW = the crowded lists' share of the mean
+    var balanced = true;
+    var s = document.getElementById('v2-nprobe'), lab = document.getElementById('v2-npl');
+    var bB = document.getElementById('v2-bal'), bD = document.getElementById('v2-drift');
+    var grid = document.getElementById('v2-grid'), stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+
+    function render(){
+      var n = Number(s.value);
+      lab.textContent = n;
+      bB.setAttribute('aria-pressed', balanced ? 'true' : 'false');
+      bD.setAttribute('aria-pressed', balanced ? 'false' : 'true');
+
+      var clusterPct = n / LISTS * 100;                       // nprobe=20 of 10,000 -> 0.20 %
+      var vectorPct  = balanced ? clusterPct : clusterPct * SKEW;
+      var probedCells = Math.max(1, Math.ceil(n / (LISTS / CELLS)));
+
+      var html = '';
+      for (var i = 0; i < CELLS; i++) {
+        var probe = i < probedCells;
+        // balanced: every list holds the same share. drifted: a few lists are enormous.
+        var h = balanced ? 14 : Math.round(6 + 26 * Math.pow(1 / (1 + (i % 17)), 0.55));
+        html += '<div class="v2-c' + (probe ? ' is-probe' : '') + '" style="height:' + h + 'px"></div>';
+      }
+      grid.innerHTML = html +
+        '<div class="v2-legend" style="grid-column:1/-1">Each cell = 100 lists; bar height = how many vectors that list holds. ' +
+        'Filled = probed this query (' + probedCells + ' of 100 cells).</div>';
+
+      var ok = vectorPct <= 1.2;
+      var c = ok ? 'var(--viz-green)' : 'var(--viz-amber)';
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">clusters probed ' + clusterPct.toFixed(2) + '%</span>' +
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">vectors scanned ≈ ' + vectorPct.toFixed(2) + '%</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + (100 - vectorPct).toFixed(2) + '% never looked at</span>';
+
+      why.innerHTML = balanced
+        ? '<b style="color:var(--viz-green)">' + n + ' of 10,000 lists = ' + clusterPct.toFixed(2) + '% of clusters probed.</b>' +
+          'At the documented setting — 10,000 lists and <code>nprobe=20</code> — roughly <b>0.2 percent of clusters</b> are probed before further candidate scoring. That is the entire pruning mechanism: coarse clusters chosen at query time, then real distance work only on what survives. ' +
+          'Increasing <code>nprobe</code> improves recall and raises work, in that order and always together. ' +
+          '<br><br>Drag it to 200 and you are at ' + (200 / LISTS * 100).toFixed(2) + '% — ten times the work for a recall gain that flattens out. The honest deliverable is the whole curve, measured against <b>exact top k</b>.'
+        : '<b style="color:var(--viz-amber)">Same ' + clusterPct.toFixed(2) + '% of clusters — but ≈ ' + vectorPct.toFixed(2) + '% of the vectors.</b>' +
+          'IVF needs representative training data. Poor centroids or <b>distribution drift create unbalanced lists and missed neighbours</b>: the crowded lists near the query hold about ' + SKEW + '× the mean here, so probing 20 of them is far more work than the cluster percentage suggests — while genuine neighbours sit in lists the query never selected. ' +
+          '<br><br>Note which number lied. <code>nprobe</code> did not change and neither did the cluster count; the <em>data</em> moved underneath a quantizer trained before it did. Appends are natural after training, but a major distribution change may warrant <b>retraining and rebuilding the quantizer</b> — an index build, not a config change. ' +
+          'This is also why a benchmark run on a clean synthetic distribution predicts nothing about month nine.';
+    }
+    s.addEventListener('input', render);
+    bB.addEventListener('click', function(){ balanced = true; render(); });
+    bD.addEventListener('click', function(){ balanced = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Five Index Profiles</h2>
+  <p class="vz-lede">Two indexes with similar benchmark recall can have very different operational profiles.
+    Turn on the constraints your workload actually has and read the verdict column — the words, not the
+    colours. <b>Like hiring for a job: the CV headline is recall, and everything that decides the outcome is
+    further down the page.</b></p>
+
+  <div class="v3-chips" id="v3-chips"></div>
+
+  <div class="v3-rows" id="v3-rows"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Capacity tests must include <b>failure and recovery</b>: replica rebuild time, index
+    loading, cache warmup, node loss, compaction while serving traffic. An index that meets steady-state
+    latency but takes <b>twelve hours to restore</b> may violate availability goals — and none of the five
+    rows above differs on that in a way any recall benchmark would show you.</p>
+
+  <style>
+    .v3-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v3-chip{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:6px 11px}
+    .v3-chip[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v3-rows{display:flex;flex-direction:column;gap:6px}
+    .v3-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v3-top{display:flex;align-items:center;gap:9px}
+    .v3-nm{font-weight:800;font-size:12.5px}
+    .v3-v{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.05em;border:1.5px solid;
+      border-radius:999px;padding:2px 9px;white-space:nowrap}
+    .v3-sub{font-size:11.5px;color:var(--viz-muted);line-height:1.5;margin-top:5px}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CONS = [
+      { k:'churn',  l:'heavy delete churn' },
+      { k:'ram',    l:'RAM is the binding cost' },
+      { k:'huge',   l:'vectors exceed memory' },
+      { k:'filter', l:'metadata pre-filter every query' },
+      { k:'exact',  l:'need an exact recall reference' },
+      { k:'drift',  l:'distribution drifts over time' }
+    ];
+    var IDX = [
+      { n:'HNSW', base:'multilayer proximity graph; efSearch controls exploration',
+        v:{ churn:['POOR','Deletion may be tombstoned until maintenance or rebuild, and heavy churn degrades the graph or leaves dead nodes.'],
+            ram:['POOR','Graph edges consume substantial memory — that is the price of the low-latency recall.'],
+            huge:['POOR','The graph wants to be resident; exceeding memory is exactly the case it is worst at.'],
+            filter:['CAUTION','Implementation-dependent: restricting graph traversal can disconnect eligible regions.'],
+            exact:['POOR','Approximate by construction — it cannot be its own reference.'],
+            drift:['FITS','Incremental insertion, and no trained centroids to invalidate.'] } },
+      { n:'IVF', base:'coarse centroids; nprobe lists probed per query',
+        v:{ churn:['CAUTION','Appends are natural after training, but sustained change pushes you toward a rebuild.'],
+            ram:['CAUTION','Full vectors are still stored, though without a graph on top of them.'],
+            huge:['CAUTION','Cheaper than a resident graph, still storing every vector uncompressed.'],
+            filter:['CAUTION','Selectivity changes how many lists you must probe — measure it with real filters.'],
+            exact:['POOR','Approximate: recall is whatever your nprobe curve says it is.'],
+            drift:['POOR','Poor centroids or drift create unbalanced lists and missed neighbours; retrain and rebuild the quantizer.'] } },
+      { n:'IVF-PQ', base:'coarse pruning plus product-quantized codes',
+        v:{ churn:['CAUTION','Same training dependency as IVF, with codebooks on top.'],
+            ram:['FITS','Short codes cut memory dramatically — the entire purpose of the structure.'],
+            huge:['FITS','Reduces memory and can support very large collections.'],
+            filter:['CAUTION','Same measurement obligation as IVF, under real selectivity.'],
+            exact:['POOR','Quantization loses accuracy; rerank a shortlist with the original vectors to recover quality.'],
+            drift:['POOR','Requires training — both the centroids and the codebooks go stale.'] } },
+      { n:'Disk-oriented graph', base:'graph on SSD, critical regions cached in RAM',
+        v:{ churn:['CAUTION','Graph maintenance now costs I/O as well as CPU.'],
+            ram:['FITS','Trades some latency for a smaller RAM footprint.'],
+            huge:['FITS','Compelling when vectors exceed economical memory but search must stay interactive.'],
+            filter:['CAUTION','Same traversal-restriction risk as any graph index, plus cache effects.'],
+            exact:['POOR','Approximate, and now with tail latency to plan for as well.'],
+            drift:['FITS','Graph-based: no quantizer to retrain.'] } },
+      { n:'Flat exact', base:'distance to every eligible vector; linear in collection size',
+        v:{ churn:['FITS','No index structure to maintain and nothing to tombstone.'],
+            ram:['CAUTION','Stores full vectors — but adds no index on top of them.'],
+            huge:['POOR','Linear in collection size: this is the constraint it cannot answer.'],
+            filter:['FITS','Only eligible vectors are ever scanned; there is no traversal to disconnect.'],
+            exact:['FITS','This IS the exact recall reference — keep it in evaluation after adopting ANN.'],
+            drift:['FITS','Nothing is trained, so nothing goes stale.'] } }
+    ];
+    var RANK = { FITS:0, CAUTION:1, POOR:2 };
+    var COL = { FITS:'var(--viz-green)', CAUTION:'var(--viz-amber)', POOR:'var(--viz-red)' };
+    var MARK = { FITS:'FITS ✓', CAUTION:'CAUTION !', POOR:'POOR ✗' };
+    var on = { exact:false, churn:false, ram:false, huge:false, filter:false, drift:false };
+    var chips = document.getElementById('v3-chips'), rows = document.getElementById('v3-rows'), why = document.getElementById('v3-why');
+
+    function render(){
+      var active = CONS.filter(function(c){ return on[c.k]; });
+      chips.innerHTML = '';
+      CONS.forEach(function(c){
+        var b = document.createElement('button');
+        b.className = 'v3-chip';
+        b.setAttribute('aria-pressed', on[c.k] ? 'true' : 'false');
+        b.textContent = (on[c.k] ? '✓ ' : '+ ') + c.l;
+        b.addEventListener('click', function(){ on[c.k] = !on[c.k]; render(); });
+        chips.appendChild(b);
+      });
+
+      rows.innerHTML = IDX.map(function(ix){
+        if (!active.length) {
+          return '<div class="v3-r"><div class="v3-top"><span class="v3-nm">' + ix.n + '</span>' +
+            '<span class="v3-v" style="color:var(--viz-muted);border-color:var(--viz-line)">NO CONSTRAINTS</span></div>' +
+            '<div class="v3-sub">' + ix.base + '</div></div>';
+        }
+        var worst = 'FITS', reasons = [];
+        active.forEach(function(c){
+          var e = ix.v[c.k];
+          if (RANK[e[0]] > RANK[worst]) worst = e[0];
+          if (e[0] !== 'FITS') reasons.push('<b style="display:inline;font-weight:800">' + c.l + ':</b> ' + e[1]);
+          else reasons.push('<span style="color:var(--viz-green);font-weight:800">' + c.l + ':</span> ' + e[1]);
+        });
+        return '<div class="v3-r" style="border-color:' + COL[worst] + '"><div class="v3-top">' +
+          '<span class="v3-nm">' + ix.n + '</span>' +
+          '<span class="v3-v" style="color:' + COL[worst] + ';border-color:' + COL[worst] + '">' + MARK[worst] + '</span></div>' +
+          '<div class="v3-sub">' + reasons.join('<br>') + '</div></div>';
+      }).join('');
+
+      why.innerHTML = !active.length
+        ? '<b>Pick the constraints your workload actually has.</b>' +
+          'The nine dimensions that decide an index are recall, latency, build time, memory, disk, update behaviour, filtering, concurrency and recovery. A benchmark reports the first two. Everything above is the other seven.'
+        : '<b>Read the verdicts, then read what each one costs to fix.</b>' +
+          'None of these rows is disqualified outright: a POOR is a bill, not a ban. Heavy churn against HNSW is paid for with scheduled maintenance or rebuilds; drift against IVF-PQ is paid for with periodic retraining; a huge collection against flat exact is paid for in latency you may not have. ' +
+          '<br><br>And there is a shape that dodges several at once: <b>a large stable base index beside a small mutable delta</b>, searched together until compaction. That buys freshness on an immutable structure — at the price of score compatibility, deduplication (the same source item can appear in both after an update, so select the newest version before returning), and watching the delta, because a structure designed for freshness becomes a second full index and degrades latency if rebuilds stall.';
+    }
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Sync Without Dual Writes</h2>
+  <p class="vz-lede">Keeping the vector store in sync with the source of truth is the genuinely hard problem
+    in this product category. Pick a change, pick a transport, then try to break it.
+    <b>Like posting a letter versus telling two people something and hoping they both remember it the same
+    way.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Write transport">
+    <button id="v4-dual" aria-pressed="false">dual-write from the app</button>
+    <button id="v4-outbox" aria-pressed="true">commit source, then project</button>
+  </div>
+
+  <div class="v4-list" id="v4-list"></div>
+
+  <div class="vz-card">
+    <div class="v4-flow" id="v4-flow"></div>
+    <div class="v4-state" id="v4-state"></div>
+    <div class="v4-acts">
+      <button class="v4-act" id="v4-redeliver">redeliver the same event</button>
+      <button class="v4-act" id="v4-stale">deliver an older version (v6)</button>
+    </div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Reconciliation is what closes the loop: diff the source manifest against actual index
+    records for missing vectors, orphans, stale source versions, wrong model versions, dimension mismatches,
+    deleted-but-searchable records and metadata divergence. <b>Counts alone cannot find one missing item
+    paired with one orphan</b> — the totals agree and both records are wrong. Store every discrepancy as a
+    repair task with source evidence, never as an untracked ad hoc update.</p>
+
+  <style>
+    .v4-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-c{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-size:12.5px;display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v4-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-slo{margin-left:auto;flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+      border:1.5px solid;border-radius:999px;padding:2px 8px}
+    .v4-flow{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.75;white-space:pre-wrap}
+    .v4-state{margin-top:11px;font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:800;
+      border:1.5px dashed var(--viz-line);border-radius:9px;padding:8px 10px;line-height:1.6}
+    .v4-acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:11px}
+    .v4-act{flex:1 1 150px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:6px 9px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CHANGES = [
+      { t:'insert a new document', slo:'freshness',
+        work:'new chunk generation + new embeddings',
+        fields:'source_version=1 · chunk_version=1 · embedding_version=m3 · lifecycle=active',
+        note:'A new article may tolerate minutes before it is searchable. That is the loose objective, and it is the only one on this list that is.' },
+      { t:'content update', slo:'freshness',
+        work:'new document and chunk generation, PLUS new embeddings',
+        fields:'source_version 7→8 · chunk_version 3→4 · embedding_version=m3',
+        note:'The text changed, so the meaning changed, so the vectors must change. Skip the re-embed and the payload looks current while the neighbours it returns are describing the old document.' },
+      { t:'metadata-only change', slo:'freshness',
+        work:'payload fields updated — NO re-embedding',
+        fields:'metadata_version 2→3 · embedding_version unchanged',
+        note:'Re-embedding here is pure waste, and at corpus scale it is expensive waste. Knowing which change class you are in is most of the cost control in a vector pipeline.' },
+      { t:'permission revocation', slo:'revocation',
+        work:'no re-embedding — but the strictest deadline on this list',
+        fields:'lifecycle_state active→restricted · metadata_version bumped',
+        note:'Permissions need stricter service levels than ordinary embedding freshness: a revoked permission may need immediate denial. A trusted authorization check AFTER retrieval can fail closed while index metadata catches up. Track freshness and revocation as separate objectives.' },
+      { t:'delete', slo:'revocation',
+        work:'remove or make descendants ineligible across EVERY index generation and cache',
+        fields:'lifecycle_state active→deleted',
+        note:'The word doing the work is "every". A delete applied to the live generation only leaves the document searchable in a base index, a replica, or a warm cache — and search hits on inactive content is one of the metrics you are meant to be watching.' }
+    ];
+    var outbox = true, cur = 1, applied = 8, msg = null;
+    var bD = document.getElementById('v4-dual'), bO = document.getElementById('v4-outbox');
+    var list = document.getElementById('v4-list'), flow = document.getElementById('v4-flow');
+    var state = document.getElementById('v4-state'), why = document.getElementById('v4-why');
+    var aR = document.getElementById('v4-redeliver'), aS = document.getElementById('v4-stale');
+
+    function render(){
+      bD.setAttribute('aria-pressed', outbox ? 'false' : 'true');
+      bO.setAttribute('aria-pressed', outbox ? 'true' : 'false');
+      list.innerHTML = '';
+      CHANGES.forEach(function(ch, i){
+        var b = document.createElement('button');
+        b.className = 'v4-c';
+        b.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+        var col = ch.slo === 'revocation' ? 'var(--viz-red)' : 'var(--viz-accent)';
+        b.innerHTML = '<span>' + ch.t + '</span><span class="v4-slo" style="color:' + col +
+          ';border-color:' + col + '">' + ch.slo.toUpperCase() + ' SLO</span>';
+        b.addEventListener('click', function(){ cur = i; msg = null; render(); });
+        list.appendChild(b);
+      });
+
+      var ch = CHANGES[cur];
+      flow.innerHTML = outbox
+        ? '1  commit to the SOURCE OF TRUTH        ✓ durable\n' +
+          '2  outbox / CDC event  {source_key, new_version, operation, position}\n' +
+          '3  consumer upserts deterministically  → ' + ch.work + '\n' +
+          '4  consumer records last_applied_version per key\n' +
+          '5  serving exposes FRESHNESS LAG       → reconciliation repairs it'
+        : '1  app writes the SOURCE                ✓ committed\n' +
+          '2  app writes the VECTOR STORE          ✗ failed\n' +
+          '—  no shared transaction, so nothing rolls back\n' +
+          '—  no version bookkeeping, so nothing detects it\n' +
+          '—  the two stores now disagree, silently, for as long as nobody queries it';
+
+      state.innerHTML = outbox
+        ? 'record fields · ' + ch.fields + '<br>last_applied_version = <span style="color:var(--viz-accent)">' + applied + '</span>' +
+          (msg ? '<br><span style="color:' + msg.c + '">' + msg.t + '</span>' : '')
+        : 'record fields · ' + ch.fields + '<br>last_applied_version = <span style="color:var(--viz-red)">not tracked</span>' +
+          (msg ? '<br><span style="color:' + msg.c + '">' + msg.t + '</span>' : '');
+
+      why.innerHTML = '<b>' + ch.work + '</b>' + ch.note +
+        (outbox
+          ? '<br><br><b style="display:inline;font-size:12.5px">Why this transport:</b> the consumer is idempotent, so <b>redelivery is harmless and stale versions are rejected</b>. If it times out after an upsert, repeat the same record ID and version. Serving still lags — but a lag you can measure is repairable, and reconciliation exists to repair it.'
+          : '<br><br><b style="display:inline;font-size:12.5px">Why this transport is unsafe:</b> dual-write from the application to source and vector database has no shared transaction, so <b>one write can succeed while the other fails</b>. It is not that the failure is likely; it is that the failure is <em>undetectable</em>. Nothing here is worse than an outbox except the part that matters.');
+    }
+    function act(kind){
+      if (!outbox) {
+        msg = kind === 'stale'
+          ? { c:'var(--viz-red)', t:'✗ applied blind — the record silently REGRESSES to version 6' }
+          : { c:'var(--viz-amber)', t:'! applied again, blind — no way to know it was a duplicate' };
+      } else {
+        msg = kind === 'stale'
+          ? { c:'var(--viz-green)', t:'✓ REJECTED — 6 < last_applied_version ' + applied }
+          : { c:'var(--viz-green)', t:'✓ harmless no-op — same key, same version ' + applied };
+      }
+      render();
+    }
+    bD.addEventListener('click', function(){ outbox = false; msg = null; render(); });
+    bO.addEventListener('click', function(){ outbox = true; msg = null; render(); });
+    aR.addEventListener('click', function(){ act('same'); });
+    aS.addEventListener('click', function(){ act('stale'); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Exact Search First</h2>
+  <p class="vz-lede">A vector database adds infrastructure, indexing delay, memory or disk cost, backup,
+    security and synchronization work. Size the exact baseline before you buy any of it — then tick what your
+    product actually needs. <b>Like pricing a van before you have checked whether the thing fits in the
+    car.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-n">Collection: <span id="v5-nl">100,000 vectors</span></label>
+    <input type="range" id="v5-n" min="0" max="10" value="2" step="1" aria-label="Collection size">
+    <div class="v5-dims" id="v5-dims"></div>
+    <div class="v5-size" id="v5-size"></div>
+  </div>
+
+  <div class="v5-flags" id="v5-flags"></div>
+  <div class="v5-ladder" id="v5-verdict"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Build a <b>total-cost model</b>: compute, index replicas, storage, network, backups,
+    re-embedding, synchronization, on-call labour and vendor limits. A low per-query benchmark price hides
+    always-on replicas and frequent full rebuilds. And preserve the exit: vectors and metadata in an open
+    format, stable IDs, model versions and exact evaluation sets, with product-specific APIs behind a narrow
+    retrieval interface. <b>A system you can credibly leave is a system you can negotiate with.</b></p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-dims{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px}
+    .v5-d{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px}
+    .v5-d[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-size{margin-top:13px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7}
+    .v5-size b{font-size:15px}
+    .v5-flags{display:flex;gap:6px;flex-wrap:wrap;margin:13px 0}
+    .v5-f{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:6px 11px}
+    .v5-f[aria-pressed="true"]{border-color:var(--viz-violet);color:var(--viz-violet)}
+    .v5-ladder{display:flex;flex-direction:column;gap:5px}
+    .v5-rung{display:flex;align-items:flex-start;gap:9px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px 11px;background:var(--viz-bg);font-size:12px;line-height:1.45}
+    .v5-rung.is-pick{border-color:var(--viz-green);background:var(--viz-surface)}
+    .v5-rn{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:800;color:var(--viz-muted);width:16px}
+    .v5-pick{margin-left:auto;flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;color:var(--viz-green);white-space:nowrap}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NS = [10000, 50000, 100000, 500000, 1000000, 5000000, 10000000, 50000000, 100000000, 500000000, 1000000000];
+    var DIMS = [384, 768, 1536];
+    var FLAGS = [
+      { k:'bounded', l:'query set is bounded' },
+      { k:'offline', l:'runs offline, once a day' },
+      { k:'lexical', l:'exact codes / names / identifiers' },
+      { k:'relational', l:'needs relational filters + transactions' },
+      { k:'qps', l:'interactive latency, sustained query rate' }
+    ];
+    var RUNGS = [
+      { k:'bounded', t:'Precomputed neighbours in a key-value table',
+        d:'Bounded query set — related items for every catalog product. Calculate neighbours offline and store top IDs. Request-time ANN adds little if queries never introduce a new vector.' },
+      { k:'offline', t:'Offline similarity join',
+        d:'A data warehouse, distributed batch engine or matrix library. Training-data deduplication performed once per day does not need a highly available online service; a file-backed library can build a local index inside the job and discard it afterward.' },
+      { k:'lexical', t:'Lexical or hybrid retrieval',
+        d:'Exact error codes, names, legal phrases and identifiers benefit from inverted indexes. A vector database replaces neither tokenization, filters, nor relevance evaluation — and an existing search engine may already do both sparse and dense fields.' },
+      { k:'relational', t:'A vector column in the database you already run',
+        d:'If the product already needs strong relational filters, transactions and joins, keeping vectors beside authoritative rows simplifies consistency. Evaluate that database’s vector performance under real selectivity before introducing another system.' },
+      { k:'exact', t:'Exact search in one process or your analytical engine',
+        d:'Linear, but optimized matrix operations are excellent for small collections, large batches and GPU workloads — and it is the exact recall reference you will want in evaluation forever.' },
+      { k:'ann', t:'Now measure, then take the simplest ANN structure that meets the need',
+        d:'Approximation has earned its operational surface here. Decide on collection size and growth, query rate, latency, recall target, filter complexity, update and deletion rate, availability, team expertise and cost.' }
+    ];
+    var ni = 2, d = 384, on = { bounded:false, offline:false, lexical:false, relational:false, qps:false };
+    var s = document.getElementById('v5-n'), nl = document.getElementById('v5-nl');
+    var dims = document.getElementById('v5-dims'), size = document.getElementById('v5-size');
+    var flags = document.getElementById('v5-flags'), ladder = document.getElementById('v5-verdict'), why = document.getElementById('v5-why');
+
+    function human(b){
+      if (b < 1e6) return (b / 1e3).toFixed(0) + ' KB';
+      if (b < 1e9) return (b / 1e6).toFixed(0) + ' MB';
+      return (b / 1e9).toFixed(1) + ' GB';
+    }
+    function render(){
+      ni = Number(s.value);
+      var N = NS[ni], scalars = N * d, bytes = scalars * 4;
+      nl.textContent = N.toLocaleString() + ' vectors';
+
+      dims.innerHTML = '';
+      DIMS.forEach(function(x){
+        var b = document.createElement('button');
+        b.className = 'v5-d';
+        b.setAttribute('aria-pressed', x === d ? 'true' : 'false');
+        b.textContent = 'dim ' + x;
+        b.addEventListener('click', function(){ d = x; render(); });
+        dims.appendChild(b);
+      });
+
+      size.innerHTML = N.toLocaleString() + ' × ' + d + ' = <b>' + (scalars / 1e6).toFixed(1) +
+        ' million</b> scalar values<br>× 4 bytes (32-bit float) = <b style="color:var(--viz-accent)">' +
+        human(bytes) + '</b> <span style="color:var(--viz-muted)">before metadata</span>';
+
+      flags.innerHTML = '';
+      FLAGS.forEach(function(f){
+        var b = document.createElement('button');
+        b.className = 'v5-f';
+        b.setAttribute('aria-pressed', on[f.k] ? 'true' : 'false');
+        b.textContent = (on[f.k] ? '✓ ' : '+ ') + f.l;
+        b.addEventListener('click', function(){ on[f.k] = !on[f.k]; render(); });
+        flags.appendChild(b);
+      });
+
+      var exactFits = bytes <= 2e9 && !on.qps;
+      var pick = 'ann';
+      for (var i = 0; i < RUNGS.length; i++) {
+        var k = RUNGS[i].k;
+        if (k === 'ann') { pick = 'ann'; break; }
+        if (k === 'exact') { if (exactFits) { pick = 'exact'; break; } continue; }
+        if (on[k]) { pick = k; break; }
+      }
+
+      ladder.innerHTML = RUNGS.map(function(r, i){
+        var is = r.k === pick;
+        return '<div class="v5-rung' + (is ? ' is-pick' : '') + '"><span class="v5-rn">' + (i + 1) + '</span>' +
+          '<span><b>' + r.t + '</b>' + (is ? '<br><span style="color:var(--viz-muted)">' + r.d + '</span>' : '') + '</span>' +
+          (is ? '<span class="v5-pick">← YOUR CASE</span>' : '') + '</div>';
+      }).join('');
+
+      var refN = 100000, refBytes = refN * 384 * 4;
+      why.innerHTML = pick === 'ann'
+        ? '<b style="color:var(--viz-amber)">' + human(bytes) + ' with no cheaper rung available — approximation is now doing real work.</b>' +
+          'Use a vector database only when approximate vector search <em>at the required scale and latency</em> provides enough value to justify its operational surface. Compare against the simplest credible alternative over expected growth, not only today’s demand. ' +
+          '<br><br>Then follow the progression rather than jumping to the end: exact search or existing storage, then <b>measured</b> pressure, then the simplest ANN structure that meets the need — reassessed as the collection and workload evolve.'
+        : pick === 'exact'
+          ? '<b style="color:var(--viz-green)">' + human(bytes) + ' is a scan, not a system.</b>' +
+            'The reference figure from the lesson: one hundred thousand vectors of dimension 384 contain 38.4 million scalar values — about <b>' + human(refBytes) + '</b> in 32-bit floats before metadata. A single process or an existing analytical engine may scan that efficiently, especially for batch queries or modest request rates. ' +
+            '<br><br>Estimate the exact baseline <em>first</em>. If it meets the objective with operational headroom, approximation is unnecessary — and note that ticking the sustained-query-rate flag is what moves this rung, not the byte count alone.'
+          : '<b style="color:var(--viz-green)">This need is answered without an ANN index at all.</b>' +
+            'Avoid adopting a vector database merely because embeddings exist. Embeddings can feed clustering, classification, reranking, anomaly detection or offline analysis with no online approximate search anywhere. Start from the user interaction and the service-level requirement. ' +
+            '<br><br>The byte count still matters — ' + human(bytes) + ' here — but it is no longer the deciding number: the shape of the query is.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

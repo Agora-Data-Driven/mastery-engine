@@ -1,0 +1,751 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. When Ax Misses b</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Shadow Formula</button>
+  <button class="viz-tab" data-viz-tab="3">3. Closest Point Wins</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Gram Matrix</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Projection Matrix</button>
+  <button class="viz-tab" data-viz-tab="6">6. Least Squares Residuals</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. When Ax Misses b</h2>
+  <p class="vz-lede"><b>Column space and the span of pivot columns</b> already told you when Ax = b is
+    solvable: only when b lies inside Col(A). Move b off that line and elimination reports no solution and
+    stops. This lesson starts exactly there — stop demanding equality, take the nearest reachable point.
+    <b>Like a train line: you cannot leave the rails, so you get off at the stop closest to where you
+    actually wanted to be.</b></p>
+
+  <div class="v1-art" id="v1-art"></div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-bx">b = (<span id="v1-bxl">2</span>, <span id="v1-byl">6</span>)
+      &nbsp;·&nbsp; A has one column a = (3, 1), so Col(A) is the line it spans</label>
+    <input type="range" id="v1-bx" min="-8" max="8" value="2" step="1" aria-label="b first component">
+    <input type="range" id="v1-by" min="-8" max="8" value="6" step="1" aria-label="b second component">
+    <div class="v1-read" id="v1-read"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Notice what did <em>not</em> change when b moved: A, its column space, and the rule for
+    solvability. Only the question changed. Every formula in this lesson — the shadow formula, the normal
+    equations, the projection matrix — is a different algebraic dress on this one picture, so if you can
+    rebuild this picture you can rebuild all of them.</p>
+
+  <style>
+    .v1-art{margin-bottom:12px}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-read{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+    input[type=range]{width:100%;min-height:44px}
+  </style>
+  <script>
+  (function(){
+    var A = [3, 1];                    // the single column of A; Col(A) is the line through it
+    var sx = document.getElementById('v1-bx'), sy = document.getElementById('v1-by');
+    var lx = document.getElementById('v1-bxl'), ly = document.getElementById('v1-byl');
+    var art = document.getElementById('v1-art');
+    var read = document.getElementById('v1-read'), why = document.getElementById('v1-why');
+    var S = 13, CX = 150, CY = 110;
+
+    function px(u){ return CX + u * S; }
+    function py(v){ return CY - v * S; }
+    function num(x){
+      if (!isFinite(x)) return '--';                 // a dead panel is worse than a dash
+      var r = Math.round(x * 100) / 100;
+      if (Math.abs(r) < 0.005) r = 0;                // never print "-0.00"
+      return r.toFixed(2);
+    }
+    function pill(t, c){ return '<span class="v1-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var b = [Number(sx.value), Number(sy.value)];
+      lx.textContent = b[0]; ly.textContent = b[1];
+
+      var ab = A[0] * b[0] + A[1] * b[1];
+      var aa = A[0] * A[0] + A[1] * A[1];
+      var t = aa > 0 ? ab / aa : 0;                  // aa is 10 here, but never divide blind
+      var p = [t * A[0], t * A[1]];
+      var r = [b[0] - p[0], b[1] - p[1]];
+      var nr = Math.sqrt(r[0] * r[0] + r[1] * r[1]);
+      var onLine = nr < 0.05;
+
+      var u = 2.9;                                   // draw the span line across the frame
+      var g = '<svg viewBox="0 0 300 220" width="100%" height="200" role="img" aria-label="b, its projection onto the line spanned by a, and the residual">';
+      g += '<line x1="' + px(-11) + '" y1="' + py(0) + '" x2="' + px(11) + '" y2="' + py(0) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + px(0) + '" y1="' + py(-8) + '" x2="' + px(0) + '" y2="' + py(8) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + px(-u * A[0]) + '" y1="' + py(-u * A[1]) + '" x2="' + px(u * A[0]) + '" y2="' + py(u * A[1]) + '" stroke="var(--viz-accent)" stroke-width="1.5" opacity="0.55"/>';
+      g += '<text x="' + px(u * A[0] - 1.6) + '" y="' + (py(u * A[1]) - 6) + '" font-size="10" fill="var(--viz-accent)">Col(A)</text>';
+      if (!onLine) {
+        g += '<line x1="' + px(p[0]) + '" y1="' + py(p[1]) + '" x2="' + px(b[0]) + '" y2="' + py(b[1]) + '" stroke="var(--viz-red)" stroke-width="2" stroke-dasharray="4 3"/>';
+      }
+      g += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(b[0]) + '" y2="' + py(b[1]) + '" stroke="var(--viz-violet)" stroke-width="2.5"/>';
+      g += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(p[0]) + '" y2="' + py(p[1]) + '" stroke="var(--viz-green)" stroke-width="2.5"/>';
+      g += '<circle cx="' + px(b[0]) + '" cy="' + py(b[1]) + '" r="4" fill="var(--viz-violet)"/>';
+      g += '<circle cx="' + px(p[0]) + '" cy="' + py(p[1]) + '" r="4" fill="var(--viz-green)"/>';
+      g += '<text x="' + (px(b[0]) + 7) + '" y="' + (py(b[1]) - 5) + '" font-size="11" font-weight="700" fill="var(--viz-violet)">b</text>';
+      g += '<text x="' + (px(p[0]) + 7) + '" y="' + (py(p[1]) + 14) + '" font-size="11" font-weight="700" fill="var(--viz-green)">p</text>';
+      if (!onLine) {
+        g += '<text x="' + ((px(p[0]) + px(b[0])) / 2 + 7) + '" y="' + ((py(p[1]) + py(b[1])) / 2) + '" font-size="11" font-weight="700" fill="var(--viz-red)">r</text>';
+      }
+      g += '</svg>';
+      art.innerHTML = g;
+
+      read.innerHTML =
+        pill('a·b = ' + num(ab), 'var(--viz-muted)') +
+        pill('a·a = ' + num(aa), 'var(--viz-muted)') +
+        pill('t = a·b / a·a = ' + num(t), 'var(--viz-accent)') +
+        pill('p = (' + num(p[0]) + ', ' + num(p[1]) + ')', 'var(--viz-green)') +
+        pill('|r| = ' + num(nr), onLine ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      why.innerHTML = onLine
+        ? '<b style="color:var(--viz-green)">SOLVABLE — b is inside Col(A).</b>' +
+          'Here b = ' + t.toFixed(2) + '·a exactly, so Ax = b has a genuine solution, the residual is the zero vector, and least squares has nothing to add: it returns that same answer. ' +
+          '<br><br>This is the case your earlier work covered. Drag either slider one notch and it disappears — which is the point.'
+        : '<b style="color:var(--viz-red)">NO EXACT SOLUTION — b is outside Col(A).</b>' +
+          'Every vector A reaches lies on that line, and b does not, so elimination reports an inconsistent system. Instead of stopping, take the point on the line closest to b: <b>p = (' + num(p[0]) + ', ' + num(p[1]) + ')</b>, leaving the error r = b − p with length ' + num(nr) + '. ' +
+          '<br><br>Look at r in the picture: it meets the line at a right angle. That is not decoration — r·a = ' + num(r[0] * A[0] + r[1] * A[1]) + ' for every position of b, and visual 3 shows why the closest point is the perpendicular one.';
+    }
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Shadow Formula</h2>
+  <p class="vz-lede">One direction, one formula: proj_b(a) = (a·b)/(b·b) · b. Move a and watch the shadow it
+    casts on b — its length, and its sign. <b>Like a sundial: the shadow shortens as the sun climbs, vanishes
+    when the sun is straight overhead, and falls the other way in the afternoon.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Preset vectors">
+    <button id="v2-pa" aria-pressed="true">a = (2, 5)</button>
+    <button id="v2-pb" aria-pressed="false">a perpendicular to b</button>
+    <button id="v2-pc" aria-pressed="false">a·b negative</button>
+  </div>
+
+  <div class="v2-art" id="v2-art"></div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-ax">a = (<span id="v2-axl">2</span>, <span id="v2-ayl">5</span>)
+      &nbsp;·&nbsp; b = (4, 3) is fixed, so b·b = 25 and |b| = 5</label>
+    <input type="range" id="v2-ax" min="-6" max="6" value="2" step="1" aria-label="a first component">
+    <input type="range" id="v2-ay" min="-6" max="6" value="5" step="1" aria-label="a second component">
+    <div class="v2-work vz-mono" id="v2-work"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">This one formula is the seed of the whole lesson. Subtract the shadow and what is left,
+    a − proj_b(a), is perpendicular to b — which is exactly the move Gram-Schmidt repeats to build an
+    <b>orthonormal basis</b>: strip out the overlap with the directions you already have, keep only the new
+    direction, then scale it to length 1. Mutually perpendicular, each of length one: that is the whole
+    definition.</p>
+
+  <style>
+    .v2-art{margin-bottom:12px}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-work{margin-top:12px;border:1px dashed var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg)}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-art svg{display:block}
+  </style>
+  <script>
+  (function(){
+    var B = [4, 3];                                  // the target direction, fixed
+    var sx = document.getElementById('v2-ax'), sy = document.getElementById('v2-ay');
+    var lx = document.getElementById('v2-axl'), ly = document.getElementById('v2-ayl');
+    var art = document.getElementById('v2-art'), work = document.getElementById('v2-work'), why = document.getElementById('v2-why');
+    var pa = document.getElementById('v2-pa'), pb = document.getElementById('v2-pb'), pc = document.getElementById('v2-pc');
+    var S = 16, CX = 130, CY = 150;
+
+    function px(u){ return CX + u * S; }
+    function py(v){ return CY - v * S; }
+    function num(x){
+      if (!isFinite(x)) return '--';
+      var r = Math.round(x * 1000) / 1000;
+      if (Math.abs(r) < 0.0005) r = 0;
+      return r.toFixed(2);
+    }
+
+    function render(){
+      var a = [Number(sx.value), Number(sy.value)];
+      lx.textContent = a[0]; ly.textContent = a[1];
+      var ab = a[0] * B[0] + a[1] * B[1];
+      var bb = B[0] * B[0] + B[1] * B[1];            // 25
+      var nb = Math.sqrt(bb);                        // 5
+      var t = bb > 0 ? ab / bb : 0;
+      var p = [t * B[0], t * B[1]];
+      var perp = [a[0] - p[0], a[1] - p[1]];
+      var nperp = Math.sqrt(perp[0] * perp[0] + perp[1] * perp[1]);
+      var scal = nb > 0 ? ab / nb : 0;               // signed length of the shadow
+      var zero = Math.abs(ab) < 1e-9;
+
+      [[pa, a[0] === 2 && a[1] === 5], [pb, zero], [pc, ab < 0]].forEach(function(pair){
+        pair[0].setAttribute('aria-pressed', pair[1] ? 'true' : 'false');
+      });
+
+      var u = 2.6;
+      var g = '<svg viewBox="0 0 300 200" width="100%" height="185" role="img" aria-label="vector a, vector b, and the shadow of a on b">';
+      g += '<line x1="' + px(-7) + '" y1="' + py(0) + '" x2="' + px(10) + '" y2="' + py(0) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + px(0) + '" y1="' + py(-2.5) + '" x2="' + px(0) + '" y2="' + py(8) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + px(-u * B[0] / 2) + '" y1="' + py(-u * B[1] / 2) + '" x2="' + px(u * B[0]) + '" y2="' + py(u * B[1]) + '" stroke="var(--viz-accent)" stroke-width="1.2" opacity="0.45" stroke-dasharray="3 3"/>';
+      if (!zero) {
+        g += '<line x1="' + px(p[0]) + '" y1="' + py(p[1]) + '" x2="' + px(a[0]) + '" y2="' + py(a[1]) + '" stroke="var(--viz-red)" stroke-width="1.8" stroke-dasharray="4 3"/>';
+      }
+      g += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(B[0]) + '" y2="' + py(B[1]) + '" stroke="var(--viz-accent)" stroke-width="2.5"/>';
+      g += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(a[0]) + '" y2="' + py(a[1]) + '" stroke="var(--viz-violet)" stroke-width="2.5"/>';
+      g += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(p[0]) + '" y2="' + py(p[1]) + '" stroke="var(--viz-green)" stroke-width="4" opacity="0.85"/>';
+      g += '<circle cx="' + px(a[0]) + '" cy="' + py(a[1]) + '" r="4" fill="var(--viz-violet)"/>';
+      g += '<circle cx="' + px(B[0]) + '" cy="' + py(B[1]) + '" r="4" fill="var(--viz-accent)"/>';
+      g += '<text x="' + (px(a[0]) + 7) + '" y="' + (py(a[1]) - 4) + '" font-size="11" font-weight="700" fill="var(--viz-violet)">a</text>';
+      g += '<text x="' + (px(B[0]) + 7) + '" y="' + (py(B[1]) + 4) + '" font-size="11" font-weight="700" fill="var(--viz-accent)">b</text>';
+      g += '<text x="' + (px(p[0]) + 4) + '" y="' + (py(p[1]) + 16) + '" font-size="11" font-weight="700" fill="var(--viz-green)">' + (zero ? 'p = 0' : 'p') + '</text>';
+      g += '</svg>';
+      art.innerHTML = g;
+
+      work.textContent =
+        'a·b  = ' + a[0] + '(4) + ' + a[1] + '(3) = ' + ab + '\n' +
+        'b·b  = 4(4) + 3(3) = 25\n' +
+        'p    = (a·b / b·b) b = (' + ab + '/25)(4, 3) = (' + num(p[0]) + ', ' + num(p[1]) + ')\n' +
+        'scal = a·b / |b| = ' + ab + '/5 = ' + num(scal) + '   <- one power of |b|, not two\n' +
+        'a - p = (' + num(perp[0]) + ', ' + num(perp[1]) + '),  |a - p| = ' + num(nperp) + ',  (a-p)·b = ' + num(perp[0] * B[0] + perp[1] * B[1]);
+
+      why.innerHTML = zero
+        ? '<b style="color:var(--viz-green)">a·b = 0, so the projection is the ZERO vector.</b>' +
+          'This is the exact condition: the shadow vanishes when and only when the dot product is zero, never because of the lengths involved. Orthogonality and "casts no shadow" are the same statement, which is why a·b = 0 is the definition rather than a consequence. ' +
+          '<br><br>All of a survives as the perpendicular part here — nothing of it points along b at all.'
+        : ab < 0
+          ? '<b style="color:var(--viz-amber)">a·b = ' + ab + ' &lt; 0, so the scalar projection is NEGATIVE.</b>' +
+            'The angle is obtuse, so the shadow falls backwards along b: p still lies on b’s line, but on the far side of the origin. The negative sign is information, not an error — it says "this much of a points against b". ' +
+            '<br><br>The vector projection is still parallel to b; it is the <em>direction along that line</em> that flipped.'
+          : '<b style="color:var(--viz-accent)">Scalar ' + num(scal) + ', vector (' + num(p[0]) + ', ' + num(p[1]) + ').</b>' +
+            'Keep the two apart: the scalar projection a·b / |b| = ' + num(scal) + ' is a signed <em>number</em>, the length of the shadow. The vector projection divides by b·b instead — one extra power of |b| — because it then has to be multiplied by b to point somewhere. ' +
+            '<br><br>Swap the denominators and you get a vector 5× too long, which is precisely the distractor to expect.';
+    }
+    function preset(x, y){ sx.value = x; sy.value = y; render(); }
+    pa.addEventListener('click', function(){ preset(2, 5); });
+    pb.addEventListener('click', function(){ preset(-3, 4); });   // (-3)(4) + (4)(3) = 0
+    pc.addEventListener('click', function(){ preset(-4, 1); });   // (-4)(4) + (1)(3) = -13
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Closest Point Wins</h2>
+  <p class="vz-lede">Projecting onto a subspace finds the vector <em>in</em> the subspace closest to the
+    target. Slide the candidate along the line and watch the distance curve dip — the minimum lands exactly
+    where the leftover is perpendicular, and nowhere else. <b>Like walking along a riverbank to get nearest
+    a moored boat: you are closest at the spot where you are looking straight out at it.</b></p>
+
+  <div class="v3-art" id="v3-art"></div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-t">Candidate q = t·a with t = <span id="v3-tl">0.00</span>
+      &nbsp;·&nbsp; a = (3, 1), b = (2, 5)</label>
+    <input type="range" id="v3-t" min="-60" max="280" value="0" step="2" aria-label="position of the candidate along the line">
+    <div class="v3-read" id="v3-read"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Shine a flashlight straight down on a floor: the projection is the <b>shadow on the
+    floor</b> — not the beam, and not the object. The perpendicularity is forced, not chosen: if the leftover
+    r = b − p had any component lying inside the subspace, adding that component to p would keep you inside
+    the subspace and move you strictly closer to b, so p was not the closest point. Minimum distance and
+    perpendicular residual are one configuration described twice.</p>
+
+  <style>
+    .v3-art{margin-bottom:12px}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-read{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var A = [3, 1], B = [2, 5];
+    var s = document.getElementById('v3-t'), tl = document.getElementById('v3-tl');
+    var art = document.getElementById('v3-art'), read = document.getElementById('v3-read'), why = document.getElementById('v3-why');
+    var aa = A[0] * A[0] + A[1] * A[1];              // 10
+    var ab = A[0] * B[0] + A[1] * B[1];              // 11
+    var tStar = aa > 0 ? ab / aa : 0;                // 1.1
+
+    function num(x){
+      if (!isFinite(x)) return '--';
+      var r = Math.round(x * 100) / 100;
+      if (Math.abs(r) < 0.005) r = 0;
+      return r.toFixed(2);
+    }
+    function dist(t){
+      var dx = B[0] - t * A[0], dy = B[1] - t * A[1];
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+    function pill(t, c){ return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var t = Number(s.value) / 100;
+      tl.textContent = t.toFixed(2);
+      var q = [t * A[0], t * A[1]];
+      var r = [B[0] - q[0], B[1] - q[1]];
+      var d = Math.sqrt(r[0] * r[0] + r[1] * r[1]);
+      var nr = d, na = Math.sqrt(aa);
+      var cos = (nr > 1e-9 && na > 1e-9) ? (r[0] * A[0] + r[1] * A[1]) / (nr * na) : 0;
+      cos = Math.max(-1, Math.min(1, cos));          // acos of 1.0000001 is NaN
+      var ang = Math.acos(cos) * 180 / Math.PI;
+      var atMin = Math.abs(t - tStar) < 0.02;
+
+      /* left: the geometry. right: distance as a function of t. */
+      var SX = 14, CX = 60, CY = 120;
+      var g = '<svg viewBox="0 0 300 210" width="100%" height="195" role="img" aria-label="a candidate point sliding along the line, with the distance curve beside it">';
+      g += '<line x1="' + (CX - 55) + '" y1="' + CY + '" x2="' + (CX + 80) + '" y2="' + CY + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + CX + '" y1="' + (CY - 100) + '" x2="' + CX + '" y2="' + (CY + 40) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + (CX - 1.2 * A[0] * SX) + '" y1="' + (CY + 1.2 * A[1] * SX) + '" x2="' + (CX + 2.9 * A[0] * SX) + '" y2="' + (CY - 2.9 * A[1] * SX) + '" stroke="var(--viz-accent)" stroke-width="1.5" opacity="0.55"/>';
+      g += '<line x1="' + (CX + q[0] * SX) + '" y1="' + (CY - q[1] * SX) + '" x2="' + (CX + B[0] * SX) + '" y2="' + (CY - B[1] * SX) + '" stroke="' + (atMin ? 'var(--viz-green)' : 'var(--viz-red)') + '" stroke-width="2" stroke-dasharray="4 3"/>';
+      g += '<circle cx="' + (CX + B[0] * SX) + '" cy="' + (CY - B[1] * SX) + '" r="4.5" fill="var(--viz-violet)"/>';
+      g += '<text x="' + (CX + B[0] * SX + 7) + '" y="' + (CY - B[1] * SX - 4) + '" font-size="11" font-weight="700" fill="var(--viz-violet)">b</text>';
+      g += '<circle cx="' + (CX + q[0] * SX) + '" cy="' + (CY - q[1] * SX) + '" r="4.5" fill="' + (atMin ? 'var(--viz-green)' : 'var(--viz-accent)') + '"/>';
+      g += '<text x="' + (CX + q[0] * SX - 4) + '" y="' + (CY - q[1] * SX + 17) + '" font-size="11" font-weight="700" fill="' + (atMin ? 'var(--viz-green)' : 'var(--viz-accent)') + '">q</text>';
+
+      var GX = 175, GY = 175, GW = 110, GH = 120, T0 = -0.6, T1 = 2.8, DMAX = 6.5;
+      var pts = [];
+      for (var i = 0; i <= 40; i++) {
+        var tt = T0 + (T1 - T0) * i / 40;
+        var dd = Math.min(dist(tt), DMAX);
+        pts.push((GX + GW * (tt - T0) / (T1 - T0)).toFixed(1) + ',' + (GY - GH * dd / DMAX).toFixed(1));
+      }
+      g += '<line x1="' + GX + '" y1="' + GY + '" x2="' + (GX + GW) + '" y2="' + GY + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + GX + '" y1="' + (GY - GH) + '" x2="' + GX + '" y2="' + GY + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--viz-red)" stroke-width="2"/>';
+      var mx = GX + GW * (Math.max(T0, Math.min(T1, t)) - T0) / (T1 - T0);
+      var mnx = GX + GW * (tStar - T0) / (T1 - T0);
+      g += '<line x1="' + mnx.toFixed(1) + '" y1="' + (GY - GH) + '" x2="' + mnx.toFixed(1) + '" y2="' + GY + '" stroke="var(--viz-green)" stroke-width="1.5" stroke-dasharray="3 3"/>';
+      g += '<circle cx="' + mx.toFixed(1) + '" cy="' + (GY - GH * Math.min(d, DMAX) / DMAX).toFixed(1) + '" r="4" fill="' + (atMin ? 'var(--viz-green)' : 'var(--viz-red)') + '"/>';
+      g += '<text x="' + GX + '" y="' + (GY - GH - 6) + '" font-size="10" fill="var(--viz-muted)">distance |b - q| vs t</text>';
+      g += '<text x="' + (mnx - 12).toFixed(1) + '" y="' + (GY + 13) + '" font-size="10" font-weight="700" fill="var(--viz-green)">t = 1.1</text>';
+      g += '</svg>';
+      art.innerHTML = g;
+
+      read.innerHTML =
+        pill('|b - q| = ' + num(d), atMin ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill('angle(r, line) = ' + num(ang) + ' deg', atMin ? 'var(--viz-green)' : 'var(--viz-amber)') +
+        pill('r·a = ' + num(r[0] * A[0] + r[1] * A[1]), atMin ? 'var(--viz-green)' : 'var(--viz-muted)');
+
+      why.innerHTML = atMin
+        ? '<b style="color:var(--viz-green)">Minimum distance, and the angle reads 90 degrees.</b>' +
+          'At t = (a·b)/(a·a) = 1.10 the leftover r = b − q satisfies r·a = 0, and the distance curve is at its bottom. These two facts arrive together for every subspace, of any dimension: <b>closest point</b> and <b>perpendicular residual</b> are the same condition. ' +
+          '<br><br>That is why the algebra of the whole lesson is written as A-transpose times the residual equals zero — perpendicular to every spanning column, hence to the whole subspace.'
+        : '<b style="color:var(--viz-amber)">Not the closest point — the residual still leans along the line.</b>' +
+          'r·a = ' + num(r[0] * A[0] + r[1] * A[1]) + ', so r has a component pointing ' + ((r[0] * A[0] + r[1] * A[1]) > 0 ? 'forwards' : 'backwards') + ' along a. Add that component to q and you stay on the line while getting strictly closer to b — proof that this q is beatable. ' +
+          '<br><br>Slide until the angle pill reads 90: the only q you cannot improve is the one whose leftover has nothing left to give.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Gram Matrix</h2>
+  <p class="vz-lede">A-transpose-A is nothing but the table of pairwise dot products of the columns of A, and
+    the normal equations A^T A x = A^T b are the perpendicularity condition written out. Close the angle
+    between the columns and watch the table go singular. <b>Like two faders on a mixing desk wired to almost
+    the same channel: the closer they get, the less anyone can tell which one you moved.</b></p>
+
+  <div class="v4-art" id="v4-art"></div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-th">Angle between the columns: <span id="v4-thl">90</span> degrees
+      &nbsp;·&nbsp; both columns are unit length</label>
+    <input type="range" id="v4-th" min="0" max="90" value="90" step="1" aria-label="angle between the two columns">
+    <div class="v4-grid vz-mono" id="v4-grid"></div>
+    <div class="v4-read" id="v4-read"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Worked by hand, with the columns (1,1,1) and (1,2,3): the Gram matrix is
+    [[3, 6], [6, 14]] — 1+1+1, then 1+2+3, then 1+4+9. Every entry is a dot product, which is why A^T A is
+    always square and symmetric whatever shape A had. And the reason numerical analysts avoid forming it
+    explicitly is on the pills above: the condition number is <b>squared</b>, so a merely awkward A becomes a
+    genuinely dangerous A^T A.</p>
+
+  <style>
+    .v4-art{margin-bottom:12px}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-grid{margin-top:12px;border:1px dashed var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg)}
+    .v4-read{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v4-th'), lab = document.getElementById('v4-thl');
+    var art = document.getElementById('v4-art'), grid = document.getElementById('v4-grid');
+    var read = document.getElementById('v4-read'), why = document.getElementById('v4-why');
+
+    function num(x, d){
+      if (!isFinite(x)) return '--';
+      var k = Math.pow(10, d === undefined ? 3 : d);
+      var r = Math.round(x * k) / k;
+      if (Math.abs(r) < 0.5 / k) r = 0;
+      return r.toFixed(d === undefined ? 3 : d);
+    }
+    function kap(x){
+      if (!isFinite(x) || x > 1e8) return 'infinite';
+      return x >= 1000 ? String(Math.round(x)) : num(x, 2);
+    }
+    function pill(t, c){ return '<span class="v4-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var th = Number(s.value);
+      lab.textContent = th;
+      var rad = th * Math.PI / 180;
+      var c1 = [1, 0], c2 = [Math.cos(rad), Math.sin(rad)];
+      var g11 = c1[0] * c1[0] + c1[1] * c1[1];
+      var g12 = c1[0] * c2[0] + c1[1] * c2[1];       // = cos(theta)
+      var g22 = c2[0] * c2[0] + c2[1] * c2[1];
+      var det = g11 * g22 - g12 * g12;               // = sin^2(theta)
+      var lo = 1 - Math.abs(g12), hi = 1 + Math.abs(g12);   // eigenvalues of [[1,c],[c,1]]
+      var kGram = lo > 1e-12 ? hi / lo : Infinity;
+      var kA = isFinite(kGram) ? Math.sqrt(kGram) : Infinity;
+      var singular = det < 1e-9;
+      var orthonormal = Math.abs(g12) < 1e-9;
+
+      var OX = 55, OY = 125, L = 78;
+      var g = '<svg viewBox="0 0 300 160" width="100%" height="150" role="img" aria-label="two unit columns and the parallelogram they span">';
+      g += '<polygon points="' + OX + ',' + OY + ' ' + (OX + L) + ',' + OY + ' ' + (OX + L + L * c2[0]).toFixed(1) + ',' + (OY - L * c2[1]).toFixed(1) + ' ' + (OX + L * c2[0]).toFixed(1) + ',' + (OY - L * c2[1]).toFixed(1) + '" fill="' + (singular ? 'var(--viz-red)' : 'var(--viz-accent)') + '" opacity="0.16"/>';
+      g += '<line x1="' + OX + '" y1="' + OY + '" x2="' + (OX + L) + '" y2="' + OY + '" stroke="var(--viz-accent)" stroke-width="2.5"/>';
+      g += '<line x1="' + OX + '" y1="' + OY + '" x2="' + (OX + L * c2[0]).toFixed(1) + '" y2="' + (OY - L * c2[1]).toFixed(1) + '" stroke="var(--viz-violet)" stroke-width="2.5"/>';
+      g += '<text x="' + (OX + L + 6) + '" y="' + (OY + 4) + '" font-size="11" font-weight="700" fill="var(--viz-accent)">col 1</text>';
+      g += '<text x="' + (OX + L * c2[0] + 6).toFixed(1) + '" y="' + (OY - L * c2[1] - 6).toFixed(1) + '" font-size="11" font-weight="700" fill="var(--viz-violet)">col 2</text>';
+      g += '<text x="175" y="40" font-size="11" fill="var(--viz-muted)">det(A^T A) = ' + num(det) + '</text>';
+      g += '<text x="175" y="58" font-size="11" fill="' + (singular ? 'var(--viz-red)' : 'var(--viz-green)') + '" font-weight="700">' + (singular ? 'DEPENDENT columns' : 'INDEPENDENT columns') + '</text>';
+      g += '<text x="175" y="80" font-size="10.5" fill="var(--viz-muted)">area of the shaded</text>';
+      g += '<text x="175" y="94" font-size="10.5" fill="var(--viz-muted)">parallelogram = ' + num(Math.abs(c2[1])) + '</text>';
+      g += '</svg>';
+      art.innerHTML = g;
+
+      grid.textContent =
+        '          col1        col2\n' +
+        'col1   ' + num(g11) + '  (c1·c1)   ' + num(g12) + '  (c1·c2)\n' +
+        'col2   ' + num(g12) + '  (c2·c1)   ' + num(g22) + '  (c2·c2)\n' +
+        'normal equations:  A^T A x = A^T b';
+
+      read.innerHTML =
+        pill('det = ' + num(det), singular ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill('cond(A) = ' + kap(kA), 'var(--viz-muted)') +
+        pill('cond(A^T A) = ' + kap(kGram), singular ? 'var(--viz-red)' : 'var(--viz-amber)') +
+        pill('cond(A) squared = ' + kap(isFinite(kA) ? kA * kA : Infinity), 'var(--viz-amber)');
+
+      why.innerHTML = orthonormal
+        ? '<b style="color:var(--viz-green)">Orthonormal columns: A^T A = I.</b>' +
+          'Every off-diagonal entry is a dot product of perpendicular columns, so it is zero; every diagonal entry is a unit vector with itself, so it is one. The normal equations collapse to <b>x = A^T b</b> — one dot product per coordinate, no inverse anywhere. ' +
+          '<br><br>That collapse is the entire motivation for building orthonormal bases, and cond = 1.00 says this is also the best-conditioned case there is.'
+        : singular
+          ? '<b style="color:var(--viz-red)">Dependent columns: A^T A is singular.</b>' +
+            'The two columns are the same direction, so the Gram matrix has determinant 0 and no inverse exists — the closed form x = (A^T A) inverse times A^T b is simply unavailable. The projection p still exists and is still unique; it is the <b>coefficients</b> that are not, because infinitely many combinations of dependent columns reach the same point. ' +
+            '<br><br>Hence the rule: A^T A is invertible if and only if the columns of A are linearly independent. About the columns, never the rows.'
+          : '<b style="color:var(--viz-amber)">Independent, but watch the second pill against the third.</b>' +
+            'cond(A) = ' + kap(kA) + ' and cond(A^T A) = ' + kap(kGram) + ' = cond(A) squared. Forming the Gram matrix <b>squares the condition number</b>, so digits of accuracy are lost in pairs rather than singly. ' +
+            '<br><br>Independence is a yes/no in exact arithmetic and a matter of degree in floating point: at 5 degrees the columns are still independent and the answer is still unique, yet a small change in b can swing the coefficients wildly.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Projection Matrix</h2>
+  <p class="vz-lede">Substitute the least squares solution back into p = Ax and the whole operation becomes
+    one matrix: P = A (A^T A) inverse A^T. Pick a column space, move b, and watch P b land in it — then watch
+    P do nothing at all the second time. <b>Like a rubber stamp: pressing it twice leaves exactly the same
+    mark as pressing it once.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choice of A">
+    <button id="v5-a1" aria-pressed="true">A = [1, 0] col</button>
+    <button id="v5-a2" aria-pressed="false">A = [3, 1] col</button>
+    <button id="v5-a3" aria-pressed="false">A = 2 by 2, invertible</button>
+  </div>
+
+  <div class="v5-art" id="v5-art"></div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-bx">b = (<span id="v5-bxl">4</span>, <span id="v5-byl">6</span>)</label>
+    <input type="range" id="v5-bx" min="-7" max="7" value="4" step="1" aria-label="b first component">
+    <input type="range" id="v5-by" min="-7" max="7" value="6" step="1" aria-label="b second component">
+    <div class="v5-mat vz-mono" id="v5-mat"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two properties define a projection matrix and both are worth reading off the numbers
+    above: it is <b>symmetric</b> and it is <b>idempotent</b>, P squared = P. Idempotence is why P p = p and
+    why P b = b for any b already in the column space; it also means P is singular unless it equals the
+    identity, so "P is a matrix, therefore invertible" is exactly backwards. Its eigenvalues are only 0 and
+    1 — keep that, it returns in lesson 09.</p>
+
+  <style>
+    .v5-art{margin-bottom:12px}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-mat{margin-top:12px;border:1px dashed var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg)}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    /* A is held as a list of COLUMNS in R^2, so the same code covers a line and all of R^2. */
+    var CHOICES = [
+      { cols: [[1, 0]], label: 'A = [1, 0] transpose' },
+      { cols: [[3, 1]], label: 'A = [3, 1] transpose' },
+      { cols: [[1, 0], [1, 1]], label: 'A = [[1,1],[0,1]], invertible' }
+    ];
+    var pick = 0;
+    var btns = [document.getElementById('v5-a1'), document.getElementById('v5-a2'), document.getElementById('v5-a3')];
+    var sx = document.getElementById('v5-bx'), sy = document.getElementById('v5-by');
+    var lx = document.getElementById('v5-bxl'), ly = document.getElementById('v5-byl');
+    var art = document.getElementById('v5-art'), mat = document.getElementById('v5-mat'), why = document.getElementById('v5-why');
+
+    function num(x){
+      if (!isFinite(x)) return ' --  ';
+      var r = Math.round(x * 1000) / 1000;
+      if (Math.abs(r) < 0.0005) r = 0;
+      var s = r.toFixed(3);
+      return (r >= 0 ? ' ' : '') + s;
+    }
+    /* P = A (A^T A)^-1 A^T, built from the formula rather than from a trig shortcut. */
+    function projMatrix(cols){
+      var k = cols.length;
+      if (k === 1) {
+        var a = cols[0], aa = a[0] * a[0] + a[1] * a[1];
+        if (aa < 1e-12) return null;                 // a zero column spans nothing
+        return [[a[0] * a[0] / aa, a[0] * a[1] / aa], [a[1] * a[0] / aa, a[1] * a[1] / aa]];
+      }
+      var c = cols[0], d = cols[1];
+      var g11 = c[0] * c[0] + c[1] * c[1], g12 = c[0] * d[0] + c[1] * d[1], g22 = d[0] * d[0] + d[1] * d[1];
+      var det = g11 * g22 - g12 * g12;
+      if (Math.abs(det) < 1e-12) return null;        // dependent columns: no inverse
+      var i11 = g22 / det, i12 = -g12 / det, i22 = g11 / det;
+      var P = [[0, 0], [0, 0]];
+      for (var r = 0; r < 2; r++) {
+        for (var s2 = 0; s2 < 2; s2++) {
+          // (A M A^T)[r][s] with M the 2x2 inverse of the Gram matrix
+          P[r][s2] = c[r] * (i11 * c[s2] + i12 * d[s2]) + d[r] * (i12 * c[s2] + i22 * d[s2]);
+        }
+      }
+      return P;
+    }
+    function mul(P, v){ return [P[0][0] * v[0] + P[0][1] * v[1], P[1][0] * v[0] + P[1][1] * v[1]]; }
+
+    function render(){
+      btns.forEach(function(btn, i){ btn.setAttribute('aria-pressed', i === pick ? 'true' : 'false'); });
+      var ch = CHOICES[pick];
+      var b = [Number(sx.value), Number(sy.value)];
+      lx.textContent = b[0]; ly.textContent = b[1];
+      var P = projMatrix(ch.cols);
+      var p = P ? mul(P, b) : [0, 0];
+      var pp = P ? mul(P, p) : [0, 0];
+      var r = [b[0] - p[0], b[1] - p[1]];
+      var nr = Math.sqrt(r[0] * r[0] + r[1] * r[1]);
+      var full = ch.cols.length === 2;
+      var already = nr < 1e-6;
+      var idem = P ? Math.max(Math.abs(pp[0] - p[0]), Math.abs(pp[1] - p[1])) : 0;
+      var sym = P ? Math.abs(P[0][1] - P[1][0]) : 0;
+
+      var S = 13, CX = 150, CY = 105;
+      var g = '<svg viewBox="0 0 300 200" width="100%" height="185" role="img" aria-label="b and its image under the projection matrix">';
+      g += '<line x1="' + (CX - 130) + '" y1="' + CY + '" x2="' + (CX + 130) + '" y2="' + CY + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + CX + '" y1="' + (CY - 95) + '" x2="' + CX + '" y2="' + (CY + 90) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      if (full) {
+        g += '<rect x="' + (CX - 130) + '" y="' + (CY - 95) + '" width="260" height="185" fill="var(--viz-accent)" opacity="0.10"/>';
+        g += '<text x="10" y="16" font-size="10.5" fill="var(--viz-accent)">Col(A) = all of R2</text>';
+      } else {
+        var a = ch.cols[0], k = 9;
+        g += '<line x1="' + (CX - k * a[0] * S / 3) + '" y1="' + (CY + k * a[1] * S / 3) + '" x2="' + (CX + k * a[0] * S / 3) + '" y2="' + (CY - k * a[1] * S / 3) + '" stroke="var(--viz-accent)" stroke-width="1.5" opacity="0.6"/>';
+        g += '<text x="10" y="16" font-size="10.5" fill="var(--viz-accent)">Col(A) = one line</text>';
+      }
+      if (!already) {
+        g += '<line x1="' + (CX + p[0] * S) + '" y1="' + (CY - p[1] * S) + '" x2="' + (CX + b[0] * S) + '" y2="' + (CY - b[1] * S) + '" stroke="var(--viz-red)" stroke-width="2" stroke-dasharray="4 3"/>';
+      }
+      g += '<line x1="' + CX + '" y1="' + CY + '" x2="' + (CX + b[0] * S) + '" y2="' + (CY - b[1] * S) + '" stroke="var(--viz-violet)" stroke-width="2.5"/>';
+      g += '<line x1="' + CX + '" y1="' + CY + '" x2="' + (CX + p[0] * S) + '" y2="' + (CY - p[1] * S) + '" stroke="var(--viz-green)" stroke-width="2.5"/>';
+      g += '<circle cx="' + (CX + b[0] * S) + '" cy="' + (CY - b[1] * S) + '" r="4" fill="var(--viz-violet)"/>';
+      g += '<circle cx="' + (CX + p[0] * S) + '" cy="' + (CY - p[1] * S) + '" r="4" fill="var(--viz-green)"/>';
+      g += '<text x="' + (CX + b[0] * S + 7) + '" y="' + (CY - b[1] * S - 4) + '" font-size="11" font-weight="700" fill="var(--viz-violet)">b</text>';
+      g += '<text x="' + (CX + p[0] * S + 7) + '" y="' + (CY - p[1] * S + 14) + '" font-size="11" font-weight="700" fill="var(--viz-green)">Pb</text>';
+      g += '</svg>';
+      art.innerHTML = g;
+
+      mat.textContent = P
+        ? ch.label + '\n' +
+          'P = A (A^T A)^-1 A^T = [ ' + num(P[0][0]) + '  ' + num(P[0][1]) + ' ]\n' +
+          '                       [ ' + num(P[1][0]) + '  ' + num(P[1][1]) + ' ]\n' +
+          'P b   = (' + num(p[0]) + ', ' + num(p[1]) + ')\n' +
+          'P(P b)= (' + num(pp[0]) + ', ' + num(pp[1]) + ')   difference from P b: ' + idem.toExponential(1) + '\n' +
+          'symmetry check |P12 - P21| = ' + sym.toExponential(1) + '\n' +
+          'residual b - P b = (' + num(r[0]) + ', ' + num(r[1]) + '),  |r| = ' + num(nr)
+        : 'A has dependent columns here, so (A^T A) has no inverse.';
+
+      why.innerHTML = full
+        ? '<b style="color:var(--viz-green)">A is square and invertible, so P = I.</b>' +
+          'Work the algebra: (A^T A) inverse = A inverse times (A^T) inverse, so P = A A inverse (A^T) inverse A^T = I. Geometrically Col(A) is <b>all of R2</b>, every b is already in it, and there is nothing to project — P b = b for every b you can slide to. ' +
+          '<br><br>It is a good sanity check on the formula: an answer of "P = A" or "P = 0" here would mean the formula was misremembered.'
+        : already
+          ? '<b style="color:var(--viz-green)">b already lies in Col(A), so P b = b.</b>' +
+            'Nothing to remove: the residual is the zero vector and the projection returns b untouched. This is the same fact as idempotence — P p = p — because p was in the column space to begin with. ' +
+            '<br><br>Slide b off the line and the residual reappears; the matrix P never changes, only what you feed it.'
+          : '<b style="color:var(--viz-accent)">One multiply does the whole job.</b>' +
+            'P depends only on A, not on b, so it is built once and reused: p = P b for any right-hand side, and the leftover r = b − P b = (I − P) b is perpendicular to the column space, i.e. A^T (b − P b) = 0. ' +
+            '<br><br>Read the two checks in the panel: P(P b) matches P b to ' + idem.toExponential(1) + ', and P is symmetric to ' + sym.toExponential(1) + '. Those are not coincidences of this example — they hold for every P built by this formula.';
+    }
+    btns.forEach(function(btn, i){ btn.addEventListener('click', function(){ pick = i; render(); }); });
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. Least Squares Residuals</h2>
+  <p class="vz-lede">Fitting a line to three points is exactly this lesson: A holds a column of ones and a
+    column of t values, b holds the measurements, and no exact solution exists. Move the measurements and
+    watch the fit chase them — while A^T r stays pinned at zero. <b>Like a see-saw that must balance twice
+    over: once about the middle, and once about every distance from it.</b></p>
+
+  <div class="v6-art" id="v6-art"></div>
+
+  <div class="vz-card">
+    <label class="v6-lab" for="v6-y0">measurements b = (<span id="v6-y0l">2</span>,
+      <span id="v6-y1l">2</span>, <span id="v6-y2l">8</span>) at t = 0, 1, 2</label>
+    <input type="range" id="v6-y0" min="0" max="10" value="2" step="1" aria-label="measurement at t equals 0">
+    <input type="range" id="v6-y1" min="0" max="10" value="2" step="1" aria-label="measurement at t equals 1">
+    <input type="range" id="v6-y2" min="0" max="10" value="8" step="1" aria-label="measurement at t equals 2">
+    <div class="v6-work vz-mono" id="v6-work"></div>
+    <div class="v6-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">The residual is in the <b>left null space</b> N(A^T), never in N(A): r has one entry per
+    measurement, so it lives in R3, while N(A) is a subspace of R2 — different ambient spaces, so the claim
+    fails on shape before it fails on anything else. And when the points do line up, r is the zero vector,
+    which is still a member of N(A^T): every subspace contains it, so the rule has no exceptions to
+    memorise.</p>
+
+  <style>
+    .v6-art{margin-bottom:12px}
+    .v6-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v6-lab span{color:var(--viz-accent)}
+    .v6-work{margin-top:12px;border:1px dashed var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg)}
+    .v6-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v6-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var T = [0, 1, 2];
+    var ss = [document.getElementById('v6-y0'), document.getElementById('v6-y1'), document.getElementById('v6-y2')];
+    var ls = [document.getElementById('v6-y0l'), document.getElementById('v6-y1l'), document.getElementById('v6-y2l')];
+    var art = document.getElementById('v6-art'), work = document.getElementById('v6-work'), why = document.getElementById('v6-why');
+
+    function num(x){
+      if (!isFinite(x)) return '--';
+      var r = Math.round(x * 100) / 100;
+      if (Math.abs(r) < 0.005) r = 0;
+      return r.toFixed(2);
+    }
+
+    function render(){
+      var b = ss.map(function(s){ return Number(s.value); });
+      ls.forEach(function(l, i){ l.textContent = b[i]; });
+
+      /* A^T A = [[3, 3], [3, 5]] and A^T b = (sum b, sum t*b): the normal equations, by hand. */
+      var s0 = b[0] + b[1] + b[2];
+      var s1 = T[0] * b[0] + T[1] * b[1] + T[2] * b[2];
+      var g11 = 3, g12 = T[0] + T[1] + T[2], g22 = T[0] * T[0] + T[1] * T[1] + T[2] * T[2];
+      var det = g11 * g22 - g12 * g12;              // 3*5 - 9 = 6
+      var ok = Math.abs(det) > 1e-9;
+      var c = ok ? (g22 * s0 - g12 * s1) / det : 0; // intercept
+      var d = ok ? (g11 * s1 - g12 * s0) / det : 0; // slope
+      var fit = T.map(function(t){ return c + d * t; });
+      var r = b.map(function(v, i){ return v - fit[i]; });
+      var atr0 = r[0] + r[1] + r[2];
+      var atr1 = T[0] * r[0] + T[1] * r[1] + T[2] * r[2];
+      var sse = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+      var exact = Math.sqrt(sse) < 1e-9;
+
+      var X0 = 40, X1 = 265, Y0 = 165, Y1 = 20;
+      function X(t){ return X0 + (X1 - X0) * t / 2; }
+      function Y(v){ return Y0 + (Y1 - Y0) * Math.max(0, Math.min(11, v)) / 11; }
+      var g = '<svg viewBox="0 0 300 185" width="100%" height="180" role="img" aria-label="three measurements, the least squares line, and the vertical residuals">';
+      g += '<line x1="' + X0 + '" y1="' + Y0 + '" x2="' + X1 + '" y2="' + Y0 + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + X0 + '" y1="' + Y1 + '" x2="' + X0 + '" y2="' + Y0 + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + X(0) + '" y1="' + Y(c).toFixed(1) + '" x2="' + X(2) + '" y2="' + Y(c + 2 * d).toFixed(1) + '" stroke="var(--viz-green)" stroke-width="2.5"/>';
+      for (var i = 0; i < 3; i++) {
+        g += '<line x1="' + X(T[i]) + '" y1="' + Y(fit[i]).toFixed(1) + '" x2="' + X(T[i]) + '" y2="' + Y(b[i]).toFixed(1) + '" stroke="var(--viz-red)" stroke-width="2" stroke-dasharray="3 3"/>';
+        g += '<circle cx="' + X(T[i]) + '" cy="' + Y(b[i]).toFixed(1) + '" r="4.5" fill="var(--viz-violet)"/>';
+        g += '<text x="' + (X(T[i]) + 7) + '" y="' + (Y(b[i]) - 6).toFixed(1) + '" font-size="10.5" font-weight="700" fill="var(--viz-red)">r' + (i + 1) + ' = ' + num(r[i]) + '</text>';
+        g += '<text x="' + (X(T[i]) - 4) + '" y="' + (Y0 + 14) + '" font-size="10" fill="var(--viz-muted)">t=' + T[i] + '</text>';
+      }
+      g += '<text x="' + (X0 + 4) + '" y="' + (Y1 + 2) + '" font-size="10.5" fill="var(--viz-green)">fit: y = ' + num(c) + ' + ' + num(d) + ' t</text>';
+      g += '</svg>';
+      art.innerHTML = g;
+
+      work.textContent =
+        'A^T A = [ 3  3 ]      A^T b = ( ' + num(s0) + ', ' + num(s1) + ' )\n' +
+        '        [ 3  5 ]\n' +
+        'solve  ->  intercept ' + num(c) + ',  slope ' + num(d) + '\n' +
+        'p = A x = (' + num(fit[0]) + ', ' + num(fit[1]) + ', ' + num(fit[2]) + ')\n' +
+        'r = b - p = (' + num(r[0]) + ', ' + num(r[1]) + ', ' + num(r[2]) + ')\n' +
+        'A^T r = ( sum r, sum t*r ) = (' + num(atr0) + ', ' + num(atr1) + ')   <- always zero\n' +
+        'squared error |r|^2 = ' + num(sse);
+
+      why.innerHTML = exact
+        ? '<b style="color:var(--viz-green)">The three points are collinear, so b is inside Col(A).</b>' +
+          'A x = b has an exact solution, the residual is the zero vector, and least squares agrees with it — the method never overrides a fit that already works. The zero vector is still a member of N(A^T), so "the residual lies in the left null space" holds here too. ' +
+          '<br><br>Move any slider one notch and you are back in the ordinary case: more equations than unknowns, and no exact answer.'
+        : '<b style="color:var(--viz-accent)">No line passes through all three, so the fit minimises |r| squared.</b>' +
+          'Read the two components of A^T r: the first is the sum of the residuals and the second is the sum weighted by t, and both are zero for every setting of the sliders. That is not a property of these numbers — it is <b>A^T r = 0</b>, obtained by rearranging A^T A x = A^T b, so the residual is orthogonal to <em>every column</em> of A. ' +
+          '<br><br>Column one is all ones, so the residuals must sum to zero; column two is t, so they must also balance about t. Squared error here is ' + num(sse) + ', and no other line achieves less.';
+    }
+    ss.forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

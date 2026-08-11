@@ -1,0 +1,626 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\2713\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+.vz-lab span{color:var(--viz-accent)}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Probe Versus Range</button>
+  <button class="viz-tab" data-viz-tab="2">2. Fan-Out Beats Depth</button>
+  <button class="viz-tab" data-viz-tab="3">3. A Full Leaf Splits</button>
+  <button class="viz-tab" data-viz-tab="4">4. Walking A Prefix</button>
+  <button class="viz-tab" data-viz-tab="5">5. Merging Equal Tails</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Probe Versus Range</h2>
+  <p class="vz-lede"><b>Hash Tables: Buckets, Collisions, and Load Factor</b> gave you expected constant-time
+    exact lookup; <b>Hash Map vs Sorted Structure: When Order Matters</b> named the price — the bucket
+    function scrambles key order. Switch the question being asked of a one-million-term dictionary and watch
+    which index collapses. <b>Like a phone book versus a bag of business cards: one name is instant from
+    either, everyone whose surname starts "Rod" is instant from only one.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Question asked">
+    <button id="v1-point" aria-pressed="true">point lookup</button>
+    <button id="v1-range" aria-pressed="false">range scan</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-k">n = 1,000,000 keys &nbsp;·&nbsp; matches returned k =
+      <span id="v1-kl">7</span></label>
+    <input type="range" id="v1-k" min="1" max="1000" value="7" step="1" aria-label="Matches returned">
+    <div class="v1-bars" id="v1-bars"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Explain which index" style="margin-top:12px">
+    <button id="v1-xh" aria-pressed="true">hash index</button>
+    <button id="v1-xu" aria-pressed="false">unbalanced BST</button>
+    <button id="v1-xb" aria-pressed="false">balanced tree</button>
+  </div>
+  <div class="vz-card"><div class="v1-why" id="v1-why"></div></div>
+
+  <p class="vz-note">Order buys more than ranges: nearest key, floor and ceiling, sorted iteration, and the
+    merge-like traversal behind sorted-list intersection. It also buys a <b>worst case</b> — a balanced tree
+    is O(log n) even when a collision-heavy hash table has degraded to linear. You pay in comparisons,
+    node pointers, rotations on every write, and weak locality.</p>
+
+  <style>
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:11px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;text-align:right}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 1000000, LO = 20, HI = 40;      // log2(1e6) ≈ 19.93; red-black worst ≈ 2·log2(n+1)
+    var range = false, who = 'hash';
+    var bP = document.getElementById('v1-point'), bR = document.getElementById('v1-range');
+    var k = document.getElementById('v1-k'), kl = document.getElementById('v1-kl');
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+    var xh = document.getElementById('v1-xh'), xu = document.getElementById('v1-xu'), xb = document.getElementById('v1-xb');
+
+    function fmt(n){ return Math.round(n).toLocaleString(); }
+    function bar(t, cost, txt, col, sub){
+      var w = Math.log10(Math.max(cost, 1)) / Math.log10(N + 1000) * 100;
+      return '<div class="v1-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + txt + '</b></h6>' +
+        '<div class="v1-track"><i style="width:' + Math.max(2, Math.min(100, w)) + '%;background:' + col + '"></i></div>' +
+        '<div class="v1-sub">' + sub + '</div></div>';
+    }
+
+    function render(){
+      var kk = Math.max(1, Number(k.value) || 1);
+      kl.textContent = kk.toLocaleString();
+      bP.setAttribute('aria-pressed', range ? 'false' : 'true');
+      bR.setAttribute('aria-pressed', range ? 'true' : 'false');
+      xh.setAttribute('aria-pressed', who === 'hash' ? 'true' : 'false');
+      xu.setAttribute('aria-pressed', who === 'bst' ? 'true' : 'false');
+      xb.setAttribute('aria-pressed', who === 'bal' ? 'true' : 'false');
+
+      var hash  = range ? N + kk : 1;
+      var chain = range ? N + kk : N;
+      var balLo = range ? LO + kk : LO, balHi = range ? HI + kk : HI;
+
+      bars.innerHTML =
+        bar('hash index', hash,
+            range ? fmt(hash) + ' key tests' : '~1 bucket probe',
+            range ? 'var(--viz-red)' : 'var(--viz-green)',
+            range ? 'O(n + k) — every key examined and tested, then ' + fmt(kk) + ' kept.'
+                  : 'Expected O(1) under good distribution and load control.') +
+        bar('unbalanced BST (keys inserted 1,2,3,4,5…)', chain,
+            'up to ' + fmt(chain) + ' comparisons', 'var(--viz-red)',
+            'Height n−1: the degenerate tree is a linked list with extra pointers.') +
+        bar('balanced tree (red-black)', balHi,
+            fmt(balLo) + '–' + fmt(balHi) + ' comparisons', 'var(--viz-green)',
+            range ? 'O(log n + k): find the lower bound, then follow in-order successors.'
+                  : 'Worst-case O(log n): log2(1,000,000) ≈ 19.9, and red-black rules cap the path near 2·log2(n+1).');
+
+      var head, body;
+      if (who === 'hash') {
+        head = range ? ['var(--viz-red)', 'Scrambled order is not a bug here — it is the mechanism.']
+                     : ['var(--viz-green)', 'Nothing beats a bucket probe for get("retrieval").'];
+        body = range
+          ? 'The bucket function deliberately destroys key order, so <code>[cloud, cluster]</code> has no starting point to seek to and no successor to follow. The table must examine all ' + fmt(N) + ' keys and test each one: <b>O(n + k)</b>, and it returns only ' + fmt(kk) + '.<br><br>Worked case from the lesson: <code>terms from "retrieval" through "retriever"</code> matches seven terms and still costs roughly a million entry tests.'
+          : 'Compute a bucket, probe it, done — expected O(1) under good distribution and load control, and a pointer-chasing tree cannot match it. Flip the workload to one million independent membership probes and this column wins outright. That is the case hashing is for; keep it.';
+      } else if (who === 'bst') {
+        head = ['var(--viz-red)', 'An ordered structure with no balancing rule is not an index.'];
+        body = 'Lookup, insertion and deletion all cost O(h), and h is not automatically log n. Insert the already-sorted keys 1, 2, 3, 4, 5 and every key lands to the right of the last: height n−1, every operation O(n). ' +
+          'This is why "it is a search tree" is never the answer by itself — <b>balancing is the guarantee</b>, and rotations are how it is kept.';
+      } else {
+        head = range ? ['var(--viz-green)', 'Seek once, then walk in-order successors.']
+                     : ['var(--viz-amber)', 'Slower than a probe, and bounded in the worst case.'];
+        body = range
+          ? 'AVL trees constrain sibling subtree heights; red-black trees colour nodes so the longest root-to-leaf path stays within a constant factor of the shortest. Either way the lower bound is found in about ' + LO + '–' + HI + ' node comparisons, then only the ' + fmt(kk) + ' matching successors are visited: <b>O(log n + k)</b> against the hash table’s ' + fmt(N + kk) + '.'
+          : 'About ' + LO + '–' + HI + ' comparisons versus a single bucket probe — losing, and losing on purpose. What you bought is a <b>worst case</b> and an order-aware operation set. A sorted array is the third answer and often the right one: excellent locality and O(log n) lookup for an immutable batch, but an O(n) middle insert.';
+      }
+      why.innerHTML = '<b style="color:' + head[0] + '">' + head[1] + '</b>' + body +
+        '<br><br><b style="color:var(--viz-violet);display:inline;font-size:12.5px">The comparator is part of the contract.</b> ' +
+        'Byte order, collation, case folding and numeric-versus-text comparison build different trees and different range boundaries. Insert under one normalisation and probe under another and a present key is unreachable, with the balancing perfectly correct throughout.';
+    }
+    bP.addEventListener('click', function(){ range = false; render(); });
+    bR.addEventListener('click', function(){ range = true; render(); });
+    xh.addEventListener('click', function(){ who = 'hash'; render(); });
+    xu.addEventListener('click', function(){ who = 'bst'; render(); });
+    xb.addEventListener('click', function(){ who = 'bal'; render(); });
+    k.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Fan-Out Beats Depth</h2>
+  <p class="vz-lede">A binary tree minimises comparisons per node — the wrong quantity when block storage
+    hands you whole pages. Widen the node and watch page reads collapse while comparisons barely move.
+    <b>Like a phone tree: calling 2 people who each call 2 takes many rounds; calling 256 who each call 256
+    reaches a billion in four.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-p">Internal page size: <span id="v2-pl">8 KB</span>
+      &nbsp;·&nbsp; 32 bytes per key-pointer entry</label>
+    <input type="range" id="v2-p" min="0" max="6" value="5" step="1" aria-label="Internal page size">
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-levels" id="v2-levels"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Key count and cache" style="margin-top:12px">
+    <button id="v2-m" aria-pressed="false">1,000,000 keys</button>
+    <button id="v2-b" aria-pressed="true">1,000,000,000 keys</button>
+    <button id="v2-cache" aria-pressed="true">top 2 levels cached</button>
+  </div>
+  <div class="vz-card"><div class="v2-why" id="v2-why"></div></div>
+
+  <p class="vz-note">Notice what does <b>not</b> improve: total comparisons stay near log2(n) whatever the
+    fan-out, because you binary-search the separators inside each page. The B-tree does not save comparisons
+    — it saves <b>page fetches</b>, and only fetches are billed. That is the memory hierarchy turned into a
+    shape.</p>
+
+  <style>
+    .v2-stats{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-levels{margin-top:13px;display:flex;flex-direction:column;gap:3px}
+    .v2-lv{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v2-lb{flex:0 0 62px;color:var(--viz-muted)}
+    .v2-bar{flex:1;height:13px;border-radius:3px;background:var(--viz-line);overflow:hidden}
+    .v2-bar i{display:block;height:100%;background:var(--viz-accent);opacity:.85}
+    .v2-mk{flex:0 0 auto;width:78px;text-align:right;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PAGES = [
+      { l:'64 B', bytes:64 }, { l:'256 B', bytes:256 }, { l:'1 KB', bytes:1024 },
+      { l:'2 KB', bytes:2048 }, { l:'4 KB', bytes:4096 }, { l:'8 KB', bytes:8192 }, { l:'16 KB', bytes:16384 }
+    ];
+    var ENTRY = 32, CACHED = 2;
+    var n = 1e9, cache = true;
+    var s = document.getElementById('v2-p'), pl = document.getElementById('v2-pl');
+    var stats = document.getElementById('v2-stats'), levels = document.getElementById('v2-levels'), why = document.getElementById('v2-why');
+    var bM = document.getElementById('v2-m'), bB = document.getElementById('v2-b'), bC = document.getElementById('v2-cache');
+
+    function render(){
+      var p = PAGES[Math.min(PAGES.length - 1, Math.max(0, Number(s.value) || 0))];
+      var fan = Math.max(2, Math.floor(p.bytes / ENTRY));       // never below 2: a node must branch
+      pl.textContent = p.l;
+      bM.setAttribute('aria-pressed', n < 1e8 ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', n < 1e8 ? 'false' : 'true');
+      bC.setAttribute('aria-pressed', cache ? 'true' : 'false');
+
+      var exact = Math.log(n) / Math.log(fan);                  // fan >= 2, so log(fan) > 0
+      var h = Math.max(1, Math.ceil(exact));
+      var perNode = Math.max(1, Math.ceil(Math.log2(fan)));
+      var comps = h * perNode;
+      var reads = cache ? Math.max(0, h - CACHED) : h;
+      var good = fan >= 64;
+
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">fan-out ' + fan + '</span>' +
+        '<span class="v2-pill" style="color:' + (good ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (good ? 'var(--viz-green)' : 'var(--viz-red)') + '">height ' + h + ' &nbsp;(log' + fan + ' n = ' + exact.toFixed(1) + ')</span>' +
+        '<span class="v2-pill" style="color:' + (reads <= 2 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (reads <= 2 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + reads + ' storage read' + (reads === 1 ? '' : 's') + ' per lookup</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">~' + comps + ' comparisons</span>';
+
+      var rows = '', show = Math.min(h, 30);
+      for (var i = 0; i < show; i++) {
+        var cached = cache && i < CACHED;
+        var w = Math.min(100, Math.pow(fan, i) / Math.pow(fan, Math.max(show - 1, 1)) * 100);
+        rows += '<div class="v2-lv"><span class="v2-lb">level ' + i + '</span>' +
+          '<span class="v2-bar"><i style="width:' + Math.max(2, w) + '%"></i></span>' +
+          '<span class="v2-mk" style="color:' + (cached ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' +
+          (cached ? 'CACHED' : 'disk read') + '</span></div>';
+      }
+      if (h > show) rows += '<div class="v2-lv"><span class="v2-lb">…</span><span style="font-size:11px;color:var(--viz-muted)">' + (h - show) + ' more levels, every one a random page fetch</span></div>';
+      levels.innerHTML = rows;
+
+      why.innerHTML = fan <= 8
+        ? '<b style="color:var(--viz-red)">A narrow node wastes the fetch.</b>' +
+          'The page arrives whole whether it holds ' + fan + ' entries or 256, and fetching it costs far more than comparing the keys already inside it. With fan-out ' + fan + ' the tree is <b>' + h + ' levels</b> deep, so a lookup is ' + reads + ' random page fetches. ' +
+          'At fan-out 2 this is the binary tree you already know: log2(1,000,000,000) ≈ 30 levels.'
+        : '<b style="color:var(--viz-green)">Height is logarithmic in base fan-out.</b>' +
+          'An ' + p.l + ' page at 32 bytes an entry holds ' + fan + ' key-pointer entries, so the derivation is <code>log' + fan + '(n) = log2(n) / log2(' + fan + ')</code>' +
+          (fan === 256 && n >= 1e9 ? ' = 29.9 / 8 ≈ 3.7 — about four levels of pages for a billion keys' : ' = ' + exact.toFixed(1)) + '. ' +
+          (cache ? 'With the root and the level below it cached, a lookup costs <b>' + reads + ' storage read' + (reads === 1 ? '' : 's') + '</b>. ' : 'Uncached, that is ' + reads + ' page fetches. ') +
+          '<br><br>Search inside the node is a binary search over its sorted separators, then you follow exactly one child, and all leaves stay at the same depth.';
+    }
+    s.addEventListener('input', render);
+    bM.addEventListener('click', function(){ n = 1e6; render(); });
+    bB.addEventListener('click', function(){ n = 1e9; render(); });
+    bC.addEventListener('click', function(){ cache = !cache; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. A Full Leaf Splits</h2>
+  <p class="vz-lede">The unit of rearrangement is a page, not a rotation. Step an insert into a full leaf and
+    watch the separator climb — and see the one move that changes the tree's height. <b>Like a full ring
+    binder: you split the section in two and write one new label on the divider above it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Step">
+    <button id="v3-prev" aria-pressed="false">◀ back</button>
+    <button id="v3-next" aria-pressed="false">next ▶</button>
+  </div>
+  <div class="vz-card">
+    <div class="v3-t" id="v3-title"></div>
+    <div class="v3-tree" id="v3-tree"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Tree variant" style="margin-top:12px">
+    <button id="v3-classic" aria-pressed="false">classic B-tree</button>
+    <button id="v3-plus" aria-pressed="true">B+ tree</button>
+  </div>
+  <div class="vz-card"><div class="v3-var" id="v3-var"></div></div>
+
+  <p class="vz-note">Occupancy is a real dial: full pages maximise fan-out and leave no insertion room, so
+    splits become frequent — implementations hold a minimum occupancy and reserve space per workload.
+    Sequential inserts create a <b>hot rightmost leaf</b>; random inserts spread the writes but fragment
+    locality. And a B-tree is not an inverted index: it orders whole keys, so it answers equality and range,
+    never term-level containment.</p>
+
+  <style>
+    .v3-t{font-size:13px;font-weight:800;margin-bottom:10px}
+    .v3-tree{display:flex;flex-direction:column;gap:9px}
+    .v3-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .v3-lb{flex:0 0 58px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-pg{display:flex;gap:3px;border:1.5px solid var(--viz-line);border-radius:8px;padding:5px 6px;
+      background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v3-pg.is-full{border-color:var(--viz-red);border-style:dashed}
+    .v3-pg.is-new{border-color:var(--viz-green)}
+    .v3-pg.is-root{border-color:var(--viz-violet)}
+    .v3-key{padding:2px 5px;border-radius:4px;background:var(--viz-surface)}
+    .v3-key.is-add{color:var(--viz-green);font-weight:800}
+    .v3-link{font-size:11px;color:var(--viz-accent);font-weight:800}
+    .v3-up{font-size:11px;font-weight:800;color:var(--viz-amber)}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-var{font-size:12.5px;line-height:1.6}
+    .v3-var b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Leaf capacity 4 keys, internal capacity 2 separators — small enough that one
+    // insert propagates all the way to a root split in five visible moves.
+    var STEPS = [
+      { t:'1 · The leaf is full and key 22 belongs in it',
+        rows:[ { l:'internal', pages:[ { k:['30','60'], c:'' } ] },
+               { l:'leaves',   pages:[ { k:['10','15','20','25'], c:'is-full' }, { k:['35','40'], c:'' }, { k:['70','80'], c:'' } ] } ],
+        why:'The search descends the separators — 22 < 30, so the leftmost leaf — and arrives at a page with no room. A binary tree would rotate; a B-tree cannot, because its unit of rearrangement is the page the storage layer hands over.' },
+      { t:'2 · The page splits into two roughly half-full leaves',
+        rows:[ { l:'internal', pages:[ { k:['30','60'], c:'' } ] },
+               { l:'leaves',   pages:[ { k:['10','15'], c:'is-new' }, { k:['20','22*','25'], c:'is-new' }, { k:['35','40'], c:'' }, { k:['70','80'], c:'' } ] } ],
+        why:'Half the keys stay, half move to a new right leaf, and 22 lands in order. <b>Roughly half-full is the point</b>: both pages now have room, which is why a well-run B-tree does not split on every subsequent insert.' },
+      { t:'3 · A separator identifying the new right leaf goes up',
+        rows:[ { l:'internal', pages:[ { k:['20*','30','60'], c:'is-full' } ] },
+               { l:'leaves',   pages:[ { k:['10','15'], c:'' }, { k:['20','22','25'], c:'is-new' }, { k:['35','40'], c:'' }, { k:['70','80'], c:'' } ] } ],
+        why:'The parent must learn where the new leaf starts, so separator 20 is inserted into it. The parent held 2 separators and can hold no more — the overflow has moved up one level, unchanged in kind.' },
+      { t:'4 · The parent overflows, so the parent splits',
+        rows:[ { l:'promoted', pages:[ { k:['30*'], c:'is-root' } ] },
+               { l:'internal', pages:[ { k:['20'], c:'is-new' }, { k:['60'], c:'is-new' } ] },
+               { l:'leaves',   pages:[ { k:['10','15'], c:'' }, { k:['20','22','25'], c:'' }, { k:['35','40'], c:'' }, { k:['70','80'], c:'' } ] } ],
+        why:'Same move, one level higher: the node splits in two and its middle separator, 30, is promoted. A split propagates upward exactly as far as the overflow reaches — usually not at all, occasionally to the top.' },
+      { t:'5 · A root split creates a new root and raises the height',
+        rows:[ { l:'root',     pages:[ { k:['30'], c:'is-root' } ] },
+               { l:'internal', pages:[ { k:['20'], c:'' }, { k:['60'], c:'' } ] },
+               { l:'leaves',   pages:[ { k:['10','15'], c:'' }, { k:['20','22','25'], c:'' }, { k:['35','40'], c:'' }, { k:['70','80'], c:'' } ] } ],
+        why:'This is the <b>only</b> move that changes the height, and it grows the tree at the root rather than at a leaf — which is precisely why <b>all leaves stay at the same depth</b>. Every lookup still costs the same number of page reads as every other.' }
+    ];
+    var i = 0, plus = true;
+    var title = document.getElementById('v3-title'), tree = document.getElementById('v3-tree'), why = document.getElementById('v3-why');
+    var prev = document.getElementById('v3-prev'), next = document.getElementById('v3-next');
+    var bc = document.getElementById('v3-classic'), bp = document.getElementById('v3-plus'), varBox = document.getElementById('v3-var');
+
+    function render(){
+      var st = STEPS[i];
+      title.textContent = st.t;
+      prev.setAttribute('aria-pressed', i > 0 ? 'true' : 'false');
+      next.setAttribute('aria-pressed', i < STEPS.length - 1 ? 'true' : 'false');
+      tree.innerHTML = st.rows.map(function(r){
+        var leafRow = r.l === 'leaves';
+        var pages = r.pages.map(function(p){
+          var keys = p.k.map(function(x){
+            var add = x.indexOf('*') >= 0;
+            return '<span class="v3-key' + (add ? ' is-add' : '') + '">' + x.replace('*', '') + '</span>';
+          }).join('');
+          return '<span class="v3-pg ' + p.c + '">' + keys + '</span>';
+        }).join(leafRow && plus ? '<span class="v3-link">→</span>' : '<span class="v3-link">&nbsp;</span>');
+        return '<div class="v3-row"><span class="v3-lb">' + r.l + '</span>' + pages + '</div>';
+      }).join('');
+      why.innerHTML = st.why;
+
+      bc.setAttribute('aria-pressed', plus ? 'false' : 'true');
+      bp.setAttribute('aria-pressed', plus ? 'true' : 'false');
+      varBox.innerHTML = plus
+        ? '<b style="color:var(--viz-green)">B+ tree — records only at the leaves, leaves linked in key order.</b>' +
+          'Internal pages carry routing separators and nothing else, so they pack more entries and the fan-out rises. A point lookup descends to exactly one leaf. A <b>range scan</b> finds its first leaf and then walks the arrows: what would have been a random tree traversal becomes sequential, high-throughput ordered I/O once the boundary is found. This is the common database shape.'
+        : '<b style="color:var(--viz-amber)">Classic B-tree — records may live in internal nodes too.</b>' +
+          'A key found at an internal node ends the search early, which sounds like a win and costs fan-out: every record stored beside a separator is space that is not a child pointer, so the node holds fewer branches and the tree is taller. There are also no leaf links, so a range scan must climb and descend repeatedly instead of walking sideways.';
+    }
+    prev.addEventListener('click', function(){ if (i > 0) { i -= 1; render(); } });
+    next.addEventListener('click', function(){ if (i < STEPS.length - 1) { i += 1; render(); } });
+    bc.addEventListener('click', function(){ plus = false; render(); });
+    bp.addEventListener('click', function(){ plus = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Walking A Prefix</h2>
+  <p class="vz-lede">A trie stores one symbol per edge, so a prefix is not searched for — it is walked. Tap
+    symbols to descend, and watch the completions narrow while the dictionary size never enters the cost.
+    <b>Like a hotel corridor: you do not check every room, you walk to the right floor and read the doors
+    on it.</b></p>
+
+  <div class="vz-card">
+    <div class="v4-cur" id="v4-cur"></div>
+    <div class="v4-next" id="v4-next"></div>
+    <div class="v4-tree" id="v4-tree"></div>
+  </div>
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v4-cost" id="v4-cost"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">A naive trie is memory-hungry: every character may allocate a node holding a map or
+    pointer array, and sparse edges waste space. <b>Path compression</b> collapses non-branching chains into
+    multi-character edge labels — a radix tree — and compact encodings hold edges in arrays rather than heap
+    objects. The prefix mechanics above are unchanged; only the locality improves.</p>
+
+  <style>
+    .v4-cur{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:800;margin-bottom:9px}
+    .v4-cur em{font-style:normal;color:var(--viz-accent)}
+    .v4-next{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:13px}
+    .v4-next button{min-height:44px;min-width:44px;border:1.5px solid var(--viz-accent);background:var(--viz-surface);
+      color:var(--viz-accent);border-radius:10px;font:inherit;font-weight:800;font-size:13px;padding:6px 13px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-next button.is-reset{border-color:var(--viz-line);color:var(--viz-muted);font-family:inherit;font-size:12px}
+    .v4-tree{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75}
+    .v4-nd{color:var(--viz-muted)}
+    .v4-nd.on-path{color:var(--viz-accent);font-weight:800}
+    .v4-nd.is-term{color:var(--viz-green)}
+    .v4-nd.is-hit{color:var(--viz-green);font-weight:800}
+    .v4-cost{display:flex;flex-direction:column;gap:9px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v4-track{height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TERMS = ['car', 'card', 'care', 'cat'];
+    var BIG = 1000000, SORTED_PROBES = 20;      // log2(1e6) ≈ 19.9 boundary comparisons
+    var prefix = '';
+    var cur = document.getElementById('v4-cur'), nextBox = document.getElementById('v4-next');
+    var tree = document.getElementById('v4-tree'), cost = document.getElementById('v4-cost'), why = document.getElementById('v4-why');
+
+    function nodes(){                            // every distinct prefix is a trie node
+      var set = {};
+      TERMS.forEach(function(t){ for (var i = 0; i <= t.length; i++) set[t.slice(0, i)] = true; });
+      return Object.keys(set).sort();
+    }
+    function completions(p){ return TERMS.filter(function(t){ return t.indexOf(p) === 0; }); }
+    function nextSymbols(p){
+      var out = [];
+      completions(p).forEach(function(t){
+        if (t.length > p.length && out.indexOf(t[p.length]) < 0) out.push(t[p.length]);
+      });
+      return out.sort();
+    }
+
+    function render(){
+      var comp = completions(prefix), L = prefix.length, k = comp.length;
+      cur.innerHTML = 'prefix <em>' + (prefix === '' ? '(root)' : prefix) + '</em> &nbsp;·&nbsp; ' +
+        L + ' edge' + (L === 1 ? '' : 's') + ' walked &nbsp;·&nbsp; ' +
+        (TERMS.indexOf(prefix) >= 0 ? '<span style="color:var(--viz-green)">terminal ✓ — a complete key</span>'
+                                    : '<span style="color:var(--viz-muted)">not terminal</span>');
+
+      var syms = nextSymbols(prefix), h = '';
+      syms.forEach(function(s){ h += '<button data-s="' + s + '">' + s + '</button>'; });
+      if (L > 0) h += '<button class="is-reset" data-s="@reset">↺ back to root</button>';
+      nextBox.innerHTML = h;
+      [].slice.call(nextBox.children).forEach(function(b){
+        b.addEventListener('click', function(){
+          var s = b.getAttribute('data-s');
+          prefix = (s === '@reset') ? '' : prefix + s;
+          render();
+        });
+      });
+
+      tree.innerHTML = nodes().map(function(nd){
+        var onPath = prefix.indexOf(nd) === 0;
+        var isHit = nd.indexOf(prefix) === 0 && TERMS.indexOf(nd) >= 0;
+        var cls = 'v4-nd' + (onPath ? ' on-path' : '') + (isHit ? ' is-hit' : (TERMS.indexOf(nd) >= 0 ? ' is-term' : ''));
+        var pad = '&nbsp;'.repeat(nd.length * 3);
+        var label = nd === '' ? '● root' : '└ ' + nd[nd.length - 1] + '  <span style="opacity:.7">' + nd + '</span>';
+        return '<div class="' + cls + '">' + pad + label + (TERMS.indexOf(nd) >= 0 ? '  ■ term' : '') + '</div>';
+      }).join('');
+
+      var trie = Math.max(1, L) + k, sorted = SORTED_PROBES + k, hash = BIG;
+      function bar(t, v, txt, col, sub){
+        var w = Math.log10(Math.max(v, 1)) / Math.log10(BIG) * 100;
+        return '<div class="v4-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + txt + '</b></h6>' +
+          '<div class="v4-track"><i style="width:' + Math.max(2, Math.min(100, w)) + '%;background:' + col + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+      }
+      cost.innerHTML =
+        '<div style="font-size:11.5px;color:var(--viz-muted);margin-bottom:2px">Same walk over a <b>1,000,000-term</b> dictionary, prefix length L = ' + L + ', k = ' + k + ' completions</div>' +
+        bar('hash dictionary', hash, hash.toLocaleString() + ' keys scanned', 'var(--viz-red)',
+            'No prefix structure at all: either a full scan or a second index built for prefixes.') +
+        bar('sorted array', sorted, '~' + sorted + ' operations', 'var(--viz-amber)',
+            'Binary-search the prefix boundary in about 20 comparisons, then scan k matches.') +
+        bar('trie / FST', trie, L + ' symbols + ' + k + ' completions', 'var(--viz-green)',
+            'O(L + k): consume one symbol per edge, then enumerate terminal descendants.');
+
+      why.innerHTML = '<b>Lookup is O(L) in the key length — the dictionary size is not in it.</b>' +
+        'For <code>car</code>, <code>card</code>, <code>care</code> and <code>cat</code>, edges <code>c</code> and <code>a</code> are shared; node <code>r</code> is terminal for <code>car</code>, its children <code>d</code> and <code>e</code> give <code>card</code> and <code>care</code>, and sibling <code>t</code> gives <code>cat</code>. Autocomplete for <code>car</code> walks three edges and enumerates three completions. ' +
+        (L === 0
+          ? '<br><br>You are at the root: every term is still reachable, so k = ' + k + '. Tap a symbol.'
+          : '<br><br>Right now L = ' + L + ' and k = ' + k + ', so the work is ' + trie + ' steps against ' + hash.toLocaleString() + ' for the hash dictionary — and that gap <em>widens</em> as the dictionary grows, because only one of those three numbers depends on n.');
+    }
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Merging Equal Tails</h2>
+  <p class="vz-lede">A trie shares prefixes only — <code>mop</code> and <code>top</code> share nothing,
+    because their paths diverge at the first character. Minimise the automaton and the equivalent tails
+    collapse into one. <b>Like two roads that join and run together to the same town: you build the shared
+    stretch once.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Structure">
+    <button id="v5-trie" aria-pressed="true">trie</button>
+    <button id="v5-fst" aria-pressed="false">minimised FST</button>
+  </div>
+  <div class="vz-card">
+    <div class="v5-diagram vz-mono" id="v5-diagram"></div>
+    <div class="v5-stats" id="v5-stats"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Trace a key" style="margin-top:12px">
+    <button id="v5-mop" aria-pressed="true">trace "mop"</button>
+    <button id="v5-top" aria-pressed="false">trace "top"</button>
+    <button id="v5-step">step ▶</button>
+  </div>
+  <div class="vz-card">
+    <div class="v5-trace" id="v5-trace"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">The compression is paid for at write time. A mutable trie inserts a path in O(L), but a
+    minimal FST depends on <b>global</b> state equivalence and is built from sorted keys as an immutable
+    artifact — changes land in small mutable overlays or new immutable segments and are merged later, never
+    edited in place. Whatever the representation — bytes, code points, normalised tokens — it must match the
+    analyser, or visually equal strings follow different paths.</p>
+
+  <style>
+    .v5-diagram{margin-bottom:12px}
+    .v5-stats{display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-trace{display:flex;flex-direction:column;gap:5px}
+    .v5-tr{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v5-tr.is-now{border-color:var(--viz-accent)}
+    .v5-tr.is-done{opacity:.55}
+    .v5-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TRIE = [
+      '        m ──▶ (mo) ──o──▶ (mop) ■ term  →  id 12',
+      '  (root)',
+      '        t ──▶ (to) ──o──▶ (top) ■ term  →  id 37',
+      '',
+      '  7 nodes: root, m, mo, mop, t, to, top      6 edges',
+      '  the tails "op" and "op" are stored TWICE'
+    ];
+    var FST = [
+      '        m / output 12 ──┐',
+      '  (S0)                  ├──▶ (S1) ──o──▶ (S2) ──p──▶ (S3) ■ final',
+      '        t / output 37 ──┘',
+      '',
+      '  4 states: S0, S1, S2, S3                   4 transitions',
+      '  S1 is ONE state: after m and after t the future is identical ("op")',
+      '  outputs ride on the FIRST transition; the shared tail carries none'
+    ];
+    var TRACE = {
+      mop: [
+        ['S0', 'consume m', '+12', 'output so far 12'],
+        ['S1', 'consume o', '+0',  'output so far 12'],
+        ['S2', 'consume p', '+0',  'output so far 12'],
+        ['S3', 'input exhausted at a FINAL state', '', 'accept → term id 12']
+      ],
+      top: [
+        ['S0', 'consume t', '+37', 'output so far 37'],
+        ['S1', 'consume o', '+0',  'output so far 37'],
+        ['S2', 'consume p', '+0',  'output so far 37'],
+        ['S3', 'input exhausted at a FINAL state', '', 'accept → term id 37']
+      ]
+    };
+    var fst = false, key = 'mop', step = 0;
+    var bT = document.getElementById('v5-trie'), bF = document.getElementById('v5-fst');
+    var diagram = document.getElementById('v5-diagram'), stats = document.getElementById('v5-stats');
+    var bM = document.getElementById('v5-mop'), bP = document.getElementById('v5-top'), bS = document.getElementById('v5-step');
+    var trace = document.getElementById('v5-trace'), why = document.getElementById('v5-why');
+
+    function render(){
+      bT.setAttribute('aria-pressed', fst ? 'false' : 'true');
+      bF.setAttribute('aria-pressed', fst ? 'true' : 'false');
+      bM.setAttribute('aria-pressed', key === 'mop' ? 'true' : 'false');
+      bP.setAttribute('aria-pressed', key === 'top' ? 'true' : 'false');
+      diagram.innerHTML = (fst ? FST : TRIE).join('\n');
+
+      var nodesN = fst ? 4 : 7, edges = fst ? 4 : 6;
+      var saved = Math.round((1 - nodesN / 7) * 100);
+      stats.innerHTML =
+        '<span class="v5-pill" style="color:' + (fst ? 'var(--viz-green)' : 'var(--viz-amber)') + ';border-color:' + (fst ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' + nodesN + ' states</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + edges + ' transitions</span>' +
+        '<span class="v5-pill" style="color:' + (fst ? 'var(--viz-green)' : 'var(--viz-muted)') + ';border-color:' + (fst ? 'var(--viz-green)' : 'var(--viz-line)') + '">' + (fst ? saved + '% fewer states than the trie' : 'baseline — no tail sharing') + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">lookup still O(L)</span>';
+
+      var rows = TRACE[key];
+      step = Math.max(0, Math.min(step, rows.length - 1));
+      trace.innerHTML = rows.map(function(r, j){
+        var cls = j === step ? 'is-now' : (j < step ? 'is-done' : '');
+        return '<div class="v5-tr ' + cls + '"><span style="color:var(--viz-violet);font-weight:800">' + r[0] + '</span>' +
+          '<span>' + r[1] + '</span>' +
+          (r[2] ? '<span style="color:var(--viz-green);font-weight:800">' + r[2] + '</span>' : '') +
+          '<span class="v5-tag" style="color:' + (j === step ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' + r[3] + '</span></div>';
+      }).join('');
+
+      why.innerHTML = fst
+        ? '<b style="color:var(--viz-green)">Minimisation merges states with identical futures; the transducer hangs outputs on the way in.</b>' +
+          'In a minimised deterministic acyclic automaton, the state after <code>m</code> and the state after <code>t</code> both accept exactly <code>op</code>, so they are the same state — seven trie nodes collapse to four. Lookup starts at one state, consumes one input symbol per transition, <b>accumulates any outputs</b>, and succeeds only at a final state once all symbols are consumed, so <code>' + key + '</code> yields ' + (key === 'mop' ? '12' : '37') + '. That output can be a term ID, a postings offset or a weight. ' +
+          '<br><br>Search engines use compact FST dictionaries because sorted term sets are dense in shared prefixes <em>and</em> suffix-equivalent tails, and the serialised arrays hold far less memory than an object-heavy trie.'
+        : '<b style="color:var(--viz-amber)">A trie shares the front of a word and nothing else.</b>' +
+          '<code>mop</code> and <code>top</code> diverge at the first character, so the identical tail <code>op</code> is stored twice. Multiply that across a million terms and the waste is the whole memory problem — while prefix behaviour itself is perfect, which is why the fix is a different <em>encoding</em>, not a different algorithm. ' +
+          '<br><br>Flip to the minimised FST to see the same two keys in four states, and step the trace either way: the walk is the same O(L) walk.';
+    }
+    bT.addEventListener('click', function(){ fst = false; render(); });
+    bF.addEventListener('click', function(){ fst = true; render(); });
+    bM.addEventListener('click', function(){ key = 'mop'; step = 0; render(); });
+    bP.addEventListener('click', function(){ key = 'top'; step = 0; render(); });
+    bS.addEventListener('click', function(){ step = (step + 1) % TRACE[key].length; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

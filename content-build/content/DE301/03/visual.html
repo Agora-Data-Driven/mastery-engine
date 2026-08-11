@@ -1,0 +1,381 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Provenance Chain</button>
+  <button class="viz-tab" data-viz-tab="2">2. Recipe Or Ingredients</button>
+  <button class="viz-tab" data-viz-tab="3">3. One Coherent Cut</button>
+  <button class="viz-tab" data-viz-tab="4">4. How Identical Is Identical</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Provenance Chain</h2>
+  <p class="vz-lede"><b>Training-Serving Skew</b> ended on an invariant: reproduce the values and versions
+    the model actually received. That needs a chain from the deployed model back to immutable bytes. Tap a
+    link to see what it must resolve to — then break one. <b>Like a receipt that names the shop, the till
+    and the exact item, not just "groceries".</b></p>
+
+  <div class="v1-chain" id="v1-chain"></div>
+
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v1-h">Rollback needs a compatible pair</h4>
+    <div class="v1-roll" id="v1-roll"></div>
+  </div>
+  <p class="vz-note">Versioning does not mean copying bytes. Snapshot-aware tables share unchanged files
+    across versions, content-addressed objects deduplicate, and a manifest can reference features that
+    already exist. <b>Logical immutability and durable reachability matter more than physical
+    duplication.</b></p>
+
+  <style>
+    .v1-chain{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v1-l{width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;min-height:44px;
+      display:flex;align-items:center;gap:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.4}
+    .v1-l[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-l.is-weak{border-color:var(--viz-red)}
+    .v1-ar{flex:0 0 auto;color:var(--viz-muted);font-weight:800}
+    .v1-tag{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;font-family:inherit;white-space:nowrap}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v1-h{margin:0 0 9px;font-size:13px}
+    .v1-roll{font-size:12.5px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var LINKS = [
+      { t:'model_version   m-2026-07-24-a1', weak:false, tag:'IMMUTABLE',
+        why:['The artifact, and it references the rest the way it references a code commit.',
+          'A model is inseparable from the examples and transformations that produced it, so versioning weights and code alone leaves the gap this whole lesson is about: source rows arrive, labels mature, joins get corrected, features get backfilled. ' +
+          'Two runs both described as "the July data" can train on different rows, and nothing in either record would say so.'] },
+      { t:'dataset_version   ds-9f21c8  (alias: training_v3)', weak:false, tag:'IMMUTABLE + ALIAS',
+        why:['The alias is convenience; the ID is the record.',
+          '<code>training_v3</code> is useful and insufficient — it must resolve to immutable metadata, and <b>moving the alias later must not rewrite the historical run record</b>. ' +
+          '<br><br>Include a <b>namespace and format version</b> so two teams cannot reuse a friendly name for incompatible artifacts, and make resolution APIs return <b>immutable IDs and checksums, not storage paths</b> whose contents can change underneath. ' +
+          '<br><br>Note also that training and evaluation sets need <b>separate identities</b>: a contamination fix or a label correction can affect one without the other, and an evaluator has to know which test version produced the reported metric.'] },
+      { t:'training manifest   (checksummed, immutable)', weak:false, tag:'THE UNIT OF RECORD',
+        why:['Everything needed to explain and rebuild the run.',
+          'Dataset ID, parent source snapshots, feature-definition versions, label rule, observation and label windows, row count, schema fingerprint, partition list, code commit, container digest, parameters, quality-test results, creation time. ' +
+          '<br><br>Two things people leave out. <b>Exclusion decisions</b>: privacy deletion, corrupted-source removal, duplicate filtering and contamination checks all change membership, so record the rule version and count at each filter stage — otherwise a rebuild cannot explain why an expected example vanished. ' +
+          'And <b>quality evidence</b>: a version can be perfectly immutable and still invalid, so promotion should mark that it passed the training contract rather than treating creation as approval.'] },
+      { t:'source snapshots   orders@S812 · events@S1190 · dim_customer@S77', weak:false, tag:'ONE COHERENT CUT',
+        why:['Every input pinned, together, as one approved set.',
+          'Independently choosing each table’s latest snapshot at task start mixes facts and dimensions from <b>different publication cycles</b> — a dataset that looks coherent and never existed. Visual 3 is about exactly this.'] },
+      { t:'vocab.json · taxonomy · label guidelines', weak:false, tag:'HASHED IN THE MANIFEST',
+        why:['Coherence extends past tables, and this is the link most often missing.',
+          'Tokenizer vocabularies, taxonomy mappings, stop-word lists and label guidelines all change model inputs. <b>A changed vocabulary alters every input while every source-table snapshot stays byte-identical</b> — so the table lineage looks untouched and the model has been retrained on something else. ' +
+          '<br><br>Store their hashes or version IDs alongside the snapshot IDs.'] },
+      { t:'SELECT … FROM events WHERE …   ← logged as SQL text', weak:true, tag:'BROKEN LINK',
+        why:['A recipe, not a captured ingredient set.',
+          'SQL text describes <em>how</em> to select rows, not <em>which rows were selected</em>. Run it tomorrow and new rows have arrived, corrections have rewritten history, dimensions have changed and late events have backfilled old partitions — all of which are normal operation. ' +
+          '<br><br><b>Resolve every source to a snapshot before training, and fail the run if a mutable table cannot be pinned.</b> Exploratory work can be looser; a promoted run must cross into snapshot-backed inputs, and its artifacts should not become deployable by changing only a label.'] }
+    ];
+    var sel = 0;
+    var chain = document.getElementById('v1-chain'), why = document.getElementById('v1-why');
+    function render(){
+      chain.innerHTML = LINKS.map(function(l, i){
+        return '<button class="v1-l' + (l.weak ? ' is-weak' : '') + '" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '"' +
+          ' style="margin-left:' + Math.min(i, 4) * 9 + 'px">' +
+          '<span class="v1-ar">' + (i ? '└→' : '●') + '</span><span>' + l.t + '</span>' +
+          '<span class="v1-tag" style="color:' + (l.weak ? 'var(--viz-red)' : 'var(--viz-muted)') + '">' + l.tag + '</span></button>';
+      }).join('');
+      [].slice.call(chain.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      var l = LINKS[sel];
+      why.innerHTML = '<b style="color:' + (l.weak ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + l.why[0] + '</b>' + l.why[1];
+    }
+    render();
+
+    document.getElementById('v1-roll').innerHTML =
+      'Restoring model <b>M7</b> may also require the feature definitions and lookup snapshots M7 expects. A <b>deployment manifest</b> binds model, preprocessing, feature versions and serving configuration together. ' +
+      '<br><br><b style="color:var(--viz-red)">Roll back the weights alone and you have deliberately created training-serving skew</b> — older model, newer feature semantics — which is the precise failure the previous lesson spent itself preventing. ' +
+      '<br><br>The governance direction is worth knowing too: keeping a deployed model reproducible may require retaining its training snapshot, and personal data may require deletion. Maintain deletion lineage, retrain or <b>document irreproducibility</b> where required, and preserve non-sensitive manifests where allowed. ' +
+      '<b>A registry cannot override legal erasure.</b>';
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Recipe Or Ingredients</h2>
+  <p class="vz-lede">The same SQL, three months apart. Nothing about the query changed and four normal
+    things happened to the tables underneath it. Press replay. <b>Like re-cooking from a recipe after
+    someone has restocked the fridge.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="How the run resolves its inputs">
+    <button id="v2-live" aria-pressed="true">live query</button>
+    <button id="v2-snap" aria-pressed="false">pinned snapshot</button>
+  </div>
+
+  <div class="vz-card">
+    <button class="v2-run" id="v2-replay">▶ replay the identical query, three months later</button>
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Randomness belongs in the contract too: record the split algorithm, the seed, the
+    grouping keys and the deterministic ordering. <b>Hash-based splits on a stable entity ID reproduce
+    better than pseudorandom row ordering</b>, and a library upgrade can change the sequence a numeric seed
+    produces even when nothing else moved.</p>
+
+  <style>
+    .v2-run{width:100%;min-height:44px;border:1.5px solid var(--viz-amber);background:var(--viz-surface);
+      color:var(--viz-amber);border-radius:10px;font:inherit;font-weight:700;font-size:13px;margin-bottom:13px}
+    .v2-rows{display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 11px;background:var(--viz-bg);font-size:12px;line-height:1.4}
+    .v2-r.is-changed{border-color:var(--viz-red)}
+    .v2-r.is-same{border-color:var(--viz-green)}
+    .v2-d{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:700;white-space:nowrap}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var live = true, replayed = false;
+    var CAUSES = [
+      { t:'new rows arrived for the same date range', d:'+18,402 rows' },
+      { t:'a correction rewrote March history', d:'~2,140 rows changed' },
+      { t:'dim_customer versions moved on', d:'411 joins resolve differently' },
+      { t:'a late-event backfill refilled old partitions', d:'+6,097 rows' }
+    ];
+    var bL = document.getElementById('v2-live'), bS = document.getElementById('v2-snap');
+    var rows = document.getElementById('v2-rows'), why = document.getElementById('v2-why');
+
+    function render(){
+      bL.setAttribute('aria-pressed', live ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', live ? 'false' : 'true');
+      rows.innerHTML = CAUSES.map(function(c){
+        var hits = replayed && live;
+        return '<div class="v2-r ' + (replayed ? (hits ? 'is-changed' : 'is-same') : '') + '">' +
+          '<span style="color:' + (hits ? 'var(--viz-red)' : 'var(--viz-muted)') + ';font-weight:800">' + (replayed ? (hits ? '✕' : '✓') : '·') + '</span>' +
+          '<span>' + c.t + '</span>' +
+          '<span class="v2-d" style="color:' + (hits ? 'var(--viz-red)' : 'var(--viz-muted)') + '">' +
+          (replayed ? (hits ? c.d : 'no effect') : '—') + '</span></div>';
+      }).join('');
+
+      if (!replayed) {
+        why.innerHTML = '<span style="color:var(--viz-muted)">Four ordinary things happen to source tables between June and September. Press replay.</span>';
+        return;
+      }
+      why.innerHTML = live
+        ? '<b style="color:var(--viz-red)">Same SQL, different dataset — and no record anywhere says so.</b>' +
+          'A live query reads whatever state the tables contain at execution time. Every one of those four causes is <b>normal operation</b>, not a fault, which is why the failure is so quiet: the query is correct, the pipeline is healthy, and the June experiment can no longer be reproduced. ' +
+          '<br><br>Worse is the shape inside a single long run. A six-hour feature build reading January partitions sequentially, while an upstream backfill replaces them, produces <b>early partitions with the old logic and later partitions with the new</b>. ' +
+          'The output is internally inconsistent and <b>passes row-count checks</b>, so nothing surfaces it.'
+        : '<b style="color:var(--viz-green)">The snapshot is resolved once, at run start, and used throughout.</b>' +
+          'Every task reads <b>one coherent generation</b>, so the long-running build cannot straddle a backfill and the September replay reproduces June exactly. ' +
+          '<br><br>Resolve it to an exact <b>snapshot ID</b>, not a timestamp: clock precision, commit timing and retention make <code>AS OF 10:00</code> ambiguous across systems, and two commits can share a moment. Record the resolved identifier in the training manifest. ' +
+          '<br><br>External sources without snapshots need the same treatment by hand — download to <b>content-addressed storage</b>, record the API metadata, checksum the bytes, and train from the captured copy. ' +
+          '<b>An API response that changes under the same URL is not a reproducible input.</b>';
+    }
+    bL.addEventListener('click', function(){ live = true; render(); });
+    bS.addEventListener('click', function(){ live = false; render(); });
+    document.getElementById('v2-replay').addEventListener('click', function(){ replayed = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. One Coherent Cut</h2>
+  <p class="vz-lede">Three input tables, each publishing on its own cycle. Letting every task grab "latest"
+    builds a dataset from three different moments — coherent-looking, and never actually true at once.
+    Drag the task start times apart. <b>Like a group photo assembled from three snapshots taken minutes
+    apart.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="How snapshots are chosen">
+    <button id="v3-each" aria-pressed="true">each task picks latest</button>
+    <button id="v3-rel" aria-pressed="false">dataset release manifest</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-skew">Tasks start <span id="v3-sl">40</span> minutes apart</label>
+    <input type="range" id="v3-skew" min="0" max="90" value="40" step="5" aria-label="Minutes between task starts">
+    <div class="v3-tracks" id="v3-tracks"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">And pinning a snapshot is <b>not</b> point-in-time correctness. A run replaying March
+    examples against today's pinned feature tables can still use values unknown in March — the snapshot
+    must <em>contain</em> temporal history, and the join must still enforce each example's cutoff. Two
+    independent requirements that are constantly mistaken for one.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-tracks{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v3-t h6{margin:0 0 4px;font-size:11px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v3-t h6 b{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-bar{position:relative;height:20px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-pub{position:absolute;top:0;bottom:0;width:2px;background:var(--viz-muted)}
+    .v3-pick{position:absolute;top:0;bottom:0;width:3px;background:var(--viz-accent)}
+    .v3-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TABLES = [
+      { n:'fact_orders',  pubs:[10, 45, 78], snaps:['S810','S811','S812'] },
+      { n:'dim_customer', pubs:[22, 61],      snaps:['S76','S77'] },
+      { n:'fact_events',  pubs:[8, 34, 70, 92], snaps:['S1188','S1189','S1190','S1191'] }
+    ];
+    var each = true;
+    var bE = document.getElementById('v3-each'), bR = document.getElementById('v3-rel');
+    var s = document.getElementById('v3-skew'), sl = document.getElementById('v3-sl');
+    var tracks = document.getElementById('v3-tracks'), why = document.getElementById('v3-why');
+
+    function render(){
+      bE.setAttribute('aria-pressed', each ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', each ? 'false' : 'true');
+      var skew = Number(s.value);
+      sl.textContent = skew;
+      var APPROVED = [0, 0, 1];   // the release manifest's approved index per table
+
+      var picks = TABLES.map(function(t, i){
+        var start = each ? Math.min(96, 20 + i * skew / 2) : 96;
+        if (!each) return { idx:APPROVED[i], at:null };
+        var idx = 0;
+        t.pubs.forEach(function(p, j){ if (p <= start) idx = j; });
+        return { idx:idx, at:start };
+      });
+
+      tracks.innerHTML = TABLES.map(function(t, i){
+        var p = picks[i];
+        return '<div class="v3-t"><h6><span>' + t.n + '</span><b style="color:var(--viz-accent)">' + t.snaps[p.idx] + '</b></h6>' +
+          '<div class="v3-bar">' +
+          t.pubs.map(function(x){ return '<div class="v3-pub" style="left:' + x + '%"></div>'; }).join('') +
+          '<div class="v3-pick" style="left:' + (p.at === null ? t.pubs[p.idx] : p.at) + '%"></div>' +
+          '</div></div>';
+      }).join('');
+
+      // coherent if all picks correspond to the same publication cycle boundary
+      var coherent = !each || skew === 0;
+      why.innerHTML = each
+        ? (coherent
+          ? '<b style="color:var(--viz-amber)">At zero skew they happen to agree — today.</b>' +
+            'Nothing enforces it. Drag the tasks apart and the picks diverge, and in production they always diverge: schedulers stagger, retries delay, and one task waits on a queue.'
+          : '<b style="color:var(--viz-red)">Facts from one publication cycle joined to dimensions from another.</b>' +
+            'Each task independently resolved "latest" at its own start time, so the dataset combines <b>' + picks.map(function(p, i){ return TABLES[i].snaps[p.idx]; }).join(', ') + '</b> — a combination that was never simultaneously true. ' +
+            '<br><br>The result passes every schema check and every row-count check, and the join keys all match. This is a <b>coherence</b> failure, and coherence is not something any single table can validate.')
+        : '<b style="color:var(--viz-green)">One approved set, listed in a dataset release manifest.</b>' +
+          'The manifest names the approved snapshot of every component, so every task reads the same cut however far apart they start. The alternative shape is a <b>dataset-level pointer published atomically</b> once all tables have passed their gates — the same publish-by-pointer move as an open table format, one level up. ' +
+          '<br><br>And the cut must cover more than tables: <b>tokenizer vocabularies, taxonomy mappings, stop-word lists and label guidelines</b> all change model inputs, so their hashes or version IDs belong in the same manifest.';
+    }
+    bE.addEventListener('click', function(){ each = true; render(); });
+    bR.addEventListener('click', function(){ each = false; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. How Identical Is Identical</h2>
+  <p class="vz-lede">You rebuild the dataset from its lineage in a clean environment. The output differs.
+    Is that a bug? It depends entirely on which level of reproducibility you claimed. Pick a level.
+    <b>Like "the same recipe": same dish, same weights, or the same molecules?</b></p>
+
+  <div class="v4-levels" id="v4-levels"></div>
+
+  <div class="vz-card">
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:10px">
+    <h4 class="v4-h">The four-level diff — because one checksum explains nothing</h4>
+    <div class="v4-diff" id="v4-diff"></div>
+  </div>
+  <p class="vz-note">Run <b>rebuild drills</b> on important deployed models instead of waiting for an
+    incident. A drill exposes expired snapshots, unavailable containers, revoked credentials, undocumented
+    manual inputs and dependency registries that no longer retain artifacts. Recovery documentation is
+    credible only when the path still executes.</p>
+
+  <style>
+    .v4-levels{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-L{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v4-L[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-strict{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;white-space:nowrap;color:var(--viz-muted)}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-h{margin:0 0 9px;font-size:13px}
+    .v4-diff{display:flex;flex-direction:column;gap:7px}
+    .v4-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-size:12.5px;line-height:1.5}
+    .v4-d b{display:block;font-size:12px;margin-bottom:3px;color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var LEVELS = [
+      { t:'exact membership and categorical values', strict:'ACHIEVABLE',
+        why:['The level most teams actually need, and can actually promise.',
+          'The same example IDs, the same labels, the same categorical feature values. This is what makes a metric comparison meaningful and a suspicious row traceable, and it is unaffected by floating-point reduction order or hardware differences. ' +
+          '<br><br>If a rebuild changes <em>membership</em>, that is always a real finding: a filter rule moved, a snapshot expired, or an exclusion decision was not recorded.'] },
+      { t:'bounded numeric tolerance', strict:'ACHIEVABLE',
+        why:['Numeric outputs within a declared tolerance, derived from analysis rather than convenience.',
+          'Distributed aggregation can sum in a different order between runs, and floating-point addition is not associative, so low-order bits move. That is expected and it is not a defect — <b>provided the tolerance was declared in advance</b> and derived from what the model can absorb. ' +
+          '<br><br>A tolerance chosen after seeing the diff is not a tolerance, it is a rationalisation.'] },
+      { t:'same schema and distributions', strict:'WEAKEST USEFUL',
+        why:['A sanity level, not a reproducibility claim.',
+          'Useful as a fast gate — schema fingerprint matches, null rates and ranges are within bounds, class balance holds. It cannot tell you that the <em>same rows</em> are present, so it will pass a rebuild that quietly dropped and replaced 3% of the examples.'] },
+      { t:'bitwise identity', strict:'OFTEN IMPOSSIBLE',
+        why:['Demand it only where it is genuinely required — and know what it costs.',
+          'Floating-point reduction order, hardware math and library versions all break bitwise identity for many transforms, including image and text preprocessing. Achieving it means pinning far more than the data: container digest, library versions, thread counts, and sometimes the hardware. ' +
+          '<br><br><b>The rule that matters: do not call outputs identical without stating the level.</b> Differences arising from nondeterministic distributed aggregation, hardware math or unpinned dependencies should be <b>documented</b>, not discovered.'] }
+    ];
+    var sel = 0;
+    var levels = document.getElementById('v4-levels'), why = document.getElementById('v4-why');
+    function render(){
+      levels.innerHTML = LEVELS.map(function(l, i){
+        return '<button class="v4-L" data-i="' + i + '" aria-pressed="' + (i === sel ? 'true' : 'false') + '">' +
+          '<span>' + l.t + '</span><span class="v4-strict">' + l.strict + '</span></button>';
+      }).join('');
+      [].slice.call(levels.children).forEach(function(el){
+        el.addEventListener('click', function(){ sel = Number(el.dataset.i); render(); });
+      });
+      why.innerHTML = '<b>' + LEVELS[sel].why[0] + '</b>' + LEVELS[sel].why[1];
+    }
+    render();
+
+    document.getElementById('v4-diff').innerHTML = [
+      ['manifest metadata', 'Which partitions changed, whether the schema moved, which feature-definition versions differ. The cheapest level and the one that localises everything else.'],
+      ['stable example IDs', 'Membership added and removed. This is where a filter-rule change or an expired snapshot shows up — and it is only possible because examples carry stable identities.'],
+      ['feature summaries', 'Value shifts: means, null rates, ranges, class balance. Catches a transformation that still produces the right rows with the wrong numbers.'],
+      ['sampled row-level comparison', 'Actual transformation defects, on real rows. Expensive, so it goes last — and it is the only level that can explain <em>why</em> a summary moved.']
+    ].map(function(d){ return '<div class="v4-d"><b>' + d[0] + '</b>' + d[1] + '</div>'; }).join('') +
+      '<div class="v4-d" style="border-color:var(--viz-amber)"><b style="color:var(--viz-amber)">and what a single checksum tells you</b>' +
+      'That two artifacts differ. Nothing about <b>whether the difference was intended</b> — which is the only question anyone actually asks. ' +
+      'It is also why a model improvement needs attribution: a larger dataset and a better algorithm are different findings, so vary one dimension at a time where you can.</div>';
+  })();
+  </script>
+</section>
+
+</body>
+</html>

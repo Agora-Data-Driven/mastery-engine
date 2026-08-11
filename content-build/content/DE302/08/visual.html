@@ -1,0 +1,702 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Design To Operations</button>
+  <button class="viz-tab" data-viz-tab="2">2. Impact To Cause</button>
+  <button class="viz-tab" data-viz-tab="3">3. Where The Money Went</button>
+  <button class="viz-tab" data-viz-tab="4">4. Idle Or Waiting</button>
+  <button class="viz-tab" data-viz-tab="5">5. RPO, RTO, Restore</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Design To Operations</h2>
+  <p class="vz-lede">Lessons 01–07 built every box on this diagram: <b>Pub/Sub</b>, <b>Cloud Storage</b>,
+    <b>Dataflow</b>, <b>BigQuery</b>, <b>IAM</b>, <b>CMEK</b>, <b>Dataplex</b>, an orchestrator. Flip the
+    switch and the same drawing has to survive being attacked. <b>Like a house plan versus the same house
+    with smoke alarms, a stopcock and a spare key at the neighbour's.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Diagram mode">
+    <button id="v1-design" aria-pressed="true">as designed (lessons 01–07)</button>
+    <button id="v1-ops" aria-pressed="false">as operated (this lesson)</button>
+  </div>
+
+  <div class="v1-strip" id="v1-strip"></div>
+  <div class="v1-band" id="v1-band"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v1-hd">Attack the diagram — what happens if…</div>
+    <div class="v1-qs" id="v1-qs"></div>
+    <div class="v1-score" id="v1-score"></div>
+    <div class="v1-ans" id="v1-ans"></div>
+  </div>
+
+  <p class="vz-note">A useful diagram tells a <b>requirements story</b>: producers → ingestion → storage →
+    processing → serving → consumers, batch and streaming drawn distinctly, control planes around the
+    outside, and projects, regions and trust boundaries labelled where they change the decision. Every arrow
+    means a flow, an API call, a dependency or a permission — and the legend says which.</p>
+
+  <style>
+    .v1-strip{display:flex;gap:5px;overflow-x:auto;padding-bottom:4px}
+    .v1-st{flex:1 0 104px;border:1.5px solid var(--viz-line);border-radius:10px;padding:8px;background:var(--viz-surface)}
+    .v1-st h5{margin:0 0 3px;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-st b{font-size:12px;display:block;line-height:1.25}
+    .v1-tag{font-size:9.5px;color:var(--viz-muted);display:block;margin-top:4px}
+    .v1-op{font-size:10px;font-weight:700;color:var(--viz-violet);display:block;margin-top:5px;line-height:1.35}
+    .v1-band{display:flex;gap:5px;flex-wrap:wrap;margin-top:9px}
+    .v1-ch{font-size:10.5px;font-weight:700;border:1.5px dashed var(--viz-line);border-radius:999px;
+      padding:5px 10px;color:var(--viz-muted)}
+    .v1-ch.is-new{border-style:solid;border-color:var(--viz-violet);color:var(--viz-violet)}
+    .v1-hd{font-size:12.5px;font-weight:700;margin-bottom:8px}
+    .v1-qs{display:flex;flex-direction:column;gap:6px}
+    .v1-q{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;line-height:1.35}
+    .v1-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-score{margin-top:11px;font-size:11.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v1-ans{margin-top:9px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-ans b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { k:'producers',  s:'apps · devices · SaaS', t:'', op:'' },
+      { k:'ingestion',  s:'Pub/Sub',        t:'lesson 04', op:'dead-letter topic · dedup at the retry boundary' },
+      { k:'storage',    s:'Cloud Storage',  t:'lesson 01', op:'replayable raw objects · versioning' },
+      { k:'processing', s:'Dataflow',       t:'lesson 04', op:'quarantine path · system lag watched' },
+      { k:'serving',    s:'BigQuery',       t:'lesson 02', op:'quality gate before publication · backup RPO 15m / RTO 2h' },
+      { k:'consumers',  s:'analysts · apps', t:'', op:'objective: ready by 07:00' }
+    ];
+    var BAND = [
+      { n:'identity — IAM', k:false }, { n:'keys — CMEK + KMS', k:false },
+      { n:'catalog — Dataplex', k:false }, { n:'orchestration', k:false },
+      { n:'monitoring + logging', k:true }, { n:'recovery — replication + backup', k:true }
+    ];
+    var QS = [
+      { q:'a message is delivered twice',
+        ok:['Deduplication is marked at the retry boundary.',
+            'The sink is idempotent on the message id, and the drawing says exactly where that happens — so a redelivery is a no-op instead of a double-counted row.'],
+        no:['The diagram cannot say.',
+            'Nothing marks idempotency or deduplication at a retry boundary, so the honest answer is "we would find out in the warehouse". Mark it, and the question answers itself.'] },
+      { q:'a schema changes upstream',
+        ok:['The quality gate fails the contract and withholds publication.',
+            'Schema, uniqueness, null rates and reconciled totals are checked before the curated table is published; failures go to quarantine. Publishing wrong data is worse than publishing late.'],
+        no:['The diagram cannot say.',
+            'With no quality gate drawn, a schema change publishes silently and the first person to notice is a consumer — which is exactly the failure monitoring exists to prevent.'] },
+      { q:'a region is unavailable',
+        ok:['The recovery plane says what fails over and what a human does.',
+            'Some managed regional or multi-regional services fail over automatically; others need an application, operator or orchestrator. The plane is annotated RPO 15 min / RTO 2 h so the promise is checkable.'],
+        no:['The diagram cannot say.',
+            'A regional name is not a resilience claim, and multi-region storage does not recreate the pipeline around it. Without the recovery plane this is a hope, not an architecture.'] },
+      { q:'a KMS key is disabled',
+        ok:['The CMEK arrow names which identity uses which key.',
+            'So you can list precisely which stages stop and in what order — and which team owns the key. A lock icon on the page would have told you nothing.'],
+        no:['The diagram cannot say.',
+            'A padlock glyph is decoration. Until the arrow names the service identity and the key, "who breaks first" is unanswerable.'] },
+      { q:'a quota is exhausted',
+        ok:['Quota consumption sits on dashboard layer three.',
+            'And every hop retries with bounded exponential backoff plus jitter, so a 429 degrades the pipeline instead of turning it into a synchronized retry storm.'],
+        no:['The diagram cannot say.',
+            'No quota signal and no retry policy drawn. The 429 arrives as a mystery, and the instinctive fix — retry harder — makes it worse.'] }
+    ];
+    var ops = false, cur = 0;
+    var bD = document.getElementById('v1-design'), bO = document.getElementById('v1-ops');
+    var strip = document.getElementById('v1-strip'), band = document.getElementById('v1-band');
+    var qs = document.getElementById('v1-qs'), ans = document.getElementById('v1-ans'), score = document.getElementById('v1-score');
+
+    function render(){
+      bD.setAttribute('aria-pressed', ops ? 'false' : 'true');
+      bO.setAttribute('aria-pressed', ops ? 'true' : 'false');
+      strip.innerHTML = STAGES.map(function(s){
+        return '<div class="v1-st"><h5>' + s.k + '</h5><b>' + s.s + '</b>' +
+          (s.t ? '<span class="v1-tag">taught in ' + s.t + '</span>' : '<span class="v1-tag">outside the platform</span>') +
+          (ops && s.op ? '<span class="v1-op">+ ' + s.op + '</span>' : '') + '</div>';
+      }).join('');
+      band.innerHTML = BAND.filter(function(c){ return ops || !c.k; }).map(function(c){
+        return '<span class="v1-ch' + (ops && c.k ? ' is-new' : '') + '">' + c.n + (ops && c.k ? ' — NEW' : '') + '</span>';
+      }).join('');
+      score.innerHTML = ops
+        ? '<span style="color:var(--viz-green)">5 of 5 failure questions answerable</span>'
+        : '<span style="color:var(--viz-red)">0 of 5 failure questions answerable</span>';
+      var a = ops ? QS[cur].ok : QS[cur].no;
+      ans.innerHTML = '<b style="color:' + (ops ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        (ops ? 'ANSWERED — ' : 'UNANSWERABLE — ') + a[0] + '</b>' + a[1] +
+        (ops ? '' : '<br><br>Same boxes, same services, same arrows. What is missing is not a product; it is the operational layer this lesson adds.');
+      [].slice.call(qs.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+    }
+    QS.forEach(function(q, i){
+      var b = document.createElement('button');
+      b.className = 'v1-q';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = '… ' + q.q + '?';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      qs.appendChild(b);
+    });
+    bD.addEventListener('click', function(){ ops = false; render(); });
+    bO.addEventListener('click', function(){ ops = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Impact To Cause</h2>
+  <p class="vz-lede">Three dashboard layers, read top down: who is hurt, which stage, which resource. Then
+    one dial — how long impact must persist before anyone is paged — that decides whether the on-call phone
+    is useful or ignored. <b>Like a smoke alarm: too sensitive and someone takes the battery out.</b></p>
+
+  <div class="v2-scen" id="v2-scen"></div>
+
+  <div class="vz-card">
+    <div class="v2-layers" id="v2-layers"></div>
+    <div class="v2-verdict" id="v2-verdict"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <label class="v2-lab" for="v2-sus">Page only after impact is sustained
+      <span id="v2-sus-l">5 min</span></label>
+    <input type="range" id="v2-sus" min="0" max="60" value="5" step="5" aria-label="Minutes of sustained impact before paging">
+    <div class="v2-pages" id="v2-pages"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Every alert must carry the affected resource, current value, threshold, runbook,
+    dashboard and owner — and late data, partial quality degradation and complete outage deserve different
+    routing and urgency. Quality checks belong beside infrastructure checks: recorded as a time series, a
+    null rate drifting <b>0.2% → 1.8% → 4.1%</b> is a slope you can act on weeks before it trips anything.</p>
+
+  <style>
+    .v2-scen{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v2-s{flex:1 1 132px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:7px 8px}
+    .v2-s[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v2-layers{display:flex;flex-direction:column;gap:6px}
+    .v2-l{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v2-l.is-hot{border-color:var(--viz-red)}
+    .v2-l h6{margin:0 0 3px;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--viz-muted)}
+    .v2-l p{margin:0;font-size:12px;line-height:1.45;font-family:ui-monospace,Consolas,monospace}
+    .v2-mk{font-size:9.5px;font-weight:800;letter-spacing:.04em;float:right}
+    .v2-verdict{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-verdict b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-pages{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:12px;font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // One week of a real pipeline: 84 transient blips (12/day, ~2 min each) and
+    // 2 genuine incidents that last 45 min. The dial decides which reach a human.
+    var BLIPS = 84, BLIP_MIN = 2, REAL = 2, REAL_MIN = 45, RUNWAY = 40;
+    var SCEN = [
+      { n:'late data', hot:[true,true,true],
+        l:['sales table due 07:00 — 400,000 rows short at 06:50', 'backlog age 38 min · throughput −22% · retries 3',
+           'Pub/Sub oldest-unacked-message age 41 min · worker CPU 96%'],
+        v:['PAGE — sustained impact on a consumer objective.',
+           'Layer one says someone is hurt; layer two says the stage is behind, not broken; layer three names the cause as capacity, not a crash. That is the whole point of the ordering: the responder walks impact → stage → resource in three reads.'] },
+      { n:'quality drift', hot:[true,false,true],
+        l:['table published on time — null rate 4.1% against a 1% contract', 'run state SUCCEEDED · error rate 0 · retries 0',
+           'source API returning partial payloads · schema unchanged'],
+        v:['TICKET, and withhold publication — a green job publishing bad data.',
+           'Nothing in the infrastructure failed, which is exactly why data quality monitoring belongs beside it. A failed rule that makes output unsafe should quarantine or withhold, not warn quietly while consumers read it.'] },
+      { n:'complete outage', hot:[true,true,true],
+        l:['no rows at all — consumers blocked', 'run state FAILED at stage 2 of 5 · first failure 04:12',
+           'BigQuery job failures 100% · permission denied on the target dataset'],
+        v:['PAGE, highest urgency — and do not retry it.',
+           'A denied permission fails identically forever. Confirm scope and start time, inspect the orchestrator, find the first failed stage, read the service error, check recent changes — then test IAM and Organization Policy. Preserve the run IDs before anyone reruns.'] },
+      { n:'transient retries', hot:[false,false,false],
+        l:['sales table ready 06:31 — objective met', 'retries 40/h, every one recovered · error rate 0.2%',
+           'worker CPU 61% · quota consumption 44%'],
+        v:['NO ALERT. This is the noise that kills the useful ones.',
+           'Alert on sustained user impact or a strong precursor, never on every transient retry. Chronic noise trains operators to ignore real incidents — and the outage above arrives on the same phone.'] }
+    ];
+    var cur = 0;
+    var scen = document.getElementById('v2-scen'), layers = document.getElementById('v2-layers');
+    var verdict = document.getElementById('v2-verdict'), sus = document.getElementById('v2-sus');
+    var susL = document.getElementById('v2-sus-l'), pages = document.getElementById('v2-pages'), why = document.getElementById('v2-why');
+    var NAMES = ['1 · consumer objective', '2 · pipeline health', '3 · resource + dependencies'];
+
+    function render(){
+      var s = SCEN[cur];
+      [].slice.call(scen.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      layers.innerHTML = s.l.map(function(txt, i){
+        return '<div class="v2-l' + (s.hot[i] ? ' is-hot' : '') + '"><h6>layer ' + NAMES[i] +
+          '<span class="v2-mk" style="color:' + (s.hot[i] ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+          (s.hot[i] ? 'ABNORMAL' : 'normal') + '</span></h6><p>' + txt + '</p></div>';
+      }).join('');
+      verdict.innerHTML = '<b>' + s.v[0] + '</b>' + s.v[1];
+
+      var n = Number(sus.value);
+      susL.textContent = n + ' min';
+      var noisy = n < BLIP_MIN ? BLIPS : 0;
+      var caught = n < REAL_MIN ? REAL : 0;
+      var total = noisy + caught;
+      var runway = RUNWAY - n;
+      var good = noisy === 0 && caught === REAL;
+      pages.innerHTML =
+        '<span class="v2-pill" style="color:' + (noisy ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (noisy ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + noisy + ' noise pages/week</span>' +
+        '<span class="v2-pill" style="color:' + (caught ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (caught ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + caught + ' of ' + REAL + ' real incidents caught</span>' +
+        '<span class="v2-pill" style="color:' + (runway > 0 ? 'var(--viz-violet)' : 'var(--viz-red)') + ';border-color:' + (runway > 0 ? 'var(--viz-violet)' : 'var(--viz-red)') + '">' + (runway > 0 ? runway + ' min left before 07:00' : 'deadline already passed') + '</span>';
+
+      why.innerHTML = n < BLIP_MIN
+        ? '<b style="color:var(--viz-red)">' + total + ' pages a week, 84 of them meaningless.</b>' +
+          'Every 2-minute retry blip reaches a human. Within a fortnight the alert is muted, and the outage that matters lands in a muted channel. <b>Chronic noise is not an annoyance, it is a loss of coverage.</b>'
+        : good
+          ? '<b style="color:var(--viz-green)">' + total + ' pages a week, both of them real.</b>' +
+            'Requiring impact to persist for ' + n + ' minutes drops all 84 transient blips and keeps both genuine incidents, with ' + runway + ' minutes of runway before the 07:00 objective. The alert now carries a resource, a value, a threshold, a runbook and an owner — it is a request for action.'
+          : '<b style="color:var(--viz-amber)">Quiet, and now blind.</b>' +
+            'At ' + n + ' minutes the filter has swallowed the real incidents too' + (runway > 0 ? '' : ', and the 07:00 deadline passes before anyone is told') + '. Alert on sustained impact <em>or a strong precursor</em> — backlog age and watermark lag warn you long before the deadline does.';
+    }
+    SCEN.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v2-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = s.n;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      scen.appendChild(b);
+    });
+    sus.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Where The Money Went</h2>
+  <p class="vz-lede">A bill that doubled is not yet a problem — or a defect. Split it three ways and the
+    answer names itself. Then watch a quota failure get worse the harder you retry. <b>Like a bigger grocery
+    bill: more mouths, higher prices, or a hole in the bag.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Incident type">
+    <button id="v3-bmode" aria-pressed="true">the bill went up</button>
+    <button id="v3-qmode" aria-pressed="false">HTTP 429 everywhere</button>
+  </div>
+
+  <div class="vz-card" id="v3-bill">
+    <label class="v3-lab" for="v3-vol">Input volume <span id="v3-vol-l">100%</span> of last month</label>
+    <input type="range" id="v3-vol" min="50" max="250" value="100" step="10" aria-label="Input volume">
+    <label class="v3-lab" for="v3-eff">Bytes scanned per output row <span id="v3-eff-l">1.0×</span></label>
+    <input type="range" id="v3-eff" min="5" max="30" value="10" step="1" aria-label="Efficiency">
+    <label class="v3-lab" for="v3-price">Unit price <span id="v3-price-l">$5.00 / TB</span></label>
+    <input type="range" id="v3-price" min="20" max="100" value="50" step="5" aria-label="Unit price">
+    <button class="v3-idle" id="v3-idle" aria-pressed="false">idle persistent cluster left running: OFF</button>
+    <div class="v3-out" id="v3-out"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card" id="v3-quota">
+    <div class="vz-seg" role="group" aria-label="Retry strategy" style="margin-bottom:10px">
+      <button id="v3-fixed" aria-pressed="true">retry on a fixed 5 s timer</button>
+      <button id="v3-jit" aria-pressed="false">bounded backoff + jitter</button>
+    </div>
+    <label class="v3-lab" for="v3-cli">Clients hitting a 100 req/s rate quota <span id="v3-cli-l">1,000</span></label>
+    <input type="range" id="v3-cli" min="200" max="2000" value="1000" step="200" aria-label="Number of clients">
+    <div class="v3-rounds" id="v3-rounds"></div>
+    <div class="v3-qwhy" id="v3-qwhy"></div>
+  </div>
+
+  <p class="vz-note">Budgets <b>notify</b>; they do not stop spend. And the failing quota belongs to the
+    consumer or quota project, which is frequently not the project storing the resource — the most common
+    wrong turn in quota triage. Troubleshoot symptom → orchestrator → first failed stage → service error →
+    recent changes, and preserve run IDs and logs <b>before</b> anyone reruns.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-idle{min-height:44px;width:100%;margin-top:12px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg);color:var(--viz-muted);font:inherit;font-weight:700;font-size:12px}
+    .v3-idle[aria-pressed="true"]{border-color:var(--viz-amber);color:var(--viz-amber)}
+    .v3-out{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why,.v3-qwhy{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b,.v3-qwhy b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-rounds{margin-top:14px;display:flex;flex-direction:column;gap:4px}
+    .v3-r{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v3-r span:first-child{flex:0 0 52px;color:var(--viz-muted)}
+    .v3-bar{flex:1;height:14px;border-radius:4px;background:var(--viz-line);overflow:hidden;display:flex}
+    .v3-bar i{display:block;height:100%}
+    .v3-r em{flex:0 0 92px;font-style:normal;text-align:right;font-weight:800;font-size:9.5px}
+  </style>
+  <script>
+  (function(){
+    var TB = 8000, DATASETS = 1200, IDLE = 6000;
+    var bill = document.getElementById('v3-bill'), quota = document.getElementById('v3-quota');
+    var bM = document.getElementById('v3-bmode'), qM = document.getElementById('v3-qmode');
+    var vol = document.getElementById('v3-vol'), volL = document.getElementById('v3-vol-l');
+    var eff = document.getElementById('v3-eff'), effL = document.getElementById('v3-eff-l');
+    var pr = document.getElementById('v3-price'), prL = document.getElementById('v3-price-l');
+    var idle = document.getElementById('v3-idle'), out = document.getElementById('v3-out'), why = document.getElementById('v3-why');
+    var fixed = document.getElementById('v3-fixed'), jit = document.getElementById('v3-jit');
+    var cli = document.getElementById('v3-cli'), cliL = document.getElementById('v3-cli-l');
+    var rounds = document.getElementById('v3-rounds'), qwhy = document.getElementById('v3-qwhy');
+    var mode = 'bill', idleOn = false, backoff = false;
+    var money = function(n){ return '$' + Math.round(n).toLocaleString(); };
+
+    function renderBill(){
+      var v = Number(vol.value) / 100, e = Number(eff.value) / 10, p = Number(pr.value) / 10;
+      volL.textContent = Number(vol.value) + '%';
+      effL.textContent = e.toFixed(1) + '×';
+      prL.textContent = '$' + p.toFixed(2) + ' / TB';
+      idle.setAttribute('aria-pressed', idleOn ? 'true' : 'false');
+      idle.textContent = 'idle persistent cluster left running: ' + (idleOn ? 'ON (+' + money(IDLE) + ')' : 'OFF');
+
+      var scanned = TB * v * e;
+      var total = scanned * p + (idleOn ? IDLE : 0);
+      var base = TB * 5;
+      var delta = Math.round((total / base - 1) * 100);
+      var unit = total / (TB * v);          // $ per processed TB — the useful unit
+      var unitBad = unit > 5.2;
+      out.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-ink);border-color:var(--viz-line)">' + Math.round(scanned).toLocaleString() + ' TB scanned</span>' +
+        '<span class="v3-pill" style="color:' + (delta > 5 ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (delta > 5 ? 'var(--viz-red)' : 'var(--viz-green)') + '">bill ' + money(total) + ' (' + (delta >= 0 ? '+' : '') + delta + '%)</span>' +
+        '<span class="v3-pill" style="color:' + (unitBad ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (unitBad ? 'var(--viz-red)' : 'var(--viz-green)') + '">$' + unit.toFixed(2) + ' per processed TB</span>';
+
+      var parts = [];
+      if (Number(vol.value) !== 100) parts.push('volume');
+      if (e !== 1) parts.push('efficiency');
+      if (p !== 5) parts.push('unit price');
+      if (idleOn) parts.push('idle capacity');
+
+      why.innerHTML = !parts.length
+        ? '<b>Baseline: 8,000 TB at $5.00/TB = ' + money(base) + '.</b>' +
+          'Move one slider at a time. The pill on the right — cost per <em>processed</em> TB — is the useful unit, and it is what separates a business that grew from a pipeline that regressed.'
+        : (e !== 1 || idleOn || p !== 5)
+          ? '<b style="color:var(--viz-red)">Unit cost moved: this is a defect, not growth.</b>' +
+            (e !== 1 ? 'Bytes scanned per output row is ' + e.toFixed(1) + '× the baseline — the signature of a partition filter that regressed, so every query reads more to produce the same rows. ' : '') +
+            (idleOn ? 'And ' + money(IDLE) + ' of it has <b>no workload behind it at all</b>: an idle persistent cluster bills for 24 hours a day whether anything runs or not. ' : '') +
+            (p !== 5 ? 'The unit price itself changed, which is a commercial question rather than an engineering one. ' : '') +
+            '<br><br>Attribute by project, service, SKU, label and time, then correlate against deployments.'
+          : '<b style="color:var(--viz-green)">Volume alone: the design is stable.</b>' +
+            'Spend is ' + (delta >= 0 ? '+' : '') + delta + '% and cost per processed TB is unchanged at $' + unit.toFixed(2) + '. More input data raises the bill on a perfectly healthy pipeline, and "optimising" here would buy nothing. ' +
+            '<br><br>Remember the other direction too: a lower total bill is <em>not</em> an improvement if freshness or reliability collapsed to buy it.';
+    }
+
+    function renderQuota(){
+      var C = Number(cli.value);
+      cliL.textContent = C.toLocaleString();
+      fixed.setAttribute('aria-pressed', backoff ? 'false' : 'true');
+      jit.setAttribute('aria-pressed', backoff ? 'true' : 'false');
+      var remaining = C, rejected = 0, drained = 0, rows = '';
+      for (var r = 1; r <= 8; r++) {
+        // Fixed timer: every client retries in the same 200 ms spike, so only
+        // 100 req/s × 0.2 s = 20 fit. Jitter spreads them over the whole window
+        // (500) and each backoff round doubles the window.
+        var cap = backoff ? 500 * Math.pow(2, r - 1) : 20;
+        var served = Math.min(remaining, cap);
+        var rej = remaining - served;
+        rejected += rej;
+        var w = Math.max(1, Math.round(served / C * 100));
+        rows += '<div class="v3-r"><span>round ' + r + '</span><span class="v3-bar">' +
+          '<i style="width:' + w + '%;background:var(--viz-green)"></i>' +
+          '<i style="width:' + (100 - w) + '%;background:var(--viz-red)"></i></span>' +
+          '<em style="color:' + (rej ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + (rej ? rej.toLocaleString() + ' × 429' : 'clear') + '</em></div>';
+        remaining = rej;
+        if (!remaining && !drained) drained = r;
+      }
+      rounds.innerHTML = rows;
+      qwhy.innerHTML = backoff
+        ? '<b style="color:var(--viz-green)">Drained in ' + (drained || 8) + ' round' + (drained === 1 ? '' : 's') + ' — ' + rejected.toLocaleString() + ' rejections total.</b>' +
+          'Jitter spreads the retries across the whole window instead of stacking them into one instant, so the same 100 req/s quota absorbs 500 requests per round rather than 20; backoff then doubles the window each time, and demand falls faster than the queue. ' +
+          '<br><br>Bounding the retries is the other half: a retry that never gives up is a permanent load.'
+        : '<b style="color:var(--viz-red)">Still ' + remaining.toLocaleString() + ' clients queued after 8 rounds — ' + rejected.toLocaleString() + ' rejections.</b>' +
+          'Every client wakes on the same 5-second timer, so the whole population arrives inside the same instant and only ~20 requests fit; the rest take a 429 and reconverge, five seconds later, together. <b>The retries are now the outage.</b> ' +
+          '<br><br>This is why quota planning is capacity engineering: inventory the quotas on critical paths, measure normal and peak use, and raise limits before a launch rather than during one.';
+    }
+
+    function render(){
+      bM.setAttribute('aria-pressed', mode === 'bill' ? 'true' : 'false');
+      qM.setAttribute('aria-pressed', mode === 'quota' ? 'true' : 'false');
+      bill.style.display = mode === 'bill' ? '' : 'none';
+      quota.style.display = mode === 'quota' ? '' : 'none';
+      if (mode === 'bill') renderBill(); else renderQuota();
+    }
+    [vol, eff, pr].forEach(function(s){ s.addEventListener('input', renderBill); });
+    idle.addEventListener('click', function(){ idleOn = !idleOn; renderBill(); });
+    cli.addEventListener('input', renderQuota);
+    fixed.addEventListener('click', function(){ backoff = false; renderQuota(); });
+    jit.addEventListener('click', function(){ backoff = true; renderQuota(); });
+    bM.addEventListener('click', function(){ mode = 'bill'; render(); });
+    qM.addEventListener('click', function(){ mode = 'quota'; render(); });
+    renderQuota();
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Idle Or Waiting</h2>
+  <p class="vz-lede">A persistent Dataproc cluster bills 24 hours a day; an ephemeral one bills only while it
+    works but pays ~90 seconds of creation per job. Drag the workload and watch which waste is bigger.
+    <b>Like owning a van versus hiring one: the question is how many days a month you drive.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-jobs">Jobs per day <span id="v4-jobs-l">4</span></label>
+    <input type="range" id="v4-jobs" min="1" max="96" value="4" step="1" aria-label="Jobs per day">
+    <label class="v4-lab" for="v4-mins">Minutes per job <span id="v4-mins-l">40</span></label>
+    <input type="range" id="v4-mins" min="2" max="120" value="40" step="1" aria-label="Minutes per job">
+    <div class="v4-out" id="v4-out"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v4-hd">Where does this workload keep its state? (tap to move each one)</div>
+    <div class="v4-chips" id="v4-chips"></div>
+    <div class="v4-disp" id="v4-disp"></div>
+  </div>
+
+  <p class="vz-note">Autoscaling matches worker capacity to work; it cures neither a skewed Spark stage nor
+    an unbounded driver, and Spot capacity is cheaper but can disappear. Upgrade a persistent cluster
+    <b>blue-green</b> — build the new one, route new jobs to it, drain the old, delete it — and upgrade an
+    ephemeral fleet by versioning its template and validating it in a lower environment.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-out{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+    .v4-row{display:flex;align-items:center;gap:9px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v4-row span:first-child{flex:0 0 88px;color:var(--viz-muted)}
+    .v4-track{flex:1;height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden;display:flex}
+    .v4-track i{display:block;height:100%}
+    .v4-row em{flex:0 0 104px;font-style:normal;text-align:right;font-weight:800}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-hd{font-size:12.5px;font-weight:700;margin-bottom:9px}
+    .v4-chips{display:flex;flex-direction:column;gap:6px}
+    .v4-c{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;justify-content:space-between;gap:9px}
+    .v4-c.is-bad{border-color:var(--viz-red)}
+    .v4-c b{font-size:10px;letter-spacing:.03em}
+    .v4-disp{margin-top:12px;font-size:12.5px;line-height:1.6}
+    .v4-disp b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var START = 1.5;   // minutes to create an ephemeral cluster
+    var jobs = document.getElementById('v4-jobs'), jobsL = document.getElementById('v4-jobs-l');
+    var mins = document.getElementById('v4-mins'), minsL = document.getElementById('v4-mins-l');
+    var out = document.getElementById('v4-out'), why = document.getElementById('v4-why');
+    var chips = document.getElementById('v4-chips'), disp = document.getElementById('v4-disp');
+    var STATE = [
+      { n:'input + output data', off:false }, { n:'checkpoints', off:false },
+      { n:'job code + templates', off:false }, { n:'table metadata (metastore)', off:false }
+    ];
+
+    function bar(label, pct, colour, value){
+      return '<div class="v4-row"><span>' + label + '</span><span class="v4-track">' +
+        '<i style="width:' + Math.max(1, Math.min(100, pct)) + '%;background:' + colour + '"></i></span>' +
+        '<em style="color:' + colour + '">' + value + '</em></div>';
+    }
+
+    function render(){
+      var j = Number(jobs.value), m = Number(mins.value);
+      jobsL.textContent = j;
+      minsL.textContent = m;
+      var busy = j * m / 60;
+      var util = busy / 24 * 100;
+      var eph = j * (m + START) / 60;
+      var overhead = START / (m + START) * 100;
+      out.innerHTML =
+        bar('useful work', busy / 24 * 100, 'var(--viz-accent)', busy.toFixed(1) + ' h/day') +
+        bar('persistent', 100, 'var(--viz-amber)', '24.0 h billed') +
+        bar('ephemeral', eph / 24 * 100, 'var(--viz-green)', eph.toFixed(1) + ' h billed') +
+        bar('startup tax', overhead, 'var(--viz-violet)', overhead.toFixed(0) + '% of runtime');
+
+      var persistentWins = overhead >= 25 || util >= 65;
+      why.innerHTML = persistentWins
+        ? '<b style="color:var(--viz-amber)">Persistent — creation is dominating useful work.</b>' +
+          j + ' jobs of ' + m + ' minutes pay ' + (j * START).toFixed(0) + ' minutes a day just to build clusters, which is <b>' + overhead.toFixed(0) + '% on top of every run</b>' +
+          (util >= 65 ? ', and at ' + util.toFixed(0) + '% utilization the cluster is barely idle anyway' : '') +
+          '. This is the interactive-user and short-job-stream case: a persistent cluster amortizes initialization and keeps warm caches. ' +
+          '<br><br>The price is ownership — idle cost, multi-tenancy, upgrades, patching, dependency conflicts, access separation and capacity contention all become yours.'
+        : '<b style="color:var(--viz-green)">Ephemeral — ' + util.toFixed(0) + '% utilization is 24 hours of billing for ' + busy.toFixed(1) + ' hours of work.</b>' +
+          'A cluster per workflow bills ' + eph.toFixed(1) + ' hours instead of 24, and the ' + overhead.toFixed(0) + '% startup tax is small against a ' + m + '-minute job. You also get workload-specific sizing, image versions, initialization, network settings and service accounts per job — cost attribution becomes trivial and deletion removes configuration drift. ' +
+          '<br><br>Scheduled batch that tolerates cluster startup is the strong default here.';
+    }
+
+    function renderDisp(){
+      chips.innerHTML = STATE.map(function(s, i){
+        return '<button class="v4-c' + (s.off ? '' : ' is-bad') + '" data-i="' + i + '"><span>' + s.n + '</span>' +
+          '<b style="color:' + (s.off ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (s.off ? 'IN CLOUD STORAGE / BIGQUERY' : 'ON CLUSTER DISK') + '</b></button>';
+      }).join('');
+      var bad = STATE.filter(function(s){ return !s.off; }).length;
+      disp.innerHTML = bad
+        ? '<b style="color:var(--viz-red)">Not disposable — ' + bad + ' item' + (bad === 1 ? '' : 's') + ' would die with the cluster.</b>' +
+          'If deleting the cluster removes the only useful copy of anything — inputs, outputs, checkpoints, code or metadata — then the workflow was never ephemeral, whatever the economics above say. Deletion is data loss, and it happens on schedule.'
+        : '<b style="color:var(--viz-green)">Genuinely disposable.</b>' +
+          'Every durable thing lives in Cloud Storage, BigQuery or an external metastore, so the cluster is pure compute and deleting it destroys nothing but configuration drift. Only now is the utilization argument above allowed to decide.';
+    }
+
+    chips.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('button') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-i'));
+      STATE[i].off = !STATE[i].off;
+      renderDisp();
+    });
+    jobs.addEventListener('input', render);
+    mins.addEventListener('input', render);
+    render();
+    renderDisp();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. RPO, RTO, Restore</h2>
+  <p class="vz-lede">Pick what went wrong and watch the same five defences sort themselves into the ones that
+    help and the ones that faithfully copy the damage. <b>Like a photocopier next to a fireproof safe: only
+    one of them survives you spilling coffee on the original.</b></p>
+
+  <div class="v5-fail" id="v5-fail"></div>
+
+  <div class="vz-card">
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <label class="v5-lab" for="v5-int">Snapshot interval <span id="v5-int-l">15 min</span>
+      &nbsp;·&nbsp; stream running at 3,000 events/min</label>
+    <input type="range" id="v5-int" min="0" max="4" value="2" step="1" aria-label="Snapshot interval">
+    <div class="v5-rpo" id="v5-rpo"></div>
+    <div class="v5-note" id="v5-note"></div>
+  </div>
+
+  <p class="vz-note">A backup success event proves that <b>bytes were written</b> — nothing more. Only an
+    exercise that restores the data, rebuilds the services, validates permissions and reconciles correctness
+    measures the RPO and RTO you actually have, and it has to run in a location that still satisfies your
+    residency and CMEK requirements. After a failover: prevent split brain, decide how writes return to the
+    original site, and reconcile whatever was created during the event.</p>
+
+  <style>
+    .v5-fail{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v5-f{flex:1 1 150px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:7px 8px}
+    .v5-f[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-rows{display:flex;flex-direction:column;gap:5px}
+    .v5-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v5-r.is-no{opacity:.55;border-style:dashed}
+    .v5-r.is-yes{border-color:var(--viz-green)}
+    .v5-t{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:700}
+    .v5-t em{margin-left:auto;font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.04em}
+    .v5-m{margin-top:4px;font-size:10.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-rpo{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-note{margin-top:12px;font-size:12.5px;line-height:1.6}
+    .v5-note b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var INTERVALS = [
+      { l:'synchronous', m:0 }, { l:'1 min', m:1 }, { l:'15 min', m:15 },
+      { l:'60 min', m:60 }, { l:'24 h', m:1440 }
+    ];
+    var RATE = 3000;
+    var FAILS = [
+      { n:'a region goes down', k:'outage' },
+      { n:'a bad deploy corrupts a table', k:'corrupt' },
+      { n:'someone deletes a dataset', k:'delete' }
+    ];
+    var DEF = [
+      { n:'synchronous multi-region replica', meta:'RPO ~0 · RTO minutes · adds write latency',
+        h:{ outage:true, corrupt:false, delete:false },
+        no:'The corrupt or deleted state is replicated too — instantly, and to every copy.' },
+      { n:'snapshots every N minutes', meta:'RPO = the interval · RTO hours (restore + rebuild)',
+        h:{ outage:true, corrupt:true, delete:true }, no:'' },
+      { n:'object versioning / point-in-time recovery', meta:'RPO near 0 · RTO minutes to hours',
+        h:{ outage:false, corrupt:true, delete:true },
+        no:'Versions live with the primary; a lost region takes them with it.' },
+      { n:'immutable export, separate access path', meta:'RPO = export cadence · RTO hours to days',
+        h:{ outage:true, corrupt:true, delete:true }, no:'' },
+      { n:'warm standby + automated failover', meta:'RTO minutes · pays for idle capacity',
+        h:{ outage:true, corrupt:false, delete:false },
+        no:'It fails over to a copy of the same bad data, faster.' }
+    ];
+    var cur = 0;
+    var fail = document.getElementById('v5-fail'), rows = document.getElementById('v5-rows');
+    var why = document.getElementById('v5-why'), intr = document.getElementById('v5-int');
+    var intL = document.getElementById('v5-int-l'), rpo = document.getElementById('v5-rpo'), note = document.getElementById('v5-note');
+
+    var WHY = {
+      outage: ['Availability question — replication and failover earn their cost here.',
+        'Read each service’s own availability model: some managed regional or multi-regional services handle certain failures automatically, others need an application, an operator or an orchestrator to act. A regional <em>name</em> guarantees nothing, and multi-region storage does not recreate the pipeline dependencies around it.'],
+      corrupt: ['Recoverability question — and replication is now working against you.',
+        'Replicating corrupted data quickly is just faster corruption. What saves you is a <b>point in time</b>: versioned objects, point-in-time recovery, snapshots, immutable exports, delayed deletion. Design for corruption separately from outage — they are not the same failure with different sizes.'],
+      delete: ['Recoverability question, with a malicious variant.',
+        'Deletion propagates through every current copy exactly as a write does. This is why backups need <b>immutability or deletion protection</b> and a separate access path: if the identity that deleted the data can also delete the backup, you do not have one.']
+    };
+
+    function render(){
+      var k = FAILS[cur].k;
+      [].slice.call(fail.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      rows.innerHTML = DEF.map(function(d){
+        var ok = d.h[k];
+        return '<div class="v5-r ' + (ok ? 'is-yes' : 'is-no') + '"><div class="v5-t"><span>' + d.n + '</span>' +
+          '<em style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (ok ? 'HELPS' : 'NO HELP') + '</em></div>' +
+          '<div class="v5-m">' + (ok ? d.meta : d.no) + '</div></div>';
+      }).join('');
+      why.innerHTML = '<b>' + WHY[k][0] + '</b>' + WHY[k][1];
+
+      var iv = INTERVALS[Number(intr.value)];
+      intL.textContent = iv.l;
+      var lost = iv.m * RATE;
+      rpo.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">RPO = ' + (iv.m ? 'up to ' + iv.m + ' min' : '~0') + '</span>' +
+        '<span class="v5-pill" style="color:' + (lost > 45000 ? 'var(--viz-red)' : 'var(--viz-amber)') + ';border-color:' + (lost > 45000 ? 'var(--viz-red)' : 'var(--viz-amber)') + '">' + lost.toLocaleString() + ' events at risk</span>' +
+        '<span class="v5-pill" style="color:' + (iv.m <= 1 ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (iv.m <= 1 ? 'var(--viz-red)' : 'var(--viz-green)') + '">cost ' + (iv.m === 0 ? 'highest — synchronous writes' : iv.m <= 1 ? 'high' : iv.m <= 15 ? 'moderate' : 'low') + '</span>';
+      note.innerHTML = iv.m === 0
+        ? '<b>Near-zero RPO, paid for in write latency.</b>Every commit waits for the second copy. That is the right answer for a ledger and the wrong one for a clickstream — which is precisely why you classify workloads instead of assigning the strictest target to everything.'
+        : '<b>' + iv.l + ' of snapshots = up to ' + lost.toLocaleString() + ' lost events.</b>' +
+          'RPO is data loss measured in <em>time</em>; RTO is the time to restore service — different numbers, and swapping them is the classic exam trap. Cheaper intervals are legitimate: the question is whether the business agreed to lose ' + lost.toLocaleString() + ' events, not whether the number looks big.';
+    }
+    FAILS.forEach(function(f, i){
+      var b = document.createElement('button');
+      b.className = 'v5-f';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = f.n;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      fail.appendChild(b);
+    });
+    intr.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

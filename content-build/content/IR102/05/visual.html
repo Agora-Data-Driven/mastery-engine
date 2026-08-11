@@ -1,0 +1,623 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Fetched To Trusted</button>
+  <button class="viz-tab" data-viz-tab="2">2. PageRank By Hand</button>
+  <button class="viz-tab" data-viz-tab="3">3. Spam Signal Stack</button>
+  <button class="viz-tab" data-viz-tab="4">4. Keep Or Drop</button>
+  <button class="viz-tab" data-viz-tab="5">5. Credible For What</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Fetched To Trusted</h2>
+  <p class="vz-lede">The frontier, politeness, discovery, extraction and recrawl got you 10,000 fetched
+    responses. This lesson is everything that happens <em>after</em> that — and only some of it removes
+    anything. Tap a stage to switch it off and watch the corpus change.
+    <b>Like sorting a delivery: first you throw out the empty boxes, then you notice half of them are the
+    same thing, and only then do you ask who sent them.</b></p>
+
+  <div class="v1-gates" id="v1-gates"></div>
+
+  <div class="vz-card">
+    <div class="v1-out" id="v1-out"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Read the ACTION column, not the counts. <b>Crawler Traps and URL Canonicalization</b>
+    settled identity at the URL; <b>Extraction Quality Judgments</b> judged each document alone. Everything
+    added here is <b>corpus-level</b>: the evidence for or against a page is the other pages. And two of the
+    four new stages remove nothing at all — a graph prior <em>reorders</em>, credibility <em>labels</em>.
+    Both are fused with relevance later, exactly as <b>Recency as a Ranking Signal</b> was.</p>
+
+  <style>
+    .v1-gates{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-g{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;
+      font-size:12.5px;line-height:1.35;display:flex;align-items:center;gap:9px}
+    .v1-g[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-g[aria-pressed="false"]{opacity:.5;border-style:dashed}
+    .v1-nm{flex:1 1 auto}
+    .v1-nm small{display:block;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);margin-top:2px}
+    .v1-act{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;border:1.5px solid;border-radius:999px;padding:3px 7px}
+    .v1-ct{flex:0 0 62px;text-align:right;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:700}
+    .v1-out{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var START = 10000;
+    var GATES = [
+      { k:'canon', n:'URL canonicalization', from:'already taught · lesson 01', act:'REMOVES', keep:0.65,
+        why:'Identity at the <b>URL</b>: session parameters, print views, trailing slashes. It collapses 3,500 of 10,000 fetches before a byte of text is compared. What it cannot see is a mirror on another host serving byte-identical content under a perfectly reasonable URL — that is stage 5’s job.' },
+      { k:'extract', n:'Extraction quality discard', from:'already taught · lesson 03', act:'REMOVES', keep:0.88,
+        why:'Per-document, and that is the distinction worth holding on to: it asks "did this page extract into usable text?" and answers from the page alone. Empty extraction, navigation-only bodies, a PDF that yielded 40 characters. No other document is consulted.' },
+      { k:'rank', n:'Link analysis prior (PageRank)', from:'new here · topic 1', act:'REORDERS', keep:1,
+        why:'Removes nothing. It scores structural prominence in the graph you happened to collect, query-independently, and hands that score to ranking as one feature among many. Deleting the bottom of a PageRank distribution would delete every new page and every isolated specialist source.' },
+      { k:'spam', n:'Spam and SEO-junk detection', from:'new here · topic 2', act:'REMOVES', keep:0.80,
+        why:'The first corpus-level judgment: a doorway page is recognisable partly <em>because</em> 5,000 siblings differ only by city name. Hard-reject is reserved for malware, empty extraction and clear policy violations; probabilistic junk is downranked or quarantined, never silently deleted.' },
+      { k:'dedup', n:'Corpus-level dedup policy', from:'new here · topic 3', act:'REMOVES', keep:0.72,
+        why:'Identity at the <b>content</b>, and a policy rather than a threshold: cluster, then keep one serving representative per declared equivalence class and record the alternates. It collapses mirrors, syndication and revisions that no URL rule could ever have matched.' },
+      { k:'cred', n:'Source credibility signals', from:'new here · topic 4', act:'LABELS', keep:1,
+        why:'Removes nothing either. It attaches provenance, primary-source status, editorial process, evidence, currency, independence and track record — stored separately, weighted at query time by what the claim needs. Hiding low-credibility material globally biases the research it is supposed to serve.' }
+    ];
+    var on = {}; GATES.forEach(function(g){ on[g.k] = true; });
+    var cur = 0;
+    var box = document.getElementById('v1-gates'), out = document.getElementById('v1-out'), why = document.getElementById('v1-why');
+
+    function keepOf(g){
+      // Coupling worth seeing: with URL canonicalization off, the URL variants survive
+      // to the content stage, so dedup must collapse them too — same survivors, more work.
+      if (g.k === 'dedup' && !on.canon) return 0.72 * 0.65;
+      return g.keep;
+    }
+    function render(){
+      var n = START, rows = '', removed = 0;
+      GATES.forEach(function(g, i){
+        var before = n;
+        if (on[g.k]) n = Math.round(n * keepOf(g));
+        removed += before - n;
+        var col = g.act === 'REMOVES' ? 'var(--viz-red)' : (g.act === 'REORDERS' ? 'var(--viz-violet)' : 'var(--viz-amber)');
+        rows += '<button class="v1-g" aria-pressed="' + (on[g.k] ? 'true' : 'false') + '" data-i="' + i + '">' +
+          '<span class="v1-nm">' + g.n + '<small>' + g.from + '</small></span>' +
+          '<span class="v1-act" style="color:' + col + ';border-color:' + col + '">' + g.act + '</span>' +
+          '<span class="v1-ct">' + (on[g.k] ? n.toLocaleString() : '—') + '</span></button>';
+      });
+      box.innerHTML = rows;
+      [].slice.call(box.children).forEach(function(b){
+        b.addEventListener('click', function(){
+          var i = Number(b.getAttribute('data-i'));
+          cur = i; on[GATES[i].k] = !on[GATES[i].k]; render();
+        });
+      });
+      var pct = START > 0 ? Math.round(n / START * 100) : 0;
+      out.innerHTML =
+        '<span class="v1-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">10,000 fetched</span>' +
+        '<span class="v1-pill" style="color:var(--viz-green);border-color:var(--viz-green)">' + n.toLocaleString() + ' indexed (' + pct + '%)</span>' +
+        '<span class="v1-pill" style="color:var(--viz-red);border-color:var(--viz-red)">' + removed.toLocaleString() + ' removed</span>';
+      var g = GATES[cur];
+      why.innerHTML = '<b>' + g.n + ' — ' + g.act + '</b>' + g.why +
+        (!on.canon && cur === 4
+          ? '<br><br><b style="color:var(--viz-amber)">Canonicalization is off, so this stage is doing its work.</b>The survivor count barely moves — content dedup absorbs the URL variants too. What changed is the <em>cost</em>: shingling and clustering every duplicate fetch instead of dropping it on a string rule.'
+          : '');
+    }
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. PageRank By Hand</h2>
+  <p class="vz-lede">Three pages: A links to B and C, B links to C, C links back to A. Start uniform at 1/3,
+    then step the update and read the arithmetic. Move the damping factor, and break the graph on purpose.
+    <b>Like passing a jug of water round a circle: everyone pours what they hold, split evenly among the
+    people they pour to — and a little is topped up from the tap every round.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Graph mode">
+    <button id="v2-m0" aria-pressed="true">normal graph</button>
+    <button id="v2-m1" aria-pressed="false">C dangling, untreated</button>
+    <button id="v2-m2" aria-pressed="false">C dangling, redistributed</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v2-lab" for="v2-d">Damping factor d = <span id="v2-dl">0.85</span>
+      &nbsp;·&nbsp; teleport term (1&minus;d)/N = <span id="v2-tl">0.050</span></label>
+    <input type="range" id="v2-d" min="50" max="95" value="85" step="5" aria-label="Damping factor">
+    <div class="v2-btns">
+      <button class="v2-b" id="v2-step">step once</button>
+      <button class="v2-b" id="v2-run">run 20</button>
+      <button class="v2-b" id="v2-reset">reset to 1/3</button>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="v2-math vz-mono" id="v2-math"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">One iteration over sparse adjacency lists is O(N+E); you iterate until the rank change
+    falls below a tolerance or you hit a cap. The number that comes out is <b>"structurally prominent in
+    this observed graph"</b> — never "factually correct". It is query-independent, so it cannot know that
+    a precise low-link API reference beats a heavily linked homepage for <code>Firestore transaction
+    retry</code>. Use it as a prior, and remember link farms exist.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-btns{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+    .v2-b{flex:1 1 88px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v2-bars{display:flex;flex-direction:column;gap:9px}
+    .v2-r{display:flex;align-items:center;gap:9px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-nm{flex:0 0 78px;color:var(--viz-muted)}
+    .v2-tr{flex:1;height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-tr i{display:block;height:100%;background:var(--viz-accent)}
+    .v2-vl{flex:0 0 52px;text-align:right;font-weight:700}
+    .v2-math{margin-top:13px;padding:10px 11px;border:1px dashed var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NODES = ['A', 'B', 'C'], N = 3;
+    var LINKS = { A:['B', 'C'], B:['C'], C:['A'] };
+    var mode = 0, d = 0.85, it = 0;
+    var pr = { A:1 / 3, B:1 / 3, C:1 / 3 }, prev = null, dang = 0;
+    var IN = { A:['C'], B:['A'], C:['A', 'B'] };
+
+    var bars = document.getElementById('v2-bars'), math = document.getElementById('v2-math');
+    var why = document.getElementById('v2-why'), dl = document.getElementById('v2-dl'), tl = document.getElementById('v2-tl');
+    var sl = document.getElementById('v2-d');
+    var mb = [document.getElementById('v2-m0'), document.getElementById('v2-m1'), document.getElementById('v2-m2')];
+
+    function outOf(v){ return (mode > 0 && v === 'C') ? [] : LINKS[v]; }
+    function reset(){ pr = { A:1 / 3, B:1 / 3, C:1 / 3 }; prev = null; it = 0; dang = 0; render(); }
+    function step(){
+      prev = { A:pr.A, B:pr.B, C:pr.C };
+      var next = { A:0, B:0, C:0 }, leak = 0;
+      NODES.forEach(function(v){
+        var o = outOf(v);
+        if (!o.length) { leak += prev[v]; return; }
+        o.forEach(function(u){ next[u] += d * prev[v] / o.length; });
+      });
+      NODES.forEach(function(u){ next[u] += (1 - d) / N; });
+      if (mode === 2) NODES.forEach(function(u){ next[u] += d * leak / N; });
+      dang = leak;
+      pr = next; it += 1; render();
+    }
+    function f(x){ return isFinite(x) ? x.toFixed(3) : '—'; }
+
+    function render(){
+      dl.textContent = d.toFixed(2);
+      tl.textContent = f((1 - d) / N);
+      mb.forEach(function(b, i){ b.setAttribute('aria-pressed', mode === i ? 'true' : 'false'); });
+      var max = Math.max(pr.A, pr.B, pr.C, 0.0001);
+      bars.innerHTML = NODES.map(function(u){
+        var w = Math.max(2, Math.round(pr[u] / max * 100));
+        return '<div class="v2-r"><span class="v2-nm">PR(' + u + ')</span>' +
+          '<span class="v2-tr"><i style="width:' + w + '%"></i></span>' +
+          '<span class="v2-vl">' + f(pr[u]) + '</span></div>';
+      }).join('');
+      var mass = pr.A + pr.B + pr.C;
+      var massCol = Math.abs(mass - 1) < 0.005 ? 'var(--viz-green)' : 'var(--viz-red)';
+      var lines = ['iteration ' + it + '   ·   total mass ' + f(mass) +
+        '   (' + (Math.abs(mass - 1) < 0.005 ? 'a distribution' : 'NOT a distribution — probability has leaked') + ')'];
+      if (!prev) {
+        lines.push('start: every page holds 1/3 = 0.333');
+      } else {
+        NODES.forEach(function(u){
+          var terms = IN[u].filter(function(v){ return outOf(v).indexOf(u) !== -1; })
+            .map(function(v){ return f(prev[v]) + '/' + outOf(v).length; });
+          var extra = (mode === 2 && dang > 0) ? ' + ' + d.toFixed(2) + '·' + f(dang) + '/3' : '';
+          lines.push('PR(' + u + ') = ' + f((1 - d) / N) + ' + ' + d.toFixed(2) + '·(' +
+            (terms.length ? terms.join(' + ') : '0') + ')' + extra + ' = ' + f(pr[u]));
+        });
+      }
+      math.innerHTML = lines.join('\n');
+      math.style.color = massCol;
+
+      why.innerHTML = mode === 0
+        ? '<b style="color:var(--viz-green)">The vote is split, and the mass is conserved.</b>' +
+          'At d = 0.85 the first iteration gives <b>A 0.333, B 0.192, C 0.475</b>, summing to 1. C gains because both A and B point at it; B gets only <em>half</em> of A’s rank because A split its vote across two targets. That split is the part people forget: a page linking to hundreds of targets endorses each of them very weakly.' +
+          '<br><br>Drag d down and watch the distribution flatten toward uniform — the teleport term rises to ' + f((1 - d) / N) + ' per page, so less of the score comes from the graph and more from "every page gets something". d is how much you believe the links.'
+        : mode === 1
+          ? '<b style="color:var(--viz-red)">C is a dangling page and it is swallowing the corpus.</b>' +
+            'With no outgoing links C absorbs rank and returns none. Step a few times: the total mass falls below 1 and keeps falling, so the vector stops being a probability distribution and every comparison between pages is now against a shrinking denominator. Currently <b>' + f(dang) + '</b> of the mass entered C and was never passed on.' +
+            '<br><br>This is not a rare corner: PDFs, images, terminal pages and anything your crawl scope cut off are all dangling in <em>your</em> graph, even when they have links on the live web.'
+          : '<b style="color:var(--viz-green)">Standard treatment: redistribute the dangling rank by the teleport distribution.</b>' +
+            'Each iteration, the ' + f(dang) + ' held by dangling pages is handed back — commonly uniformly, ' + d.toFixed(2) + '·' + f(dang) + '/3 to every page. Mass is conserved, the vector stays a distribution, and C keeps its own high score without draining the others.' +
+            '<br><br>Note what this is <em>not</em>: it does not pretend C has links. It says a surfer who lands on a dead end restarts somewhere — which is exactly what the teleport term always meant.';
+    }
+
+    sl.addEventListener('input', function(){ d = Number(sl.value) / 100; reset(); });
+    document.getElementById('v2-step').addEventListener('click', step);
+    document.getElementById('v2-run').addEventListener('click', function(){ for (var i = 0; i < 20; i++) step(); });
+    document.getElementById('v2-reset').addEventListener('click', reset);
+    mb.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; reset(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Spam Signal Stack</h2>
+  <p class="vz-lede">The worked page: 2,000 words, 1,700 of them a repeated template and city names,
+    <code>best vector database</code> 120 times, 40% of visible elements affiliate links, 5,000 near-identical
+    siblings. Move the sliders — then change what <em>kind</em> of page it is and watch the same numbers
+    mean something else. <b>Like an accent: suspicious in one neighbourhood, completely ordinary in the
+    next.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Source type">
+    <button id="v3-t0" aria-pressed="true">unknown blog</button>
+    <button id="v3-t1" aria-pressed="false">API reference</button>
+    <button id="v3-t2" aria-pressed="false">legal notice</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v3-lab" for="v3-tpl">Templated words: <span id="v3-tpll">1,700</span> of 2,000</label>
+    <input type="range" id="v3-tpl" min="0" max="2000" value="1700" step="50" aria-label="Templated words">
+    <label class="v3-lab" for="v3-rep">Repetitions of the query phrase: <span id="v3-repl">120</span></label>
+    <input type="range" id="v3-rep" min="0" max="200" value="120" step="5" aria-label="Query phrase repetitions">
+    <label class="v3-lab" for="v3-link">Affiliate link density: <span id="v3-linkl">0.40</span></label>
+    <input type="range" id="v3-link" min="0" max="60" value="40" step="2" aria-label="Affiliate link density">
+    <label class="v3-lab" for="v3-sib">Near-duplicate siblings: <span id="v3-sibl">5,000</span></label>
+    <input type="range" id="v3-sib" min="0" max="8000" value="5000" step="100" aria-label="Near duplicate siblings">
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-verdict" id="v3-verdict"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">SEO is not spam. Descriptive headings, structured data and useful internal links help
+    users and search alike — the distinction is <b>utility versus deception</b>, not whether a publisher
+    cares about ranking. And an LLM reviewer can spot incoherence or unsupported claims, but it is
+    nondeterministic, costly and vulnerable to instructions embedded in the page: treat page text as data,
+    isolate the prompt, demand structured evidence, and cache the decision by content hash <em>and</em> model
+    version. Never let one model judgment silently delete a corpus.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v3-lab:first-child{margin-top:0}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-rows{display:flex;flex-direction:column;gap:7px}
+    .v3-r{display:flex;align-items:center;gap:8px;font-size:11px}
+    .v3-nm{flex:0 0 104px;font-weight:700}
+    .v3-tr{flex:1;height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v3-tr i{display:block;height:100%}
+    .v3-tg{flex:0 0 74px;text-align:right;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+    .v3-verdict{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TYPES = [
+      { n:'unknown blog', m:{ tpl:1, rep:1, link:1, sib:1 },
+        note:'Nothing about this source type excuses any of it.' },
+      { n:'API reference', m:{ tpl:0.25, rep:0.30, link:1, sib:0.20 },
+        note:'Parameter tables repeat by design and every method page is a sibling of every other — so template share and near-duplicate count are discounted here, and only the affiliate density stays at full weight.' },
+      { n:'legal notice', m:{ tpl:0.20, rep:0.50, link:1, sib:0.30 },
+        note:'Formulaic language <em>is</em> the genre, and jurisdiction variants are legitimately near-identical — so template share is discounted hardest. A glossary and an e-commerce catalogue behave the same way.' }
+    ];
+    var t = 0;
+    var tb = [document.getElementById('v3-t0'), document.getElementById('v3-t1'), document.getElementById('v3-t2')];
+    var sTpl = document.getElementById('v3-tpl'), sRep = document.getElementById('v3-rep');
+    var sLink = document.getElementById('v3-link'), sSib = document.getElementById('v3-sib');
+    var lTpl = document.getElementById('v3-tpll'), lRep = document.getElementById('v3-repl');
+    var lLink = document.getElementById('v3-linkl'), lSib = document.getElementById('v3-sibl');
+    var rows = document.getElementById('v3-rows'), verdict = document.getElementById('v3-verdict'), why = document.getElementById('v3-why');
+
+    function render(){
+      var tpl = Number(sTpl.value), rep = Number(sRep.value);
+      var link = Number(sLink.value) / 100, sib = Number(sSib.value);
+      lTpl.textContent = tpl.toLocaleString(); lRep.textContent = rep;
+      lLink.textContent = link.toFixed(2); lSib.textContent = sib.toLocaleString();
+      tb.forEach(function(b, i){ b.setAttribute('aria-pressed', t === i ? 'true' : 'false'); });
+
+      // Shingles that straddle the template boundary are shared too, so the unique-shingle
+      // ratio sits a little under the raw unique-word fraction: 300/2000 -> 0.12.
+      var uniqueWords = 2000 - tpl;
+      var shingle = Math.max(0, Math.min(1, (uniqueWords / 2000) * 0.8));
+      var m = TYPES[t].m;
+      var SIG = [
+        { n:'template share', raw:tpl + ' / 2,000 words', x:tpl / 2000, w:0.30, mult:m.tpl },
+        { n:'phrase repeats', raw:rep + '× in 2,000 words', x:Math.min(rep / 150, 1), w:0.25, mult:m.rep },
+        { n:'link density', raw:link.toFixed(2) + ' of visible elements', x:Math.min(link / 0.6, 1), w:0.25, mult:m.link },
+        { n:'sibling near-dupes', raw:sib.toLocaleString() + ' URLs', x:Math.min(sib / 6000, 1), w:0.20, mult:m.sib }
+      ];
+      var score = 0;
+      rows.innerHTML = SIG.map(function(s){
+        var eff = s.x * s.mult;
+        score += s.w * eff;
+        var col = eff > 0.6 ? 'var(--viz-red)' : (eff > 0.3 ? 'var(--viz-amber)' : 'var(--viz-green)');
+        var tag = s.mult < 1 ? 'normal here' : (eff > 0.6 ? 'strong' : (eff > 0.3 ? 'mild' : 'weak'));
+        return '<div class="v3-r"><span class="v3-nm">' + s.n + '<br><span style="font-weight:400;color:var(--viz-muted)">' + s.raw + '</span></span>' +
+          '<span class="v3-tr"><i style="width:' + Math.max(2, Math.round(eff * 100)) + '%;background:' + col + '"></i></span>' +
+          '<span class="v3-tg" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+      score = Math.round(score * 100);
+      var band = score < 30 ? ['ACCEPT', 'var(--viz-green)'] : (score < 60 ? ['DOWNRANK', 'var(--viz-amber)'] : ['QUARANTINE for review', 'var(--viz-red)']);
+
+      verdict.innerHTML =
+        '<span class="v3-pill" style="color:' + band[1] + ';border-color:' + band[1] + '">' + band[0] + ' · evidence ' + score + '/100</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">unique-shingle ratio ' + shingle.toFixed(2) + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + uniqueWords.toLocaleString() + ' non-template words</span>';
+
+      why.innerHTML = '<b>Compared against ' + TYPES[t].n + ' peers.</b>' + TYPES[t].note +
+        '<br><br>No single threshold proves spam — each bar above has an innocent reading on its own, and the case is the <em>combination</em>. On the worked page the unique-shingle ratio is <b>0.12</b>, link density <b>0.4</b>, and the factual section is <b>80 words</b> inside 2,000. ' +
+        (score >= 60
+          ? 'At ' + score + '/100 this goes to <b>quarantine</b>, not to deletion: the costs are asymmetric — one junk page wastes index space, one rejected authoritative source can be far worse, so uncertain high-impact decisions get reviewed and keep their explanation features.'
+          : score >= 30
+            ? 'At ' + score + '/100 the right move is to <b>downrank</b> and keep watching. Adversaries adapt, so a detector that only ever deletes teaches you nothing about how the attack is changing.'
+            : 'At ' + score + '/100 there is no case. Sample <em>accepted</em> pages as well as rejected ones and track precision by source class, or the false-negative half of this system is invisible.') +
+        '<br><br><b style="color:var(--viz-amber)">Hard-reject is out of reach of every slider here.</b>It is reserved for malware, empty extraction and clear policy violations — findings, not scores.';
+    }
+    [sTpl, sRep, sLink, sSib].forEach(function(s){ s.addEventListener('input', render); });
+    tb.forEach(function(b, i){ b.addEventListener('click', function(){ t = i; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Keep Or Drop</h2>
+  <p class="vz-lede">One cluster, four members: an original research paper, an author-hosted copy, a news
+    summary quoting 60%, and a scraped full copy. The similarity numbers never change — pick what the
+    corpus is <em>for</em> and every verdict moves. <b>Like a family photo album: the archivist keeps every
+    print, the gallery hangs one, the fraud investigator wants the copies precisely because they are
+    copies.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Corpus purpose">
+    <button id="v4-p0" aria-pressed="true">current-answer RAG</button>
+    <button id="v4-p1" aria-pressed="false">legal archive</button>
+    <button id="v4-p2" aria-pressed="false">news propagation</button>
+  </div>
+
+  <div class="v4-members" id="v4-members"></div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-len">One global threshold, two document lengths — shared footer is 100
+      words, document is <span id="v4-lenl">300</span> words</label>
+    <input type="range" id="v4-len" min="0" max="7" value="1" step="1" aria-label="Document length">
+    <div class="v4-len" id="v4-lenout"></div>
+  </div>
+  <p class="vz-note">Store the cluster ID, the member IDs, the similarity evidence, the rule version and the
+    reason — then a representative that loses access permission is replaced by <b>promoting another
+    member</b>, not by rediscovering the cluster. Never deduplicate on the publisher’s canonical tag alone:
+    it is a hint, and it can be wrong or malicious. And re-run clustering when extraction improves, because
+    bad boilerplate removal manufactures false similarity.</p>
+
+  <style>
+    .v4-members{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-m{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-surface);
+      font-size:12px;line-height:1.4;display:flex;align-items:center;gap:9px;min-height:44px}
+    .v4-m.is-rep{border-color:var(--viz-accent)}
+    .v4-m.is-drop{opacity:.55;border-style:dashed}
+    .v4-mn{flex:1 1 auto}
+    .v4-mn small{display:block;font-size:10.5px;color:var(--viz-muted);margin-top:2px;font-family:ui-monospace,Consolas,monospace}
+    .v4-vd{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;text-align:right;max-width:118px}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.4}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-len{margin-top:12px;font-size:12px;line-height:1.6}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MEM = [
+      { n:'Original research paper', s:'publisher · licensed · canonical URL · complete' },
+      { n:'Author-hosted copy', s:'exact content hash match · author’s own site' },
+      { n:'News summary quoting 60%', s:'60% quotation · original commentary' },
+      { n:'Scraped full copy', s:'no permission · tracking URL · mirror host' }
+    ];
+    var P = [
+      { n:'current-answer RAG', id:'same current serving content',
+        v:[['REPRESENTATIVE', 'var(--viz-green)'], ['alternate URL recorded', 'var(--viz-muted)'],
+           ['KEPT — distinct object', 'var(--viz-violet)'], ['DROPPED / quarantined', 'var(--viz-red)']],
+        why:['Serve one version; keep the rest reachable.',
+          'The paper and the author copy are exact content duplicates, so keep the <b>licensed authoritative</b> version as canonical and record the alternate URL — that is priority 1 (original over mirror) and priority 6 (permitted access) doing the work. The news summary is <em>not</em> a duplicate despite 60% quotation overlap: its commentary is a distinct information object. The scraper adds nothing and carries no permission.' +
+          '<br><br>Corpus-level dedup should happen <b>before embedding</b> so you do not pay to vectorise copies — but keep the mappings, or citations resolve to a URL the user cannot open.'] },
+      { n:'legal archive', id:'same work, every revision',
+        v:[['REPRESENTATIVE · current', 'var(--viz-green)'], ['KEPT — manifestation', 'var(--viz-accent)'],
+           ['KEPT — separate work', 'var(--viz-violet)'], ['QUARANTINED — provenance', 'var(--viz-amber)']],
+        why:['Here a superseded revision is the point, not noise.',
+          'Priority 4 flips: "current valid version over superseded revision" carries the clause <em>unless history is required</em>, and in an archive it always is. Every revision is retained with its effective dates, and the author copy is kept as another manifestation of the same work rather than folded away. Same cluster, same similarity evidence, opposite retention rule.'] },
+      { n:'news propagation', id:'same claim · one evidence lineage',
+        v:[['REPRESENTATIVE · origin', 'var(--viz-green)'], ['KEPT — copy as evidence', 'var(--viz-accent)'],
+           ['KEPT — derived + commentary', 'var(--viz-violet)'], ['KEPT — copy as evidence', 'var(--viz-accent)']],
+        why:['The copies are the data.',
+          'Analysing how a claim spread needs the syndicated copies even when the text is byte-identical, so almost nothing is dropped — but every member is stamped as <b>one evidence lineage</b>. That stamp is what stops the next stage counting four copies as four confirmations.' +
+          '<br><br>This is the cost of over-deduplicating in the other direction: strip the copies and you erase the propagation record, and you can no longer tell independent corroboration from shared wire-service text.'] }
+    ];
+    var LENS = [200, 300, 500, 1000, 2000, 5000, 10000, 40000];
+    var cur = 0;
+    var pb = [document.getElementById('v4-p0'), document.getElementById('v4-p1'), document.getElementById('v4-p2')];
+    var box = document.getElementById('v4-members'), why = document.getElementById('v4-why');
+    var sl = document.getElementById('v4-len'), ll = document.getElementById('v4-lenl'), lo = document.getElementById('v4-lenout');
+
+    function renderP(){
+      pb.forEach(function(b, i){ b.setAttribute('aria-pressed', cur === i ? 'true' : 'false'); });
+      var p = P[cur];
+      box.innerHTML = MEM.map(function(m, i){
+        var v = p.v[i];
+        var cls = i === 0 ? 'is-rep' : (/DROP/.test(v[0]) ? 'is-drop' : '');
+        return '<div class="v4-m ' + cls + '"><span class="v4-mn">' + m.n + '<small>' + m.s + '</small></span>' +
+          '<span class="v4-vd" style="color:' + v[1] + '">' + v[0] + '</span></div>';
+      }).join('');
+      why.innerHTML = '<b>' + p.why[0] + '</b>' +
+        '<span style="color:var(--viz-muted)">declared identity: <b>' + p.id + '</b></span><br><br>' + p.why[1];
+    }
+    function renderL(){
+      var len = LENS[Number(sl.value)] || 1;
+      ll.textContent = len.toLocaleString();
+      var share = len > 0 ? 100 / len : 0;
+      var pct = share * 100;
+      var over = pct >= 20;
+      var col = over ? 'var(--viz-red)' : 'var(--viz-green)';
+      lo.innerHTML = 'Boilerplate alone contributes <b style="color:' + col + '">' + pct.toFixed(2) +
+        '%</b> similarity between any two of these documents, against a fixed 20% threshold. ' +
+        (over
+          ? '<b style="color:var(--viz-red)">FALSE CLUSTER:</b> two unrelated short notices are declared near-duplicates because they share a footer.'
+          : '<b style="color:var(--viz-green)">Invisible:</b> at this length the shared footer is a rounding error and the threshold behaves.') +
+        '<br><br>One global threshold cannot serve both ends of this slider. Remove boilerplate first, then make the threshold <b>length-aware</b> — and cluster on unique main content, not on full HTML.';
+    }
+    pb.forEach(function(b, i){ b.addEventListener('click', function(){ cur = i; renderP(); }); });
+    sl.addEventListener('input', renderL);
+    renderP(); renderL();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Credible For What</h2>
+  <p class="vz-lede">Three sources, seven signals, one Cloud Run question. Credibility is not a permanent
+    number attached to a domain — change the <em>claim</em> and the ranking reorders under fixed signal
+    values. <b>Like asking who to trust about a restaurant: the chef for the recipe, the diner for the
+    queue.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Claim type">
+    <button id="v5-c0" aria-pressed="true">the documented limit</button>
+    <button id="v5-c1" aria-pressed="false">what users actually hit</button>
+    <button id="v5-c2" aria-pressed="false">a breaking incident</button>
+  </div>
+
+  <div class="v5-list" id="v5-list"></div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-cop">Sites republishing the same press release:
+      <span id="v5-copl">5</span></label>
+    <input type="range" id="v5-cop" min="1" max="8" value="5" step="1" aria-label="Republishing sites">
+    <div class="v5-corr" id="v5-corr"></div>
+  </div>
+  <p class="vz-note">Credibility neither authorises access nor guarantees relevance: apply ACL and scope
+    constraints first, retrieve relevant candidates, <em>then</em> use credibility in reranking or answer
+    policy. Automated ratings encode cultural, language, institutional and popularity bias — a smaller
+    regional source may lack inbound links and polished metadata while holding the primary evidence. So the
+    answer layer exposes <b>provenance and labels</b> rather than an invisible score, and when credible
+    sources conflict it preserves the disagreement and the effective dates instead of blending them into one
+    confident claim.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-s{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-surface);
+      font-size:12px;min-height:44px}
+    .v5-s.is-top{border-color:var(--viz-accent)}
+    .v5-hd{display:flex;align-items:center;gap:9px;font-weight:700}
+    .v5-sc{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:800}
+    .v5-sig{margin-top:7px;display:flex;gap:4px;flex-wrap:wrap}
+    .v5-chip{font-size:9.5px;font-weight:700;border:1px solid var(--viz-line);border-radius:999px;padding:2px 7px;
+      color:var(--viz-muted)}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-corr{margin-top:12px;font-size:12px;line-height:1.6}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var KEYS = ['provenance', 'primary-source fit', 'editorial process', 'evidence', 'currency', 'independence', 'track record'];
+    // Fixed signals, 0-3, stored SEPARATELY - never collapsed into one number.
+    var SRC = [
+      { n:'Official versioned documentation', s:[3, 0, 3, 2, 3, 1, 3], fit:[3, 0, 2] },
+      { n:'Two-year-old forum answer', s:[1, 0, 0, 2, 0, 3, 1], fit:[1, 3, 1] },
+      { n:'Affiliate blog copying the forum', s:[0, 0, 0, 0, 1, 0, 0], fit:[0, 0, 0] }
+    ];
+    var CLAIM = [
+      { n:'the documented limit', w:[0.15, 0.35, 0.10, 0.10, 0.25, 0.03, 0.02],
+        why:['Factual product configuration favours official current docs.',
+          'Primary-source fit and currency carry 60% of the weight between them, and the vendor <em>is</em> the primary source for its own limit table. The forum answer is two years old, so its currency signal is 0 no matter how helpful the troubleshooting was.'] },
+      { n:'what users actually hit', w:[0.10, 0.40, 0.05, 0.20, 0.10, 0.13, 0.02],
+        why:['The primary source moved — and the ranking moved with it.',
+          'For a claim about real-world experience the practitioner report <em>is</em> the primary evidence, and the official limit table cannot supply it. Nothing about either source changed; the weights and the fit did. That is what "credibility is claim-relative" means operationally, and it is why signals are stored separately rather than pre-collapsed into one score.'] },
+      { n:'a breaking incident', w:[0.20, 0.15, 0.05, 0.10, 0.25, 0.20, 0.05],
+        why:['Verification favours multiple <em>independent</em> sources and recency.',
+          'Independence and currency dominate. Note that the affiliate blog scores near zero on every claim type — weak provenance, no editorial process, no independence — which is the one stable result here.'] }
+    ];
+    var c = 0;
+    var cb = [document.getElementById('v5-c0'), document.getElementById('v5-c1'), document.getElementById('v5-c2')];
+    var list = document.getElementById('v5-list'), why = document.getElementById('v5-why');
+    var sl = document.getElementById('v5-cop'), lab = document.getElementById('v5-copl'), corr = document.getElementById('v5-corr');
+
+    function render(){
+      cb.forEach(function(b, i){ b.setAttribute('aria-pressed', c === i ? 'true' : 'false'); });
+      var cl = CLAIM[c];
+      var scored = SRC.map(function(s){
+        var vals = s.s.slice();
+        vals[1] = s.fit[c];
+        var tot = 0, wsum = 0;
+        cl.w.forEach(function(w, i){ tot += w * vals[i]; wsum += w; });
+        var score = wsum > 0 ? Math.round(tot / (wsum * 3) * 100) : 0;
+        return { n:s.n, vals:vals, score:score };
+      });
+      var best = Math.max.apply(null, scored.map(function(x){ return x.score; }));
+      list.innerHTML = scored.map(function(s){
+        var top = s.score === best && best > 0;
+        return '<div class="v5-s ' + (top ? 'is-top' : '') + '"><div class="v5-hd"><span>' + s.n + '</span>' +
+          '<span class="v5-sc" style="color:' + (top ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          s.score + '/100' + (top ? ' · best fit' : '') + '</span></div>' +
+          '<div class="v5-sig">' + KEYS.map(function(k, i){
+            var v = s.vals[i];
+            var col = v >= 2 ? 'var(--viz-green)' : (v === 1 ? 'var(--viz-amber)' : 'var(--viz-red)');
+            return '<span class="v5-chip" style="border-color:' + col + ';color:' + col + '">' + k + ' ' + v + '/3</span>';
+          }).join('') + '</div></div>';
+      }).join('');
+      why.innerHTML = '<b>' + cl.why[0] + '</b>' + cl.why[1] +
+        '<br><br>Credibility is claim-relative, time-relative and evidence-relative. Version the signal extraction, record <em>why</em> a source received each label, and check that reranking improves trustworthy-answer metrics without suppressing relevant minority sources.';
+    }
+    function renderC(){
+      var n = Number(sl.value);
+      lab.textContent = n;
+      corr.innerHTML = 'Naive count of "independent confirmations": <b style="color:var(--viz-red)">' + n + '</b>. ' +
+        'Actual independent lineages: <b style="color:var(--viz-green)">1</b>. ' +
+        (n > 1
+          ? '<b style="color:var(--viz-red)">Corroboration failure:</b> ' + n + ' sites copying one press release are <em>one</em> evidence lineage, not ' + n + ' confirmations.'
+          : 'One source, honestly counted as one.') +
+        '<br><br>Dedup clusters, quoted-source links, publication timing and shared wording are what expose the dependence — which is exactly why visual 4 stamps every copy with its lineage. Preserve the citation graph and the <code>derived_from</code> relationships, or source-domain diversity will read shared wire-service text as independent reporting.';
+    }
+    cb.forEach(function(b, i){ b.addEventListener('click', function(){ c = i; render(); }); });
+    sl.addEventListener('input', renderC);
+    render(); renderC();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

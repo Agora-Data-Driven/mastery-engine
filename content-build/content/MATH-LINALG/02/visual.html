@@ -1,0 +1,873 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, range inputs. Nothing
+   here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of
+   them individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: the panel
+   scanner reads tags textually and would treat it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-range{width:100%;height:44px;accent-color:var(--viz-accent)}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:2px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Columns To Equations</button>
+  <button class="viz-tab" data-viz-tab="2">2. Row Operations Sandbox</button>
+  <button class="viz-tab" data-viz-tab="3">3. Echelon Two Ways</button>
+  <button class="viz-tab" data-viz-tab="4">4. Rank And Dependence</button>
+  <button class="viz-tab" data-viz-tab="5">5. Singular Or Not</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Columns To Equations</h2>
+  <p class="vz-lede"><b>Linear transformations and matrix-vector multiplication</b> ran forwards: pick the
+    weights, watch <code>Ax</code> land somewhere. Solving runs it backwards — the landing spot
+    <code>b</code> is given and the weights are the unknown. Drag the two weights until you hit it.
+    <b>Like mixing two paint colours to match a swatch: the swatch is fixed, the two amounts are what
+    you are hunting for.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-x1">weight on column 1 = <span id="v1-x1l">3.00</span>
+      &nbsp;·&nbsp; column 1 = (2, 1)</label>
+    <input type="range" class="vz-range" id="v1-x1" min="-1" max="4" step="0.25" value="3"
+      aria-label="Weight on the first column">
+    <label class="vz-lab" for="v1-x2">weight on column 2 = <span id="v1-x2l">0.50</span>
+      &nbsp;·&nbsp; column 2 = (1, 3)</label>
+    <input type="range" class="vz-range" id="v1-x2" min="-1" max="4" step="0.25" value="0.5"
+      aria-label="Weight on the second column">
+    <div id="v1-plot"></div>
+    <div class="v1-eqs" id="v1-eq"></div>
+    <div class="vz-pills" id="v1-stat"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+
+  <div class="vz-card vz-mono" style="margin-top:11px">    A              b            [ A | b ]
+[ 2   1 ]      [ 5 ]      [ 2   1 | 5 ]   &lt;- row 1 IS equation 1
+[ 1   3 ]      [ 5 ]      [ 1   3 | 5 ]   &lt;- row 2 IS equation 2
+  ^   ^                     ^   ^   ^
+  x   y                     x   y   constants ride in the LAST COLUMN</div>
+
+  <p class="vz-note">Notice what the sliders never touch: the matrix. <b>The augmented matrix is the
+    question, not the answer</b> — it stores the coefficient structure, and the constants ride along as a
+    final column purely so they cannot be left behind during elimination. That separation is why
+    singularity, later, can be decided from <code>A</code> alone.</p>
+
+  <style>
+    .v1-eqs{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v1-r{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;flex-wrap:wrap;
+      gap:6px;align-items:baseline;border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 9px;
+      background:var(--viz-bg)}
+    .v1-r i{font-style:normal;font-weight:800}
+    .v1-tag{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var C1 = [2, 1], C2 = [1, 3], B = [5, 5];
+    var s1 = document.getElementById('v1-x1'), s2 = document.getElementById('v1-x2');
+    var l1 = document.getElementById('v1-x1l'), l2 = document.getElementById('v1-x2l');
+    var plot = document.getElementById('v1-plot'), eqs = document.getElementById('v1-eq');
+    var stat = document.getElementById('v1-stat'), why = document.getElementById('v1-why');
+
+    function sx(u){ return 40 + (u + 2) * 22; }
+    function sy(v){ return 260 - (v + 2) * 22; }
+    function fmt(n){ return (isFinite(n) ? (Math.round(n * 100) / 100) : 0).toFixed(2); }
+
+    function arrow(x1, y1, x2, y2, col, w){
+      var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+      var out = '<line x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 +
+        '" style="stroke:' + col + ';stroke-width:' + w + ';stroke-linecap:round"></line>';
+      if (!isFinite(len) || len < 7) return out;
+      var ux = dx / len, uy = dy / len;
+      var hx = x2 - ux * 10, hy = y2 - uy * 10, px = -uy * 5.5, py = ux * 5.5;
+      out += '<polygon points="' + x2 + ',' + y2 + ' ' + (hx + px) + ',' + (hy + py) + ' ' +
+        (hx - px) + ',' + (hy - py) + '" style="fill:' + col + '"></polygon>';
+      return out;
+    }
+
+    function render(){
+      var a = Number(s1.value), b = Number(s2.value);
+      l1.textContent = fmt(a); l2.textContent = fmt(b);
+      var mid = [C1[0] * a, C1[1] * a];
+      var sum = [mid[0] + C2[0] * b, mid[1] + C2[1] * b];
+
+      var g = '';
+      for (var u = -2; u <= 8; u++) {
+        g += '<line x1="' + sx(u) + '" y1="' + sy(-2) + '" x2="' + sx(u) + '" y2="' + sy(8) +
+          '" style="stroke:var(--viz-line);stroke-width:1"></line>';
+        g += '<line x1="' + sx(-2) + '" y1="' + sy(u) + '" x2="' + sx(8) + '" y2="' + sy(u) +
+          '" style="stroke:var(--viz-line);stroke-width:1"></line>';
+      }
+      g += '<line x1="' + sx(-2) + '" y1="' + sy(0) + '" x2="' + sx(8) + '" y2="' + sy(0) +
+        '" style="stroke:var(--viz-muted);stroke-width:1.6"></line>';
+      g += '<line x1="' + sx(0) + '" y1="' + sy(-2) + '" x2="' + sx(0) + '" y2="' + sy(8) +
+        '" style="stroke:var(--viz-muted);stroke-width:1.6"></line>';
+
+      g += arrow(sx(0), sy(0), sx(mid[0]), sy(mid[1]), 'var(--viz-green)', 3.5);
+      g += arrow(sx(mid[0]), sy(mid[1]), sx(sum[0]), sy(sum[1]), 'var(--viz-violet)', 3.5);
+      g += '<line x1="' + sx(sum[0]) + '" y1="' + sy(sum[1]) + '" x2="' + sx(B[0]) + '" y2="' + sy(B[1]) +
+        '" style="stroke:var(--viz-amber);stroke-width:2;stroke-dasharray:4 3"></line>';
+      g += '<circle cx="' + sx(B[0]) + '" cy="' + sy(B[1]) +
+        '" r="8" style="fill:none;stroke:var(--viz-red);stroke-width:2.5"></circle>';
+      g += '<text x="' + (sx(B[0]) + 12) + '" y="' + (sy(B[1]) - 7) +
+        '" style="fill:var(--viz-red);font-size:12px;font-weight:800">b = target</text>';
+      g += '<circle cx="' + sx(sum[0]) + '" cy="' + sy(sum[1]) +
+        '" r="5" style="fill:var(--viz-accent)"></circle>';
+      g += '<text x="' + (sx(0) + 6) + '" y="' + (sy(0) + 15) +
+        '" style="fill:var(--viz-muted);font-size:10.5px">origin</text>';
+      plot.innerHTML = '<svg viewBox="0 0 300 300" style="width:100%;height:auto;display:block;margin:12px 0 0">' +
+        g + '</svg>';
+
+      var r1 = 2 * a + 1 * b, r2 = 1 * a + 3 * b;
+      function row(n, txt, got, want){
+        var ok = Math.abs(got - want) < 0.005;
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-amber)';
+        return '<div class="v1-r"><span>row ' + n + ': ' + txt + ' = </span><i style="color:' + col + '">' +
+          fmt(got) + '</i><span>(needs ' + want + ')</span>' +
+          '<span class="v1-tag" style="color:' + col + '">' +
+          (ok ? 'SATISFIED' : 'off by ' + fmt(Math.abs(got - want))) + '</span></div>';
+      }
+      eqs.innerHTML =
+        row(1, '2(' + fmt(a) + ') + 1(' + fmt(b) + ')', r1, 5) +
+        row(2, '1(' + fmt(a) + ') + 3(' + fmt(b) + ')', r2, 5);
+
+      var res = Math.sqrt((sum[0] - B[0]) * (sum[0] - B[0]) + (sum[1] - B[1]) * (sum[1] - B[1]));
+      if (!isFinite(res)) res = 0;
+      var solved = res < 0.005;
+      var c = solved ? 'var(--viz-green)' : 'var(--viz-amber)';
+      stat.innerHTML =
+        '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">distance to b = ' + fmt(res) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">Ax = (' +
+        fmt(sum[0]) + ', ' + fmt(sum[1]) + ')</span>' +
+        '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' +
+        (solved ? 'SOLVED — x = (2, 1)' : 'not a solution yet') + '</span>';
+
+      why.innerHTML = solved
+        ? '<b style="color:var(--viz-green)">Two readings of one fact.</b>' +
+          'Geometrically, <b>2 copies of column 1 plus 1 copy of column 2</b> land exactly on <code>b</code> — ' +
+          'the same tip-to-tail addition and scalar multiplication you already know, with the columns as the ' +
+          'ingredients. Algebraically, that is the pair of numbers satisfying both equations at once. ' +
+          '<br><br>Guessing is not a method, which is the entire motivation for the rest of the lesson: ' +
+          '<b>Gaussian elimination</b> finds these weights by arithmetic on the augmented matrix, in a fixed ' +
+          'number of steps, without ever drawing a picture.'
+        : '<b style="color:var(--viz-amber)">Off by ' + fmt(res) + ' — every row is one equation.</b>' +
+          'Each row of the matrix meets your weight vector in a <b>dot product</b>: row 1 is ' +
+          '(2, 1)·(' + fmt(a) + ', ' + fmt(b) + '). That is why a row is an equation and a <b>column</b> is ' +
+          'one variable’s coefficients collected across every equation. ' +
+          '<br><br>Dragging until the dashed line vanishes is exactly "solve the system" — you are searching ' +
+          'the plane of all combinations of the two columns for the one that reaches <code>b</code>. ' +
+          'Keep going: the target is reachable here because the two columns point in genuinely different ' +
+          'directions. Visual 5 shows what happens when they do not.';
+    }
+    s1.addEventListener('input', render);
+    s2.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Row Operations Sandbox</h2>
+  <p class="vz-lede">Three legal moves, and nothing else. Apply them by hand to the augmented matrix and
+    watch two numbers refuse to move: the known solution still satisfies every row, and the rank never
+    changes. <b>Like re-arranging the furniture in a room — everything looks different and the room is
+    exactly the same size.</b></p>
+
+  <div class="vz-card">
+    <div class="v2-mat" id="v2-mat"></div>
+    <div class="v2-legend">boxed = the leading entry of that row (the pivot, once the staircase is built)
+      &nbsp;·&nbsp; the column after the rule is the constants column</div>
+
+    <div class="v2-ctl">
+      <select id="v2-op" aria-label="Row operation">
+        <option value="swap">swap Ri and Rj</option>
+        <option value="scale" selected>Ri &#8592; k&#183;Ri</option>
+        <option value="add">Ri &#8592; Ri + k&#183;Rj</option>
+      </select>
+      <select id="v2-i" aria-label="Row i">
+        <option value="1">i = R1</option><option value="2" selected>i = R2</option><option value="3">i = R3</option>
+      </select>
+      <select id="v2-j" aria-label="Row j">
+        <option value="1" selected>j = R1</option><option value="2">j = R2</option><option value="3">j = R3</option>
+      </select>
+      <select id="v2-k" aria-label="Scalar k">
+        <option value="-3">k = -3</option><option value="-2" selected>k = -2</option>
+        <option value="-1">k = -1</option><option value="-0.5">k = -1/2</option>
+        <option value="0">k = 0</option><option value="0.5">k = 1/2</option>
+        <option value="2">k = 2</option><option value="3">k = 3</option>
+      </select>
+    </div>
+    <div class="v2-btns">
+      <button id="v2-apply">Apply</button>
+      <button id="v2-ref">Run to REF</button>
+      <button id="v2-rref">Run to RREF</button>
+      <button id="v2-reset">Reset</button>
+    </div>
+
+    <div class="vz-pills" id="v2-check"></div>
+    <div class="v2-log" id="v2-log"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Every one of the three moves is <b>reversible</b>, and that is the whole licence for
+    doing them: undoing one is another move of the same kind, so no solution can be created or destroyed.
+    That is also why <b>k = 0</b> is refused above — scaling by zero cannot be undone. It would erase an
+    equation and hand you back solutions the original system never had.</p>
+
+  <style>
+    .v2-mat{display:flex;flex-direction:column;gap:4px}
+    .v2-row{display:flex;align-items:center;gap:4px}
+    .v2-c{flex:1 1 0;min-width:0;text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
+      padding:9px 2px;border:1.5px solid transparent;border-radius:8px;background:var(--viz-bg)}
+    .v2-c.is-lead{border-color:var(--viz-accent);font-weight:800;color:var(--viz-accent)}
+    .v2-c.is-const{background:var(--viz-surface);border-color:var(--viz-line);color:var(--viz-muted)}
+    .v2-bar{flex:0 0 2px;align-self:stretch;background:var(--viz-line)}
+    .v2-legend{margin-top:8px;font-size:10.5px;color:var(--viz-muted);line-height:1.5}
+    .v2-ctl{margin-top:12px;display:flex;gap:6px;flex-wrap:wrap}
+    .v2-ctl select{flex:1 1 116px;min-height:44px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-size:12.5px;padding:4px 8px}
+    .v2-btns{margin-top:6px;display:flex;gap:6px;flex-wrap:wrap}
+    .v2-btns button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-weight:700;font-size:12.5px}
+    .v2-log{margin-top:11px;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted);
+      line-height:1.7;min-height:20px}
+  </style>
+  <script>
+  (function(){
+    var START = [[1, 2, -1, 2], [2, 3, 1, 9], [1, -1, 2, 5]];
+    var SOL = [2, 1, 2];
+    var M = START.map(function(r){ return r.slice(); });
+    var hist = [];
+
+    var mat = document.getElementById('v2-mat'), check = document.getElementById('v2-check');
+    var logBox = document.getElementById('v2-log'), why = document.getElementById('v2-why');
+    var opS = document.getElementById('v2-op'), iS = document.getElementById('v2-i');
+    var jS = document.getElementById('v2-j'), kS = document.getElementById('v2-k');
+
+    function fmt(n){
+      if (!isFinite(n)) return '--';
+      if (Math.abs(n) < 1e-9) return '0';
+      return String(Math.round(n * 1000) / 1000);
+    }
+    function copy(m){ return m.map(function(r){ return r.slice(); }); }
+
+    function ech(m, full, pc){
+      var rows = m.length, wide = m[0].length, r = 0, log = [];
+      for (var c = 0; c < pc && r < rows; c++) {
+        var p = -1;
+        for (var i = r; i < rows; i++) { if (Math.abs(m[i][c]) > 1e-9) { p = i; break; } }
+        if (p < 0) continue;
+        if (p !== r) { var t = m[p]; m[p] = m[r]; m[r] = t; log.push('R' + (r + 1) + ' ⇄ R' + (p + 1)); }
+        var pv = m[r][c];
+        if (Math.abs(pv - 1) > 1e-9) {
+          for (var q = 0; q < wide; q++) m[r][q] = m[r][q] / pv;
+          log.push('R' + (r + 1) + ' ← (' + fmt(1 / pv) + ')·R' + (r + 1) + '   [pivot scaled to 1]');
+        }
+        for (var i2 = 0; i2 < rows; i2++) {
+          if (i2 === r) continue;
+          if (!full && i2 < r) continue;
+          var f = m[i2][c];
+          if (Math.abs(f) > 1e-9) {
+            for (var q2 = 0; q2 < wide; q2++) m[i2][q2] = m[i2][q2] - f * m[r][q2];
+            log.push('R' + (i2 + 1) + ' ← R' + (i2 + 1) + ' - (' + fmt(f) + ')·R' + (r + 1));
+          }
+        }
+        r++;
+      }
+      return log;
+    }
+    function rankOf(m, pc){
+      var c = copy(m); ech(c, true, pc);
+      var n = 0;
+      for (var i = 0; i < c.length; i++) {
+        for (var j = 0; j < pc; j++) { if (Math.abs(c[i][j]) > 1e-9) { n++; break; } }
+      }
+      return n;
+    }
+
+    function draw(){
+      var html = '';
+      for (var i = 0; i < 3; i++) {
+        var lead = -1;
+        for (var c = 0; c < 3; c++) { if (Math.abs(M[i][c]) > 1e-9) { lead = c; break; } }
+        html += '<div class="v2-row">';
+        for (var c2 = 0; c2 < 3; c2++) {
+          html += '<span class="v2-c' + (c2 === lead ? ' is-lead' : '') + '">' + fmt(M[i][c2]) + '</span>';
+        }
+        html += '<span class="v2-bar"></span><span class="v2-c is-const">' + fmt(M[i][3]) + '</span></div>';
+      }
+      mat.innerHTML = html;
+
+      var ok = true;
+      for (var r = 0; r < 3; r++) {
+        var v = M[r][0] * SOL[0] + M[r][1] * SOL[1] + M[r][2] * SOL[2] - M[r][3];
+        if (!isFinite(v) || Math.abs(v) > 1e-6) ok = false;
+      }
+      var rA = rankOf(M, 3), rAb = rankOf(M, 4);
+      var okc = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      check.innerHTML =
+        '<span class="vz-pill" style="color:' + okc + ';border-color:' + okc + '">' +
+        (ok ? 'x = (2, 1, 2) still satisfies EVERY row' : 'solution set changed - that move was illegal') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">rank(A) = ' + rA + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">rank([A|b]) = ' + rAb + '</span>';
+
+      logBox.innerHTML = hist.length
+        ? hist.slice(-6).map(function(s){ return '&#8226; ' + s; }).join('<br>')
+        : '<span>no operations yet</span>';
+    }
+
+    function say(title, body, col){
+      why.innerHTML = '<b style="color:' + col + '">' + title + '</b>' + body;
+    }
+    function push(lines){ for (var i = 0; i < lines.length; i++) hist.push(lines[i]); }
+
+    document.getElementById('v2-apply').addEventListener('click', function(){
+      var op = opS.value, i = Number(iS.value) - 1, j = Number(jS.value) - 1, k = Number(kS.value);
+      if (op === 'scale' && Math.abs(k) < 1e-9) {
+        say('Refused - and this is the point.',
+          'Multiplying a row by <b>0</b> is not an elementary row operation, because it is the one scaling ' +
+          'you cannot undo. It would turn a real equation into <code>0 = 0</code>, deleting a constraint and ' +
+          'handing back solutions the original system never had. The rule is <b>multiply by a NONZERO ' +
+          'scalar</b>, and the word nonzero is doing all the work.', 'var(--viz-red)');
+        return;
+      }
+      if (op !== 'scale' && i === j) {
+        say('Pick two different rows.',
+          op === 'swap'
+            ? 'Swapping a row with itself changes nothing. Swaps exist for one job: moving a nonzero entry ' +
+              'up into the pivot position when the current pivot slot holds a zero.'
+            : 'Adding a multiple of a row to <em>itself</em> is really a scaling in disguise, and if k = -1 it ' +
+              'wipes the row out. The third operation adds a multiple of a <b>different</b> row.',
+          'var(--viz-amber)');
+        return;
+      }
+      if (op === 'swap') {
+        var t = M[i]; M[i] = M[j]; M[j] = t;
+        push(['R' + (i + 1) + ' ⇄ R' + (j + 1)]);
+        say('Swap: the equations were only ever in an order you chose.',
+          'Writing the equations in a different order cannot change which values satisfy them, so a swap is ' +
+          'free. In practice it is used to bring a nonzero entry into the pivot position.', 'var(--viz-accent)');
+      } else if (op === 'scale') {
+        for (var q = 0; q < 4; q++) M[i][q] = M[i][q] * k;
+        push(['R' + (i + 1) + ' ← (' + fmt(k) + ')·R' + (i + 1)]);
+        say('Scale: the same equation, restated.',
+          'Multiplying every entry of the row - <b>including the constant</b> - by ' + fmt(k) + ' rescales one ' +
+          'equation without changing the values that satisfy it. This is the move that turns a pivot of 2 into ' +
+          'a pivot of 1: multiply the whole row by 1/2. It is not "subtract 1", and not "add 2 to every entry".',
+          'var(--viz-accent)');
+      } else {
+        for (var q2 = 0; q2 < 4; q2++) M[i][q2] = M[i][q2] + k * M[j][q2];
+        push(['R' + (i + 1) + ' ← R' + (i + 1) + ' + (' + fmt(k) + ')·R' + (j + 1)]);
+        say('Add a multiple of another row: the workhorse.',
+          'Any solution satisfies both rows, so it satisfies their combination too - and the move is undone by ' +
+          'adding <code>-k</code> times the same row. This is the operation that <b>creates the zeros</b> ' +
+          'below a pivot, and later above it. Every step of Gaussian elimination is this one move, chosen ' +
+          'systematically.', 'var(--viz-accent)');
+      }
+      draw();
+    });
+
+    document.getElementById('v2-ref').addEventListener('click', function(){
+      var lg = ech(M, false, 3);
+      push(lg.length ? lg : ['already in row echelon form']);
+      say('Forward elimination, run to the end.',
+        'Left to right: find the pivot, scale it to 1, use it to clear everything <b>below</b> it, move down ' +
+        'and right, repeat. That is the whole of Gaussian elimination - a fixed sequence of the three ' +
+        'operations with a clear stopping condition, which is exactly why it runs identically by hand and in ' +
+        'code. The staircase you are looking at is <b>REF</b>. The unknowns are not read off yet: that takes ' +
+        'back substitution from the bottom row upwards.', 'var(--viz-green)');
+      draw();
+    });
+    document.getElementById('v2-rref').addEventListener('click', function(){
+      var lg = ech(M, true, 3);
+      push(lg.length ? lg : ['already in reduced row echelon form']);
+      say('Keep going upward and the answer is simply written down.',
+        'RREF adds one requirement to REF: every entry <b>above</b> a pivot is zeroed too, with each pivot ' +
+        'equal to 1. The matrix now reads <code>x = 2</code>, <code>y = 1</code>, <code>z = 2</code> with no ' +
+        'arithmetic left. Doing the upward clearing with row operations is the same work back substitution ' +
+        'does with algebra - lower pivots clearing the entries above them.', 'var(--viz-green)');
+      draw();
+    });
+    document.getElementById('v2-reset').addEventListener('click', function(){
+      M = START.map(function(r){ return r.slice(); });
+      hist = [];
+      say('Back to the original augmented matrix.',
+        'The system is <code>x + 2y - z = 2</code>, <code>2x + 3y + z = 9</code>, <code>x - y + 2z = 5</code>. ' +
+        'Its solution is (2, 1, 2) - which every legal sequence of row operations, however scenic, will ' +
+        'preserve.', 'var(--viz-muted)');
+      draw();
+    });
+
+    say('Start here: the augmented matrix is the first thing you build.',
+      'Not the inverse, not the identity - the coefficients with the constants attached as a final column. ' +
+      'Then apply the three moves. Watch the two pills: the known solution keeps satisfying every row, and ' +
+      '<b>rank never moves</b>, because row operations re-describe a system rather than change it.',
+      'var(--viz-accent)');
+    draw();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Echelon Two Ways</h2>
+  <p class="vz-lede">REF and RREF differ by exactly one requirement, and it costs a few more row operations
+    to buy an answer you can read without thinking. Then meet the free variable: a column with no pivot,
+    and therefore a dial you are allowed to turn. <b>Like a recipe that says "season to taste" — every
+    other quantity is fixed, that one is yours.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Echelon form">
+    <button id="v3-ref" aria-pressed="true">row echelon form (REF)</button>
+    <button id="v3-rref" aria-pressed="false">reduced (RREF)</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-mat" id="v3-grid"></div>
+    <div class="v3-legend" id="v3-leg"></div>
+    <div class="vz-pills" id="v3-pills"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <label class="vz-lab" for="v3-t">free variable x3 = t = <span id="v3-tl">0.0</span></label>
+    <input type="range" class="vz-range" id="v3-t" min="-3" max="3" step="0.5" value="0"
+      aria-label="Value of the free variable">
+    <div class="v3-sol" id="v3-sol"></div>
+    <div class="v3-chk" id="v3-chk"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">A free variable is <b>free, not zero</b>. Setting it to 0 and reporting a single triple
+    is the most common way to answer an "infinitely many solutions" question wrongly: you have named one
+    point on a line and called it the answer. And the count is bookkeeping you can always do —
+    free variables = columns minus rank — which is the fact lesson 03 promotes into the Rank-Nullity
+    Theorem.</p>
+
+  <style>
+    .v3-mat{display:flex;flex-direction:column;gap:4px}
+    .v3-row{display:flex;align-items:center;gap:4px}
+    .v3-c{flex:1 1 0;min-width:0;text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;
+      padding:9px 2px;border:1.5px solid transparent;border-radius:8px;background:var(--viz-bg)}
+    .v3-c.is-piv{border-color:var(--viz-accent);font-weight:800;color:var(--viz-accent)}
+    .v3-c.is-clear{border-color:var(--viz-green);border-style:dashed;color:var(--viz-green);font-weight:800}
+    .v3-c.is-const{background:var(--viz-surface);border-color:var(--viz-line);color:var(--viz-muted)}
+    .v3-bar{flex:0 0 2px;align-self:stretch;background:var(--viz-line)}
+    .v3-legend{margin-top:9px;font-size:11px;color:var(--viz-muted);line-height:1.55}
+    .v3-sol{margin-top:10px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:800;
+      color:var(--viz-accent)}
+    .v3-chk{margin-top:8px;display:flex;flex-direction:column;gap:5px}
+    .v3-r{font-family:ui-monospace,Consolas,monospace;font-size:11px;border:1.5px solid var(--viz-line);
+      border-radius:9px;padding:7px 9px;background:var(--viz-bg);display:flex;gap:8px;flex-wrap:wrap}
+    .v3-r b{margin-left:auto;font-family:inherit;font-size:10px;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var REF = [[1, 2, 6, 5], [0, 1, 4, 1], [0, 0, 0, 0]];
+    var RREF = [[1, 0, -2, 3], [0, 1, 4, 1], [0, 0, 0, 0]];
+    var reduced = false;
+
+    var bRef = document.getElementById('v3-ref'), bRre = document.getElementById('v3-rref');
+    var grid = document.getElementById('v3-grid'), leg = document.getElementById('v3-leg');
+    var pills = document.getElementById('v3-pills'), sl = document.getElementById('v3-t');
+    var tl = document.getElementById('v3-tl'), sol = document.getElementById('v3-sol');
+    var chk = document.getElementById('v3-chk'), why = document.getElementById('v3-why');
+
+    function fmt(n){ return (isFinite(n) ? (Math.round(n * 100) / 100) : 0).toFixed(2); }
+
+    function drawMatrix(){
+      var M = reduced ? RREF : REF;
+      var html = '';
+      for (var i = 0; i < 3; i++) {
+        html += '<div class="v3-row">';
+        for (var c = 0; c < 3; c++) {
+          var cls = '';
+          if ((i === 0 && c === 0) || (i === 1 && c === 1)) cls = ' is-piv';
+          else if (reduced && i === 0 && c === 1) cls = ' is-clear';
+          html += '<span class="v3-c' + cls + '">' + M[i][c] + '</span>';
+        }
+        html += '<span class="v3-bar"></span><span class="v3-c is-const">' + M[i][3] + '</span></div>';
+      }
+      grid.innerHTML = html;
+
+      leg.innerHTML = reduced
+        ? 'Solid box = pivot, scaled to 1. <b>Dashed box = the entry above a pivot, now zeroed</b> - that ' +
+          'single extra requirement is the whole difference between REF and RREF. Column 3 still has no ' +
+          'pivot, so x3 stays free.'
+        : 'Solid box = pivot. Zeros sit <b>below</b> every pivot and each pivot is right of the one above: ' +
+          'that is the staircase. The 2 sitting <em>above</em> the second pivot is legal here and is exactly ' +
+          'what RREF goes on to clear. Column 3 has no pivot.';
+
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">2 pivots = rank 2</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">3 unknowns</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">3 - 2 = 1 free variable</span>' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">consistent: no 0 = nonzero row</span>';
+
+      why.innerHTML = reduced
+        ? '<b style="color:var(--viz-green)">RREF states the answer instead of implying it.</b>' +
+          'Pivot columns are now single 1s with zeros everywhere else, so row 1 literally reads ' +
+          '<code>x1 - 2x3 = 3</code> and row 2 reads <code>x2 + 4x3 = 1</code>. Nothing is left to ' +
+          'substitute. That is why RREF is worth the extra passes even when you were only solving one ' +
+          'system: it exposes <b>rank</b> (count the pivots), the <b>free variables</b> (columns without ' +
+          'one), and <b>consistency</b> (is there a row of zeros with a nonzero constant?) in a single ' +
+          'glance.'
+        : '<b style="color:var(--viz-accent)">REF is where elimination stops; it is not the answer yet.</b>' +
+          'The staircase guarantees zeros below each pivot but leaves the entries above them alone - the 2 in ' +
+          'row 1. To finish from here you run <b>back substitution</b>: take the value fixed by a lower ' +
+          'pivot row and use it to clear that variable out of the rows above, working upward. Pushing on ' +
+          'with row operations instead is the same work, and it lands you in RREF.';
+    }
+
+    function drawSolution(){
+      var t = Number(sl.value);
+      tl.textContent = t.toFixed(1);
+      var x1 = 3 + 2 * t, x2 = 1 - 4 * t, x3 = t;
+      sol.textContent = 'x = (' + fmt(x1) + ', ' + fmt(x2) + ', ' + fmt(x3) + ')   from x1 = 3 + 2t, x2 = 1 - 4t, x3 = t';
+      var r1 = 1 * x1 + 2 * x2 + 6 * x3, r2 = 0 * x1 + 1 * x2 + 4 * x3;
+      function row(n, txt, got, want){
+        var ok = isFinite(got) && Math.abs(got - want) < 1e-6;
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v3-r"><span>REF row ' + n + ': ' + txt + ' = ' + fmt(got) + '</span>' +
+          '<span>needs ' + want + '</span><b style="color:' + col + '">' +
+          (ok ? 'HOLDS' : 'FAILS') + '</b></div>';
+      }
+      chk.innerHTML = row(1, 'x1 + 2x2 + 6x3', r1, 5) + row(2, 'x2 + 4x3', r2, 1);
+    }
+
+    bRef.addEventListener('click', function(){
+      reduced = false;
+      bRef.setAttribute('aria-pressed', 'true'); bRre.setAttribute('aria-pressed', 'false');
+      drawMatrix();
+    });
+    bRre.addEventListener('click', function(){
+      reduced = true;
+      bRef.setAttribute('aria-pressed', 'false'); bRre.setAttribute('aria-pressed', 'true');
+      drawMatrix();
+    });
+    sl.addEventListener('input', drawSolution);
+    drawMatrix();
+    drawSolution();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Rank And Dependence</h2>
+  <p class="vz-lede">The formal definition of dependence asks for one specific object: a set of weights,
+    <em>not all zero</em>, that combines the vectors into the zero vector. Hunt for it with the sliders and
+    watch the rank agree with whatever you find. <b>Like three witnesses at a trial: if one is only
+    repeating what another said, you have two statements, not three.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Vector set">
+    <button id="v4-s0" aria-pressed="true">set A</button>
+    <button id="v4-s1" aria-pressed="false">set B</button>
+    <button id="v4-s2" aria-pressed="false">set C</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-vecs" id="v4-vecs"></div>
+    <label class="vz-lab" for="v4-c1">c1 = <span id="v4-c1l">0</span></label>
+    <input type="range" class="vz-range" id="v4-c1" min="-3" max="3" step="1" value="0" aria-label="Weight c1">
+    <label class="vz-lab" for="v4-c2">c2 = <span id="v4-c2l">0</span></label>
+    <input type="range" class="vz-range" id="v4-c2" min="-3" max="3" step="1" value="0" aria-label="Weight c2">
+    <label class="vz-lab" for="v4-c3">c3 = <span id="v4-c3l">0</span></label>
+    <input type="range" class="vz-range" id="v4-c3" min="-3" max="3" step="1" value="0" aria-label="Weight c3">
+    <div class="v4-out" id="v4-out"></div>
+    <div class="vz-pills" id="v4-rank"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Two shortcuts save you the search almost every time. If one vector is a scalar multiple
+    of another — two arrows on one line through the origin, say one pointing east and one exactly west —
+    the set is dependent whatever the rest are doing. And if you have <b>more vectors than the dimension of
+    the space</b>, dependence is guaranteed with no arithmetic at all: three vectors in the plane can never
+    be independent. A <b>basis</b> is the set that does both jobs at once — spans the space <em>and</em> is
+    independent.</p>
+
+  <style>
+    .v4-vecs{display:flex;gap:6px;margin-bottom:12px}
+    .v4-v{flex:1 1 0;min-width:0;border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 4px;
+      background:var(--viz-bg);text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      line-height:1.7}
+    .v4-v h6{margin:0 0 4px;font-family:inherit;font-size:10px;letter-spacing:.05em;color:var(--viz-muted);
+      text-transform:uppercase}
+    .v4-out{margin-top:10px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px;
+      background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6}
+    .v4-out b{font-family:inherit;font-size:11px;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var SETS = [
+      { name: 'set A', v: [[2, -1, 4], [-6, 3, -12], [1, 0, 5]], hint: [3, 1, 0],
+        note: 'v2 is exactly -3 times v1, so a witness exists using only those two.' },
+      { name: 'set B', v: [[1, 2, 1], [2, 1, 0], [1, 1, 3]], hint: null,
+        note: 'No vector here is built from the others, so the search is hopeless - which is what independence means.' },
+      { name: 'set C', v: [[1, 2, 3], [2, 4, 6], [-1, -2, -3]], hint: [2, -1, 0],
+        note: 'All three lie on one line through the origin, so any two of them already give a witness.' }
+    ];
+    var cur = 0;
+    var btns = [document.getElementById('v4-s0'), document.getElementById('v4-s1'), document.getElementById('v4-s2')];
+    var vecs = document.getElementById('v4-vecs'), out = document.getElementById('v4-out');
+    var rankBox = document.getElementById('v4-rank'), why = document.getElementById('v4-why');
+    var cs = [document.getElementById('v4-c1'), document.getElementById('v4-c2'), document.getElementById('v4-c3')];
+    var ls = [document.getElementById('v4-c1l'), document.getElementById('v4-c2l'), document.getElementById('v4-c3l')];
+
+    function rankOf(rows){
+      var m = rows.map(function(r){ return r.slice(); }), r = 0;
+      for (var c = 0; c < 3 && r < 3; c++) {
+        var p = -1;
+        for (var i = r; i < 3; i++) { if (Math.abs(m[i][c]) > 1e-9) { p = i; break; } }
+        if (p < 0) continue;
+        var t = m[p]; m[p] = m[r]; m[r] = t;
+        for (var i2 = r + 1; i2 < 3; i2++) {
+          var f = m[i2][c] / m[r][c];
+          if (!isFinite(f)) f = 0;
+          for (var q = 0; q < 3; q++) m[i2][q] = m[i2][q] - f * m[r][q];
+        }
+        r++;
+      }
+      var n = 0;
+      for (var i3 = 0; i3 < 3; i3++) {
+        for (var j = 0; j < 3; j++) { if (Math.abs(m[i3][j]) > 1e-9) { n++; break; } }
+      }
+      return n;
+    }
+
+    function render(){
+      var S = SETS[cur];
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      vecs.innerHTML = S.v.map(function(v, i){
+        return '<div class="v4-v"><h6>v' + (i + 1) + '</h6>' + v[0] + '<br>' + v[1] + '<br>' + v[2] + '</div>';
+      }).join('');
+
+      var c = cs.map(function(s){ return Number(s.value); });
+      c.forEach(function(val, i){ ls[i].textContent = String(val); });
+
+      var sum = [0, 0, 0];
+      for (var i = 0; i < 3; i++) { for (var d = 0; d < 3; d++) sum[d] += c[i] * S.v[i][d]; }
+      var isZero = sum.every(function(x){ return isFinite(x) && Math.abs(x) < 1e-9; });
+      var nonTrivial = c.some(function(x){ return Math.abs(x) > 1e-9; });
+      var proved = isZero && nonTrivial;
+
+      var col = proved ? 'var(--viz-green)' : (isZero ? 'var(--viz-amber)' : 'var(--viz-muted)');
+      var verdict = proved ? 'WITNESS FOUND - the set is linearly DEPENDENT'
+        : (isZero ? 'TRIVIAL - all weights are zero, so this proves nothing'
+          : 'not the zero vector - keep searching');
+      out.innerHTML =
+        '(' + c[0] + ')v1 + (' + c[1] + ')v2 + (' + c[2] + ')v3 = (' +
+        (Math.round(sum[0] * 1000) / 1000) + ', ' + (Math.round(sum[1] * 1000) / 1000) + ', ' +
+        (Math.round(sum[2] * 1000) / 1000) + ')<br>' +
+        '<b style="color:' + col + '">' + verdict + '</b>';
+
+      var rk = rankOf(S.v);
+      var span = rk === 3 ? 'they span all of R^3' : (rk === 2 ? 'they span a PLANE through the origin in R^3'
+        : 'they span a LINE through the origin');
+      var indep = rk === 3;
+      var ic = indep ? 'var(--viz-green)' : 'var(--viz-red)';
+      rankBox.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">rank = ' + rk + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + span + '</span>' +
+        '<span class="vz-pill" style="color:' + ic + ';border-color:' + ic + '">' +
+        (indep ? 'independent: rank = 3 vectors' : 'dependent: rank < 3 vectors') + '</span>';
+
+      var head, body;
+      if (proved) {
+        head = 'That is the definition, satisfied.';
+        body = 'A set is <b>linearly dependent</b> exactly when some combination with weights <em>not all ' +
+          'zero</em> equals the zero vector - and you are looking at one. Rearranged, it says one vector is ' +
+          'a linear combination of the others, which is the same statement in everyday words. ' + S.note;
+      } else if (indep) {
+        head = 'No witness exists here, and rank says so before you look.';
+        body = 'Row-reducing these three vectors leaves <b>3 nonzero rows</b>, so rank 3 - as many pivots as ' +
+          'vectors. Independence means the all-zero weights are the <em>only</em> ones producing the zero ' +
+          'vector, so the sliders can never both land on (0, 0, 0) and be non-trivial. ' + S.note;
+      } else {
+        head = 'Rank ' + rk + ' already tells you a witness is out there.';
+        body = 'Elimination collapses ' + (3 - rk) + ' of the three rows to zero, which is precisely a ' +
+          'dependency among them - so a non-trivial combination reaching the zero vector must exist. ' +
+          (S.hint ? 'Try <b>c = (' + S.hint.join(', ') + ')</b>. ' : '') + S.note +
+          '<br><br>Note the direction of the argument: <b>rank counts independent rows, and it counts ' +
+          'independent columns too</b> - the same number either way. A row that is a combination of the ' +
+          'others carries no new information, which is what "rank measures how much information the system ' +
+          'carries" means in practice. It is also why low-rank data compresses: a 1000x1000 image of rank 50 ' +
+          'needs about 50 x 2000 = 100,000 numbers instead of a million.';
+      }
+      why.innerHTML = '<b style="color:' + col + '">' + head + '</b>' + body;
+    }
+
+    btns.forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        cs.forEach(function(s){ s.value = '0'; });
+        render();
+      });
+    });
+    cs.forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Singular Or Not</h2>
+  <p class="vz-lede">Two dials on one system: a coefficient, and a constant. Only one of them can make the
+    matrix singular — and once it is, the other decides between "no solution" and "infinitely many".
+    <b>Like two people giving directions: if they disagree you are stuck, and if one just repeats the other
+    you learned nothing new.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-m">row 2 coefficient m = <span id="v5-ml">1.0</span>
+      &nbsp;·&nbsp; system: x + 2y = 4 and m&#183;x + 4y = c</label>
+    <input type="range" class="vz-range" id="v5-m" min="0" max="4" step="0.5" value="1"
+      aria-label="Coefficient m in the second equation">
+    <label class="vz-lab" for="v5-c">right-hand constant c = <span id="v5-cl">6</span></label>
+    <input type="range" class="vz-range" id="v5-c" min="0" max="12" step="1" value="6"
+      aria-label="Constant on the right of the second equation">
+    <div id="v5-plot"></div>
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="vz-pills" id="v5-pills"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Drag <b>c</b> from end to end and watch <code>rank(A)</code> sit perfectly still. That
+    is the whole reason the right-hand constants can be ignored when you classify a system as singular or
+    non-singular: singularity is a statement about the <b>coefficient structure</b> alone. The constants
+    decide something different — whether a singular system is merely redundant or outright contradictory.</p>
+
+  <style>
+    .v5-rows{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v5-r{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;border:1.5px solid var(--viz-line);
+      border-radius:9px;padding:8px 10px;background:var(--viz-bg)}
+    .v5-r.is-final{border-color:var(--viz-amber)}
+  </style>
+  <script>
+  (function(){
+    var sm = document.getElementById('v5-m'), sc = document.getElementById('v5-c');
+    var ml = document.getElementById('v5-ml'), cl = document.getElementById('v5-cl');
+    var plot = document.getElementById('v5-plot'), rows = document.getElementById('v5-rows');
+    var pills = document.getElementById('v5-pills'), why = document.getElementById('v5-why');
+
+    function sx(u){ return 35 + (u + 2) * 30; }
+    function sy(v){ return 275 - (v + 2) * 30; }
+    function fmt(n){ return (isFinite(n) ? (Math.round(n * 100) / 100) : 0).toFixed(2); }
+
+    function line(f, col, w, dash){
+      var y1 = f(-2), y2 = f(6);
+      if (!isFinite(y1) || !isFinite(y2)) return '';
+      return '<line x1="' + sx(-2) + '" y1="' + sy(y1) + '" x2="' + sx(6) + '" y2="' + sy(y2) +
+        '" style="stroke:' + col + ';stroke-width:' + w + (dash ? ';stroke-dasharray:6 4' : '') + '"></line>';
+    }
+
+    function render(){
+      var m = Number(sm.value), c = Number(sc.value);
+      ml.textContent = m.toFixed(1); cl.textContent = String(c);
+
+      var d = 4 - 2 * m;              // the bottom-left entry after R2 <- R2 - m*R1
+      var rem = c - 4 * m;            // its constant
+      var singular = Math.abs(d) < 1e-9;
+      var consistent = !singular || Math.abs(rem) < 1e-9;
+
+      var g = '';
+      for (var u = -2; u <= 6; u++) {
+        g += '<line x1="' + sx(u) + '" y1="' + sy(-2) + '" x2="' + sx(u) + '" y2="' + sy(6) +
+          '" style="stroke:var(--viz-line);stroke-width:1"></line>';
+        g += '<line x1="' + sx(-2) + '" y1="' + sy(u) + '" x2="' + sx(6) + '" y2="' + sy(u) +
+          '" style="stroke:var(--viz-line);stroke-width:1"></line>';
+      }
+      g += '<line x1="' + sx(-2) + '" y1="' + sy(0) + '" x2="' + sx(6) + '" y2="' + sy(0) +
+        '" style="stroke:var(--viz-muted);stroke-width:1.6"></line>';
+      g += '<line x1="' + sx(0) + '" y1="' + sy(-2) + '" x2="' + sx(0) + '" y2="' + sy(6) +
+        '" style="stroke:var(--viz-muted);stroke-width:1.6"></line>';
+      g += line(function(x){ return (4 - x) / 2; }, 'var(--viz-accent)', 3, false);
+      g += line(function(x){ return (c - m * x) / 4; }, 'var(--viz-violet)', 3, singular);
+
+      var x = 0, y = 0;
+      if (!singular) {
+        y = rem / d; x = 4 - 2 * y;
+        if (isFinite(x) && isFinite(y)) {
+          g += '<circle cx="' + sx(x) + '" cy="' + sy(y) +
+            '" r="6.5" style="fill:var(--viz-green);stroke:var(--viz-surface);stroke-width:2"></circle>';
+        }
+      }
+      plot.innerHTML = '<svg viewBox="0 0 290 290" style="width:100%;height:auto;display:block;margin:12px 0 0">' +
+        g + '</svg>';
+
+      rows.innerHTML =
+        '<div class="v5-r">R1&nbsp; [ 1&nbsp; 2 | 4 ]&nbsp; &#8212; the solid line</div>' +
+        '<div class="v5-r">R2&nbsp; [ ' + fmt(m) + '&nbsp; 4 | ' + c + ' ]&nbsp; &#8212; the ' +
+        (singular ? 'dashed' : 'second') + ' line</div>' +
+        '<div class="v5-r is-final">R2 &#8592; R2 - (' + fmt(m) + ')&#183;R1&nbsp; gives&nbsp; [ 0&nbsp; ' +
+        fmt(d) + ' | ' + fmt(rem) + ' ]</div>';
+
+      var rA = singular ? 1 : 2;
+      var rAb = singular ? (Math.abs(rem) < 1e-9 ? 1 : 2) : 2;
+      var sc1 = singular ? 'var(--viz-red)' : 'var(--viz-green)';
+      var verdict, vc;
+      if (!singular) { verdict = 'exactly one solution: (' + fmt(x) + ', ' + fmt(y) + ')'; vc = 'var(--viz-green)'; }
+      else if (consistent) { verdict = 'infinitely many solutions'; vc = 'var(--viz-violet)'; }
+      else { verdict = 'no solution'; vc = 'var(--viz-red)'; }
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + sc1 + ';border-color:' + sc1 + '">rank(A) = ' + rA + ' &#183; ' +
+        (singular ? 'SINGULAR' : 'non-singular') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">rank([A|b]) = ' + rAb + '</span>' +
+        '<span class="vz-pill" style="color:' + vc + ';border-color:' + vc + '">' + verdict + '</span>';
+
+      if (!singular) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Non-singular: rank(A) = 2 = the number of rows.</b>' +
+          'The bottom row of the eliminated matrix is <code>[ 0 ' + fmt(d) + ' | ' + fmt(rem) + ' ]</code>, so ' +
+          'y is pinned down and back substitution gives x. Neither row is a multiple of the other, so the two ' +
+          'equations carry genuinely different information and the lines cross at a single point. ' +
+          '<br><br>Now push <b>m</b> to 2 and watch that leading entry drain away to zero.';
+      } else if (consistent) {
+        why.innerHTML = '<b style="color:var(--viz-violet)">A row of zeros with a ZERO constant: infinitely many.</b>' +
+          'At m = 2 the second equation is just twice the first - the same line drawn again - so elimination ' +
+          'leaves <code>0 = 0</code>. That is a true statement carrying no information: <b>one equation was ' +
+          'redundant</b>, the rows are linearly dependent, and the system is singular. You are a pivot short, ' +
+          'so one variable is free and every point on the line solves the system. ' +
+          '<br><br>Singular does not mean broken. It means the equations repeated themselves.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-red)">A row of zeros with a NONZERO constant: no solution.</b>' +
+          'Elimination produced <code>0 = ' + fmt(rem) + '</code>, and no assignment of x and y can make that ' +
+          'true. Same coefficients as the previous case, same rank(A) = 1, same singular matrix - but the ' +
+          'constants now contradict each other, and the two lines are parallel and never meet. ' +
+          '<br><br>This is the distinction the questions test hardest: a zero row alone means nothing until ' +
+          'you look at its constant. Zero constant, infinitely many; nonzero constant, none.';
+      }
+      why.innerHTML += '<br><br><b style="color:var(--viz-muted)">The transformation reading.</b>' +
+        (singular
+          ? 'A singular 2x2 matrix squashes the entire plane onto a single <b>line</b> through the origin: its ' +
+            'image no longer fills the plane, so some targets are unreachable. That is the same fact as ' +
+            'rank(A) = 1.'
+          : 'A non-singular 2x2 matrix maps the plane onto the whole plane, so every target b is reachable by ' +
+            'exactly one x - which is why the answer here is a single point.');
+    }
+    sm.addEventListener('input', render);
+    sc.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

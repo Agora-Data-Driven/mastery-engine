@@ -1,0 +1,584 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Move Once Or Stream</button>
+  <button class="viz-tab" data-viz-tab="2">2. Copies Not Cursors</button>
+  <button class="viz-tab" data-viz-tab="3">3. Ack And Redelivery</button>
+  <button class="viz-tab" data-viz-tab="4">4. Workers That Cannot Help</button>
+  <button class="viz-tab" data-viz-tab="5">5. Kafka Or Pub/Sub</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Move Once Or Stream</h2>
+  <p class="vz-lede"><b>Migration Services: Datastream, DMS, BigQuery Data Transfer, Transfer Appliance</b>
+    moved a finite dataset in once, and <b>The Workload-Driven Storage Decision Matrix</b> taught you to
+    choose from the shape of the work. Tap a requirement and watch which side of that line it falls on.
+    <b>Like the difference between a house move and a mail subscription: one ends, the other never does.</b></p>
+
+  <div class="v1-reqs" id="v1-reqs"></div>
+
+  <div class="vz-card">
+    <div class="v1-head" id="v1-head"></div>
+    <div class="v1-five" id="v1-five"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v1-t">The one number the managed service does not manage for you</div>
+    <label class="v1-lab" for="v1-out">Datastream was stalled for <span id="v1-outl">12</span> h</label>
+    <input type="range" id="v1-out" min="1" max="96" value="12" step="1" aria-label="Outage length in hours">
+    <label class="v1-lab" for="v1-ret">Source log retention: <span id="v1-retl">24</span> h</label>
+    <input type="range" id="v1-ret" min="2" max="168" value="24" step="2" aria-label="Source log retention in hours">
+    <div class="v1-why" id="v1-cdc"></div>
+  </div>
+
+  <p class="vz-note">A one-time move has no such clock. A continuous stream does, and it belongs to the
+    <b>source database</b>, not to Google Cloud — which is the whole reason "managed CDC" still needs an
+    operator. Everything after this visual assumes data that keeps arriving.</p>
+
+  <style>
+    .v1-reqs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v1-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-n{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-muted);width:14px}
+    .v1-head{font-size:13px;line-height:1.5;margin-bottom:10px}
+    .v1-head b{display:block;font-size:14px;margin-bottom:3px}
+    .v1-tag{display:inline-block;font-size:10px;font-weight:800;letter-spacing:.04em;border:1.5px solid;
+      border-radius:999px;padding:2px 9px;margin-top:6px;font-family:ui-monospace,Consolas,monospace}
+    .v1-five{display:flex;flex-direction:column;gap:4px}
+    .v1-q{display:flex;gap:9px;font-size:11.5px;line-height:1.45;border-top:1px dashed var(--viz-line);padding-top:6px}
+    .v1-k{flex:0 0 74px;font-weight:800;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v1-t{font-size:12.5px;font-weight:800;margin-bottom:10px}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var REQS = [
+      { t:'Move 40 TB of history into Google Cloud, once',
+        svc:'Transfer Appliance / BigQuery Data Transfer / DMS',
+        era:'ALREADY COVERED — lesson 01', old:true,
+        five:['none — the job ends','irrelevant, the set is finite','re-run the transfer','sized once, for one run','yours until cutover, then nobody' ] },
+      { t:'Keep a Cloud SQL database replicated into BigQuery',
+        svc:'Datastream — managed CDC',
+        era:'THIS LESSON', old:false,
+        five:['snapshot plus a change stream','source transaction order, per table','bounded by SOURCE log retention','managed, but the source must survive it','Google runs the connector; you run the source'] },
+      { t:'Deliver app events to analytics, alerting and archival',
+        svc:'Pub/Sub — one topic, three subscriptions',
+        era:'THIS LESSON', old:false,
+        five:['none in transit; each subscription has its own cursor','per ordering key only','inside configured retention','Google scales capacity','you own schema, idempotency and sinks'] },
+      { t:'Windowed aggregates over the stream, with late data',
+        svc:'Dataflow — a Beam streaming job',
+        era:'THIS LESSON', old:false,
+        five:['windows, timers and per-key state','watermarks decide completeness','re-read the source, or replay a dead letter','autoscales within bounds, if work can split','Google runs workers; you own the pipeline'] },
+      { t:'The org already runs partitioned logs and consumer groups',
+        svc:'Kafka — compared at awareness level in visual 5',
+        era:'THIS LESSON', old:false,
+        five:['offsets held by consumer groups','ordered within a partition','replay from any retained offset','partition count is your decision','clusters, brokers, upgrades and DR are yours'] }
+    ];
+    var KEYS = ['state', 'ordering', 'replay', 'scaling', 'ownership'];
+    var reqs = document.getElementById('v1-reqs');
+    var head = document.getElementById('v1-head'), five = document.getElementById('v1-five');
+
+    function show(i){
+      var r = REQS[i];
+      [].slice.call(reqs.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      var col = r.old ? 'var(--viz-muted)' : 'var(--viz-accent)';
+      head.innerHTML = '<b>' + r.svc + '</b>' + r.t +
+        '<span class="v1-tag" style="color:' + col + ';border-color:' + col + '">' + r.era + '</span>';
+      five.innerHTML = KEYS.map(function(k, n){
+        return '<div class="v1-q"><span class="v1-k">' + k + '</span><span>' + r.five[n] + '</span></div>';
+      }).join('');
+    }
+    REQS.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.className = 'v1-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-n">' + (i + 1) + '</span><span>' + r.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      reqs.appendChild(b);
+    });
+    show(1);
+
+    var out = document.getElementById('v1-out'), outl = document.getElementById('v1-outl');
+    var ret = document.getElementById('v1-ret'), retl = document.getElementById('v1-retl');
+    var cdc = document.getElementById('v1-cdc');
+
+    function recovery(){
+      var o = Number(out.value), r = Number(ret.value);
+      outl.textContent = o; retl.textContent = r;
+      var margin = r - o;
+      if (margin <= 0) {
+        cdc.innerHTML = '<b style="color:var(--viz-red)">RESNAPSHOT — the position you need is gone.</b>' +
+          'The stall is ' + o + ' h and the source keeps ' + r + ' h of logs, so the oldest change the stream still needs has already been discarded by the database. There is no catch-up path: the initial backfill runs again over the whole source, and the destination is stale until it finishes. ' +
+          '<br><br>Note that Datastream never reported an error for this — the stream status is the thing that looked fine while the clock ran out.';
+      } else if (margin <= 6) {
+        cdc.innerHTML = '<b style="color:var(--viz-amber)">CATCH-UP, with ' + margin + ' h of margin — thin.</b>' +
+          o + ' h of change log to replay against ' + r + ' h retained. It will recover, but the replay competes for the transactional source, and a second stall inside the catch-up window pushes you over. ' +
+          '<br><br>This is what "monitor the distance to the oldest required source position" means in practice: the number to alert on is the MARGIN, not the status.';
+      } else {
+        cdc.innerHTML = '<b style="color:var(--viz-green)">CATCH-UP — ' + margin + ' h of margin.</b>' +
+          o + ' h of change log to replay against ' + r + ' h retained. Size the destination and the network to drain it faster than it accumulates, without harming the transactional source. ' +
+          '<br><br>Retention is the dial you actually control here, and it is set on the DATABASE. Recovery-time objectives should be written against it, not against the stream.';
+      }
+    }
+    out.addEventListener('input', recovery);
+    ret.addEventListener('input', recovery);
+    recovery();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Copies Not Cursors</h2>
+  <p class="vz-lede">A topic is the publish point. A subscription is a durable, named delivery path with its
+    <em>own</em> copy and its own cursor. Move alerting between the two wirings and watch how many events it
+    actually sees. <b>Like a magazine: every household gets its own copy, but four flatmates sharing one
+    copy each read a quarter of it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Wiring">
+    <button id="v2-sep" aria-pressed="true">alerting has its own subscription</button>
+    <button id="v2-share" aria-pressed="false">alerting shares the analytics one</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-inst">Analytics runs <span id="v2-instl">4</span> instances
+      &nbsp;·&nbsp; 1,000 events published</label>
+    <input type="range" id="v2-inst" min="1" max="8" value="4" step="1" aria-label="Analytics instances">
+    <div class="v2-map" id="v2-map"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">The rule underneath: <b>subscription design mirrors consumer responsibility.</b> One
+    subscription shared among instances of the SAME logical consumer is load balancing and is correct. One
+    subscription shared between DIFFERENT applications is competition, and nothing anywhere reports it as an
+    error — you find it when an alert never fires.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-map{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+    .v2-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.35}
+    .v2-row.is-full{border-color:var(--viz-green)}
+    .v2-row.is-part{border-color:var(--viz-red)}
+    .v2-nm{flex:0 0 82px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v2-ct{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-weight:800;font-size:12px;text-align:right}
+    .v2-sub{font-size:10.5px;color:var(--viz-muted);letter-spacing:.03em;text-transform:uppercase;
+      font-weight:800;margin:6px 0 -1px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 1000;
+    var shared = false;
+    var bSep = document.getElementById('v2-sep'), bSh = document.getElementById('v2-share');
+    var inst = document.getElementById('v2-inst'), instl = document.getElementById('v2-instl');
+    var map = document.getElementById('v2-map'), why = document.getElementById('v2-why');
+
+    function row(nm, txt, count, full){
+      var mark = full ? 'ALL' : 'PARTIAL';
+      var col = full ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v2-row ' + (full ? 'is-full' : 'is-part') + '"><span class="v2-nm">' + nm + '</span>' +
+        '<span>' + txt + '</span><span class="v2-ct" style="color:' + col + '">' + count +
+        '<br><span style="font-size:9.5px;letter-spacing:.04em">' + mark + '</span></span></div>';
+    }
+
+    function render(){
+      var k = Number(inst.value);
+      instl.textContent = k;
+      bSep.setAttribute('aria-pressed', shared ? 'false' : 'true');
+      bSh.setAttribute('aria-pressed', shared ? 'true' : 'false');
+
+      var perInstance = Math.round(N / (shared ? k + 1 : k));
+      var html = '<div class="v2-sub">subscription A — analytics' + (shared ? ' + alerting' : '') + '</div>';
+      for (var i = 0; i < k; i++) {
+        html += row('analytics ' + (i + 1), 'one instance of the same logical consumer', perInstance + ' of 1,000', false);
+      }
+      if (shared) {
+        html += row('alerting', 'competing on the SAME subscription', perInstance + ' of 1,000', false);
+      } else {
+        html += '<div class="v2-sub">subscription B — alerting</div>' +
+          row('alerting', 'its own copy, its own cursor', '1,000 of 1,000', true);
+      }
+      html += '<div class="v2-sub">subscription C — archival</div>' +
+        row('archival', 'its own copy, its own cursor', '1,000 of 1,000', true);
+      map.innerHTML = html;
+
+      why.innerHTML = shared
+        ? '<b style="color:var(--viz-red)">Alerting now sees ' + perInstance + ' of 1,000 events.</b>' +
+          'The subscription load-balances across everything attached to it, and it cannot tell that one of those consumers is a different application. Alerting is not slow, not broken and not misconfigured in any way a dashboard would show — it is simply receiving its share. ' +
+          '<br><br>Roughly ' + (1000 - perInstance) + ' events that should have been evaluated for an alert were acknowledged by an analytics worker instead. That is the failure mode, and it is silent.'
+        : '<b style="color:var(--viz-green)">Each application receives all 1,000 events.</b>' +
+          'Three subscriptions, three independent copies, three cursors. Analytics still splits its copy ' + k + ' ways because those ' + k + ' instances ARE one consumer — that is exactly what sharing a subscription is for. ' +
+          '<br><br>The independence is the point: archival can be hours behind, and neither analytics nor alerting is delayed by a single message. One shared cursor would make the slowest of the three define the backlog for all of them.';
+    }
+    bSep.addEventListener('click', function(){ shared = false; render(); });
+    bSh.addEventListener('click', function(){ shared = true; render(); });
+    inst.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Ack And Redelivery</h2>
+  <p class="vz-lede">Standard delivery is at least once, so the acknowledgement is the contract. Choose where
+    you ack, turn exactly-once on or off, then break something. <b>Like signing for a parcel: sign before
+    you open the box and a missing item is your problem forever.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Acknowledgement placement">
+    <button id="v3-before" aria-pressed="false">ack BEFORE processing</button>
+    <button id="v3-after" aria-pressed="true">ack AFTER the durable write</button>
+    <button id="v3-eos" aria-pressed="false">exactly-once: off</button>
+  </div>
+
+  <div class="v3-cases" id="v3-cases"></div>
+  <div class="vz-card">
+    <div class="v3-out" id="v3-out"></div>
+  </div>
+
+  <p class="vz-note">Exactly-once delivery is a real feature with a narrow edge: for pull subscriptions in
+    its documented regional scope it gives acknowledgement success information and stops redelivery of a
+    message ID that was already acked. It is <b>not</b> a transaction across your database, and it cannot
+    see that your publisher sent the same business event twice. Idempotency is still the design.</p>
+
+  <style>
+    .v3-cases{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-c{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-b{flex:0 0 auto;font-size:14px;width:16px;text-align:center}
+    .v3-verdict{font-size:12px;font-weight:800;letter-spacing:.04em;border:1.5px solid;border-radius:999px;
+      padding:4px 11px;display:inline-block;margin-bottom:9px;font-family:ui-monospace,Consolas,monospace}
+    .v3-out{font-size:12.5px;line-height:1.6}
+    .v3-out b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ackAfter = true, eos = false, cur = 0;
+    var bB = document.getElementById('v3-before'), bA = document.getElementById('v3-after');
+    var bE = document.getElementById('v3-eos');
+    var list = document.getElementById('v3-cases'), out = document.getElementById('v3-out');
+
+    var CASES = [
+      { t:'Worker crashes mid-processing', mark:'x' },
+      { t:'Ack deadline expires while the sink is slow', mark:'~' },
+      { t:'Your publisher sends the same order event twice', mark:'2' },
+      { t:'Database write succeeds, then the ack fails', mark:'!' },
+      { t:'Poison record on an ordering key', mark:'#' }
+    ];
+
+    function verdict(label, colour){
+      return '<span class="v3-verdict" style="color:' + colour + ';border-color:' + colour + '">' + label + '</span>';
+    }
+
+    function answer(){
+      var c = cur;
+      if (c === 0) {
+        return ackAfter
+          ? verdict('SAFE — redelivered', 'var(--viz-green)') +
+            '<b>The message comes back, because it was never acknowledged.</b>' +
+            'At least once is doing exactly its job: the ack deadline passes with no ack, Pub/Sub redelivers, and a fresh worker redoes the work. Exactly-once does not change this case at all — the message was not successfully acked, so there is nothing for it to suppress.'
+          : verdict('LOST — permanently', 'var(--viz-red)') +
+            '<b>Acked, then never processed. Nothing will bring it back.</b>' +
+            'The ack told Pub/Sub the required durable effect had happened. It had not. There is no error, no dead letter and no backlog — the event simply is not in your data, and you will find out from a reconciliation, if you run one. ' +
+            'Exactly-once makes this WORSE, not better: it guarantees the message will not be redelivered.';
+      }
+      if (c === 1) {
+        return ackAfter
+          ? verdict('DUPLICATE — expected', 'var(--viz-amber)') +
+            '<b>Redelivered while the first attempt may still be running.</b>' +
+            'An expired deadline is indistinguishable from a dead subscriber, so the message is handed out again. This is the ordinary cost of at-least-once and it is why the sink must be idempotent — keyed on a stable business or message ID, so the second write lands on the first one. ' +
+            (eos ? 'Exactly-once narrows the window (a successful ack for that message ID will not be redelivered) but the deadline expired, so there was no successful ack yet.' : 'Extend the deadline or shrink the batch if this is constant, but never fix it by acking earlier.')
+          : verdict('LOST — permanently', 'var(--viz-red)') +
+            '<b>Already acked, so the deadline never mattered.</b>' +
+            'Acking first converts every slow or failed sink into silent data loss. The subscription looks perfectly healthy: no backlog, no redelivery, no dead letter.';
+      }
+      if (c === 2) {
+        return verdict('DUPLICATE — not a delivery problem', 'var(--viz-amber)') +
+          '<b>Two publishes are two distinct messages, with two message IDs.</b>' +
+          'Nothing in the transport can know they mean the same order. ' +
+          (eos ? 'Exactly-once is ON and still does not help: it prevents redelivery of a message ID that was already acknowledged, and these are different IDs. ' : 'Turning exactly-once on will not help either: it works per message ID, and these are different IDs. ') +
+          'The fix is upstream and in the sink — a stable business key, and a write that is idempotent on it. This is the single most common misreading of the feature.';
+      }
+      if (c === 3) {
+        return verdict('DUPLICATE — the atomicity gap', 'var(--viz-red)') +
+          '<b>The external write and the acknowledgement are two separate systems.</b>' +
+          'The row is committed, the ack is lost, the message is redelivered, and the write happens again. ' +
+          (eos ? 'Exactly-once is ON and does not close this gap: it is delivery behaviour inside Pub/Sub, not a transaction spanning your database. ' : 'Exactly-once would not close this gap: it is delivery behaviour inside Pub/Sub, not a transaction spanning your database. ') +
+          'Only an idempotent or transactional sink closes it — insert keyed on the message ID, or a conditional write.';
+      }
+      return verdict('BLOCKED — then dead-lettered', 'var(--viz-amber)') +
+        '<b>Ordering turns one bad message into a stalled key.</b>' +
+        'Ordering is per ordering key: different keys keep flowing, but redelivery of this one affects the messages behind it, so the key stops making progress and its backlog grows. A dead-letter topic is the release valve — after the configured attempts the message is forwarded and the key moves on. ' +
+        '<br><br>Do not treat that dead-letter topic as a perfect ordered transaction log; its forwarding and ordering interactions have documented limitations. And an ordered consumer must still tolerate repeated processing and ack promptly.';
+    }
+
+    function render(){
+      bB.setAttribute('aria-pressed', ackAfter ? 'false' : 'true');
+      bA.setAttribute('aria-pressed', ackAfter ? 'true' : 'false');
+      bE.setAttribute('aria-pressed', eos ? 'true' : 'false');
+      bE.textContent = eos ? 'exactly-once: on' : 'exactly-once: off';
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+      out.innerHTML = answer();
+    }
+    CASES.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v3-c';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-b">' + c.mark + '</span><span>' + c.t + '</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      list.appendChild(b);
+    });
+    bB.addEventListener('click', function(){ ackAfter = false; render(); });
+    bA.addEventListener('click', function(){ ackAfter = true; render(); });
+    bE.addEventListener('click', function(){ eos = !eos; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Workers That Cannot Help</h2>
+  <p class="vz-lede">10,000 events per second arrive; one Dataflow worker sustains 500. Raise the worker
+    maximum and watch how often it changes nothing at all, because something else is the binding constraint.
+    <b>Like hiring more cashiers for a shop with two doors.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-max">Max workers: <span id="v4-maxl">4</span></label>
+    <input type="range" id="v4-max" min="1" max="50" value="4" step="1" aria-label="Maximum workers">
+    <label class="v4-lab" for="v4-par">Available parallelism (source partitions / distinct keys):
+      <span id="v4-parl">4</span></label>
+    <input type="range" id="v4-par" min="1" max="50" value="4" step="1" aria-label="Available parallelism">
+
+    <div class="vz-seg" role="group" aria-label="Constraints" style="margin:12px 0 0">
+      <button id="v4-hot" aria-pressed="false">hot key: off</button>
+      <button id="v4-quota" aria-pressed="false">quota cap: off</button>
+      <button id="v4-sink" aria-pressed="false">sink limit: off</button>
+    </div>
+
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Streaming Engine moves much of the execution and state off the worker VMs into the
+    service backend, which cuts persistent disk and makes autoscaling react faster — it does <b>not</b>
+    invent parallelism that the pipeline does not have. And notice what the CPU graph would show in the
+    capped cases: workers idling politely while the backlog grows.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-pills{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-bar{margin-top:12px;height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-bar i{display:block;height:100%}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var RATE = 10000, PER_WORKER = 500, QUOTA = 12, SINK = 3000, HOT_SHARE = 0.7;
+    var hot = false, quota = false, sink = false;
+    var mx = document.getElementById('v4-max'), mxl = document.getElementById('v4-maxl');
+    var pr = document.getElementById('v4-par'), prl = document.getElementById('v4-parl');
+    var bH = document.getElementById('v4-hot'), bQ = document.getElementById('v4-quota'), bS = document.getElementById('v4-sink');
+    var pills = document.getElementById('v4-pills'), why = document.getElementById('v4-why');
+
+    function render(){
+      var maxW = Number(mx.value), par = Number(pr.value);
+      mxl.textContent = maxW; prl.textContent = par;
+      bH.setAttribute('aria-pressed', hot ? 'true' : 'false');
+      bQ.setAttribute('aria-pressed', quota ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', sink ? 'true' : 'false');
+      bH.textContent = hot ? 'hot key: ON' : 'hot key: off';
+      bQ.textContent = quota ? 'quota cap: 12' : 'quota cap: off';
+      bS.textContent = sink ? 'sink limit: 3,000/s' : 'sink limit: off';
+
+      var workers = Math.min(maxW, par);
+      var binder = maxW <= par ? 'the worker maximum' : 'available parallelism';
+      if (quota && workers > QUOTA) { workers = QUOTA; binder = 'a CPU / IP / regional quota'; }
+      var cap = workers * PER_WORKER;
+      if (hot) {
+        var hotCap = Math.round(PER_WORKER / HOT_SHARE);
+        if (hotCap < cap) { cap = hotCap; binder = 'one hot key'; }
+      }
+      if (sink && SINK < cap) { cap = SINK; binder = 'the downstream sink'; }
+
+      var clears = cap >= RATE;
+      var col = clears ? 'var(--viz-green)' : 'var(--viz-red)';
+      var pct = Math.min(100, Math.round(cap / RATE * 100));
+      pills.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + workers + ' workers actually used</span>' +
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' + cap.toLocaleString() + ' / 10,000 per sec</span>' +
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' + (clears ? 'backlog CLEARS' : 'backlog GROWS ' + (RATE - cap).toLocaleString() + '/s') + '</span>' +
+        '<div class="v4-bar" style="width:100%"><i style="width:' + pct + '%;background:' + col + '"></i></div>';
+
+      var wasted = maxW - workers;
+      why.innerHTML = '<b style="color:' + col + '">Binding constraint: ' + binder + '.</b>' +
+        (wasted > 0
+          ? 'You authorised ' + maxW + ' workers and the job can only use ' + workers + '. The other ' + wasted + ' are not slow, not starting late and not misconfigured — there is no work that can be handed to them, so autoscaling correctly declines to add them. Raising the maximum further changes nothing. '
+          : 'Every worker you authorised is in use, so the maximum is what is holding throughput here. This is the one case where raising it genuinely helps. ') +
+        (hot ? '<br><br><b style="color:var(--viz-amber)">The hot key is the hard ceiling.</b>One key carrying about 70% of the traffic is processed by a single worker, so the whole job cannot exceed roughly ' + Math.round(PER_WORKER / HOT_SHARE).toLocaleString() + ' events per second however many workers exist. The same shape appears in Pub/Sub ordering keys — one key serializes there too. ' : '') +
+        (quota ? '<br><br><b style="color:var(--viz-amber)">A high maximum is useless without headroom.</b>CPU, IP, regional or service quotas cap the allocation at ' + QUOTA + ' regardless of what the job requests. Set minima and maxima from steady-state demand, spike recovery, quotas and downstream capacity — all four. ' : '') +
+        (sink ? '<br><br><b style="color:var(--viz-amber)">Scaling into a sink that cannot take it.</b>Excessive concurrency overloads BigQuery, an API or a database even when Dataflow itself scales perfectly. Batch, cache, bound the timeouts and rate limit — and never create a client per element. ' : '') +
+        '<br><br>What to look at when this happens for real: system lag, data freshness, backlog, watermark progress and per-stage throughput. Low CPU with a growing backlog means I/O, a key, a quota or an external call — never "add workers".';
+    }
+    mx.addEventListener('input', render);
+    pr.addEventListener('input', render);
+    bH.addEventListener('click', function(){ hot = !hot; render(); });
+    bQ.addEventListener('click', function(){ quota = !quota; render(); });
+    bS.addEventListener('click', function(){ sink = !sink; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Kafka Or Pub/Sub</h2>
+  <p class="vz-lede">Both transport event streams; the abstractions and the ownership differ. Tap a dimension
+    to compare, then flip who runs the cluster and watch how few rows actually move. <b>Like owning a car
+    versus a car subscription: the driving is identical, the responsibilities are not.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Kafka operating model">
+    <button id="v5-self" aria-pressed="true">self-managed Kafka</button>
+    <button id="v5-mgd" aria-pressed="false">managed Kafka service</button>
+  </div>
+
+  <div class="v5-dims" id="v5-dims"></div>
+
+  <div class="vz-card">
+    <div class="v5-pair" id="v5-pair"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">At awareness level, neither system is universally superior. Calculate total cost of
+    ownership, operational skills, recovery objectives, latency, throughput, data locality and ecosystem
+    dependencies. <b>The correct choice is the one whose guarantees and responsibilities match the
+    product</b> — and a migration is semantic mapping, not API translation.</p>
+
+  <style>
+    .v5-dims{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-d{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v5-d[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-chg{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+      font-family:ui-monospace,Consolas,monospace;color:var(--viz-amber)}
+    .v5-pair{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:11px}
+    .v5-side{flex:1 1 148px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px;background:var(--viz-bg)}
+    .v5-side h6{margin:0 0 5px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-side p{margin:0;font-size:12px;line-height:1.5}
+    .v5-why{font-size:12.5px;line-height:1.6;padding-top:12px;border-top:1px dashed var(--viz-line)}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var self = true, cur = 0;
+    var bSelf = document.getElementById('v5-self'), bMgd = document.getElementById('v5-mgd');
+    var dims = document.getElementById('v5-dims'), pair = document.getElementById('v5-pair'), why = document.getElementById('v5-why');
+
+    var DIMS = [
+      { t:'Abstraction and ordering', moves:false,
+        k:'Partitioned logs. Partition count, key mapping and consumer groups shape scaling; records are ordered within a partition.',
+        p:'Topics and subscriptions. Ordering keys request ordered delivery for related messages, with no partitions to provision.',
+        why:['Same problem, different surface.',
+          'Kafka keys assign records to partitions, so partition count is a capacity AND parallelism decision you make up front. Pub/Sub ordering keys ask for order without you provisioning anything. What does not change: a <b>hot key limits useful parallelism in both</b>, and ordered delivery introduces availability and latency tradeoffs either way.'] },
+      { t:'Replay and history', moves:false,
+        k:'Consumers manage offsets. Replaying from an offset and retaining long histories are central patterns.',
+        p:'Replay within configured retention, per subscription and topic semantics.',
+        why:['The difference that breaks lift-and-shift.',
+          'Applications built on Kafka often assume a durable log they can rewind arbitrarily. Pub/Sub replays inside the retention you configured and pay for, and <b>a new subscription is generally not a time machine</b> for messages published before it existed. Never assume a partition and offset API exists underneath.'] },
+      { t:'Scaling and capacity', moves:false,
+        k:'You plan partitions, brokers, storage and replication. Capacity is a design you own.',
+        p:'Google scales capacity; you live within service quotas and Google Cloud integration.',
+        why:['Elasticity versus control.',
+          'Adding partitions to a live Kafka topic changes key-to-partition mapping and therefore ordering. Pub/Sub removes that decision entirely — and removes the lever with it. Neither is free: one costs planning, the other costs control.'] },
+      { t:'Transactions', moves:false,
+        k:'Transactional producer and consume-transform-produce patterns, under Kafka semantics.',
+        p:'Exactly-once is delivery behaviour for a message ID on a subscription — not a transaction across external systems.',
+        why:['The comparison people get wrong.',
+          'These are not the same guarantee with different names. Kafka transactions are scoped to Kafka; Pub/Sub exactly-once is scoped to delivery. Neither makes your database write atomic with the acknowledgement. <b>Idempotent consumers remain the portable design</b> — which is why visual 3 mattered.'] },
+      { t:'Ecosystem', moves:false,
+        k:'Stream processing, connectors, schemas and compaction through Kafka and related components.',
+        p:'Google Cloud integration: Dataflow, BigQuery, Cloud Storage and the rest of the estate.',
+        why:['Ecosystem is a real input, not a tiebreaker.',
+          'An existing organisational investment in Kafka connectors, schema registry and compaction is a genuine reason to stay, and portability across clouds is another. Equally, a shop whose sinks are all Google Cloud pays an integration tax to keep them apart.'] },
+      { t:'Operational ownership', moves:true,
+        k:'You operate clusters: partitions, brokers, upgrades, storage and disaster recovery.',
+        p:'Google runs infrastructure, autoscaling and service availability. You own schema, idempotency and sinks.',
+        why:['This is the only row the toggle moves.',
+          'A managed Kafka service changes the ownership comparison — brokers, upgrades and DR become the provider&rsquo;s problem — but the <b>programming model is unchanged</b>: partitions, offsets and consumer groups are still yours to reason about. That is exactly why "we moved to managed Kafka" is not the same decision as "we moved to Pub/Sub".'] },
+      { t:'Migration', moves:false,
+        k:'Inventory ordering, retention, replay, transactions, compaction, consumer groups, message size, connectors and monitoring.',
+        p:'Map each of those to a Pub/Sub equivalent — or to an application change where there is none.',
+        why:['Semantic mapping, not API translation.',
+          'Run parallel streams, compare counts and ordering by key, validate consumers, and preserve a rollback window. The failures here are never compile errors; they are a consumer that silently assumed replay, or ordering it no longer gets.'] }
+    ];
+
+    function render(){
+      var d = DIMS[cur];
+      bSelf.setAttribute('aria-pressed', self ? 'true' : 'false');
+      bMgd.setAttribute('aria-pressed', self ? 'false' : 'true');
+      [].slice.call(dims.children).forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+
+      var kText = d.k;
+      if (d.moves && !self) {
+        kText = 'A provider runs brokers, upgrades, storage and DR. You still plan partitions and consumer groups, and the client API is unchanged.';
+      }
+      pair.innerHTML =
+        '<div class="v5-side"><h6>' + (self ? 'Kafka — self-managed' : 'Kafka — managed service') + '</h6><p>' + kText + '</p></div>' +
+        '<div class="v5-side"><h6>Pub/Sub</h6><p>' + d.p + '</p></div>';
+      why.innerHTML = '<b>' + d.why[0] + '</b>' + d.why[1];
+    }
+
+    DIMS.forEach(function(d, i){
+      var b = document.createElement('button');
+      b.className = 'v5-d';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + d.t + '</span>' + (d.moves ? '<span class="v5-chg">TOGGLE MOVES THIS</span>' : '');
+      b.addEventListener('click', function(){ cur = i; render(); });
+      dims.appendChild(b);
+    });
+    bSelf.addEventListener('click', function(){ self = true; render(); });
+    bMgd.addEventListener('click', function(){ self = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

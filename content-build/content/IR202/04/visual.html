@@ -1,0 +1,596 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. One Index, Not Two</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Sparsity Dial</button>
+  <button class="viz-tab" data-viz-tab="3">3. Two Ways To Expand</button>
+  <button class="viz-tab" data-viz-tab="4">4. Impact-Sorted Postings</button>
+  <button class="viz-tab" data-viz-tab="5">5. Shipped Learned Sparse</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. One Index, Not Two</h2>
+  <p class="vz-lede"><b>The Atrium Pattern: BM25 + Vectors + RRF + Reranker</b> covered two failure modes
+    with two retrievers and a <b>Reciprocal Rank Fusion</b> step. Learned sparse covers both from inside a
+    single inverted index. Tap an architecture and watch the parts list — and the operational bill — change.
+    <b>Like fixing a draughty house: bolt on a second heater, or insulate the walls you already have.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Architecture">
+    <button id="v1-a" aria-pressed="false">BM25 alone</button>
+    <button id="v1-b" aria-pressed="true">Atrium Pattern</button>
+    <button id="v1-c" aria-pressed="false">Learned sparse</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-stack" id="v1-stack"></div>
+    <div class="v1-pills" id="v1-pills"></div>
+    <div class="v1-q" id="v1-q"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Nothing here says the fused stack was wrong — it is the pattern you ship. The claim is
+    narrower and it is operational: <b>a learned sparse index lives in the same engine, cluster, ACL model
+    and runbook as the BM25 system you already run</b>, so there is no second storage system to reconcile.
+    The reranker still sits behind it either way.</p>
+
+  <style>
+    .v1-stack{display:flex;flex-direction:column;gap:5px;margin-bottom:13px}
+    .v1-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 11px;background:var(--viz-bg);font-size:12px;line-height:1.35}
+    .v1-row b{font-family:ui-monospace,Consolas,monospace;font-size:10px;letter-spacing:.04em;
+      color:var(--viz-muted);flex:0 0 34px}
+    .v1-pills{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:13px}
+    .v1-pill{font-size:11px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-q{display:flex;flex-direction:column;gap:5px}
+    .v1-qr{display:flex;align-items:center;gap:8px;font-size:11.5px;border-top:1px dashed var(--viz-line);
+      padding-top:8px;line-height:1.35}
+    .v1-qt{font-family:ui-monospace,Consolas,monospace;flex:0 0 auto;font-size:11px}
+    .v1-mk{margin-left:auto;font-weight:800;font-size:10.5px;text-align:right}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ARCH = [
+      { name:'BM25 alone (IR 101)',
+        stack:[['index','inverted index — postings of (docID, tf, positions)'],
+               ['score','BM25: corpus-statistic tf and IDF']],
+        stores:1, fusion:0, hw:'CPU',
+        q:[['exact literal term', true, 'matched — terms are terms'],
+           ['heart attack symptoms', false, 'missed — no myocardial in the query']],
+        why:['One system, one failure mode.',
+          'Everything here is a corpus statistic. <code>jaguar</code> always carries the same IDF, and a document that says <code>myocardial</code> never matches a searcher who typed <code>heart attack</code>. That is the vocabulary mismatch the last two lessons spent their whole budget covering.'] },
+      { name:'The Atrium Pattern (lesson 03)',
+        stack:[['arm 1','inverted index + BM25'],
+               ['arm 2','dense vectors + approximate-nearest-neighbour graph'],
+               ['fuse','reciprocal rank fusion over the two rankings'],
+               ['rank','cross-encoder reranker over the fused shortlist']],
+        stores:2, fusion:1, hw:'CPU + vector search',
+        q:[['exact literal term', true, 'matched by the BM25 arm'],
+           ['heart attack symptoms', true, 'matched by the dense arm']],
+        why:['Both failure modes covered — by running two systems.',
+          'It works, and it is what most teams ship. The bill is structural: <b>two indexes to keep in step</b>, float vectors and a proximity graph in memory, a fusion step whose behaviour you have to reason about, and a dense arm that cannot tell you <em>which term</em> earned the score.'] },
+      { name:'Learned sparse (this lesson)',
+        stack:[['index','the SAME inverted index — postings of (docID, weight)'],
+               ['score','sparse dot product over learned impact weights'],
+               ['rank','cross-encoder reranker, unchanged']],
+        stores:1, fusion:0, hw:'CPU',
+        q:[['exact literal term', true, 'matched — terms are still terms'],
+           ['heart attack symptoms', true, 'matched by learned expansion']],
+        why:['One index, both behaviours.',
+          'The encoder writes <code>myocardial</code>, <code>cardiac</code> and <code>chest pain</code> into the document’s vector at ingest, so the paraphrase is answered by a term match like any other. Exact matching survives because the unit of storage is still a term, and per-term explainability survives with it. ' +
+          '<br><br>You pay in three places, and the rest of this page is those three: <b>inference at ingest</b>, <b>quantised weights</b>, and an index whose identity now includes a model checkpoint.'] }
+    ];
+    var BTN = [document.getElementById('v1-a'), document.getElementById('v1-b'), document.getElementById('v1-c')];
+    var stack = document.getElementById('v1-stack'), pills = document.getElementById('v1-pills');
+    var qs = document.getElementById('v1-q'), why = document.getElementById('v1-why');
+
+    function pill(txt, good){
+      var c = good ? 'var(--viz-green)' : 'var(--viz-amber)';
+      return '<span class="v1-pill" style="color:' + c + ';border-color:' + c + '">' + txt + '</span>';
+    }
+    function show(i){
+      var a = ARCH[i];
+      BTN.forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      stack.innerHTML = a.stack.map(function(r){
+        return '<div class="v1-row"><b>' + r[0] + '</b><span>' + r[1] + '</span></div>';
+      }).join('');
+      pills.innerHTML =
+        pill(a.stores + ' storage system' + (a.stores === 1 ? '' : 's'), a.stores === 1) +
+        pill(a.fusion ? 'fusion step required' : 'no fusion step', a.fusion === 0) +
+        pill('serving: ' + a.hw, a.hw === 'CPU');
+      qs.innerHTML = a.q.map(function(r){
+        var c = r[1] ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v1-qr"><span class="v1-qt">query: ' + r[0] + '</span>' +
+          '<span class="v1-mk" style="color:' + c + '">' + (r[1] ? '✓ ' : '✗ ') + r[2] + '</span></div>';
+      }).join('');
+      why.innerHTML = '<b>' + a.name + ' — ' + a.why[0] + '</b>' + a.why[1];
+    }
+    BTN.forEach(function(b, i){ b.addEventListener('click', function(){ show(i); }); });
+    show(1);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Sparsity Dial</h2>
+  <p class="vz-lede">SPLADE runs an MLM head over ~30,000 vocabulary terms at every token position, squashes
+    each with log(1 + ReLU(x)) and max-pools them into one vector. A sparsity regulariser then decides how
+    many of those 30,000 entries survive. Drag it. <b>Like a spice rack: too many jars and you can never
+    find anything; too few and every dish tastes the same.</b></p>
+
+  <div class="vz-card vz-mono" id="v2-pipe" style="margin-bottom:12px"></div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-l">FLOPS-style regulariser strength:
+      <span id="v2-ll">2.0</span></label>
+    <input type="range" id="v2-l" min="0" max="60" value="20" step="1" aria-label="Sparsity regulariser strength">
+    <div class="v2-terms" id="v2-terms"></div>
+    <div class="v2-pills" id="v2-pills"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The deep difference from BM25 is not sparsity, it is <b>contextuality</b>. BM25 fixes
+    <code>jaguar</code>'s contribution by corpus statistics; SPLADE weights it high beside <code>0-60</code>
+    and <code>horsepower</code>, differently beside <code>rainforest</code> and <code>prey</code>. The weights
+    are trained end-to-end on relevance data such as MS MARCO with mined hard negatives.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-terms{margin-top:15px;display:flex;flex-direction:column;gap:6px}
+    .v2-t{display:flex;align-items:center;gap:8px;font-size:11.5px}
+    .v2-name{flex:0 0 92px;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v2-track{flex:1;height:14px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%;border-radius:4px}
+    .v2-w{flex:0 0 66px;text-align:right;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;font-weight:800}
+    .v2-pills{margin-top:14px;display:flex;gap:7px;flex-wrap:wrap}
+    .v2-pill{font-size:11px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Encoding the query "heart attack symptoms". Three terms are in the text; the
+    // rest are what the language-model head activates on its own — that is expansion.
+    var TERMS = [
+      { t:'symptoms',   w:1.42, kind:'in the text' },
+      { t:'attack',     w:1.18, kind:'in the text' },
+      { t:'heart',      w:1.05, kind:'in the text' },
+      { t:'cardiac',    w:0.86, kind:'expansion' },
+      { t:'chest',      w:0.61, kind:'expansion' },
+      { t:'myocardial', w:0.47, kind:'expansion' },
+      { t:'assault',    w:0.21, kind:'wrong sense' }
+    ];
+    document.getElementById('v2-pipe').textContent =
+      'token positions\n' +
+      '   ↓  MLM head, one distribution over ~30,000 terms per position\n' +
+      '   ↓  squash:   log(1 + ReLU(x))      non-negative, long tail compressed\n' +
+      '   ↓  max-pool: strongest case any position made for each term\n' +
+      'sparse vector      score(q,d) = SUM over shared terms of  w_q(t) * w_d(t)';
+
+    var s = document.getElementById('v2-l'), lab = document.getElementById('v2-ll');
+    var box = document.getElementById('v2-terms'), pills = document.getElementById('v2-pills');
+    var why = document.getElementById('v2-why');
+
+    function render(){
+      var lam = Number(s.value) / 10;
+      if (!isFinite(lam)) lam = 0;
+      lab.textContent = lam.toFixed(1);
+      var thr = lam * 0.22;
+
+      var alive = 0, expAlive = 0;
+      box.innerHTML = TERMS.map(function(x){
+        var on = x.w > thr;
+        if (on) { alive += 1; if (x.kind === 'expansion' || x.kind === 'wrong sense') expAlive += 1; }
+        var col = !on ? 'var(--viz-line)'
+          : (x.kind === 'in the text' ? 'var(--viz-accent)'
+            : x.kind === 'wrong sense' ? 'var(--viz-amber)' : 'var(--viz-violet)');
+        var note = on ? x.kind : 'zeroed';
+        return '<div class="v2-t"><span class="v2-name">' + x.t + '</span>' +
+          '<span class="v2-track"><i style="width:' + Math.round(x.w / 1.5 * 100) + '%;background:' + col + '"></i></span>' +
+          '<span class="v2-w" style="color:' + (on ? col : 'var(--viz-muted)') + '">' +
+          (on ? x.w.toFixed(2) : '0.00') + '</span></div>' +
+          '<div style="font-size:10px;color:var(--viz-muted);margin:-3px 0 0 100px">' + note + '</div>';
+      }).join('');
+
+      // Illustrative active-term count for the whole 30k vocabulary, not just these 7.
+      var active = Math.max(4, Math.round(240 * Math.exp(-0.38 * lam)));
+      var idx = Math.max(1, Math.round(active / 240 * 100));
+      pills.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' +
+          active + ' active terms of 30,000</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+          active + ' posting lists to walk</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">index size index ' + idx + '</span>';
+
+      why.innerHTML = lam < 0.9
+        ? '<b style="color:var(--viz-red)">Under-regularised — postings grow and query latency dies.</b>' +
+          'With ' + active + ' active terms the model is close to dense in a sparse costume: every extra term is another posting list to walk at query time and another entry in every document’s vector. Even the <b>wrong-sense</b> activation <code>assault</code> survives here, and noise like that is what the reranker downstream has to absorb.'
+        : lam > 3.6
+          ? '<b style="color:var(--viz-red)">Over-regularised — the expansion is gone.</b>' +
+            'Only ' + alive + ' of these 7 terms survive and ' + expAlive + ' of them are expansions. Squeeze far enough and you are back to the terms that were literally in the text, which is BM25 with extra steps — and the vocabulary mismatch comes straight back with it.'
+          : '<b style="color:var(--viz-green)">A workable operating point — ' + active + ' terms.</b>' +
+            'This is the documented range: a few dozen to a couple of hundred active terms out of ~30,000, with the real expansions (<code>cardiac</code>, <code>chest</code>, <code>myocardial</code>) still carrying weight. ' +
+            '<br><br>The dial is <b>chosen at training time and paid at serving time</b>. Distillation variants push quality further at the same sparsity, which is the only way to move both numbers at once.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Two Ways To Expand</h2>
+  <p class="vz-lede">Both fix vocabulary mismatch; they disagree about <em>where</em>. doc2query rewrites the
+    documents and leaves scoring alone; SPLADE rewrites the weights and leaves the text alone. Pick a side,
+    then drag doc2query's one dial. <b>Like a shop that either reprints every label in customer words, or
+    trains the staff to understand what customers say.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Expansion strategy">
+    <button id="v3-d" aria-pressed="true">doc2query</button>
+    <button id="v3-s" aria-pressed="false">SPLADE</button>
+  </div>
+
+  <div class="v3-tbl" id="v3-tbl"></div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-n">doc2query's dial — predicted queries appended per document:
+      <span id="v3-nl">10</span></label>
+    <input type="range" id="v3-n" min="0" max="40" value="10" step="1" aria-label="Predicted queries appended per document">
+    <div class="v3-pills" id="v3-pills"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">A team with a stable corpus and a working BM25 cluster usually tries <b>doc2query</b>
+    first, because nothing about scoring or the index format changes. A team willing to run inference at
+    ingest graduates to <b>impact-weighted</b> models, because contextual continuous weights beat importance
+    signalled by repetition — and because only SPLADE expands the query as well as the document.</p>
+
+  <style>
+    .v3-tbl{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+    .v3-r{display:flex;gap:8px;font-size:11.5px;line-height:1.35;border:1.5px solid var(--viz-line);
+      border-radius:9px;padding:8px 10px;background:var(--viz-bg);align-items:flex-start}
+    .v3-k{flex:0 0 84px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      padding-top:1px}
+    .v3-v{flex:1}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-bar{margin-top:12px;height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-bar i{display:block;height:100%;background:var(--viz-amber)}
+    .v3-pills{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      ['expands',   'the DOCUMENT text, at index time',        'BOTH texts, at encode time — documents at ingest, queries at search'],
+      ['mechanism', 'a seq2seq model (classically T5) generates queries the document could answer; they are appended to it',
+                    'an MLM head activates related vocabulary and assigns each term a weight'],
+      ['scoring',   'plain BM25, unchanged — tf and IDF over the augmented text',
+                    'sparse dot product over learned impact weights'],
+      ['query side','NOT expanded',                            'expanded, by the same encoder'],
+      ['stack',     'zero change to the serving stack',        'postings carry weights; inference runs at ingest']
+    ];
+    var CORPUS = 1000000;
+    var d2q = true;
+    var bD = document.getElementById('v3-d'), bS = document.getElementById('v3-s');
+    var tbl = document.getElementById('v3-tbl'), s = document.getElementById('v3-n');
+    var nl = document.getElementById('v3-nl'), pills = document.getElementById('v3-pills');
+    var why = document.getElementById('v3-why');
+
+    function render(){
+      bD.setAttribute('aria-pressed', d2q ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', d2q ? 'false' : 'true');
+      var col = d2q ? 'var(--viz-amber)' : 'var(--viz-violet)';
+      tbl.innerHTML = ROWS.map(function(r){
+        return '<div class="v3-r" style="border-color:' + col + '">' +
+          '<span class="v3-k">' + r[0] + '</span>' +
+          '<span class="v3-v"><b style="color:' + col + '">' + (d2q ? 'doc2query' : 'SPLADE') + ':</b> ' +
+          (d2q ? r[1] : r[2]) + '</span></div>';
+      }).join('');
+
+      var n = Number(s.value);
+      if (!isFinite(n) || n < 0) n = 0;
+      nl.textContent = n;
+      var inf = n * CORPUS;
+      var pct = Math.round(n / 40 * 100);
+      pills.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">' +
+          inf.toLocaleString() + ' offline inferences</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">corpus 1,000,000 docs</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">appended text ' + pct + '% of the dial</span>' +
+        '<div class="v3-bar" style="width:100%"><i style="width:' + Math.max(1, pct) + '%"></i></div>';
+
+      why.innerHTML = d2q
+        ? '<b style="color:var(--viz-amber)">doc2query: two channels, one of them accidental.</b>' +
+          '<em>Expansion</em> — the generated queries are written in the vocabulary of real searchers, so the document now literally contains the terms users type. <em>Reweighting</em> — the generator repeats the document’s salient concepts across its predictions, inflating those terms’ frequencies, which BM25 correctly reads as importance. On MS MARCO that historically bought BM25 double-digit percentage gains in ranking metrics for <b>zero change to the serving stack</b>. ' +
+          '<br><br>The bill is the pill above: at ' + n + ' queries per document over a million documents that is <b>' + inf.toLocaleString() + ' model inferences</b>, an offline batch job that reruns whenever documents change. The index grows substantially — often by a third or more at the top of this dial — hallucinated predictions pollute it with off-topic terms, and the expansions <b>freeze at generation time</b>: a better generator next year helps only after a full re-expansion pass.' +
+          (n === 0 ? '<br><br><b style="color:var(--viz-red)">At 0 appended queries this is just BM25.</b>' : '')
+        : '<b style="color:var(--viz-violet)">SPLADE: the weights carry the meaning, not the text.</b>' +
+          'Nothing is appended to the document. The encoder emits a weight per vocabulary term, so importance is <b>contextual and continuous</b> rather than implicit in how often the generator happened to repeat a word. That precision is the reason to prefer it — and the query being expanded by the same encoder is the reason it closes mismatches doc2query cannot. ' +
+          '<br><br>Note what does <em>not</em> change: the index is still an inverted index and the score is still a sum over shared terms. The dial on the left belongs to doc2query; SPLADE’s equivalent dial is the sparsity regulariser in visual 2.';
+    }
+    bD.addEventListener('click', function(){ d2q = true; render(); });
+    bS.addEventListener('click', function(){ d2q = false; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Impact-Sorted Postings</h2>
+  <p class="vz-lede">Classical postings are docID-sorted, which is what enables merge intersection.
+    Impact-sorted postings are ordered by descending weight, which is what enables early termination. Flip
+    the order, set k, and count the postings actually examined. <b>Like a pile of job applications: sorted
+    by surname you read them all; sorted by score you stop after the shortlist.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Posting order">
+    <button id="v4-doc" aria-pressed="false">docID-sorted (tf)</button>
+    <button id="v4-imp" aria-pressed="true">impact-sorted (weight)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-k">top-k wanted: <span id="v4-kl">3</span>
+      &nbsp;·&nbsp; one term's posting list, 12 documents</label>
+    <input type="range" id="v4-k" min="1" max="8" value="3" step="1" aria-label="How many top results are wanted">
+    <div class="vz-seg" role="group" aria-label="Quantisation" style="margin:13px 0 10px">
+      <button id="v4-q8" aria-pressed="true">8-bit · 256 levels · 1 byte</button>
+      <button id="v4-q16" aria-pressed="false">16-bit · 65,536 levels · 2 bytes</button>
+    </div>
+    <div class="v4-list" id="v4-list"></div>
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Two operational consequences. Learned weights <b>free the index from corpus
+    statistics</b> — BM25's IDF shifts as the corpus grows, altering scores under your feet, while an
+    impact weight depends only on the document and the checkpoint, so incremental updates stay local. But
+    the coupling moves to the <b>model version</b>: upgrading the encoder invalidates every stored weight,
+    so a model change means a full re-encode and index rebuild.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-list{display:flex;flex-direction:column;gap:3px}
+    .v4-p{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:8px;
+      padding:6px 9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v4-p.is-seen{border-color:var(--viz-accent)}
+    .v4-p.is-cut{opacity:.4;border-style:dashed}
+    .v4-bar{flex:1;height:10px;border-radius:3px;background:var(--viz-line);overflow:hidden}
+    .v4-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v4-tag{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;font-family:inherit;
+      width:96px;text-align:right}
+    .v4-pills{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // One term's posting list. Real-valued impact weights straight from the encoder;
+    // the index will store each one quantised to a byte or two.
+    var POSTINGS = [
+      { d:104, w:0.11 }, { d:118, w:0.94 }, { d:127, w:0.38 }, { d:141, w:0.72 },
+      { d:150, w:0.05 }, { d:163, w:0.61 }, { d:170, w:0.87 }, { d:188, w:0.23 },
+      { d:191, w:0.49 }, { d:205, w:0.79 }, { d:213, w:0.17 }, { d:229, w:0.55 }
+    ];
+    var N = POSTINGS.length;
+    var impact = true, bits = 8;
+    var bD = document.getElementById('v4-doc'), bI = document.getElementById('v4-imp');
+    var b8 = document.getElementById('v4-q8'), b16 = document.getElementById('v4-q16');
+    var s = document.getElementById('v4-k'), kl = document.getElementById('v4-kl');
+    var list = document.getElementById('v4-list'), pills = document.getElementById('v4-pills');
+    var why = document.getElementById('v4-why');
+
+    function quant(w){
+      var levels = Math.pow(2, bits) - 1;
+      return Math.round(w * levels) / levels;
+    }
+    function render(){
+      bD.setAttribute('aria-pressed', impact ? 'false' : 'true');
+      bI.setAttribute('aria-pressed', impact ? 'true' : 'false');
+      b8.setAttribute('aria-pressed', bits === 8 ? 'true' : 'false');
+      b16.setAttribute('aria-pressed', bits === 16 ? 'true' : 'false');
+
+      var k = Math.min(N, Math.max(1, Number(s.value) || 1));
+      kl.textContent = k;
+
+      var byWeight = POSTINGS.slice().sort(function(a, b){ return b.w - a.w; });
+      var top = {};
+      byWeight.slice(0, k).forEach(function(p){ top[p.d] = true; });
+
+      var order = impact ? byWeight : POSTINGS.slice().sort(function(a, b){ return a.d - b.d; });
+      var examined = impact ? k : N;
+
+      list.innerHTML = order.map(function(p, i){
+        var seen = i < examined;
+        var cls = seen ? 'is-seen' : 'is-cut';
+        var tag = seen ? (top[p.d] ? 'examined · in top-k' : 'examined') : 'never touched';
+        var col = seen ? (top[p.d] ? 'var(--viz-green)' : 'var(--viz-accent)') : 'var(--viz-muted)';
+        return '<div class="v4-p ' + cls + '"><span style="width:44px">doc ' + p.d + '</span>' +
+          '<span class="v4-bar"><i style="width:' + Math.round(quant(p.w) * 100) + '%"></i></span>' +
+          '<span style="width:52px;text-align:right">' + quant(p.w).toFixed(bits === 8 ? 3 : 5) + '</span>' +
+          '<span class="v4-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var saved = Math.round((1 - examined / N) * 100);
+      var bytes = N * (bits / 8);
+      pills.innerHTML =
+        '<span class="v4-pill" style="color:' + (impact ? 'var(--viz-green)' : 'var(--viz-red)') +
+          ';border-color:' + (impact ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          examined + ' of ' + N + ' postings examined</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + saved + '% skipped</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+          bytes + ' bytes of weights (' + (bits / 8) + '/posting)</span>';
+
+      why.innerHTML = impact
+        ? '<b style="color:var(--viz-green)">Descending weight — stop as soon as top-' + k + ' is settled.</b>' +
+          'Every posting after position ' + k + ' has a weight no larger than the ones already taken, so it <b>provably cannot</b> enter the top-' + k + '. The result is identical to exhaustive scoring; only the comparisons are gone. ' +
+          '<br><br>This is WAND and MaxScore territory from IR 103: dynamic pruning needs a per-list upper bound. Impact sorting means the maximum weight of each remaining block is known a priori, so the bound is tight — and because the stored weights are <b>quantised to a fixed grid</b>, the bound is <em>exact</em> rather than estimated. ' +
+          '<br><br>What you gave up is on the other button: descending order is not docID order, so the merge intersection classical postings enabled is gone.'
+        : '<b style="color:var(--viz-red)">docID order — all ' + N + ' postings, every query.</b>' +
+          'Nothing in ascending docID order tells you whether a big weight is still coming, so the list must be walked to the end before top-' + k + ' can be declared. This ordering earns its keep elsewhere: it is what lets several lists be intersected by a merge. ' +
+          '<br><br>Note what did <em>not</em> change when you flipped the button. Same dictionary, same skip structures, same blocked compression, same segment merges, same memory mapping. Learned sparse swapped (docID, tf, positions) for (docID, weight) and re-sorted; it did not replace the infrastructure.' +
+        '<br><br><span style="color:var(--viz-muted)">Quantisation: ' + (bits === 8 ? '8 bits maps the weight range onto 256 levels at one byte per posting — the accuracy cost is typically small, and small weights are often thresholded to zero outright, enforcing sparsity at index time.' : '16 bits gives 65,536 levels at two bytes per posting — finer weights, twice the index, and a less cache-friendly walk.') + '</span>';
+    }
+    bD.addEventListener('click', function(){ impact = false; render(); });
+    bI.addEventListener('click', function(){ impact = true; render(); });
+    b8.addEventListener('click', function(){ bits = 8; render(); });
+    b16.addEventListener('click', function(){ bits = 16; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Shipped Learned Sparse</h2>
+  <p class="vz-lede">This is not a paper idea. Pick a shipped configuration to see where the heavy model
+    runs, then tap a constraint to see which family it argues for. <b>Like choosing a boiler: the spec sheet
+    matters less than whether it fits the pipework you already have.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Shipped configuration">
+    <button id="v5-elser" aria-pressed="true">ELSER</button>
+    <button id="v5-doconly" aria-pressed="false">Neural sparse: doc-only</button>
+    <button id="v5-bienc" aria-pressed="false">Neural sparse: bi-encoder</button>
+  </div>
+
+  <div class="v5-tbl" id="v5-tbl"></div>
+
+  <div class="vz-card">
+    <div class="v5-chips" id="v5-chips"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The summary judgment: <b>learned sparse is the inverted index taught to read.</b> You
+    keep every mechanism from IR 101, buy a large fraction of IR 201's semantics, and pay with ingest-time
+    inference, quantised weights, and model-versioned indexes that demand a full rebuild when the encoder
+    changes.</p>
+
+  <style>
+    .v5-tbl{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+    .v5-r{display:flex;gap:8px;font-size:11.5px;line-height:1.35;border:1.5px solid var(--viz-line);
+      border-radius:9px;padding:8px 10px;background:var(--viz-bg);align-items:flex-start}
+    .v5-k{flex:0 0 76px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);
+      padding-top:1px}
+    .v5-chips{display:flex;flex-direction:column;gap:6px}
+    .v5-c{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v5-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-dot{flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.03em;width:52px}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CONF = [
+      { n:'Elastic ELSER',
+        rows:[['doc side','the Elastic Learned Sparse EncodeR runs at ingest, via a managed inference endpoint'],
+              ['query side','a lighter encoding path'],
+              ['field','weighted tokens in a rank_features-style field'],
+              ['scoring','sparse dot product, run by the same engine that runs BM25'],
+              ['catch','tied to Elastic’s commercial tiers — a real procurement consideration']],
+        why:'Later versions improved effectiveness and trimmed inference cost. The important structural point is the third row: the weighted tokens are an ordinary field in an ordinary index, so ACLs, snapshots and the runbook are the ones the team already has.' },
+      { n:'OpenSearch neural sparse — document-only encoding',
+        rows:[['doc side','a full sparse encoding model at ingest (Hugging Face, including published SPLADE checkpoints)'],
+              ['query side','a lightweight or lexical path — no heavy model online'],
+              ['field','rank_features, written through the ML Commons framework'],
+              ['scoring','sparse dot product, combinable with BM25 in a hybrid query'],
+              ['catch','query-side quality is traded away for latency']],
+        why:'This is the mode most teams reach for: all the inference cost is pushed offline, so the online path is BM25-shaped. You give up the query-side expansion that makes SPLADE precise, which is exactly the trade the dial in visual 2 is about.' },
+      { n:'OpenSearch neural sparse — bi-encoder mode',
+        rows:[['doc side','full sparse encoder at ingest'],
+              ['query side','full sparse encoder online too'],
+              ['field','rank_features, written through the ML Commons framework'],
+              ['scoring','sparse dot product on both learned vectors'],
+              ['catch','maximum quality, and the query now pays for a model call']],
+        why:'Both sides encoded, which is the configuration that matches the SPLADE mechanism as taught. It is the quality ceiling of the three, and the one whose query latency you have to budget for — the sparsity budget lands here twice.' }
+    ];
+    var CHIPS = [
+      { t:'traffic mixes exact-match and paraphrase queries', sparse:true,
+        r:'The whole point of the design. Terms stay terms, so literals match; learned expansion covers the paraphrase. No fusion step needed to get both.' },
+      { t:'the team already runs Lucene-family infrastructure', sparse:true,
+        r:'Same engine, same cluster, same ACL model, same runbook. There is no second storage system to reconcile — which is an operational argument, not a relevance one, and it usually decides.' },
+      { t:'CPU-only serving budget', sparse:true,
+        r:'The workload is BM25 with extra terms. A few hundred quantised weights per document, no float vectors and no proximity graph to hold in memory, and early termination claws back the extra lists.' },
+      { t:'per-term explainability matters for debugging and trust', sparse:true,
+        r:'Every contribution to the score is a named term with a weight. A dense arm can tell you a document scored 0.83 and nothing about why.' },
+      { t:'multilingual or multimodal corpus', sparse:false,
+        r:'Dense retrieval’s home ground. A vocabulary of terms is the wrong representation when the shared space has to span languages or media.' },
+      { t:'very short documents', sparse:false,
+        r:'Term sparsity gives little grip — there are barely any terms to weight. Dense vectors degrade far more gracefully here.' },
+      { t:'a managed vector database is already the operational home', sparse:false,
+        r:'The same argument as row two, pointed the other way. Whatever you already run well is worth a lot, and the migration is the cost you are actually comparing.' }
+    ];
+    var ci = 0, chip = -1;
+    var BTN = [document.getElementById('v5-elser'), document.getElementById('v5-doconly'), document.getElementById('v5-bienc')];
+    var tbl = document.getElementById('v5-tbl'), chips = document.getElementById('v5-chips');
+    var why = document.getElementById('v5-why');
+
+    function render(){
+      BTN.forEach(function(b, j){ b.setAttribute('aria-pressed', ci === j ? 'true' : 'false'); });
+      var c = CONF[ci];
+      tbl.innerHTML = c.rows.map(function(r){
+        return '<div class="v5-r"><span class="v5-k">' + r[0] + '</span><span>' + r[1] + '</span></div>';
+      }).join('');
+      [].slice.call(chips.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', chip === j ? 'true' : 'false');
+      });
+      var head = '<b>' + c.n + '</b>' + c.why;
+      if (chip >= 0) {
+        var k = CHIPS[chip];
+        var col = k.sparse ? 'var(--viz-green)' : 'var(--viz-violet)';
+        head += '<br><br><b style="color:' + col + '">' +
+          (k.sparse ? '→ choose LEARNED SPARSE' : '→ choose DENSE') + '</b>' + k.r;
+      } else {
+        head += '<br><br><span style="color:var(--viz-muted)">Tap a constraint below to see which family it argues for.</span>';
+      }
+      why.innerHTML = head;
+    }
+    CHIPS.forEach(function(k, i){
+      var b = document.createElement('button');
+      b.className = 'v5-c';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-dot" style="color:' + (k.sparse ? 'var(--viz-green)' : 'var(--viz-violet)') + '">' +
+        (k.sparse ? 'SPARSE' : 'DENSE') + '</span><span>' + k.t + '</span>';
+      b.addEventListener('click', function(){ chip = (chip === i ? -1 : i); render(); });
+      chips.appendChild(b);
+    });
+    BTN.forEach(function(b, i){ b.addEventListener('click', function(){ ci = i; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

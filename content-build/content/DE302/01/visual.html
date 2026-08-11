@@ -1,0 +1,696 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Five Workload Axes</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Relational Ladder</button>
+  <button class="viz-tab" data-viz-tab="3">3. Three NoSQL Centers</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Temperature Ladder</button>
+  <button class="viz-tab" data-viz-tab="5">5. Choosing The Mover</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Five Workload Axes</h2>
+  <p class="vz-lede"><b>OLTP vs OLAP Workloads</b> gave you one axis, and <b>Feature Stores: Offline
+    Training vs Online Serving</b> taught you to pick a store from its access pattern rather than from
+    the genre of the data. This lesson adds four more axes and ends on a <em>named GCP service</em>.
+    Set the five dials and watch the matrix resolve. <b>Like an optician's phoropter: five dials, and
+    only the whole combination gives you the right lens.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already yours</h5><p>OLTP or OLAP · offline vs online serving · "do I even
+      need a specialised store?"</p></div>
+    <div class="v1-arrow">→</div>
+    <div class="v1-half v1-new"><h5>this lesson</h5><p>structure · access · scale · latency ·
+      consistency &amp; distribution → one product's design center</p></div>
+  </div>
+
+  <div class="v1-axes" id="v1-axes"></div>
+
+  <div class="vz-seg" role="group" aria-label="Extra requirement and preset">
+    <button id="v1-an" aria-pressed="false">analysts also run daily aggregates</button>
+    <button id="v1-preset" aria-pressed="false">preset: IoT fleet, 500,000 readings/sec</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-out" id="v1-out"></div>
+  </div>
+  <p class="vz-note">The judgment layer: default to the <b>cheapest service whose design center you are
+    inside</b>, and escalate only on a demonstrated axis violation. Violating the matrix does not fail
+    loudly — it degrades. Analytics on Cloud SQL starves OLTP traffic; point lookups on BigQuery cost a
+    full column scan and hundreds of milliseconds; blobs in a relational database bloat backups and
+    replication. Nothing throws an error.</p>
+
+  <style>
+    .v1-bridge{display:flex;align-items:stretch;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+    .v1-half{flex:1 1 130px;border:1.5px dashed var(--viz-line);border-radius:11px;padding:9px 10px;background:var(--viz-bg)}
+    .v1-half.v1-new{border-style:solid;border-color:var(--viz-accent)}
+    .v1-half h5{margin:0 0 5px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half p{margin:0;font-size:11.5px;line-height:1.5}
+    .v1-arrow{align-self:center;font-weight:800;color:var(--viz-accent);font-size:15px}
+    .v1-axes{display:flex;flex-direction:column;gap:9px;margin-bottom:13px}
+    .v1-row h6{margin:0 0 5px;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-opts{display:flex;gap:5px;flex-wrap:wrap}
+    .v1-o{min-height:44px;flex:1 1 96px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-size:11.5px;font-weight:700;padding:5px 7px;line-height:1.3}
+    .v1-o[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-ink);background:var(--viz-bg)}
+    .v1-pick{font-size:19px;font-weight:800;color:var(--viz-green);margin-bottom:3px}
+    .v1-sub{font-size:12.5px;line-height:1.6}
+    .v1-plus{margin-top:11px;padding-top:10px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-plus b{color:var(--viz-violet)}
+    .v1-warn{margin-top:11px;padding-top:10px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-warn b{color:var(--viz-amber)}
+  </style>
+  <script>
+  (function(){
+    var AXES = [
+      { k:'structure', label:'1 · Structure', opts:[
+        { v:'rel',  t:'relational rows' },
+        { v:'doc',  t:'documents' },
+        { v:'wide', t:'wide sparse tables' },
+        { v:'kv',   t:'ephemeral key-value' },
+        { v:'blob', t:'unstructured blobs' } ] },
+      { k:'access', label:'2 · Access pattern', opts:[
+        { v:'oltp', t:'OLTP by key' },
+        { v:'htap', t:'OLTP + live analytics' },
+        { v:'olap', t:'OLAP scans' },
+        { v:'obj',  t:'write once, read whole' } ] },
+      { k:'scale', label:'3 · Scale and growth', opts:[
+        { v:'region', t:'fits one machine / region' },
+        { v:'huge',   t:'petabytes, shards horizontally' } ] },
+      { k:'lat', label:'4 · Latency', opts:[
+        { v:'sub',  t:'sub-millisecond' },
+        { v:'ms',   t:'single-digit ms' },
+        { v:'slow', t:'seconds to minutes' } ] },
+      { k:'dist', label:'5 · Consistency and distribution', opts:[
+        { v:'one',   t:'one region is fine' },
+        { v:'multi', t:'strong writes across continents' } ] }
+    ];
+    var SERVICE = {
+      gcs:    { n:'Cloud Storage (GCS)', d:'Immutable objects in a flat namespace, 11 nines of durability at every class. The design center for anything the schema cannot describe: raw documents awaiting embedding, model checkpoints, load and export files.' },
+      bq:     { n:'BigQuery',            d:'OLAP over structured data — few large scans and aggregations across billions of rows. The whole of the next lesson.' },
+      spanner:{ n:'Spanner',             d:'Relational and globally distributed: automatic splits, Paxos replication per shard, and TrueTime timestamps that hold external consistency across continents. Writes scale horizontally by adding nodes; multi-region reaches 99.999% availability because failover is the steady state of consensus.' },
+      alloy:  { n:'AlloyDB',             d:'Re-architected, wire-compatible PostgreSQL: a disaggregated storage layer plus an in-memory columnar engine that vectorizes analytical scans over hot data. The HTAP answer — but still one regional writer, scaling vertically.' },
+      sql:    { n:'Cloud SQL',           d:'Managed MySQL / PostgreSQL / SQL Server on a single primary, with read replicas and an HA standby in a second zone promoted automatically. Writes scale only vertically. The default for "existing application, relational schema, regional scale".' },
+      fs:     { n:'Firestore',           d:'Serverless document database. Every query is served by an index, reads are strongly consistent, and the client SDKs subscribe to queries for real-time sync with offline persistence.' },
+      bt:     { n:'Bigtable',            d:'Wide-column store, rows sorted lexicographically by row key — the row key IS the query. Throughput scales linearly with nodes and latency stays single-digit ms at petabyte scale.' },
+      mem:    { n:'Memorystore',         d:'Managed in-memory Redis / Valkey / Memcached: microsecond-to-sub-millisecond reads from RAM, with durability only via optional snapshots or AOF.' }
+    };
+    var state = { structure:'rel', access:'oltp', scale:'region', lat:'ms', dist:'one' };
+    var analysts = false;
+
+    var box = document.getElementById('v1-axes');
+    var out = document.getElementById('v1-out');
+    var anB = document.getElementById('v1-an');
+    var preB = document.getElementById('v1-preset');
+    var buttons = [];
+
+    AXES.forEach(function(ax){
+      var row = document.createElement('div');
+      row.className = 'v1-row';
+      var h = document.createElement('h6');
+      h.textContent = ax.label;
+      var opts = document.createElement('div');
+      opts.className = 'v1-opts';
+      ax.opts.forEach(function(o){
+        var b = document.createElement('button');
+        b.className = 'v1-o';
+        b.textContent = o.t;
+        b.setAttribute('aria-pressed', 'false');
+        b.addEventListener('click', function(){ state[ax.k] = o.v; render(); });
+        buttons.push({ ax:ax.k, v:o.v, el:b });
+        opts.appendChild(b);
+      });
+      row.appendChild(h); row.appendChild(opts); box.appendChild(row);
+    });
+
+    function decide(){
+      if (state.structure === 'blob' || state.access === 'obj') return SERVICE.gcs;
+      if (state.access === 'olap') return SERVICE.bq;
+      if (state.structure === 'rel') {
+        if (state.dist === 'multi' || state.scale === 'huge') return SERVICE.spanner;
+        if (state.access === 'htap') return SERVICE.alloy;
+        return SERVICE.sql;
+      }
+      if (state.structure === 'doc') return SERVICE.fs;
+      if (state.structure === 'wide') return SERVICE.bt;
+      return SERVICE.mem;
+    }
+
+    function render(){
+      buttons.forEach(function(b){
+        b.el.setAttribute('aria-pressed', state[b.ax] === b.v ? 'true' : 'false');
+      });
+      anB.setAttribute('aria-pressed', analysts ? 'true' : 'false');
+
+      var p = decide();
+      var plus = [], warn = [];
+
+      if (analysts && p !== SERVICE.bq) {
+        plus.push('<b>+ BigQuery</b>, fed by an export or a Datastream-style change feed. ' + p.n +
+          ' serves the request path; the analysts scan a copy. <b>Neither service alone satisfies both halves</b> — the matrix frequently outputs two services connected by a pipeline, and the exam rewards noticing it.');
+      }
+      if (state.lat === 'sub' && p !== SERVICE.mem) {
+        plus.push('<b>+ Memorystore</b> in front. Sub-millisecond is a RAM number, so it is a cache tier over ' +
+          p.n + ' — sessions, leaderboards, rate counters, hot keys. Nothing you cannot afford to lose lives there.');
+      }
+      if (p === SERVICE.spanner) {
+        warn.push('<b>Watch the key.</b> A sequentially increasing primary key — a timestamp, an auto-increment id — funnels every insert into the last split and hotspots one server. Hash it, reverse it, or use UUIDs. Watch the floor too: Spanner will hold a 10 GB regional database and charge a multi-node minimum for distribution you do not need.');
+      }
+      if (p === SERVICE.bt) {
+        warn.push('<b>Watch the key.</b> No secondary indexes and no joins: scans are efficient only over contiguous key ranges. <code>device#1234#2026-07-25T10:00</code> clusters one device for range scans; a timestamp-prefixed key hotspots the tablet holding "now" — exactly Spanner’s sequential-key problem.');
+      }
+      if (p === SERVICE.fs && analysts) {
+        warn.push('<b>Firestore bills per document operation.</b> A query returning 10,000 documents bills 10,000 reads, and arbitrary aggregations are not index-expressible at all. That is precisely why the second service above is not optional here.');
+      }
+      if (p === SERVICE.sql && analysts) {
+        warn.push('<b>Do not point the analysts at the primary.</b> Analytics on Cloud SQL saturates the single writer and starves OLTP traffic. Split the workload; do not buy a bigger machine.');
+      }
+      if (p === SERVICE.bq && state.lat !== 'slow') {
+        warn.push('<b>Axis mismatch.</b> You asked for OLAP scans at serving latency. A point lookup on BigQuery costs a full column scan and hundreds of milliseconds — this is the classic straddle, and the answer is a serving store beside the warehouse, not a faster warehouse.');
+      }
+
+      out.innerHTML =
+        '<div class="v1-pick">' + p.n + '</div>' +
+        '<div class="v1-sub">' + p.d + '</div>' +
+        (plus.length ? '<div class="v1-plus">' + plus.join('<br><br>') + '</div>' : '') +
+        (warn.length ? '<div class="v1-warn">' + warn.join('<br><br>') + '</div>' : '');
+    }
+
+    anB.addEventListener('click', function(){ analysts = !analysts; render(); });
+    preB.addEventListener('click', function(){
+      state = { structure:'wide', access:'oltp', scale:'huge', lat:'ms', dist:'one' };
+      analysts = true;
+      render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Relational Ladder</h2>
+  <p class="vz-lede">All three speak SQL with ACID transactions. They differ in how far writes scale and
+    how availability is achieved — so each requirement you switch on knocks a rung out. Toggle the
+    requirements, or load a scenario. <b>Like choosing a vehicle: a van, a van with a bigger engine, or a
+    freight network — you only pay for the network when the load will not fit in one van.</b></p>
+
+  <div class="v2-reqs" id="v2-reqs"></div>
+
+  <div class="vz-seg" role="group" aria-label="Scenario presets">
+    <button id="v2-p1" aria-pressed="false">payments ledger · EU + US · zero data loss</button>
+    <button id="v2-p2" aria-pressed="false">50 GB inventory · one warehouse in Belgium</button>
+  </div>
+
+  <div class="v2-rows" id="v2-rows"></div>
+  <div class="vz-card"><div class="v2-why" id="v2-why"></div></div>
+  <p class="vz-note">The exam's tell for Spanner is the <b>co-occurrence</b> of relational + global +
+    strong consistency. Any two of those alone are usually cheaper elsewhere, and the price floor is far
+    above Cloud SQL. Read the escalation clause literally: "zero data loss through a <em>regional</em>
+    outage" rules out Cloud SQL HA, which is failover to a standby in a second <em>zone</em>.</p>
+
+  <style>
+    .v2-reqs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v2-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-tick{flex:0 0 auto;width:20px;font-weight:800;color:var(--viz-muted)}
+    .v2-r[aria-pressed="true"] .v2-tick{color:var(--viz-accent)}
+    .v2-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v2-s{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v2-s.is-out{opacity:.5;border-style:dashed}
+    .v2-s.is-in{border-color:var(--viz-green)}
+    .v2-head{display:flex;align-items:center;gap:9px;font-size:13px;font-weight:800}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.04em}
+    .v2-rsn{font-size:11.5px;line-height:1.5;color:var(--viz-muted);margin-top:4px}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var REQS = [
+      { k:'r1', t:'writes must scale beyond one machine' },
+      { k:'r2', t:'strongly consistent writes across continents, surviving a regional outage' },
+      { k:'r3', t:'PostgreSQL, and analytical reads on live operational data' }
+    ];
+    var on = { r1:false, r2:false, r3:false };
+    var reqBox = document.getElementById('v2-reqs');
+    var rows = document.getElementById('v2-rows');
+    var why = document.getElementById('v2-why');
+    var p1 = document.getElementById('v2-p1'), p2 = document.getElementById('v2-p2');
+    var reqEls = [];
+
+    REQS.forEach(function(r){
+      var b = document.createElement('button');
+      b.className = 'v2-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v2-tick">[ ]</span><span>' + r.t + '</span>';
+      b.addEventListener('click', function(){ on[r.k] = !on[r.k]; render(); });
+      reqEls.push({ k:r.k, el:b });
+      reqBox.appendChild(b);
+    });
+
+    function render(){
+      reqEls.forEach(function(x){
+        x.el.setAttribute('aria-pressed', on[x.k] ? 'true' : 'false');
+        x.el.firstChild.textContent = on[x.k] ? '[x]' : '[ ]';
+      });
+      p1.setAttribute('aria-pressed', (!on.r1 && on.r2 && !on.r3) ? 'true' : 'false');
+      p2.setAttribute('aria-pressed', (!on.r1 && !on.r2 && !on.r3) ? 'true' : 'false');
+
+      var out = [];
+      out.push({
+        n:'Cloud SQL',
+        ok: !on.r1 && !on.r2 && !on.r3,
+        why: on.r1 ? 'Exactly one primary, so writes scale only VERTICALLY — a bigger machine, and then nothing.'
+           : on.r2 ? 'HA is a standby in a second ZONE inside one region, promoted automatically. Zonal failover, not multi-region.'
+           : on.r3 ? 'Stock MySQL / PostgreSQL / SQL Server. No columnar engine, so analytical scans compete with the OLTP traffic.'
+           : 'Managed engine, one primary, read replicas, automatic zonal failover. Lift-and-shift: the same engine the application already targets.'
+      });
+      out.push({
+        n:'AlloyDB',
+        ok: !on.r1 && !on.r2,
+        why: on.r1 ? 'Disaggregated storage, yes — but still ONE regional writer. It scales vertically, it is not horizontally sharded.'
+           : on.r2 ? 'Regional. It has no cross-continent consensus to offer.'
+           : on.r3 ? 'Its case exactly: wire-compatible PostgreSQL, a disaggregated storage layer, and an in-memory COLUMNAR ENGINE that vectorizes analytical scans over hot data — HTAP without a separate warehouse.'
+           : 'Available, and faster than Cloud SQL — but nothing here demands it, and it costs more.'
+      });
+      out.push({
+        n:'Spanner',
+        ok: true,
+        why: on.r2 ? 'Splits sharded automatically, each replicated by PAXOS, transactions timestamped with TRUETIME so external consistency holds across continents. Multi-region reaches 99.999% availability.'
+           : on.r1 ? 'The only one that scales writes HORIZONTALLY: add nodes, and the splits redistribute.'
+           : 'Technically fits — and is over-engineering. A multi-node minimum for distribution nobody asked for.'
+      });
+
+      rows.innerHTML = out.map(function(s){
+        var cls = s.ok ? 'is-in' : 'is-out';
+        var tag = s.ok ? 'FITS' : 'RULED OUT';
+        var col = s.ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v2-s ' + cls + '"><div class="v2-head"><span>' + s.n + '</span>' +
+          '<span class="v2-tag" style="color:' + col + '">' + tag + '</span></div>' +
+          '<div class="v2-rsn">' + s.why + '</div></div>';
+      }).join('');
+
+      var n = (on.r1 ? 1 : 0) + (on.r2 ? 1 : 0) + (on.r3 ? 1 : 0);
+      why.innerHTML = on.r2
+        ? '<b style="color:var(--viz-green)">Spanner multi-region is the only fit.</b>' +
+          'This is the payments-ledger shape: survive a regional outage with zero data loss, and accept writes from the EU and US concurrently. Cloud SQL HA is zonal failover within a region — insufficient. AlloyDB is regional — insufficient. ' +
+          '<br><br>Failover here is not an event, it is the steady state of consensus, which is why the availability number has five nines in it. The bill you accept in exchange is the price floor and the key discipline: no sequential primary keys.'
+        : on.r1
+          ? '<b style="color:var(--viz-green)">Horizontal write scale is a Spanner-only property.</b>' +
+            'Both of the others answer "more writes" with a bigger machine, and there is a largest machine. Note that this requirement alone is a weaker signal than the exam usually gives you — check whether the scenario ALSO says global or strongly consistent, because two of the three is where the cheaper answers live.'
+          : on.r3
+            ? '<b style="color:var(--viz-green)">AlloyDB is the escalation, not Spanner.</b>' +
+              'Postgres that needs more performance than Cloud SQL delivers, or that mixes OLTP with real-time analytical reads, is the sentence AlloyDB was built for. Its columnar engine serves moderate analytics on the operational data — moderate, not a warehouse. It is still one regional writer.' +
+            '<br><br>Distractors will offer Spanner here. Nothing in the requirement is global or horizontally sharded, so Spanner is a cost mistake.'
+            : '<b style="color:var(--viz-green)">Cloud SQL wins on cost and familiarity.</b>' +
+              'Nothing forces an escalation, so this is the 50 GB inventory database for one warehouse in Belgium. Spanner would hold it happily and charge a multi-node minimum for distribution you do not need. ' +
+              '<br><br>' + n + ' of 3 escalation requirements are on. Add one and watch which rung disappears — that is the exam question, every time.';
+    }
+
+    p1.addEventListener('click', function(){ on = { r1:false, r2:true, r3:false }; render(); });
+    p2.addEventListener('click', function(){ on = { r1:false, r2:false, r3:false }; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Three NoSQL Centers</h2>
+  <p class="vz-lede">Firestore, Bigtable and Memorystore each drop relational joins to buy a different
+    superpower, and they are not interchangeable. Pick a piece of one RAG chat product, then drag how
+    much a single query returns and watch the cost model bite. <b>Like a filing cabinet, a warehouse
+    aisle and a coat pocket: the same papers, three completely different retrieval habits.</b></p>
+
+  <div class="v3-list" id="v3-list"></div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-n">One query returns <span id="v3-nl">10,000</span> rows or documents</label>
+    <input type="range" id="v3-n" min="0" max="4" value="3" step="1" aria-label="Rows or documents returned by one query">
+    <div class="v3-out" id="v3-out"></div>
+  </div>
+  <p class="vz-note">Judgment: Firestore's per-operation pricing punishes scan-heavy workloads that
+    Bigtable serves cheaply; Bigtable's minimum node cost and key-design burden are wasted on a
+    100k-document app that Firestore runs serverlessly; and <b>anything you cannot afford to lose does
+    not live in Memorystore</b> — snapshots and AOF are optional, not a durability contract.</p>
+
+  <style>
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-w{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-w[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-dot{flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted);width:26px}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-out{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-pick{font-size:17px;font-weight:800;margin-bottom:3px}
+    .v3-meter{margin:10px 0;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var N = [10, 100, 1000, 10000, 100000];
+    var WORK = [
+      { tag:'DOCS', t:'conversation documents and per-user settings, synced to mobile and web',
+        pick:'Firestore', col:'var(--viz-green)',
+        why:'Documents (JSON-like maps) in collections, every query served by an index — all single fields auto-indexed, composite queries need declared composite indexes. Reads are strongly consistent and transactions are per-document ACID. The distinctive mechanism is the client-facing sync model: the SDKs subscribe to a query and receive real-time snapshots, with offline persistence.',
+        meter:function(n){ return 'billed: ' + n.toLocaleString() + ' document reads for this ONE query'; },
+        verdict:function(n){ return n >= 10000
+          ? 'At ' + n.toLocaleString() + ' documents this query alone bills ' + n.toLocaleString() + ' reads. Per-operation pricing SHAPES DESIGN — hierarchical entities and thousands-to-millions of small documents are the design center, scans are not.'
+          : 'Comfortably inside the design center: user-facing application state, strong consistency, no capacity planning.'; } },
+      { tag:'ROWS', t:'clickstream events and per-user embedding features keyed user#region',
+        pick:'Bigtable', col:'var(--viz-green)',
+        why:'A single table of rows sorted lexicographically by row key, sparse cells under column families, each cell versioned by timestamp. No secondary indexes, no joins — THE ROW KEY IS THE QUERY, and scans are efficient only over contiguous key ranges. In ML terms this is the online feature store serving a model at request time.',
+        meter:function(n){ return 'one contiguous range scan · ' + n.toLocaleString() + ' rows · single-digit ms'; },
+        verdict:function(n){ return n >= 10000
+          ? 'Billions of rows and ' + n.toLocaleString() + ' back per scan is ordinary here: you pay for NODES, not per row, and throughput scales linearly as you add them. This is the workload Firestore’s pricing punishes.'
+          : 'Fine — but note what you are paying for: a node minimum and the key-design burden. On a 100k-document app that cost buys nothing Firestore does not already give you serverlessly.'; } },
+      { tag:'HOT', t:'the last N turns of the active session',
+        pick:'Memorystore', col:'var(--viz-green)',
+        why:'Managed in-memory Redis (or Valkey / Memcached): microsecond-to-sub-millisecond reads, data held in RAM, richer structures such as sorted sets and streams. Durability only via optional snapshots or AOF — a cache and ephemeral-state tier, never a system of record.',
+        meter:function(){ return 'keyed lookup in RAM · size of the result barely matters'; },
+        verdict:function(){ return 'The slider is almost irrelevant here, and that is the point: this tier is chosen on LATENCY and lifetime, not on volume. Sessions, leaderboards, rate counters, hot-key caching in front of any of the others.'; } },
+      { tag:'SCAN', t:'an ad-hoc aggregate over every conversation this month',
+        pick:'None of the three — this is BigQuery', col:'var(--viz-amber)',
+        why:'Firestore cannot express it: queries that are not index-expressible — arbitrary aggregations, full scans — do not belong there. Bigtable has no aggregation engine and no secondary index to pivot on. Memorystore is not a system of record at all.',
+        meter:function(n){ return 'as Firestore: ' + n.toLocaleString() + ' billed reads, if an index even allowed it'; },
+        verdict:function(){ return 'The matrix output here is TWO services connected by a pipeline: the operational store keeps serving, and an export or a Datastream change feed keeps an analytical copy fresh. Reaching for one store that does everything is the mistake the axes exist to prevent.'; } }
+    ];
+    var cur = 0;
+    var list = document.getElementById('v3-list');
+    var s = document.getElementById('v3-n'), nl = document.getElementById('v3-nl'), out = document.getElementById('v3-out');
+
+    WORK.forEach(function(w, i){
+      var b = document.createElement('button');
+      b.className = 'v3-w';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-dot">' + w.tag + '</span><span>' + w.t + '</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      list.appendChild(b);
+    });
+
+    function render(){
+      [].slice.call(list.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', cur === j ? 'true' : 'false');
+      });
+      var n = N[Number(s.value)], w = WORK[cur];
+      nl.textContent = n.toLocaleString();
+      out.innerHTML =
+        '<div class="v3-pick" style="color:' + w.col + '">' + w.pick + '</div>' +
+        w.why +
+        '<div class="v3-meter">' + w.meter(n) + '</div>' +
+        w.verdict(n);
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Temperature Ladder</h2>
+  <p class="vz-lede">All four GCS classes carry 11 nines of durability. What changes is retrieval
+    economics and a minimum storage duration — so the axis is <em>access frequency</em>, never
+    importance. Drag how often you read 10 TB back, then drag an object's age through a lifecycle
+    policy. <b>Like a fridge, a freezer and a deep-freeze in the garage: the further back you put it,
+    the cheaper it is to keep and the more of a trek it is to fetch.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v4-lab" for="v4-r">You re-read the whole 10 TB <span id="v4-rl">4</span> time(s) a year</label>
+    <input type="range" id="v4-r" min="0" max="12" value="4" step="1" aria-label="Full re-reads per year">
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-cost" id="v4-cost"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-d">Lifecycle policy · object is <span id="v4-dl">100</span> days old</label>
+    <input type="range" id="v4-d" min="0" max="400" value="100" step="5" aria-label="Object age in days">
+    <div class="v4-life" id="v4-life"></div>
+  </div>
+  <p class="vz-note"><b>Autoclass inverts the whole approach</b>: the bucket observes each object's
+    access pattern and moves it between classes itself, charging no retrieval fees but a small
+    per-object management fee — the right default when access is unpredictable or per-prefix rules would
+    sprawl. And keep the staging substrate Standard: raw documents awaiting embedding, Dataflow temp
+    files, BigQuery load and export files, model artifacts. Lifecycle-manage the historical tail only.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-rows{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v4-c{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;flex-wrap:wrap}
+    .v4-c.is-fit{border-color:var(--viz-green)}
+    .v4-c.is-off{opacity:.55;border-style:dashed}
+    .v4-nm{font-weight:800;font-size:12.5px;width:74px}
+    .v4-meta{font-family:ui-monospace,Consolas,monospace;color:var(--viz-muted);flex:1 1 150px}
+    .v4-vd{font-size:10px;font-weight:800;letter-spacing:.04em;margin-left:auto}
+    .v4-cost{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-cost b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-bar{display:flex;align-items:center;gap:8px;margin:5px 0;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-bl{width:78px;flex:0 0 auto}
+    .v4-bt{flex:1;height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-bt i{display:block;height:100%}
+    .v4-bv{width:74px;flex:0 0 auto;text-align:right;font-weight:800}
+    .v4-life{margin-top:13px;font-size:12.5px;line-height:1.6}
+    .v4-life b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CLASSES = [
+      { n:'Standard', min:0,   meta:'no retrieval fee · no minimum duration',      lo:12, hi:999 },
+      { n:'Nearline', min:30,  meta:'retrieval fee per GB · 30-day minimum',       lo:5,  hi:12  },
+      { n:'Coldline', min:90,  meta:'higher retrieval fee · 90-day minimum',       lo:2,  hi:4   },
+      { n:'Archive',  min:365, meta:'highest retrieval fee · 365-day minimum',     lo:0,  hi:1   }
+    ];
+    var rS = document.getElementById('v4-r'), rL = document.getElementById('v4-rl');
+    var dS = document.getElementById('v4-d'), dL = document.getElementById('v4-dl');
+    var rows = document.getElementById('v4-rows'), cost = document.getElementById('v4-cost'), life = document.getElementById('v4-life');
+
+    function renderReads(){
+      var r = Number(rS.value);
+      rL.textContent = r;
+      rows.innerHTML = CLASSES.map(function(c){
+        var fit = r >= c.lo && r <= c.hi;
+        var col = fit ? 'var(--viz-green)' : 'var(--viz-muted)';
+        return '<div class="v4-c ' + (fit ? 'is-fit' : 'is-off') + '">' +
+          '<span class="v4-nm">' + c.n + '</span>' +
+          '<span class="v4-meta">' + c.meta + '</span>' +
+          '<span class="v4-vd" style="color:' + col + '">' + (fit ? 'RIGHT TEMPERATURE' : 'wrong shelf') + '</span></div>';
+      }).join('');
+
+      var std = 2400;                 // 10 TB Standard: ~$200/month
+      var near = 1200 + r * 100;      // ~$100/month + ~$0.01/GB retrieved = ~$100 per full re-read
+      var max = Math.max(std, near);
+      function bar(l, v, c){
+        return '<div class="v4-bar"><span class="v4-bl">' + l + '</span>' +
+          '<span class="v4-bt"><i style="width:' + Math.round(v / max * 100) + '%;background:' + c + '"></i></span>' +
+          '<span class="v4-bv" style="color:' + c + '">$' + v.toLocaleString() + '</span></div>';
+      }
+      var diff = std - near;
+      cost.innerHTML =
+        (r === 12
+          ? '<b style="color:var(--viz-amber)">Break-even: re-read monthly and you have saved nothing.</b>'
+          : diff > 0
+            ? '<b style="color:var(--viz-green)">Nearline is ahead by $' + diff.toLocaleString() + ' a year.</b>'
+            : '<b style="color:var(--viz-red)">Nearline is now the expensive option, by $' + Math.abs(diff).toLocaleString() + ' a year.</b>') +
+        bar('Standard', std, 'var(--viz-accent)') +
+        bar('Nearline', near, diff >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') +
+        'Ten TB of embeddings snapshots. Standard is about $200/month; Nearline saves roughly half of that but charges about $0.01/GB retrieved, so a full re-read costs about $100 (early-2026 magnitudes — treat them as illustrative). ' +
+        '<br><br>The break-even is a <b>function of read frequency</b>, which is exactly why the class axis is access frequency and not importance. Misclassifying HOT data cold is the expensive mistake, not the reverse — the transitions are one-way economics, and frequent reads from Archive are ruinous. Archive is still <em>milliseconds</em> to first byte, so slowness is never the thing that warns you.';
+    }
+
+    function renderLife(){
+      var d = Number(dS.value);
+      dL.textContent = d;
+      var cls, entered, next;
+      if (d >= 365)     { cls = null;          entered = 365; next = 'already deleted by the age-365 rule'; }
+      else if (d >= 90) { cls = CLASSES[2];    entered = 90;  next = 'age 365 → Delete'; }
+      else if (d >= 30) { cls = CLASSES[1];    entered = 30;  next = 'age 90 → SetStorageClass Coldline'; }
+      else              { cls = CLASSES[0];    entered = 0;   next = 'age 30 → SetStorageClass Nearline'; }
+
+      if (!cls) {
+        life.innerHTML = '<b style="color:var(--viz-red)">Gone — the age-365 Delete rule fired.</b>' +
+          'A lifecycle rule is a condition (age, createdBefore, number of newer versions, current class) plus an action: SetStorageClass or Delete. With object versioning on, "keep 3 newest versions, delete older" caps the cost of accidental-overwrite protection the same way. ' +
+          '<br><br>Rules are evaluated by the bucket, not by your pipeline — which is why the policy, not a cron job, is where this belongs.';
+        return;
+      }
+      var daysIn = d - entered, billed = Math.max(daysIn, cls.min);
+      var early = billed > daysIn;
+      life.innerHTML =
+        '<b style="color:' + (early ? 'var(--viz-red)' : 'var(--viz-green)') + '">Now in ' + cls.n +
+          ' · next rule: ' + next + '</b>' +
+        'Policy: age 30 → Nearline, age 90 → Coldline, age 365 → Delete. This object entered ' + cls.n +
+          ' on day ' + entered + ', so it has been there <b>' + daysIn + ' day(s)</b> against a ' + cls.min + '-day minimum. ' +
+        (early
+          ? 'Delete or transition it right now and you are <b>billed for ' + billed + ' days</b> of ' + cls.n +
+            ' storage — the minimums are early-deletion charges. Delete a Coldline object after 10 days and you pay as if it lived 90.'
+          : 'Delete it now and you pay for the ' + billed + ' days it actually lived: the minimum has been met, so there is no early-deletion charge.');
+    }
+
+    rS.addEventListener('input', renderReads);
+    dS.addEventListener('input', renderLife);
+    renderReads(); renderLife();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Choosing The Mover</h2>
+  <p class="vz-lede">Four movers, and the exam scenario always names the same four facts: volume,
+    network capacity, freshness requirement, destination. Set them and the service falls out
+    mechanically — including the arithmetic that makes a truck faster than a fibre. <b>Like posting a
+    hard drive versus emailing the files: past a certain size the van on the motorway really is
+    quicker.</b></p>
+
+  <div class="v5-ctrls" id="v5-ctrls"></div>
+
+  <div class="vz-card vz-mono" id="v5-math" style="margin-bottom:11px"></div>
+  <div class="vz-card"><div class="v5-out" id="v5-out"></div></div>
+  <p class="vz-note">The distinction that decides the most questions is <b>intent, not mechanism</b>:
+    DMS and Datastream both replicate continuously, but DMS ends with the source retired, while
+    Datastream runs forever keeping a warehouse or lake synchronized. Log-based CDC also avoids the load
+    of repeated SELECT polling and captures <em>deletes</em>, which polling misses entirely.</p>
+
+  <style>
+    .v5-ctrls{display:flex;flex-direction:column;gap:9px;margin-bottom:13px}
+    .v5-row h6{margin:0 0 5px;font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-opts{display:flex;gap:5px;flex-wrap:wrap}
+    .v5-o{min-height:44px;flex:1 1 92px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-size:11.5px;font-weight:700;padding:5px 7px;line-height:1.3}
+    .v5-o[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-ink);background:var(--viz-bg)}
+    .v5-out{font-size:12.5px;line-height:1.6}
+    .v5-pick{font-size:18px;font-weight:800;margin-bottom:3px;color:var(--viz-green)}
+  </style>
+  <script>
+  (function(){
+    var CTRL = [
+      { k:'vol', label:'volume', opts:[
+        { v:1e12,  t:'1 TB' }, { v:1e13, t:'10 TB' }, { v:1e14, t:'100 TB' },
+        { v:5e14,  t:'500 TB' }, { v:1e15, t:'1 PB' } ] },
+      { k:'bw', label:'network capacity', opts:[
+        { v:1e8,  t:'100 Mbps' }, { v:1e9, t:'1 Gbps' }, { v:1e10, t:'10 Gbps' } ] },
+      { k:'fresh', label:'freshness requirement', opts:[
+        { v:'once',  t:'one-time move' },
+        { v:'batch', t:'scheduled batch' },
+        { v:'cont',  t:'continuous' } ] },
+      { k:'dest', label:'destination', opts:[
+        { v:'db', t:'the database itself (cutover)' },
+        { v:'bq', t:'BigQuery' },
+        { v:'gcs', t:'GCS' } ] }
+    ];
+    var state = { vol:1e15, bw:1e9, fresh:'once', dest:'gcs' };
+    var box = document.getElementById('v5-ctrls');
+    var math = document.getElementById('v5-math'), out = document.getElementById('v5-out');
+    var btns = [];
+
+    CTRL.forEach(function(c){
+      var row = document.createElement('div');
+      row.className = 'v5-row';
+      var h = document.createElement('h6'); h.textContent = c.label;
+      var opts = document.createElement('div'); opts.className = 'v5-opts';
+      c.opts.forEach(function(o){
+        var b = document.createElement('button');
+        b.className = 'v5-o'; b.textContent = o.t;
+        b.setAttribute('aria-pressed', 'false');
+        b.addEventListener('click', function(){ state[c.k] = o.v; render(); });
+        btns.push({ k:c.k, v:o.v, el:b });
+        opts.appendChild(b);
+      });
+      row.appendChild(h); row.appendChild(opts); box.appendChild(row);
+    });
+
+    function label(k, v){
+      var c = CTRL.filter(function(x){ return x.k === k; })[0];
+      var o = c.opts.filter(function(x){ return x.v === v; })[0];
+      return o ? o.t : String(v);
+    }
+
+    function render(){
+      btns.forEach(function(b){ b.el.setAttribute('aria-pressed', state[b.k] === b.v ? 'true' : 'false'); });
+
+      var secs = state.vol * 8 / state.bw;
+      var days = secs / 86400;
+      math.innerHTML =
+        label('vol', state.vol) + ' over a saturated ' + label('bw', state.bw) + ' link\n' +
+        '  bytes x 8 / bits-per-second  =  ' + secs.toExponential(1).replace('e+', ' x 10^') + ' seconds\n' +
+        '  = ' + (days >= 1 ? days.toFixed(0) + ' days' : (secs / 3600).toFixed(1) + ' hours') + ' of line, saturated, with nothing else using it';
+
+      var pick, why, note;
+      if (state.fresh === 'cont') {
+        if (state.dest === 'db') {
+          pick = 'Database Migration Service (DMS)';
+          why = 'Homogeneous database migration — MySQL to Cloud SQL for MySQL, Postgres to Cloud SQL or AlloyDB — as an initial dump plus continuous replication, so the destination trails the source by seconds until you schedule a cutover.';
+          note = 'This is minimal-downtime lift-and-shift of the SYSTEM OF RECORD ITSELF, and it ends. Heterogeneous paths such as Oracle to Postgres additionally involve schema-conversion tooling.';
+        } else {
+          pick = 'Datastream';
+          why = 'Serverless change data capture: it tails the source database’s transaction log — MySQL binlog, Postgres WAL via logical replication, Oracle redo — and emits every insert, update and delete as an ordered event stream into ' + (state.dest === 'bq' ? 'BigQuery' : 'GCS') + ', or onward via Dataflow.';
+          note = 'The source keeps serving and the destination is a continuously fresh COPY FOR ANALYTICS. Replace a nightly batch export of your Cloud SQL orders table with this and analysts get minutes-fresh data with NO query load on the primary.';
+        }
+      } else if (state.fresh === 'batch') {
+        if (state.dest === 'bq') {
+          pick = 'BigQuery Data Transfer Service (DTS)';
+          why = 'Scheduled, managed batch ingestion into BigQuery specifically: SaaS sources such as Google Ads and YouTube, GCS files, Amazon S3, Redshift, Teradata — configured declaratively, run on a schedule, no pipeline code.';
+          note = 'If the destination is not BigQuery, DTS is the wrong tool BY DEFINITION. That single line eliminates it from half the scenarios it appears in.';
+        } else if (state.dest === 'gcs') {
+          pick = 'Storage Transfer Service';
+          why = 'The online counterpart to the appliance: it moves data over the network into GCS from S3, Azure, HTTP endpoints or other buckets, on schedules.';
+          note = 'Right whenever bandwidth is adequate — and at ' + label('vol', state.vol) + ' over ' + label('bw', state.bw) + ' that is ' + (days >= 1 ? days.toFixed(0) + ' days' : (secs / 3600).toFixed(1) + ' hours') + ' per run, which is the number to sanity-check before promising a schedule.';
+        } else {
+          pick = 'No clean fit — re-read the destination';
+          why = 'None of the four movers does scheduled batch loading INTO a live operational database. DMS is for a cutover, Datastream is for a continuous analytics feed, DTS lands only in BigQuery, and the appliance lands only in GCS.';
+          note = 'When a scenario looks like this, the intended answer is usually that the destination was misread — or that the pipeline belongs to a transformation service, which is lesson 05.';
+        }
+      } else {
+        if (state.dest === 'db') {
+          pick = 'Database Migration Service (DMS)';
+          why = 'A one-time move of the database itself is still DMS: initial dump plus replication until cutover, so the downtime window is the cutover rather than the copy.';
+          note = 'Note how little the volume matters here — the source stays up while the copy runs, so the wire time is not downtime.';
+        } else if (days > 30) {
+          pick = 'Transfer Appliance';
+          why = 'Google ships a ruggedized storage device, you load it on-premises (tens of TB up to about 1 PB), ship it back, and Google uploads to GCS' + (state.dest === 'bq' ? ' — then you load into BigQuery from there' : '') + '.';
+          note = 'The whole case is the arithmetic above: <b>' + days.toFixed(0) + ' days</b> of saturated line, assuming nothing else is using it and nothing ever fails halfway. The appliance round trip wins by months, and that is the only reason it exists.';
+        } else {
+          pick = 'Storage Transfer Service';
+          why = 'Network-feasible bulk object copy into GCS from S3, Azure, HTTP endpoints or other buckets' + (state.dest === 'bq' ? ', then load into BigQuery from there' : '') + '.';
+          note = 'At ' + (days >= 1 ? days.toFixed(0) + ' days' : (secs / 3600).toFixed(1) + ' hours') + ' the wire is fine, so the appliance would be a slower answer with a courier in it. Push the volume up or the link down and watch the recommendation flip at about a month.';
+        }
+      }
+
+      out.innerHTML = '<div class="v5-pick">' + pick + '</div>' + why +
+        '<br><br><span style="color:var(--viz-violet);font-weight:800">Judgment · </span>' + note;
+    }
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

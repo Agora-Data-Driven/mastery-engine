@@ -1,0 +1,644 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two Towers, One Score</button>
+  <button class="viz-tab" data-viz-tab="2">2. Pooling And Padding</button>
+  <button class="viz-tab" data-viz-tab="3">3. MaxSim Late Interaction</button>
+  <button class="viz-tab" data-viz-tab="4">4. Bytes Per Chunk</button>
+  <button class="viz-tab" data-viz-tab="5">5. When Metrics Disagree</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two Towers, One Score</h2>
+  <p class="vz-lede"><b>Learned Embeddings: Meaning as Geometry</b> gave you similarity as a dot product in a
+    learned space, which is how a paraphrase beats an exact-word distractor. This lesson adds the question that
+    makes it <em>servable</em>: who encodes what, and <em>when</em>. Drag the query vector and watch what is
+    never recomputed. <b>Like a shop that prices every item before opening — only the customer's basket is
+    added up at the till.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side"><h5>already yours</h5><p>meaning is geometry: a query can sit near a document it
+      shares no vocabulary with — the fix for vocabulary mismatch</p></div>
+    <div class="v1-arrow" aria-hidden="true">→</div>
+    <div class="v1-side"><h5>this lesson</h5><p>two towers encode <b>separately</b>, so every document vector
+      already exists before the query is written</p></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-qx">query tower output &nbsp;q = [<span id="v1-qxl">0.80</span>,
+      <span id="v1-qyl">0.60</span>]</label>
+    <input type="range" id="v1-qx" min="-1" max="1" step="0.05" value="0.8" aria-label="query vector, first component">
+    <input type="range" id="v1-qy" min="-1" max="1" step="0.05" value="0.6" aria-label="query vector, second component">
+    <div class="v1-rank" id="v1-rank"></div>
+    <button class="v1-reset" id="v1-reset">reset to q = [0.80, 0.60]</button>
+    <div class="v1-scale vz-seg" id="v1-scale" role="group" aria-label="corpus size"></div>
+    <div class="v1-cost" id="v1-cost"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The same factorization you met as a <b>dual-tower recommender</b>: a user tower, an item
+    tower, a dot product to retrieve candidates. Here the query is the user-side context and a passage is the
+    item. It is also why an encoder change is a <b>coordinated migration</b> — vectors from unrelated spaces
+    produce meaningless scores even when the dimensions happen to match, and nothing errors.</p>
+
+  <style>
+    .v1-bridge{display:flex;align-items:stretch;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-side{flex:1 1 132px;border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-surface)}
+    .v1-side h5{margin:0 0 5px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-side p{margin:0;font-size:12px;line-height:1.45}
+    .v1-arrow{flex:0 0 auto;align-self:center;font-size:17px;color:var(--viz-accent);font-weight:800}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v1-rank{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v1-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v1-r.is-top{border-color:var(--viz-green)}
+    .v1-r b{margin-left:auto;font-size:12.5px}
+    .v1-pos{font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em;color:var(--viz-muted)}
+    .v1-reset{margin-top:11px;min-height:44px;width:100%;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-size:12px;font-weight:700}
+    .v1-scale{margin-top:12px}
+    .v1-cost{margin-top:6px;display:flex;flex-direction:column;gap:5px}
+    .v1-c{display:flex;gap:9px;align-items:baseline;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v1-c span:last-child{margin-left:auto;font-weight:800}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The three precomputed document vectors from the lesson. They never change.
+    var DOCS = [{ n:'d1', v:[0.7, 0.7] }, { n:'d2', v:[-0.2, 0.9] }, { n:'d3', v:[0.9, -0.1] }];
+    var SCALES = [
+      { l:'1K docs', n:1000 }, { l:'100K', n:100000 },
+      { l:'1M', n:1000000 }, { l:'10M', n:10000000 }
+    ];
+    var pick = 2, encodes = 0;
+    var sx = document.getElementById('v1-qx'), sy = document.getElementById('v1-qy');
+    var lx = document.getElementById('v1-qxl'), ly = document.getElementById('v1-qyl');
+    var rank = document.getElementById('v1-rank'), reset = document.getElementById('v1-reset');
+    var scale = document.getElementById('v1-scale'), cost = document.getElementById('v1-cost');
+    var why = document.getElementById('v1-why');
+
+    function num(el, dflt){ var n = Number(el.value); return isFinite(n) ? n : dflt; }
+
+    function render(){
+      var qx = num(sx, 0.8), qy = num(sy, 0.6);
+      lx.textContent = qx.toFixed(2); ly.textContent = qy.toFixed(2);
+
+      var rows = DOCS.map(function(d){
+        return { n:d.n, v:d.v, s: qx * d.v[0] + qy * d.v[1] };
+      }).sort(function(a, b){ return b.s - a.s; });
+
+      rank.innerHTML = rows.map(function(r, i){
+        return '<div class="v1-r' + (i === 0 ? ' is-top' : '') + '">' +
+          '<span class="v1-pos">' + (i === 0 ? 'RANK 1' : 'rank ' + (i + 1)) + '</span>' +
+          '<span>' + r.n + ' = [' + r.v[0].toFixed(2) + ', ' + r.v[1].toFixed(2) + ']</span>' +
+          '<b style="color:' + (i === 0 ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (isFinite(r.s) ? r.s.toFixed(3) : '—') + '</b></div>';
+      }).join('');
+
+      var sc = SCALES[pick];
+      cost.innerHTML =
+        '<div class="v1-c"><span style="color:var(--viz-green)">bi-encoder · query encodings</span><span style="color:var(--viz-green)">1</span></div>' +
+        '<div class="v1-c"><span style="color:var(--viz-green)">bi-encoder · document encodings</span><span style="color:var(--viz-green)">' + encodes + ' (all precomputed)</span></div>' +
+        '<div class="v1-c"><span style="color:var(--viz-muted)">bi-encoder · vector comparisons</span><span style="color:var(--viz-muted)">' + sc.n.toLocaleString() + '</span></div>' +
+        '<div class="v1-c"><span style="color:var(--viz-red)">cross-encoder · transformer passes</span><span style="color:var(--viz-red)">' + sc.n.toLocaleString() + '</span></div>';
+
+      var top = rows[0];
+      why.innerHTML = '<b>score(q, d) = f_query(q) · f_document(d)</b>' +
+        'At q = [0.80, 0.60] the dot products are <b style="display:inline">0.98, 0.38, 0.66</b> and the ranking is d1, d3, d2. ' +
+        'Right now the winner is <b style="display:inline;color:var(--viz-green)">' + top.n + '</b> at ' + top.s.toFixed(3) + '. ' +
+        'Move either slider as much as you like: the three document vectors are <em>never</em> touched. That single fact is the whole architecture. ' +
+        '<br><br>A cross-encoder would run one transformer pass per query-document pair — ' + sc.n.toLocaleString() +
+        ' of them for this corpus, at request time. The bi-encoder pays one. ' +
+        'That is the difference between a <b style="display:inline">retriever</b> and a <b style="display:inline">scorer</b>, and it is bought with the ' +
+        'ceiling in visual 3: a document vector computed before the query cannot emphasise different words for different queries.';
+    }
+
+    SCALES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = s.l;
+      b.setAttribute('aria-pressed', i === pick ? 'true' : 'false');
+      b.addEventListener('click', function(){
+        pick = i;
+        [].slice.call(scale.children).forEach(function(x, j){ x.setAttribute('aria-pressed', j === i ? 'true' : 'false'); });
+        render();
+      });
+      scale.appendChild(b);
+    });
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    reset.addEventListener('click', function(){ sx.value = '0.8'; sy.value = '0.6'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Pooling And Padding</h2>
+  <p class="vz-lede">A transformer gives one contextual vector per token. A <b>sentence embedding</b> is a
+    pooling rule over those states — and the rule has to exclude padding, or the whole index degrades with
+    nothing to show for it. Add padding tokens and watch. <b>Like averaging a team's votes while counting the
+    empty chairs: every real voice gets quieter.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="what the padding states contain">
+    <button id="v2-zero" aria-pressed="true">padding = [0, 0]</button>
+    <button id="v2-real" aria-pressed="false">padding = [0.3, −0.2] (real states)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-pads">padding vectors wrongly included:
+      <span id="v2-padsl">0</span></label>
+    <input type="range" id="v2-pads" min="0" max="5" step="1" value="0" aria-label="number of padding vectors included">
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-out" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The test that catches this: <b>encode the same text alone and inside a padded batch.</b>
+    With correct masking and a deterministic model the vector should be effectively unchanged. Track vector
+    norms, NaN counts, truncation rates and empty inputs during batch indexing — a silent masking regression
+    rebuilds the entire index successfully while degrading every neighbourhood in it.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-rows{margin-top:12px;display:flex;flex-direction:column;gap:4px}
+    .v2-t{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:8px;
+      padding:7px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-t.is-pad{border-style:dashed;opacity:.75}
+    .v2-t span:last-child{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v2-out{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var H = [[1, 0], [0.6, 0.8], [0.2, 1]];      // the three unmasked token states
+    var TRUE_MEAN = [0.6, 0.6];                   // what correct masking produces
+    var zeroPad = true;
+    var s = document.getElementById('v2-pads'), lab = document.getElementById('v2-padsl');
+    var bZ = document.getElementById('v2-zero'), bR = document.getElementById('v2-real');
+    var rows = document.getElementById('v2-rows'), out = document.getElementById('v2-out');
+    var why = document.getElementById('v2-why');
+
+    function norm(v){ return Math.sqrt(v[0] * v[0] + v[1] * v[1]); }
+    function cos(a, b){
+      var na = norm(a), nb = norm(b);
+      if (!(na > 1e-12) || !(nb > 1e-12)) return null;   // a zero vector has no defined cosine
+      return (a[0] * b[0] + a[1] * b[1]) / (na * nb);
+    }
+    function fmt(x){ return isFinite(x) ? x.toFixed(3) : '—'; }
+
+    function render(){
+      var p = Math.max(0, Math.min(5, Math.round(Number(s.value) || 0)));
+      lab.textContent = p;
+      var pad = zeroPad ? [0, 0] : [0.3, -0.2];
+      bZ.setAttribute('aria-pressed', zeroPad ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', zeroPad ? 'false' : 'true');
+
+      var html = '', sx = 0, sy = 0, i;
+      for (i = 0; i < H.length; i++) {
+        sx += H[i][0]; sy += H[i][1];
+        html += '<div class="v2-t"><span>h' + (i + 1) + ' = [' + H[i][0].toFixed(1) + ', ' + H[i][1].toFixed(1) +
+          ']</span><span style="color:var(--viz-green)">REAL TOKEN</span></div>';
+      }
+      for (i = 0; i < p; i++) {
+        sx += pad[0]; sy += pad[1];
+        html += '<div class="v2-t is-pad"><span>pad = [' + pad[0].toFixed(1) + ', ' + pad[1].toFixed(1) +
+          ']</span><span style="color:var(--viz-red)">PADDING — should be masked</span></div>';
+      }
+      rows.innerHTML = html;
+
+      var n = H.length + p;
+      var mean = n > 0 ? [sx / n, sy / n] : [0, 0];
+      var c = cos(mean, TRUE_MEAN);
+      var q = [0.8, 0.6];
+      var dot = mean[0] * q[0] + mean[1] * q[1];
+      var ok = p === 0;
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+
+      out.innerHTML =
+        '<span class="v2-pill" style="color:' + col + ';border-color:' + col + '">pooled = [' +
+          fmt(mean[0]) + ', ' + fmt(mean[1]) + ']</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">norm ' + fmt(norm(mean)) + '</span>' +
+        '<span class="v2-pill" style="color:' + (c === null || c < 0.999 ? 'var(--viz-amber)' : 'var(--viz-muted)') +
+          ';border-color:' + (c === null || c < 0.999 ? 'var(--viz-amber)' : 'var(--viz-line)') + '">cosine vs correct ' +
+          (c === null ? 'undefined (zero norm)' : fmt(c)) + '</span>' +
+        '<span class="v2-pill" style="color:' + col + ';border-color:' + col + '">dot with q=[0.8,0.6] ' + fmt(dot) + '</span>';
+
+      why.innerHTML = p === 0
+        ? '<b style="color:var(--viz-green)">Correct masking: mean over the three real states.</b>' +
+          '[(1 + 0.6 + 0.2)/3, (0 + 0.8 + 1)/3] = <b style="display:inline">[0.6, 0.6]</b>. One vector, cheap to index — and note what it has given up: ' +
+          'it no longer exposes <em>which token supplied which signal</em>. Visual 3 is what you buy back by keeping them.'
+        : zeroPad
+          ? '<b style="color:var(--viz-red)">' + p + ' zero pad' + (p === 1 ? '' : 's') + ' — the vector shrinks toward the origin.</b>' +
+            'The sum is unchanged at [1.8, 1.8] but it is now divided by ' + n + ', so at five pads the vector is <b style="display:inline">[0.225, 0.225]</b>. ' +
+            'Cosine against the correct vector is still <b style="display:inline">' + (c === null ? '—' : fmt(c)) + '</b> — direction survives, in this artificial case only. ' +
+            'But the dot product has fallen from 0.840 to <b style="display:inline">' + fmt(dot) + '</b>, so on an unnormalised dot-product index this document just lost every ranking it deserved. ' +
+            '<br><br>Nothing errored. The batch indexed successfully. Switch the toggle above for the realistic version.'
+          : '<b style="color:var(--viz-red)">' + p + ' non-zero pad' + (p === 1 ? '' : 's') + ' — now the direction moves too.</b>' +
+            'Real padding states are <em>not</em> guaranteed to be zero, so the pooled vector drifts off the correct direction: cosine against it is <b style="display:inline">' +
+            (c === null ? 'undefined' : fmt(c)) + '</b>, not 1. ' +
+            'Once direction moves, cosine and normalised indexes are damaged as well — the zero-pad case was the flattering one. ' +
+            '<br><br>The rule is not "mask because the mean is wrong". It is <b style="display:inline">the pooling rule in production must match the model' + String.fromCharCode(8217) + 's training and documentation</b>: mean, special-token, or learned.';
+    }
+    s.addEventListener('input', render);
+    bZ.addEventListener('click', function(){ zeroPad = true; render(); });
+    bR.addEventListener('click', function(){ zeroPad = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. MaxSim Late Interaction</h2>
+  <p class="vz-lede">Keep the token vectors instead of pooling them and each query token can find <em>its own</em>
+    supporting document token. Tap a cell, drag its similarity, and watch the max-per-query-token sum move.
+    <b>Like two people sent to a shelf: each finds their own book, instead of both settling for the shelf's
+    average.</b></p>
+
+  <div class="vz-card">
+    <div class="v3-grid" id="v3-grid"></div>
+    <label class="v3-lab" for="v3-val">selected cell: <span id="v3-sel">qa · dt1</span> =
+      <span id="v3-vall">0.90</span></label>
+    <input type="range" id="v3-val" min="0" max="1" step="0.05" value="0.9" aria-label="similarity of the selected cell">
+    <button class="v3-reset" id="v3-reset">reset to 0.9 / 0.2 / 0.1 and 0.1 / 0.4 / 0.8</button>
+    <div class="v3-sum" id="v3-sum"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Choose <b>sentence embeddings</b> for high-throughput candidate generation, moderate memory
+    and a strong whole-text signal; choose <b>token-level</b> representations when exact local interactions
+    materially improve recall on long or detail-sensitive text and the infrastructure budget supports them.
+    The decisive evidence is end-to-end quality per unit of latency and memory — never the label
+    <em>sentence</em> or <em>token</em>.</p>
+
+  <style>
+    .v3-grid{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-row{display:flex;gap:6px;align-items:stretch}
+    .v3-lbl{flex:0 0 34px;display:flex;align-items:center;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;color:var(--viz-muted);font-weight:700}
+    .v3-c{flex:1 1 0;min-height:44px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-family:ui-monospace,Consolas,monospace;
+      font-size:12px;font-weight:700;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;padding:4px 2px}
+    .v3-c[aria-pressed="true"]{border-color:var(--viz-accent);border-width:2.5px}
+    .v3-c em{font-style:normal;font-size:9px;letter-spacing:.04em;font-family:inherit;font-weight:800}
+    .v3-head{flex:1 1 0;text-align:center;font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;
+      color:var(--viz-muted);font-weight:800}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-reset{margin-top:11px;min-height:44px;width:100%;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-size:12px;font-weight:700}
+    .v3-sum{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var START = [[0.9, 0.2, 0.1], [0.1, 0.4, 0.8]];   // qa and qb against three document tokens
+    var S = [START[0].slice(), START[1].slice()];
+    var QN = ['qa', 'qb'], DN = ['dt1', 'dt2', 'dt3'];
+    var sel = [0, 0];
+    var grid = document.getElementById('v3-grid'), slider = document.getElementById('v3-val');
+    var selL = document.getElementById('v3-sel'), valL = document.getElementById('v3-vall');
+    var sum = document.getElementById('v3-sum'), why = document.getElementById('v3-why');
+    var reset = document.getElementById('v3-reset');
+
+    function rowMax(r){
+      var m = -Infinity, at = 0;
+      for (var j = 0; j < S[r].length; j++) { if (S[r][j] > m) { m = S[r][j]; at = j; } }
+      if (!isFinite(m)) { m = 0; at = 0; }
+      return { m: m, at: at };
+    }
+
+    function render(){
+      var head = '<div class="v3-row"><span class="v3-lbl"></span>' +
+        DN.map(function(d){ return '<span class="v3-head">' + d + '</span>'; }).join('') + '</div>';
+      var body = '';
+      for (var r = 0; r < S.length; r++) {
+        var mx = rowMax(r);
+        body += '<div class="v3-row"><span class="v3-lbl">' + QN[r] + '</span>';
+        for (var j = 0; j < S[r].length; j++) {
+          var isMax = j === mx.at;
+          var on = sel[0] === r && sel[1] === j;
+          body += '<button type="button" class="v3-c" aria-pressed="' + (on ? 'true' : 'false') +
+            '" data-r="' + r + '" data-j="' + j + '" style="color:' + (isMax ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+            '<span>' + S[r][j].toFixed(2) + '</span>' +
+            '<em>' + (isMax ? 'MAX' : '') + '</em></button>';
+        }
+        body += '</div>';
+      }
+      grid.innerHTML = head + body;
+      [].slice.call(grid.querySelectorAll('.v3-c')).forEach(function(b){
+        b.addEventListener('click', function(){
+          sel = [Number(b.getAttribute('data-r')), Number(b.getAttribute('data-j'))];
+          slider.value = String(S[sel[0]][sel[1]]);
+          render();
+        });
+      });
+
+      var a = rowMax(0), bmx = rowMax(1);
+      var total = a.m + bmx.m;
+      selL.textContent = QN[sel[0]] + ' · ' + DN[sel[1]];
+      valL.textContent = S[sel[0]][sel[1]].toFixed(2);
+
+      var split = a.at !== bmx.at;
+      sum.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-green);border-color:var(--viz-green)">MaxSim = ' +
+          a.m.toFixed(2) + ' + ' + bmx.m.toFixed(2) + ' = ' + total.toFixed(2) + '</span>' +
+        '<span class="v3-pill" style="color:' + (split ? 'var(--viz-violet)' : 'var(--viz-amber)') +
+          ';border-color:' + (split ? 'var(--viz-violet)' : 'var(--viz-amber)') + '">' +
+          (split ? 'two alignments: ' + DN[a.at] + ' and ' + DN[bmx.at] : 'both land on ' + DN[a.at] + ' — one alignment') + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">single pooled vector: 1 number, no alignment</span>';
+
+      why.innerHTML = split
+        ? '<b style="color:var(--viz-green)">Each query concept finds its own supporting token.</b>' +
+          'The lesson' + String.fromCharCode(8217) + 's numbers are qa = [0.9, 0.2, 0.1] and qb = [0.1, 0.4, 0.8], giving <b style="display:inline">0.9 + 0.8 = 1.7</b>. ' +
+          'qa is carried by ' + DN[a.at] + ', qb by ' + DN[bmx.at] + '. This is what a pooled vector cannot express: it produces one similarity for the whole passage, so a query token for ' +
+          '<code>deletion</code> has no way to be matched by the one document token that answers it. ' +
+          '<br><br>That is precisely the ceiling from visual 1 — the document vector was computed before the query existed — bought back at the price in visual 4.'
+        : '<b style="color:var(--viz-amber)">Both query tokens now peak on the same document token.</b>' +
+          'MaxSim is ' + total.toFixed(2) + ', but the two query concepts are no longer resolved separately — the score has stopped carrying the evidence that made late interaction worth its memory. ' +
+          'Late interaction pays when the query has <em>distinct</em> concepts that live in <em>different</em> parts of the passage. ' +
+          '<br><br>Drag a cell back apart and watch the second alignment reappear.';
+    }
+
+    slider.addEventListener('input', function(){
+      var v = Number(slider.value);
+      if (!isFinite(v)) v = 0;
+      S[sel[0]][sel[1]] = Math.max(0, Math.min(1, v));
+      render();
+    });
+    reset.addEventListener('click', function(){
+      S = [START[0].slice(), START[1].slice()];
+      sel = [0, 0];
+      slider.value = '0.9';
+      render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Bytes Per Chunk</h2>
+  <p class="vz-lede">Fidelity has a bill, and it is arithmetic you can do in your head:
+    <b>vectors × dimensions × 4 bytes</b> for float32. Drag both dials and watch a ten-million-chunk index go
+    from tens of gigabytes to hundreds. <b>Like photocopying a book: one summary page per chapter, or every
+    page — both are "the book", at wildly different filing-cabinet cost.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-vec">vectors kept per chunk: <span id="v4-vecl">1</span></label>
+    <input type="range" id="v4-vec" min="0" max="7" step="1" value="0" aria-label="vectors kept per chunk">
+    <label class="v4-lab" for="v4-dim">dimensions per vector: <span id="v4-diml">768</span></label>
+    <input type="range" id="v4-dim" min="0" max="5" step="1" value="3" aria-label="dimensions per vector">
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-out" id="v4-out"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">This is why the standard design is <b>multi-stage</b>: a single-vector retriever finds a
+    manageable candidate set, and a richer interaction model scores only that set. You pay 30.72 GB for the
+    whole corpus and the 128× representation for a few hundred candidates — not for ten million of them.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:0 0 6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-bars{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v4-b h6{margin:0 0 4px;font-size:11px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-out{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var VEC = [1, 2, 4, 8, 16, 32, 64, 128];
+    var DIM = [128, 256, 384, 768, 1024, 1536];
+    var CHUNKS = 10000000;              // ten million chunks, the lesson's corpus
+    var MAXB = 128 * 1536 * 4;          // the top-right corner of both dials
+    var sv = document.getElementById('v4-vec'), sd = document.getElementById('v4-dim');
+    var lv = document.getElementById('v4-vecl'), ld = document.getElementById('v4-diml');
+    var bars = document.getElementById('v4-bars'), out = document.getElementById('v4-out');
+    var why = document.getElementById('v4-why');
+
+    function idx(el, arr){
+      var i = Math.round(Number(el.value));
+      if (!isFinite(i)) i = 0;
+      return Math.max(0, Math.min(arr.length - 1, i));
+    }
+    function width(bytes){
+      // log scale: 512 B (one 128-dim vector) is the floor, MAXB the ceiling
+      var r = Math.log(Math.max(bytes, 512) / 512) / Math.log(MAXB / 512);
+      return Math.max(2, Math.min(100, r * 100));
+    }
+    function bar(t, bytes, colour, sub){
+      return '<div class="v4-b"><h6><span>' + t + '</span><b style="color:' + colour + '">' +
+        bytes.toLocaleString() + ' B</b></h6><div class="v4-track"><i style="width:' + width(bytes) +
+        '%;background:' + colour + '"></i></div>' +
+        '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+    }
+
+    function render(){
+      var v = VEC[idx(sv, VEC)], d = DIM[idx(sd, DIM)];
+      lv.textContent = v; ld.textContent = d;
+      var bytes = v * d * 4;
+      var gb = bytes * CHUNKS / 1e9;
+      var vsOne = bytes / 512;
+
+      bars.innerHTML =
+        bar('your configuration: ' + v + ' × ' + d + ' × 4 B', bytes, 'var(--viz-accent)',
+            v === 1 ? 'one pooled sentence embedding per chunk' : v + ' token vectors per chunk — late interaction') +
+        bar('one 128-dim vector (the floor)', 512, 'var(--viz-green)', 'the cheapest single-vector chunk in the lesson') +
+        bar('128 tokens × 128 dims (the lesson' + String.fromCharCode(8217) + 's multi-vector case)', 65536, 'var(--viz-red)',
+            '65,536 B — 128× the floor, before any compression or pruning');
+
+      var hot = gb > 100;
+      out.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' +
+          bytes.toLocaleString() + ' B per chunk</span>' +
+        '<span class="v4-pill" style="color:' + (hot ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' +
+          (hot ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + gb.toFixed(2) + ' GB for 10M chunks' +
+          (hot ? ' — heavy' : ' — servable') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+          (vsOne >= 1 ? vsOne.toFixed(0) + '× the 512 B floor' : 'below the 512 B floor') + '</span>';
+
+      why.innerHTML = v === 1
+        ? '<b style="color:var(--viz-green)">Single-vector retrieval: storage grows as chunks × dimensions.</b>' +
+          'A 768-dimensional float32 vector is 768 × 4 = <b style="display:inline">3,072 bytes</b>, so ten million chunks need about <b style="display:inline">30.72 GB</b> of raw vectors before index overhead. ' +
+          'That compactness is exactly what makes approximate search and simple serving possible — it is the shape the next lesson' + String.fromCharCode(8217) + 's indexes are built for. ' +
+          '<br><br>You currently sit at ' + gb.toFixed(2) + ' GB. Push the dimensions dial and notice the cost is strictly linear: dimensions alone never measure usefulness.'
+        : '<b style="color:var(--viz-red)">Multi-vector: every retained token multiplies the whole corpus.</b>' +
+          v + ' vectors × ' + d + ' dims × 4 B = <b style="display:inline">' + bytes.toLocaleString() + ' B</b> per chunk, ' +
+          gb.toFixed(2) + ' GB across ten million chunks. At the lesson' + String.fromCharCode(8217) + 's 128 × 128 that is 65,536 B against 512 B for one 128-dim vector — <b style="display:inline">128×</b>. ' +
+          'Query-time scoring also performs many more comparisons, which is a second bill on top of this one. ' +
+          '<br><br>Compression, pruning and specialised indexing exist to claw this back. None of them is free, and none of them is a reason to skip measuring recall.';
+    }
+    sv.addEventListener('input', render);
+    sd.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. When Metrics Disagree</h2>
+  <p class="vz-lede">Cosine, dot product and Euclidean distance are related and <em>not</em> interchangeable.
+    Stretch one candidate's magnitude and watch the podium change under you — then normalise and watch all
+    three agree forever. <b>Like ranking runners by finish time versus by the direction they ran: same
+    athletes, different podium.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="normalisation">
+    <button id="v5-raw" aria-pressed="true">vectors as stored</button>
+    <button id="v5-norm" aria-pressed="false">normalised to unit length</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-m">q = [1, 0] &nbsp;·&nbsp; a = [<span id="v5-ml">2.0</span>, 0]
+      &nbsp;·&nbsp; b = [0.8, 0.6]</label>
+    <input type="range" id="v5-m" min="0" max="3" step="0.1" value="2" aria-label="magnitude of candidate a">
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Metric selection cannot rescue a weak representation. Trying cosine, dot product and
+    Euclidean on the same unlabelled examples is <b>not model adaptation</b>. Start with the metric prescribed
+    by the model or its training loss, reproduce the preprocessing contract, evaluate retrieval metrics — and
+    change the metric only when evidence supports it, then rebuild the index consistently.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-rows{margin-top:13px;display:flex;flex-direction:column;gap:6px}
+    .v5-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v5-r h6{margin:0 0 5px;font-size:11.5px;font-weight:800;display:flex;justify-content:space-between;gap:8px}
+    .v5-r h6 em{font-style:normal;font-size:10px;letter-spacing:.04em}
+    .v5-vals{display:flex;gap:8px;flex-wrap:wrap;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var normalised = false;
+    var s = document.getElementById('v5-m'), lab = document.getElementById('v5-ml');
+    var bRaw = document.getElementById('v5-raw'), bNorm = document.getElementById('v5-norm');
+    var rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+
+    function norm(v){ return Math.sqrt(v[0] * v[0] + v[1] * v[1]); }
+    function unit(v){
+      var n = norm(v);
+      return n > 1e-12 ? [v[0] / n, v[1] / n] : null;   // no direction to keep
+    }
+    function dot(x, y){ return x[0] * y[0] + x[1] * y[1]; }
+    function dist(x, y){ return Math.sqrt((x[0] - y[0]) * (x[0] - y[0]) + (x[1] - y[1]) * (x[1] - y[1])); }
+    function f(x){ return (x === null || !isFinite(x)) ? null : x; }
+    function show(x){ return x === null ? 'undefined' : x.toFixed(3); }
+
+    function row(name, va, vb, higherWins, note){
+      var winner;
+      if (va === null || vb === null) winner = null;
+      else if (Math.abs(va - vb) < 1e-9) winner = 'tie';
+      else winner = ((va > vb) === higherWins) ? 'a' : 'b';
+      var col = winner === null ? 'var(--viz-amber)'
+        : winner === 'tie' ? 'var(--viz-muted)'
+        : winner === 'a' ? 'var(--viz-violet)' : 'var(--viz-green)';
+      var word = winner === null ? 'NO ANSWER — undefined'
+        : winner === 'tie' ? 'TIE' : 'PREFERS ' + winner.toUpperCase();
+      return '<div class="v5-r" style="border-color:' + col + '">' +
+        '<h6><span>' + name + '</span><em style="color:' + col + '">' + word + '</em></h6>' +
+        '<div class="v5-vals"><span>a: ' + show(va) + '</span><span>b: ' + show(vb) + '</span>' +
+        '<span style="color:var(--viz-muted)">' + note + '</span></div></div>';
+    }
+
+    function render(){
+      var m = Number(s.value);
+      if (!isFinite(m) || m < 0) m = 0;
+      lab.textContent = m.toFixed(1);
+      bRaw.setAttribute('aria-pressed', normalised ? 'false' : 'true');
+      bNorm.setAttribute('aria-pressed', normalised ? 'true' : 'false');
+
+      var q = [1, 0], a = [m, 0], b = [0.8, 0.6];
+      var zero = norm(a) < 1e-12;
+      if (normalised) {
+        var ua = unit(a), ub = unit(b), uq = unit(q);
+        a = ua; b = ub; q = uq;
+      }
+
+      var dotA = (a === null) ? null : f(dot(q, a));
+      var dotB = (b === null) ? null : f(dot(q, b));
+      var cosA = (a === null || norm(a) < 1e-12) ? null : f(dot(q, a) / (norm(q) * norm(a)));
+      var cosB = (b === null || norm(b) < 1e-12) ? null : f(dot(q, b) / (norm(q) * norm(b)));
+      var eucA = (a === null) ? null : f(dist(q, a));
+      var eucB = (b === null) ? null : f(dist(q, b));
+
+      rows.innerHTML =
+        row('dot product', dotA, dotB, true, 'higher wins · alignment × magnitude') +
+        row('cosine similarity', cosA, cosB, true, 'higher wins · direction only') +
+        row('Euclidean distance', eucA, eucB, false, 'lower wins · straight-line separation');
+
+      if (zero) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">a is the zero vector — cosine is undefined.</b>' +
+          'A zero vector has no norm, so the division in cos(x, y) = (x · y) / (norm(x) × norm(y)) has nothing to divide by, and there is no direction to normalise either. ' +
+          'Empty or fully truncated inputs can produce exactly this, which is why you <b style="display:inline">validate norms and route invalid records</b> rather than indexing them. ' +
+          'Note that dot product and Euclidean distance still return numbers here — they answer confidently and the answer is meaningless.';
+      } else if (normalised) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Normalised: all three rank identically, at every magnitude.</b>' +
+          'With unit vectors cos(x, y) = x · y directly. And expanding the square, norm(x − y)² = norm(x)² + norm(y)² − 2 x·y = 1 + 1 − 2 x·y = <b style="display:inline">2 − 2 x·y</b>, ' +
+          'which is strictly decreasing in the dot product. So maximising dot, maximising cosine and minimising Euclidean distance give <b style="display:inline">the same ordering</b> — useful when an index supports one metric more efficiently. ' +
+          '<br><br>Check it on b, which was already unit length: 2 − 2(0.8) = 0.4, and the distance printed above is √0.4 ≈ 0.632. Drag the magnitude dial now: a is renormalised to [1, 0] whatever you do, so nothing moves. ' +
+          '<br><br>That is the point and also the warning — if magnitude encoded confidence, popularity or a learned relevance property, you just deleted it.';
+      } else {
+        var flip = (dotA > dotB) !== (eucA < eucB);
+        why.innerHTML = flip
+          ? '<b style="color:var(--viz-red)">The metrics disagree — magnitude did it.</b>' +
+            'At a = [' + m.toFixed(1) + ', 0] the dot products are ' + show(dotA) + ' and ' + show(dotB) + ', so dot prefers a; the distances are ' +
+            show(eucA) + ' and ' + show(eucB) + ', so Euclidean prefers b. Cosine ignores magnitude entirely and stays at 1 vs 0.8. ' +
+            'Same three vectors, opposite answer, and the only thing that changed was how long a is. ' +
+            '<br><br>This is the lesson' + String.fromCharCode(8217) + 's own example at a = [2, 0]: dot 2 vs 0.8, cosine 1 vs 0.8, distance 1 vs √0.4 ≈ 0.632.'
+          : '<b style="color:var(--viz-amber)">They agree here — which proves nothing.</b>' +
+            'At a = [' + m.toFixed(1) + ', 0] all three happen to point the same way, but the agreement is an accident of this magnitude, not a property of the metrics. ' +
+            'Drag toward 2.0 and Euclidean distance breaks away from dot product; the vectors never changed direction at all. ' +
+            '<br><br>An unnormalised dot-product system can favour large-norm documents even when their direction is less relevant — inspect norm distributions and evaluate segments rather than guessing.';
+      }
+    }
+    s.addEventListener('input', render);
+    bRaw.addEventListener('click', function(){ normalised = false; render(); });
+    bNorm.addEventListener('click', function(){ normalised = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

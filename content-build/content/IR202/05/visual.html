@@ -1,0 +1,592 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Interaction Spectrum</button>
+  <button class="viz-tab" data-viz-tab="2">2. MaxSim Token By Token</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Token Vector Bill</button>
+  <button class="viz-tab" data-viz-tab="4">4. Teacher And Student</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Interaction Spectrum</h2>
+  <p class="vz-lede"><b>Bi-Encoder vs Cross-Encoder: Effectiveness vs Efficiency</b> gave you the two ends
+    and told you to pick one. They are the ends of a <em>spectrum</em>, and late interaction is the
+    engineered midpoint. Tap an architecture; drag how many candidates each query must score.
+    <b>Like hiring: skim CVs filed months ago, sit every applicant down for a real interview, or file each
+    CV sentence separately and match your questions against them line by line.</b></p>
+
+  <div class="v1-cards" id="v1-cards"></div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Candidates scored per query: <span id="v1-nl">100</span></label>
+    <input type="range" id="v1-n" min="10" max="1000" step="10" value="100" aria-label="Candidates scored per query">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Read the middle column as a <b>choice about when the interaction happens</b>, not about
+    how big the model is. Nothing in late interaction attends across the query and the document — the
+    document side never sees the query at all. What changed is that the evidence was kept at token
+    granularity instead of being averaged into one vector before it could be used.</p>
+
+  <style>
+    .v1-cards{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-c{flex:1 1 160px;min-height:44px;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:11px;padding:10px 11px;font:inherit}
+    .v1-c[aria-pressed="true"]{border-color:var(--viz-accent);border-width:2px}
+    .v1-t{font-size:13px;font-weight:800;margin-bottom:2px}
+    .v1-chip{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+      border:1px solid var(--viz-line);border-radius:999px;padding:1px 7px;margin-bottom:7px}
+    .v1-f{font-size:11px;line-height:1.5;display:flex;justify-content:space-between;gap:8px;
+      border-top:1px dashed var(--viz-line);padding:3px 0 0;margin-top:3px}
+    .v1-f span:first-child{color:var(--viz-muted)}
+    .v1-f b{font-family:ui-monospace,Consolas,monospace;font-size:11px;text-align:right}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var QTOK = 8, DTOK = 200;              // 8 query tokens against a 200-token document
+    var cardsEl = document.getElementById('v1-cards');
+    var slider = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var why = document.getElementById('v1-why');
+    var sel = 1;                            // start on late interaction, the new material
+
+    function fmt(x){
+      if (!isFinite(x) || isNaN(x)) return '—';
+      if (x >= 1e9) return (x / 1e9).toFixed(1) + 'B';
+      if (x >= 1e6) return (x / 1e6).toFixed(1) + 'M';
+      if (x >= 1e3) return (x / 1e3).toFixed(1) + 'k';
+      return String(Math.round(x));
+    }
+
+    function model(n){
+      return [
+        { t:'bi-encoder', chip:'already yours', interaction:'none',
+          runs:1, dots:n * 768, bytes:768 * 2, sees:'no' },
+        { t:'late interaction', chip:'this lesson', interaction:'deferred, token-level',
+          runs:1, dots:n * QTOK * DTOK, bytes:DTOK * 128 * 2, sees:'no' },
+        { t:'cross-encoder', chip:'already yours', interaction:'total, joint attention',
+          runs:n, dots:0, bytes:0, sees:'yes' }
+      ];
+    }
+
+    function render(){
+      var n = Math.max(1, Number(slider.value) || 1);
+      nl.textContent = n;
+      var M = model(n);
+
+      cardsEl.innerHTML = M.map(function(m, i){
+        var accent = i === sel ? 'var(--viz-accent)' : 'var(--viz-muted)';
+        return '<button class="v1-c" aria-pressed="' + (i === sel ? 'true' : 'false') + '" data-i="' + i + '">' +
+          '<div class="v1-t">' + m.t + '</div>' +
+          '<div class="v1-chip" style="color:' + accent + '">' + m.chip + '</div>' +
+          '<div class="v1-f"><span>interaction</span><b>' + m.interaction + '</b></div>' +
+          '<div class="v1-f"><span>encoder runs / query</span><b>' + fmt(m.runs) + '</b></div>' +
+          '<div class="v1-f"><span>dot products / query</span><b>' + (m.dots ? fmt(m.dots) : 'n/a') + '</b></div>' +
+          '<div class="v1-f"><span>stored per 200-tok doc</span><b>' + (m.bytes ? Math.round(m.bytes / 1024) + ' KB' : 'nothing') + '</b></div>' +
+          '<div class="v1-f"><span>doc side sees query</span><b>' + m.sees + '</b></div>' +
+          '</button>';
+      }).join('');
+      [].slice.call(cardsEl.children).forEach(function(b){
+        b.addEventListener('click', function(){ sel = Number(b.getAttribute('data-i')); render(); });
+      });
+
+      var m = M[sel];
+      if (sel === 0) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Everything precomputed, everything blurred.</b>' +
+          'One vector per document, baked offline, so scoring ' + n + ' candidates is ' + fmt(m.dots) + ' multiply-adds and no model runs at all. ' +
+          'The price is that <b>every token-specific signal was averaged away before the query existed</b> — exact identifiers, negation, conjunctive constraints.';
+      } else if (sel === 1) {
+        why.innerHTML = '<b style="color:var(--viz-accent)">Precompute the tokens, defer the interaction.</b>' +
+          'ColBERT keeps a <b>128-dimensional vector for every token</b> instead of pooling: a 200-token document becomes 200 vectors, computed offline. ' +
+          'At query time you run the encoder once (on the query) and then do ' + QTOK + ' × ' + DTOK + ' = ' + fmt(QTOK * DTOK) + ' dot products per candidate — ' +
+          fmt(m.dots) + ' in total for ' + n + ' candidates. That is <b>arithmetic over stored vectors, not a forward pass</b>, which is the whole trick. ' +
+          '<br><br>Three things survive at once: precomputation, token-level granularity, and explainability — you can point at which query token matched which document token.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-red)">Total interaction, nothing precomputable.</b>' +
+          'Every token pair attends to every other, so the model cannot see the document until the query arrives: ' + n + ' candidates means <b>' + fmt(m.runs) + ' full transformer forward passes</b> inside the request. ' +
+          'That is the quality ceiling of this course and the reason rerank depth is a budget rather than a preference.';
+      }
+    }
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. MaxSim Token By Token</h2>
+  <p class="vz-lede">The score is <b>max over the document, then sum over the query</b>. Tap a query token to
+    see which document token won its max, then drag the one similarity that separates the two documents.
+    <b>Like a checklist: each item scores against the best thing in the box that answers it, and the box's
+    total is how many items it covered.</b></p>
+
+  <div class="v2-rows" id="v2-rows"></div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-s">Doc B: best match for <code>layover</code> =
+      <span id="v2-sl">0.30</span></label>
+    <input type="range" id="v2-s" min="0" max="100" step="1" value="30" aria-label="Doc B best match for layover">
+    <div class="v2-tot" id="v2-tot"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two serving details hide in this picture. The fifth query token is a <b>placeholder mask
+    token</b> — ColBERT augments the query with them so the encoder can expand it with learned context, which
+    is why a four-word query has five vectors. And on the document side, the most redundant token vectors can
+    be <b>pruned</b> from the index with little quality loss, because a max only ever needs the best
+    counterpart.</p>
+
+  <style>
+    .v2-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v2-r{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:7px 10px;font:inherit;font-size:11.5px;
+      display:flex;align-items:center;gap:8px;line-height:1.35}
+    .v2-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-q{flex:0 0 74px;font-family:ui-monospace,Consolas,monospace;font-weight:800}
+    .v2-pair{flex:1 1 auto;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v2-v{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-weight:800;width:74px;text-align:right}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-tot{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The worked example: query `visa required for layover`, five query-token vectors.
+    // Doc A is the transit-visa page; Doc B is the long-stay visa page. Every token but
+    // `layover` is held equal, so the panel isolates the one that decides the ranking.
+    var TOK = [
+      { q:'visa',     a:'visa',   av:0.95, b:'visa',        note:'Same surface form, and both sides were contextualised by their own sentence before the vectors were stored. A near-perfect 0.95.' },
+      { q:'layover',  a:'transit', av:0.88, b:'stay',       note:'The interesting one. <code>layover</code> never appears in Doc A, but <code>transit</code> sits next to it in the embedding space because their contexts made them neighbours — a semantic match at token granularity that no keyword index would find and no single pooled vector would preserve.' },
+      { q:'required', a:'waiver', av:0.40, b:'waiver',      note:'A weak counterpart: 0.40. The token still contributes — MaxSim never drops a query token, it just scores it badly. Coverage is soft, not binary.' },
+      { q:'for',      a:'for',    av:0.50, b:'for',         note:'A function word. It contributes 0.50 to every document that has any prose at all, so it moves nothing between candidates — which is exactly why the sum is over query tokens rather than a threshold count.' },
+      { q:'[MASK]',   a:'transit', av:0.60, b:'application', note:'A placeholder mask token. ColBERT pads the query with these so the encoder can expand it with learned context — the query gets to ask about things it did not literally say.' }
+    ];
+    var BASE = 0.95 + 0.40 + 0.50 + 0.60;   // everything except `layover`
+    var TOTAL_A = BASE + 0.88;              // 3.33
+    var cur = 1;
+
+    var rowsEl = document.getElementById('v2-rows');
+    var s = document.getElementById('v2-s'), sl = document.getElementById('v2-sl');
+    var tot = document.getElementById('v2-tot'), why = document.getElementById('v2-why');
+
+    function bv(i, x){ return i === 1 ? x : TOK[i].av; }
+
+    function render(){
+      var x = (Number(s.value) || 0) / 100;
+      sl.textContent = x.toFixed(2);
+      var totalB = BASE + x;
+
+      rowsEl.innerHTML = TOK.map(function(t, i){
+        var vb = bv(i, x);
+        var moved = i === 1;
+        return '<button class="v2-r" aria-pressed="' + (i === cur ? 'true' : 'false') + '" data-i="' + i + '">' +
+          '<span class="v2-q">' + t.q + '</span>' +
+          '<span class="v2-pair">A:' + t.a + ' &nbsp; B:' + t.b + '</span>' +
+          '<span class="v2-v"><span style="color:var(--viz-accent)">' + t.av.toFixed(2) + '</span> / ' +
+          '<span style="color:' + (moved ? 'var(--viz-violet)' : 'var(--viz-muted)') + '">' + vb.toFixed(2) + '</span></span>' +
+          '</button>';
+      }).join('');
+      [].slice.call(rowsEl.children).forEach(function(b){
+        b.addEventListener('click', function(){ cur = Number(b.getAttribute('data-i')); render(); });
+      });
+
+      function bar(label, v, colour, tag){
+        var w = Math.max(2, Math.min(100, Math.round(v / 5 * 100)));
+        return '<div class="v2-b"><h6><span>' + label + '</span><b style="color:' + colour + '">' + v.toFixed(2) + ' &nbsp;' + tag + '</b></h6>' +
+          '<div class="v2-track"><i style="width:' + w + '%;background:' + colour + '"></i></div></div>';
+      }
+      var aWins = TOTAL_A >= totalB;
+      tot.innerHTML =
+        bar('Doc A · transit visa page', TOTAL_A, 'var(--viz-accent)', aWins ? 'RANKED 1st' : 'ranked 2nd') +
+        bar('Doc B · long-stay visa page', totalB, 'var(--viz-violet)', aWins ? 'ranked 2nd' : 'RANKED 1st');
+
+      var t = TOK[cur];
+      var gap = Math.abs(TOTAL_A - totalB);
+      why.innerHTML = '<b>Query token <code>' + t.q + '</code> → best document match</b>' + t.note +
+        '<br><br><span style="color:var(--viz-muted)">Doc A = 0.95 + 0.88 + 0.40 + 0.50 + 0.60 = <b>3.33</b>. ' +
+        'Doc B = ' + BASE.toFixed(2) + ' + ' + x.toFixed(2) + ' = <b>' + totalB.toFixed(2) + '</b>. ' +
+        'Gap ' + gap.toFixed(2) + '.</span><br><br>' +
+        (x < 0.88
+          ? 'Every other token is held equal, so <b>one token decides the ranking</b>. Doc B answers <code>visa</code> just as well and still loses, because the outer operation is a <b>sum over query tokens</b>: each one must be answered <em>somewhere</em> in the document, and an unanswered one cannot be compensated by a stronger match elsewhere. That is soft term coverage with semantic matching underneath.'
+          : 'Push it past <b>0.88</b> and Doc B takes the top slot — the crossover is exactly where its <code>layover</code> evidence beats Doc A\'s <code>transit</code>. Nothing else in the score moved, which is what makes late interaction debuggable: you can name the token that flipped the ranking.');
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Token Vector Bill</h2>
+  <p class="vz-lede">Keeping every token costs 30–50× a single vector, and scoring MaxSim over a whole corpus
+    is worse. PLAID answers both with three cuts — step through them and watch which number each one attacks.
+    <b>Like a warehouse: first shrink every box, then only walk the aisles that could hold what you want, and
+    only open the boxes on the shelf you reached.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v3-lab" for="v3-tok">Tokens per document: <span id="v3-tokl">200</span></label>
+    <input type="range" id="v3-tok" min="50" max="500" step="10" value="200" aria-label="Tokens per document">
+    <div class="v3-bytes" id="v3-bytes"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Corpus size" id="v3-corpus"></div>
+  <div class="vz-seg" role="group" aria-label="PLAID stage" id="v3-stage"></div>
+
+  <div class="vz-card">
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Notice the shape of the three cuts: coarse centroids narrow the field, then exact
+    residuals decide the order. <b>PLAID is the ranking funnel from lesson 01 rebuilt inside one model</b> —
+    centroids are the recall stage, residuals the precision stage. The compression factor and the activated
+    fraction used here are illustrative dials; the real values depend on the index and the query, and only the
+    <em>shape</em> generalises.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-bytes{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-stats{display:flex;flex-direction:column;gap:7px}
+    .v3-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px}
+    .v3-row.is-cut{border-color:var(--viz-green)}
+    .v3-row b{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v3-tag{font-size:9.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DIM = 128, BYTES = 2, SINGLE = 768 * 2;   // 128-dim token vectors, 2-byte values
+    var QTOK = 8, COMPRESS = 6, ACTIVATED = 0.01, SHORTLIST = 1000;
+    var CORPORA = [
+      { l:'10k docs', n:1e4 }, { l:'100k docs', n:1e5 },
+      { l:'1M docs', n:1e6 }, { l:'10M docs', n:1e7 }
+    ];
+    var STAGES = [
+      { l:'raw ColBERT' }, { l:'1 · compress' }, { l:'2 · prune' }, { l:'3 · refine' }
+    ];
+    var ci = 2, si = 0;
+
+    var tok = document.getElementById('v3-tok'), tokl = document.getElementById('v3-tokl');
+    var bytesEl = document.getElementById('v3-bytes');
+    var corpusEl = document.getElementById('v3-corpus'), stageEl = document.getElementById('v3-stage');
+    var statsEl = document.getElementById('v3-stats'), why = document.getElementById('v3-why');
+
+    function big(x){
+      if (!isFinite(x) || isNaN(x)) return '—';
+      if (x >= 1e12) return (x / 1e12).toFixed(1) + 'T';
+      if (x >= 1e9) return (x / 1e9).toFixed(1) + 'B';
+      if (x >= 1e6) return (x / 1e6).toFixed(1) + 'M';
+      if (x >= 1e3) return (x / 1e3).toFixed(1) + 'k';
+      return String(Math.round(x));
+    }
+    function gb(bytes){
+      if (!isFinite(bytes) || isNaN(bytes)) return '—';
+      if (bytes >= 1e9) return (bytes / 1e9).toFixed(1) + ' GB';
+      if (bytes >= 1e6) return (bytes / 1e6).toFixed(1) + ' MB';
+      return Math.round(bytes / 1e3) + ' KB';
+    }
+
+    function seg(el, items, active, onPick){
+      el.innerHTML = items.map(function(it, i){
+        return '<button aria-pressed="' + (i === active ? 'true' : 'false') + '" data-i="' + i + '">' + it.l + '</button>';
+      }).join('');
+      [].slice.call(el.children).forEach(function(b){
+        b.addEventListener('click', function(){ onPick(Number(b.getAttribute('data-i'))); });
+      });
+    }
+
+    function render(){
+      var t = Math.max(1, Number(tok.value) || 1);
+      tokl.textContent = t;
+      var perDoc = t * DIM * BYTES;
+      var ratio = perDoc / Math.max(1, SINGLE);
+      var docs = CORPORA[ci].n;
+
+      bytesEl.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">ColBERT ' + t + '×' + DIM + '×' + BYTES + 'B = ' + Math.round(perDoc / 1024) + ' KB/doc</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">one 768-d vector = 1.5 KB/doc</span>' +
+        '<span class="v3-pill" style="color:' + (ratio >= 30 ? 'var(--viz-red)' : 'var(--viz-amber)') + ';border-color:' + (ratio >= 30 ? 'var(--viz-red)' : 'var(--viz-amber)') + '">ratio ' + ratio.toFixed(0) + '× — storage</span>';
+
+      seg(corpusEl, CORPORA, ci, function(i){ ci = i; render(); });
+      seg(stageEl, STAGES, si, function(i){ si = i; render(); });
+
+      var indexBytes = docs * perDoc / (si >= 1 ? COMPRESS : 1);
+      var touched = si >= 2 ? Math.max(1, Math.ceil(docs * ACTIVATED)) : docs;
+      var exact = si >= 3 ? Math.min(touched, SHORTLIST) : touched;
+      var dots = exact * QTOK * t;
+
+      function row(label, value, cut, tag){
+        var c = cut ? 'var(--viz-green)' : 'var(--viz-muted)';
+        return '<div class="v3-row' + (cut ? ' is-cut' : '') + '"><span>' + label + '</span>' +
+          '<span class="v3-tag" style="color:' + c + '">' + (cut ? '✓ cut · ' + tag : tag) + '</span>' +
+          '<b>' + value + '</b></div>';
+      }
+      statsEl.innerHTML =
+        row('index size on disk / in RAM', gb(indexBytes), si >= 1, si >= 1 ? 'compression' : 'uncompressed') +
+        row('documents touched per query', big(touched), si >= 2, si >= 2 ? 'centroid pruning' : 'whole corpus') +
+        row('exact MaxSim scorings', big(exact), si >= 3, si >= 3 ? 'residual refinement' : 'every doc touched') +
+        row('dot products per query', big(dots), si >= 2, si >= 2 ? 'follows from the two above' : 'derived');
+
+      var W = [
+        '<b style="color:var(--viz-red)">Raw ColBERT does not serve at this size.</b>' +
+          'Every token vector is stored at full precision — ' + gb(indexBytes) + ' for ' + big(docs) + ' documents — and MaxSim would run against <b>every one of them</b>: ' + big(dots) + ' dot products per query. ' +
+          'Both numbers scale linearly with the corpus, which is why late interaction needs a serving system and not just a model.',
+        '<b style="color:var(--viz-green)">Cut 1 · centroid compression.</b>' +
+          'All token vectors in the corpus are clustered, and each is stored as a <b>centroid ID plus a small quantised residual</b> instead of 256 raw bytes. The index falls severalfold, to ' + gb(indexBytes) + '. ' +
+          '<br><br>Note what did <em>not</em> move: you still touch ' + big(touched) + ' documents. Compression attacks memory, not scan cost.',
+        '<b style="color:var(--viz-green)">Cut 2 · centroid pruning.</b>' +
+          'Only centroids near the query tokens are activated, and only documents holding tokens in those centroids become candidates — ' + big(touched) + ' instead of ' + big(docs) + '. ' +
+          'The corpus is <b>never exhaustively scanned</b>, and the dot-product count falls with it to ' + big(dots) + '. ' +
+          '<br><br>This is the cut that turns ColBERT from a reranker into a retriever.',
+        '<b style="color:var(--viz-green)">Cut 3 · residual refinement.</b>' +
+          'The shortlist — ' + big(exact) + ' documents — is the only place residuals are decompressed and the <b>full-precision MaxSim</b> actually runs. Everything above it was scored on coarse centroid approximations. ' +
+          '<br><br>Now read the three cuts together: coarse and cheap over many, exact and expensive over few. That is the funnel from lesson 01, rebuilt inside one model.'
+      ];
+      why.innerHTML = W[si];
+    }
+    tok.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Teacher And Student</h2>
+  <p class="vz-lede">The best relevance model you can build is usually too slow to serve, so you train a cheap
+    student on the expensive teacher's own scores. Three things to feel: what the loss matches, why soft scores
+    beat labels, and where the bill lands. <b>Like an apprentice watching a master grade work: the grades
+    themselves are the lesson, and the gaps between them are the real lesson.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="What to inspect">
+    <button id="v4-m0" aria-pressed="true">margin-MSE</button>
+    <button id="v4-m1" aria-pressed="false">dark knowledge</button>
+    <button id="v4-m2" aria-pressed="false">the bill</button>
+  </div>
+
+  <div class="vz-card">
+    <div id="v4-body0">
+      <label class="v4-lab" for="v4-shift">Shift every student score by <span id="v4-shiftl">0.0</span></label>
+      <input type="range" id="v4-shift" min="-30" max="30" step="1" value="0" aria-label="Shift every student score">
+      <label class="v4-lab" for="v4-scale" style="margin-top:10px">Scale the student's gaps by <span id="v4-scalel">1.00</span>×</label>
+      <input type="range" id="v4-scale" min="20" max="180" step="5" value="100" aria-label="Scale the student gaps">
+      <div class="v4-rows" id="v4-rows"></div>
+      <div class="v4-loss" id="v4-loss"></div>
+    </div>
+
+    <div id="v4-body1" class="v4-off">
+      <label class="v4-lab" for="v4-neg">Teacher's score for the <em>plausible</em> negative:
+        <span id="v4-negl">0.79</span></label>
+      <input type="range" id="v4-neg" min="0" max="100" step="1" value="79" aria-label="Teacher score for the plausible negative">
+      <div class="v4-rows" id="v4-dk"></div>
+    </div>
+
+    <div id="v4-body2" class="v4-off">
+      <label class="v4-lab" for="v4-qpd">Queries per day: <span id="v4-qpdl">1.0M</span></label>
+      <input type="range" id="v4-qpd" min="30" max="70" step="1" value="60" aria-label="Queries per day">
+      <label class="v4-lab" for="v4-depth" style="margin-top:10px">Rerank depth: <span id="v4-depthl">50</span></label>
+      <input type="range" id="v4-depth" min="10" max="200" step="10" value="50" aria-label="Rerank depth">
+      <div class="v4-rows" id="v4-bill"></div>
+    </div>
+
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Four failure modes deserve respect, and two of them are immune to more data.
+    <b>Inherited bias</b>: the teacher's systematic errors become the student's training targets, so audit the
+    teacher first. <b>Capacity ceiling</b>: a student far smaller than the teacher cannot fit its function.
+    <b>Distribution mismatch</b>: distilled on web queries, served on support tickets, failing silently.
+    <b>Cascading</b>: distilling a distilled model compounds error — keep one generation between them.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-off{display:none}
+    .v4-rows{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v4-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.35}
+    .v4-r b{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:12px;text-align:right}
+    .v4-tag{font-size:9.5px;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+    .v4-loss{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var T = [
+      { n:'relevant', s:8.2 },
+      { n:'plausible negative', s:5.1 },
+      { n:'random negative', s:0.4 }
+    ];
+    var PAIRS = [[0,1],[0,2],[1,2]];
+    var mode = 0;
+
+    var tabs = [document.getElementById('v4-m0'), document.getElementById('v4-m1'), document.getElementById('v4-m2')];
+    var bodies = [document.getElementById('v4-body0'), document.getElementById('v4-body1'), document.getElementById('v4-body2')];
+    var shift = document.getElementById('v4-shift'), shiftl = document.getElementById('v4-shiftl');
+    var scale = document.getElementById('v4-scale'), scalel = document.getElementById('v4-scalel');
+    var rows = document.getElementById('v4-rows'), loss = document.getElementById('v4-loss');
+    var neg = document.getElementById('v4-neg'), negl = document.getElementById('v4-negl'), dk = document.getElementById('v4-dk');
+    var qpd = document.getElementById('v4-qpd'), qpdl = document.getElementById('v4-qpdl');
+    var depth = document.getElementById('v4-depth'), depthl = document.getElementById('v4-depthl');
+    var bill = document.getElementById('v4-bill'), why = document.getElementById('v4-why');
+
+    function big(x){
+      if (!isFinite(x) || isNaN(x)) return '—';
+      if (x >= 1e12) return (x / 1e12).toFixed(1) + 'T';
+      if (x >= 1e9) return (x / 1e9).toFixed(1) + 'B';
+      if (x >= 1e6) return (x / 1e6).toFixed(1) + 'M';
+      if (x >= 1e3) return (x / 1e3).toFixed(1) + 'k';
+      return String(Math.round(x));
+    }
+    function row(label, value, colour, tag){
+      return '<div class="v4-r"><span>' + label + '</span>' +
+        '<span class="v4-tag" style="color:' + colour + '">' + tag + '</span>' +
+        '<b style="color:' + colour + '">' + value + '</b></div>';
+    }
+
+    function renderMargins(){
+      var c = (Number(shift.value) || 0) / 10;
+      var k = (Number(scale.value) || 100) / 100;
+      shiftl.textContent = (c >= 0 ? '+' : '') + c.toFixed(1);
+      scalel.textContent = k.toFixed(2);
+
+      var S = T.map(function(t){ return k * t.s + c; });
+      var point = 0;
+      for (var i = 0; i < T.length; i++) point += Math.pow(S[i] - T[i].s, 2);
+      point /= T.length;
+      var marg = 0;
+      PAIRS.forEach(function(p){
+        var ds = S[p[0]] - S[p[1]], dt = T[p[0]].s - T[p[1]].s;
+        marg += Math.pow(ds - dt, 2);
+      });
+      marg /= PAIRS.length;
+
+      rows.innerHTML = T.map(function(t, i){
+        return row(t.n, 'teacher ' + t.s.toFixed(1) + ' · student ' + S[i].toFixed(1),
+          'var(--viz-muted)', 'candidate ' + (i + 1));
+      }).join('') +
+      row('top-pair margin', 'teacher 3.1 · student ' + (S[0] - S[1]).toFixed(1),
+        Math.abs((S[0] - S[1]) - 3.1) < 0.05 ? 'var(--viz-green)' : 'var(--viz-red)',
+        Math.abs((S[0] - S[1]) - 3.1) < 0.05 ? 'matched' : 'off by ' + Math.abs((S[0] - S[1]) - 3.1).toFixed(1));
+
+      loss.innerHTML =
+        '<span class="v4-pill" style="color:' + (point < 0.05 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (point < 0.05 ? 'var(--viz-green)' : 'var(--viz-red)') + '">pointwise MSE ' + point.toFixed(2) + '</span>' +
+        '<span class="v4-pill" style="color:' + (marg < 0.05 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (marg < 0.05 ? 'var(--viz-green)' : 'var(--viz-red)') + '">margin-MSE ' + marg.toFixed(2) + '</span>';
+
+      why.innerHTML = marg < 0.05 && point >= 0.05
+        ? '<b style="color:var(--viz-green)">Shift alone: margin-MSE is exactly 0, pointwise MSE is not.</b>' +
+          'Work the algebra. The loss is Σ [ (s_i − s_j) − (t_i − t_j) ]². Add a constant c to <em>every</em> student score and each difference s_i − s_j is unchanged, so the whole sum stays 0 — <b>margin-MSE is shift-invariant</b>. ' +
+          'Pointwise MSE is not, and it spends the student\'s capacity chasing the teacher\'s absolute scale, which the funnel never reads. ' +
+          '<br><br>The teacher scores 8.2, 5.1, 0.4; the margins are 3.1, 7.8 and 4.7. Those gaps say <em>relevant beats plausible by a lot, plausible beats random by a little</em> — that is the structure the ranking consumes.'
+        : Math.abs(k - 1) < 0.03
+          ? '<b style="color:var(--viz-green)">A perfect student.</b>' +
+            'Both losses are 0 because the student reproduces the teacher exactly. Now drag <b>shift</b>: pointwise MSE rises and margin-MSE does not move. Then drag <b>scale</b>, and watch both react.'
+          : '<b style="color:var(--viz-red)">Rescaled gaps: margin-MSE punishes this, and it should.</b>' +
+            'At ' + k.toFixed(2) + '× the student still ranks the three candidates in the same order, so an ordering-only view would call it perfect. But the top-pair gap is now ' + (S[0] - S[1]).toFixed(1) + ' against the teacher\'s 3.1: the student has learned that relevant ' +
+            (k < 1 ? 'barely beats' : 'overwhelms') + ' plausible. ' +
+            '<br><br>Fuse that into a funnel, or threshold on it, and the confidence structure is gone. <b>Matching margins is what preserves it</b> — and unlike raw scores, margins do not care what scale the teacher happened to use.';
+    }
+
+    function renderDark(){
+      var b = (Number(neg.value) || 0) / 100;
+      negl.textContent = b.toFixed(2);
+      var soft = [0.91, b, 0.03];
+      var hard = [1, 0, 0];
+      dk.innerHTML = T.map(function(t, i){
+        var colour = i === 1 ? 'var(--viz-violet)' : 'var(--viz-muted)';
+        return row(t.n, 'hard label ' + hard[i].toFixed(2) + ' · teacher ' + soft[i].toFixed(2), colour,
+          i === 1 ? 'the informative one' : 'agreed');
+      }).join('') +
+      row('gap the student must learn', 'teacher ' + Math.abs(soft[1] - soft[2]).toFixed(2) + ' · labels 0.00',
+        'var(--viz-green)', 'plausible vs random');
+
+      why.innerHTML = b >= 0.5
+        ? '<b style="color:var(--viz-violet)">The labels call B and C the same thing. The teacher does not.</b>' +
+          'A judged dataset says A is relevant and B is not — identical targets for the plausible negative and the random one. The teacher says <b>0.91, ' + b.toFixed(2) + ', 0.03</b>, and that middle number is the entire lesson: B is nearly right. ' +
+          'This gradient of near-relevance is <b>dark knowledge</b>, and it is why distilled students beat same-size models trained on hard labels alone. ' +
+          '<br><br>It also solves domain adaptation: the teacher needs no labels to produce these numbers, so you run it over unlabelled production-like queries and distil on your own traffic — GPU hours instead of annotation months.'
+        : '<b style="color:var(--viz-amber)">Drag it back up.</b>' +
+          'At ' + b.toFixed(2) + ' the teacher agrees with the hard labels: B is just another negative, and the soft target carries almost nothing the label did not. ' +
+          'The value of distillation lives in the <em>middle</em> of the range — the near-misses the teacher can grade and a binary judgment cannot.';
+    }
+
+    function renderBill(){
+      var q = Math.pow(10, (Number(qpd.value) || 40) / 10);
+      var d = Math.max(1, Number(depth.value) || 1);
+      qpdl.textContent = big(q);
+      depthl.textContent = d;
+      var TEACHER_PAIRS = 2.5e6;                 // 50,000 queries × top-50, scored once
+      var perDay = q * d;
+      var days = perDay > 0 ? TEACHER_PAIRS / perDay : Infinity;
+
+      bill.innerHTML =
+        row('teacher: pairs scored, ever', big(TEACHER_PAIRS), 'var(--viz-violet)', 'offline · once') +
+        row('student: pairs scored per day', big(perDay), 'var(--viz-accent)', 'online · forever') +
+        row('online work catches up with the whole training run in',
+          days >= 1 ? days.toFixed(1) + ' days' : (days * 24).toFixed(1) + ' hours',
+          days < 1 ? 'var(--viz-green)' : 'var(--viz-amber)', 'derived');
+
+      why.innerHTML = '<b>The two ledgers are not the same kind of bill.</b>' +
+        'The teacher\'s cost is <b>fixed and offline</b>: 50,000 production-like queries × their top-50 candidates = 2.5M pairs, scored once, in hours of batch compute, then frozen. ' +
+        'The student\'s cost is <b>recurring and online</b>: ' + big(q) + ' queries × depth ' + d + ' = ' + big(perDay) + ' pair scorings <em>every day</em>. ' +
+        '<br><br>At this traffic the serving side does the equivalent of the entire training run every ' +
+        (days >= 1 ? days.toFixed(1) + ' days' : (days * 24).toFixed(1) + ' hours') + ' — which is exactly why it must be paid at bi-encoder prices and not the teacher\'s. ' +
+        'Distillation converts an impossible online bill into a routine offline one. ' +
+        '<br><br><b>You do not deploy the best model, you deploy its student</b> — a bi-encoder at ANN speed, a smaller cross-encoder that buys deeper rerank depth, a ColBERT that lands in late interaction, or an ensemble-distilled sparse model.';
+    }
+
+    function render(){
+      tabs.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      bodies.forEach(function(b, i){ b.className = i === mode ? '' : 'v4-off'; });
+      if (mode === 0) renderMargins();
+      else if (mode === 1) renderDark();
+      else renderBill();
+    }
+    tabs.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    [shift, scale].forEach(function(el){ el.addEventListener('input', renderMargins); });
+    neg.addEventListener('input', renderDark);
+    [qpd, depth].forEach(function(el){ el.addEventListener('input', renderBill); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

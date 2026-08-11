@@ -1,0 +1,661 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. How Much Order</button>
+  <button class="viz-tab" data-viz-tab="2">2. Sift Up, Sift Down</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Admission Threshold</button>
+  <button class="viz-tab" data-viz-tab="4">4. Heap Versus Full Sort</button>
+  <button class="viz-tab" data-viz-tab="5">5. Choosing The Algorithm</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. How Much Order</h2>
+  <p class="vz-lede"><b>Hash Map vs Sorted Structure: When Order Matters</b> gave you two extremes — O(1)
+    lookup and no order, or complete order at a price. The heap is the middle: enough order to name the
+    weakest winner, and nothing else. Tap an operation and watch which promise pays. <b>Like a to-do list:
+    a pile you can search, a list sorted end to end, or just knowing which job is least urgent.</b></p>
+
+  <div class="v1-ops" id="v1-ops"></div>
+
+  <div class="v1-cards" id="v1-cards"></div>
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Read the last two rows together and the whole lesson is there. The sorted structure
+    answers "the best 100" instantly — but it paid ~20 million comparison units to get sorted, and it
+    holds all 1,000,000 records. The heap answers the same question in one pass while retaining 100. A
+    promise you never make is a promise you never pay for.</p>
+
+  <style>
+    .v1-ops{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-o{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v1-o[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-on{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v1-cards{display:flex;flex-direction:column;gap:7px}
+    .v1-c{border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 11px;background:var(--viz-surface)}
+    .v1-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12.5px}
+    .v1-nm{font-weight:800}
+    .v1-bg{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted)}
+    .v1-vd{margin-left:auto;font-size:10.5px;font-weight:800;letter-spacing:.04em}
+    .v1-track{height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden;margin-top:7px}
+    .v1-track i{display:block;height:100%}
+    .v1-u{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted);margin-top:5px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 1000000, LOGN = 20;                 // log2(1,000,000) ≈ 20
+    var OPS = [
+      { t:'look up one document by key',
+        r:[ {u:1,     b:'O(1)',        v:'best'},
+            {u:LOGN,  b:'O(log n)',    v:'workable'},
+            {u:N,     b:'O(n)',        v:'poor'} ],
+        why:['This is the hash table\'s question, and the heap has no answer for it.',
+          'The heap property cannot tell you whether key 8 lies under the child holding 3 or the one holding 5, so both branches stay possible and search degenerates to a full scan of all 1,000,000 slots. <b>A heap is a priority queue, not a membership index</b> — that job still belongs to the hash map from the previous lesson, and nothing here replaces it.'] },
+      { t:'read the smallest key',
+        r:[ {u:N,     b:'O(n)',        v:'poor'},
+            {u:1,     b:'O(1)',        v:'best'},
+            {u:1,     b:'O(1)',        v:'best'} ],
+        why:['The heap matches the sorted structure here for free.',
+          'The root <em>is</em> the minimum — following any path away from it can never decrease the key, so reading it is one array access at index 0. The hash map has no order at all, so it must probe every bucket. This one operation is the entire foundation of top-k: the weakest current winner is always one lookup away.'] },
+      { t:'insert one new score',
+        r:[ {u:1,     b:'O(1)',        v:'best'},
+            {u:N/2,   b:'O(n) shift',  v:'poor'},
+            {u:LOGN,  b:'O(log n)',    v:'workable'} ],
+        why:['Maintaining full order is what costs; maintaining ancestor order is cheap.',
+          'A sorted array must shift about half a million elements to keep the invariant. The heap appends into the next free slot — completeness preserved — then <b>sifts up</b> along the ancestor chain only, at most ⌊log₂ n⌋ = 20 swaps. Siblings are never compared, because the heap never promised anything about them.'] },
+      { t:'remove the smallest key',
+        r:[ {u:N,     b:'O(n)',        v:'poor'},
+            {u:N/2,   b:'O(n) shift',  v:'poor'},
+            {u:LOGN,  b:'O(log n)',    v:'best'} ],
+        why:['The heap wins outright, and the mechanism is the reason.',
+          'It does not shift anything: it promotes the <em>last</em> element into the root, shrinks by one, and <b>sifts down</b> — swapping with the smaller child while it exceeds that child. Shifting an array left instead costs O(n) per removal and destroys the whole cost argument. Visual 2 traces it move by move.'] },
+      { t:'hand back all 1,000,000 in rank order',
+        r:[ {u:N*LOGN, b:'O(n log n) — must sort', v:'poor'},
+            {u:1,      b:'already sorted',         v:'best'},
+            {u:N*LOGN, b:'O(n log n) — n extractions', v:'poor'} ],
+        why:['When the consumer needs complete order, sorting is doing necessary work.',
+          'Draining the heap is n extract-mins at O(log n) each — the same ~20 million comparison units as a sort, with worse constants. <b>Full sorting is not the naive option here; it is the honest one.</b> A UI asking to export every scored record ordered by score is exactly this row.'] },
+      { t:'hand back the best 100',
+        r:[ {u:N,      b:'O(n) scan + select',     v:'workable'},
+            {u:100,    b:'O(k) — but it paid to sort', v:'workable'},
+            {u:N,      b:'O(n log k), 100 retained',   v:'best'} ],
+        why:['This is the row the rest of the lesson lives in.',
+          'The sorted structure answers instantly and retained all 1,000,000 records plus ~20 million units of sorting to get there. The bounded heap does one pass, does a <b>single root comparison</b> for most candidates, and holds 100 entries. Same answer, O(k) memory, and it works on a stream that never fits in RAM.'] }
+    ];
+    var STRUCT = ['hash map', 'sorted array', 'binary heap'];
+    var MAXU = N * LOGN;
+    var cur = 0;
+    var ops = document.getElementById('v1-ops');
+    var cards = document.getElementById('v1-cards');
+    var why = document.getElementById('v1-why');
+
+    function fmt(u){
+      if (u >= 1000000) return (Math.round(u / 100000) / 10) + 'M units';
+      if (u >= 1000) return (Math.round(u / 100) / 10) + 'k units';
+      return u + (u === 1 ? ' unit' : ' units');
+    }
+    function col(v){ return v === 'best' ? 'var(--viz-green)' : (v === 'workable' ? 'var(--viz-amber)' : 'var(--viz-red)'); }
+
+    function show(i){
+      cur = i;
+      var o = OPS[i];
+      [].slice.call(ops.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      cards.innerHTML = o.r.map(function(r, j){
+        var c = col(r.v);
+        var denom = Math.log10(MAXU + 1) || 1;
+        var w = Math.max(3, Math.round(Math.log10(Math.max(r.u, 1) + 1) / denom * 100));
+        return '<div class="v1-c" style="border-color:' + c + '">' +
+          '<div class="v1-top"><span class="v1-nm">' + STRUCT[j] + '</span>' +
+          '<span class="v1-bg">' + r.b + '</span>' +
+          '<span class="v1-vd" style="color:' + c + '">' + r.v.toUpperCase() + '</span></div>' +
+          '<div class="v1-track"><i style="width:' + w + '%;background:' + c + '"></i></div>' +
+          '<div class="v1-u">' + fmt(r.u) + ' on n = 1,000,000 &nbsp;·&nbsp; log scale</div></div>';
+      }).join('');
+      why.innerHTML = '<b>' + o.why[0] + '</b>' + o.why[1];
+    }
+    OPS.forEach(function(o, i){
+      var b = document.createElement('button');
+      b.className = 'v1-o';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-on">' + (i + 1) + '</span><span>' + o.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      ops.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Sift Up, Sift Down</h2>
+  <p class="vz-lede">The tree is an array and the pointers are arithmetic. Step the two operations — insert
+    3, then extract the minimum — and tap any cell to see its parent and children computed. <b>Like a
+    tournament bracket where you only ever replay the matches on one path to the top.</b></p>
+
+  <div class="v2-nav">
+    <button id="v2-prev" class="v2-b">‹ back</button>
+    <span class="v2-dots" id="v2-dots"></span>
+    <button id="v2-next" class="v2-b">next ›</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-title" id="v2-title"></div>
+    <div class="v2-tree" id="v2-tree"></div>
+    <div class="v2-arr" id="v2-arr"></div>
+    <div class="v2-cmp vz-mono" id="v2-cmp"></div>
+    <div class="v2-tap" id="v2-tap">Tap a cell above to compute its parent and children.</div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Heap validity is cheap to assert after any custom implementation: for every index
+    i &gt; 0 the parent key must not exceed the child key. That O(n) sweep catches wrong parent arithmetic
+    and incomplete sifting — including the comparator-direction bug that silently retains the bottom k
+    instead of the top k, which raises no error and simply returns wrong results.</p>
+
+  <style>
+    .v2-nav{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+    .v2-b{min-height:44px;flex:0 0 auto;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 14px;font:inherit;font-weight:700;font-size:12.5px}
+    .v2-dots{flex:1;display:flex;gap:5px;justify-content:center;flex-wrap:wrap}
+    .v2-d{width:26px;height:8px;border-radius:4px;background:var(--viz-line)}
+    .v2-d.on{background:var(--viz-accent)}
+    .v2-title{font-size:13px;font-weight:800;margin-bottom:10px}
+    .v2-tree{display:flex;flex-direction:column;gap:7px;align-items:center;margin-bottom:12px}
+    .v2-lvl{display:flex;gap:6px;justify-content:center;flex-wrap:wrap}
+    .v2-n{min-width:40px;border:1.5px solid var(--viz-line);border-radius:9px;padding:4px 5px;text-align:center;
+      background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace}
+    .v2-n b{display:block;font-size:13px}
+    .v2-n i{display:block;font-style:normal;font-size:9px;color:var(--viz-muted)}
+    .v2-n em{display:block;font-style:normal;font-size:8.5px;font-weight:800;letter-spacing:.03em;margin-top:2px}
+    .v2-n.mv{border-color:var(--viz-accent);border-width:2px}
+    .v2-n.cp{border-color:var(--viz-amber);border-style:dashed}
+    .v2-arr{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:11px}
+    .v2-c{min-width:38px;min-height:44px;border:1.5px solid var(--viz-line);border-radius:8px;background:var(--viz-surface);
+      color:var(--viz-ink);font:inherit;font-family:ui-monospace,Consolas,monospace;padding:4px;text-align:center}
+    .v2-c b{display:block;font-size:13px}
+    .v2-c i{display:block;font-style:normal;font-size:9px;color:var(--viz-muted)}
+    .v2-c.mv{border-color:var(--viz-accent);border-width:2px}
+    .v2-c.cp{border-color:var(--viz-amber);border-style:dashed}
+    .v2-cmp{border-top:1px dashed var(--viz-line);padding-top:10px}
+    .v2-tap{font-size:11.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;margin-top:8px}
+    .v2-why{margin-top:12px;padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [
+      { a:[2,5,4,12,9,7], mv:-1, cp:-1, t:'Start — a valid min-heap',
+        cmp:'index   0   1   2    3   4   5\nkey     2   5   4   12   9   7',
+        why:['Ancestor order only — and that is the whole trick.',
+          'Every node is no greater than both children: 2 below 5 and 4; 5 below 12 and 9; 4 below 7. It is <b>not sorted</b> — siblings 5 and 4 are unconstrained, and nothing will ever constrain them. Because the tree is <em>complete</em> (levels full, last one filling left to right) it packs into an array with no gaps, so the child and parent pointers are pure arithmetic.'] },
+      { a:[2,5,4,12,9,7,3], mv:6, cp:2, t:'Insert 3 — append, preserving completeness',
+        cmp:'append at index 6\nparent(6) = floor((6-1)/2) = 2  →  key 4\n3 < 4  →  heap property VIOLATED, swap',
+        why:['Appending is always legal; repairing is what costs.',
+          'The new key goes into the next free slot, which keeps the tree complete by construction. That may break the property against its parent — never against anything else — so the repair is a walk up the <b>ancestor chain</b> and nothing more.'] },
+      { a:[2,5,3,12,9,7,4], mv:2, cp:0, t:'Sift up — one swap',
+        cmp:'parent(2) = floor((2-1)/2) = 0  →  key 2\n3 > 2  →  heap property HOLDS, stop',
+        why:['Stop at the first parent that is already smaller.',
+          'Everything above that parent is smaller still, by the invariant, so no further check is needed. A complete tree of n nodes has height ⌊log₂ n⌋ — here ⌊log₂ 7⌋ = 2 — which bounds insert at <b>O(log n)</b> swaps in the worst case.'] },
+      { a:[2,5,3,12,9,7,4], mv:-1, cp:-1, t:'Insert complete',
+        cmp:'[2, 5, 3, 12, 9, 7, 4]     1 swap, 2 comparisons',
+        why:['Only the ancestor chain was touched.',
+          'Six of the seven nodes were never even read. Compare that with a sorted array, where inserting one value shifts on average half the elements to keep an invariant nobody asked for.'] },
+      { a:[4,5,3,12,9,7], mv:0, cp:2, t:'Extract-min — promote the last element',
+        cmp:'root 2 removed and returned\nlast element 4 moved to index 0, array shrinks to 6\nchildren(0) = 1 (key 5) and 2 (key 3)  →  smaller child = 3\n4 > 3  →  swap',
+        why:['Why promote the last element instead of shifting?',
+          'Moving every element left would cost <b>O(n) per removal</b> and throw the whole cost argument away. Promoting the tail keeps the tree complete in one move and leaves exactly one node possibly out of place — the root — which is then repaired downward.'] },
+      { a:[3,5,4,12,9,7], mv:2, cp:-1, t:'Sift down — swap with the SMALLER child',
+        cmp:'children(2) = 5 and 6  →  beyond the array\nleaf reached, stop',
+        why:['Swapping with the smaller child is not cosmetic.',
+          'Take the larger one instead and you place a larger key above its smaller sibling — you break the invariant you were repairing, one level down, and the heap silently stops being a heap. The smaller child is the only choice that restores the property locally.'] },
+      { a:[3,5,4,12,9,7], mv:-1, cp:-1, t:'Extract-min complete',
+        cmp:'[3, 5, 4, 12, 9, 7]     1 swap, 2 comparisons     new root = 3',
+        why:['O(log n), and the new minimum is again one lookup away.',
+          'Peek is O(1), insert and extract-min are O(log n), and arbitrary search is O(n). That cost profile is exactly what a <b>priority queue</b> is, and exactly what the next visual turns into top-k.'] }
+    ];
+    var i = 0;
+    var prev = document.getElementById('v2-prev'), next = document.getElementById('v2-next');
+    var dots = document.getElementById('v2-dots'), title = document.getElementById('v2-title');
+    var tree = document.getElementById('v2-tree'), arr = document.getElementById('v2-arr');
+    var cmp = document.getElementById('v2-cmp'), why = document.getElementById('v2-why');
+    var tap = document.getElementById('v2-tap');
+
+    function cls(j, s){ return j === s.mv ? ' mv' : (j === s.cp ? ' cp' : ''); }
+    function badge(j, s){ return j === s.mv ? '<em style="color:var(--viz-accent)">MOVING</em>' : (j === s.cp ? '<em style="color:var(--viz-amber)">COMPARE</em>' : ''); }
+
+    function tapInfo(j, a){
+      var p = j === 0 ? 'none (root)' : 'floor((' + j + '-1)/2) = ' + Math.floor((j - 1) / 2) + ' → key ' + a[Math.floor((j - 1) / 2)];
+      var l = 2 * j + 1, r = 2 * j + 2;
+      var ls = l < a.length ? l + ' → key ' + a[l] : l + ' → none';
+      var rs = r < a.length ? r + ' → key ' + a[r] : r + ' → none';
+      tap.innerHTML = 'index ' + j + ' (key ' + a[j] + ') &nbsp;·&nbsp; parent ' + p + ' &nbsp;·&nbsp; left ' + ls + ' &nbsp;·&nbsp; right ' + rs;
+    }
+
+    function render(){
+      var s = STEPS[i], a = s.a;
+      title.textContent = (i + 1) + '. ' + s.t;
+      dots.innerHTML = STEPS.map(function(_, j){ return '<span class="v2-d' + (j === i ? ' on' : '') + '"></span>'; }).join('');
+      prev.disabled = i === 0; next.disabled = i === STEPS.length - 1;
+      prev.style.opacity = i === 0 ? '.45' : '1';
+      next.style.opacity = i === STEPS.length - 1 ? '.45' : '1';
+
+      var levels = '', j = 0, lvl = 0;
+      while (j < a.length) {
+        var start = Math.pow(2, lvl) - 1, count = Math.pow(2, lvl), row = '';
+        for (var q = start; q < Math.min(start + count, a.length); q++) {
+          row += '<div class="v2-n' + cls(q, s) + '"><b>' + a[q] + '</b><i>i=' + q + '</i>' + badge(q, s) + '</div>';
+        }
+        levels += '<div class="v2-lvl">' + row + '</div>';
+        j = start + count; lvl += 1;
+      }
+      tree.innerHTML = levels;
+
+      arr.innerHTML = '';
+      a.forEach(function(v, q){
+        var b = document.createElement('button');
+        b.className = 'v2-c' + cls(q, s);
+        b.innerHTML = '<b>' + v + '</b><i>' + q + '</i>';
+        b.addEventListener('click', function(){ tapInfo(q, a); });
+        arr.appendChild(b);
+      });
+
+      cmp.textContent = s.cmp;
+      why.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1];
+      tap.innerHTML = 'Tap a cell above to compute its parent and children.';
+    }
+    prev.addEventListener('click', function(){ if (i > 0) { i -= 1; render(); } });
+    next.addEventListener('click', function(){ if (i < STEPS.length - 1) { i += 1; render(); } });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Admission Threshold</h2>
+  <p class="vz-lede">Cap the heap at k and its root becomes the cutoff: the weakest current winner, one
+    lookup away. Set k, then walk the stream <code>[8, 2, 5, 10, 7, 1]</code> and watch each candidate get
+    admitted or refused. <b>Like a club with a fixed capacity where the doorman only has to know who inside
+    is the least impressive.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v3-lab" for="v3-k">Keep the top <span id="v3-kl">3</span> scores &nbsp;·&nbsp; bounded
+      MIN-heap</label>
+    <input type="range" id="v3-k" min="1" max="5" value="3" step="1" aria-label="k, the number of winners to keep">
+  </div>
+
+  <div class="v3-nav">
+    <button id="v3-prev" class="v3-b">‹ back</button>
+    <span class="v3-pos" id="v3-pos"></span>
+    <button id="v3-next" class="v3-b">next candidate ›</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-cand" id="v3-cand"></div>
+    <div class="v3-heap" id="v3-heap"></div>
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two things this pattern needs in production. <b>Ties need an explicit deterministic
+    rule</b> — compare tuples such as <code>(score, -doc_id)</code> in the heap <em>and</em> in the output,
+    or traversal order and shard timing decide which equal-score document survives and pagination stops
+    being reproducible. And <b>shards repeat the pattern</b>: each keeps its local top k, a coordinator
+    merges them. That is provably sufficient for pure score ordering — a document outside its own shard's
+    top k has at least k documents in that shard alone above it — but not once a later stage applies
+    diversity, quotas or a different reranker. Then shards must overfetch.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-nav{display:flex;align-items:center;gap:9px;margin-bottom:11px}
+    .v3-b{min-height:44px;flex:0 0 auto;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 12px;font:inherit;font-weight:700;font-size:12.5px}
+    .v3-pos{flex:1;text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted)}
+    .v3-cand{font-size:12.5px;font-weight:700;margin-bottom:11px;display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+    .v3-vd{font-size:10.5px;font-weight:800;letter-spacing:.04em;border:1.5px solid;border-radius:999px;padding:3px 10px}
+    .v3-heap{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:11px}
+    .v3-s{min-width:44px;border:1.5px solid var(--viz-line);border-radius:9px;padding:6px 4px;text-align:center;
+      background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace}
+    .v3-s b{display:block;font-size:14px}
+    .v3-s i{display:block;font-style:normal;font-size:9px;color:var(--viz-muted)}
+    .v3-s.rt{border-color:var(--viz-accent);border-width:2px}
+    .v3-s em{display:block;font-style:normal;font-size:8.5px;font-weight:800;color:var(--viz-accent);margin-top:2px}
+    .v3-stats{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+    .v3-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid var(--viz-line);
+      color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v3-why{padding-top:11px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STREAM = [8, 2, 5, 10, 7, 1];
+    var pos = 0;                                  // 0 = nothing processed yet
+    var ks = document.getElementById('v3-k'), kl = document.getElementById('v3-kl');
+    var prev = document.getElementById('v3-prev'), next = document.getElementById('v3-next');
+    var posEl = document.getElementById('v3-pos'), cand = document.getElementById('v3-cand');
+    var heapEl = document.getElementById('v3-heap'), stats = document.getElementById('v3-stats');
+    var why = document.getElementById('v3-why');
+
+    // A real bounded min-heap, so the array on screen is genuinely heap-ordered.
+    function up(h, i){ while (i > 0){ var p = (i - 1) >> 1; if (h[p] <= h[i]) break; var t = h[p]; h[p] = h[i]; h[i] = t; i = p; } }
+    function down(h, i){
+      for (;;){ var l = 2 * i + 1, r = l + 1, s = i;
+        if (l < h.length && h[l] < h[s]) s = l;
+        if (r < h.length && h[r] < h[s]) s = r;
+        if (s === i) break; var t = h[s]; h[s] = h[i]; h[i] = t; i = s; }
+    }
+    function run(k, upto){
+      var h = [], cmps = 0, repl = 0, drop = 0, last = null;
+      for (var i = 0; i < upto; i++){
+        var v = STREAM[i];
+        if (h.length < k){ h.push(v); up(h, h.length - 1); last = { v:v, act:'FILL', root:null }; }
+        else {
+          cmps += 1;
+          var root = h[0];
+          if (v > root){ h[0] = v; down(h, 0); repl += 1; last = { v:v, act:'ADMIT', root:root }; }
+          else { drop += 1; last = { v:v, act:'DISCARD', root:root }; }
+        }
+      }
+      return { h:h, cmps:cmps, repl:repl, drop:drop, last:last };
+    }
+
+    function render(){
+      var k = Number(ks.value) || 1;
+      kl.textContent = k;
+      if (pos > STREAM.length) pos = STREAM.length;
+      var st = run(k, pos);
+      posEl.textContent = pos + ' of ' + STREAM.length + ' candidates processed';
+      prev.disabled = pos === 0; next.disabled = pos === STREAM.length;
+      prev.style.opacity = pos === 0 ? '.45' : '1';
+      next.style.opacity = pos === STREAM.length ? '.45' : '1';
+
+      if (!st.last) {
+        cand.innerHTML = '<span>Stream: 8, 2, 5, 10, 7, 1 &nbsp;·&nbsp; nothing processed yet</span>';
+      } else {
+        var L = st.last;
+        var c = L.act === 'DISCARD' ? 'var(--viz-red)' : 'var(--viz-green)';
+        var txt = L.act === 'FILL' ? 'heap underfull → insert, no test'
+          : (L.act === 'ADMIT' ? L.v + ' &gt; root ' + L.root + ' → evict the root, sift down'
+                               : L.v + ' ≤ root ' + L.root + ' → cannot be in the top ' + k);
+        cand.innerHTML = '<span>candidate ' + L.v + '</span>' +
+          '<span class="v3-vd" style="color:' + c + ';border-color:' + c + '">' + L.act + '</span>' +
+          '<span style="font-weight:400;color:var(--viz-muted);font-size:11.5px">' + txt + '</span>';
+      }
+
+      heapEl.innerHTML = st.h.length
+        ? st.h.map(function(v, i){
+            return '<div class="v3-s' + (i === 0 ? ' rt' : '') + '"><b>' + v + '</b><i>i=' + i + '</i>' +
+              (i === 0 ? '<em>ROOT · THRESHOLD</em>' : '') + '</div>';
+          }).join('')
+        : '<div class="v3-s"><b>—</b><i>empty</i></div>';
+
+      var seen = pos, tested = st.cmps;
+      stats.innerHTML =
+        '<span class="v3-pill">k = ' + k + ' retained</span>' +
+        '<span class="v3-pill">' + tested + ' root comparison' + (tested === 1 ? '' : 's') + ' (O(1) each)</span>' +
+        '<span class="v3-pill">' + st.repl + ' replacement' + (st.repl === 1 ? '' : 's') + ' (O(log k))</span>' +
+        '<span class="v3-pill">' + st.drop + ' discarded outright</span>' +
+        '<span class="v3-pill">' + seen + ' seen, ' + st.h.length + ' held</span>';
+
+      var pct = seen ? Math.round(st.drop / seen * 100) : 0;
+      why.innerHTML = pos === 0
+        ? '<b>The rule, before the first candidate arrives.</b>' +
+          'If the heap holds fewer than k items, insert. Otherwise compare the score with the root: no greater → discard; greater → replace the root and sift down. <b>The root is the admission threshold</b> because a bounded min-heap keeps the <em>weakest</em> winner at the top — which is the only number the doorman needs.'
+        : pos < STREAM.length
+          ? '<b>The invariant holds after every prefix.</b>' +
+            'The heap now holds exactly the ' + Math.min(k, seen) + ' largest of the ' + seen + ' scores seen so far. Prove it by induction: true before anything arrives; while underfull, keeping the newcomer preserves it; once full, the root is the weakest winner, so anything at or below it cannot belong to the top k and anything above it must — and evicting the root removes exactly the displaced weakest winner. ' +
+            '<br><br>Note the array is <b>heap-ordered, not sorted</b>: only position 0 is guaranteed.'
+          : '<b style="color:var(--viz-green)">Done in one pass — ' + pct + '% of candidates were rejected on a single comparison.</b>' +
+            'Cost: the first k cost at most O(k log k) by insertion (or O(k) if buffered and heapified); each of the remaining n−k pays one O(1) root comparison; only the ' + st.repl + ' that actually won paid O(log k). The bound is <b>O(n log k) time and O(k) memory</b>. ' +
+            '<br><br>At k = 100 and n = 10,000,000 that is a heap of height under 7 and 100 entries resident, whatever the stream length. ' +
+            'And why a <b>min</b>-heap for the largest values? A max-heap puts the best winner at the root, which says nothing about the cutoff — finding the weakest would cost O(k) on every candidate. For the k <em>smallest</em>, use a bounded max-heap.';
+    }
+    ks.addEventListener('input', function(){ render(); });
+    prev.addEventListener('click', function(){ if (pos > 0){ pos -= 1; render(); } });
+    next.addEventListener('click', function(){ if (pos < STREAM.length){ pos += 1; render(); } });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Heap Versus Full Sort</h2>
+  <p class="vz-lede">Full sort is O(n log n) and retains all n. The bounded heap is O(n log k) and retains
+    k. Drag both dials and watch the gap open — and close again as k approaches n. <b>Like ranking every
+    runner in a marathon versus just holding the podium.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v4-lab" for="v4-n">Candidates n = <span id="v4-nl">1,000,000</span></label>
+    <input type="range" id="v4-n" min="0" max="4" value="3" step="1" aria-label="n, the number of candidates">
+    <label class="v4-lab" for="v4-k" style="margin-top:12px">Wanted k = <span id="v4-kl">10</span></label>
+    <input type="range" id="v4-k" min="0" max="6" value="1" step="1" aria-label="k, the number of results wanted">
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The heap does <b>not</b> hand back a ranked list — its root is the weakest winner and
+    parent-child relations hold, but arbitrary positions are unordered. Sorting the winners costs
+    O(k log k), so the honest combined bound is O(n log k + k log k), dominated by the first term whenever
+    n is much larger than k. Quote the second term when the question asks for the <em>output</em>.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bars{display:flex;flex-direction:column;gap:11px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;font-family:ui-monospace,Consolas,monospace}
+    .v4-pills{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NS = [1000, 10000, 100000, 1000000, 10000000];
+    var KS = [1, 10, 100, 1000, 10000, 100000, 1000000];
+    var ns = document.getElementById('v4-n'), nl = document.getElementById('v4-nl');
+    var kSl = document.getElementById('v4-k'), kl = document.getElementById('v4-kl');
+    var bars = document.getElementById('v4-bars'), pills = document.getElementById('v4-pills');
+    var why = document.getElementById('v4-why');
+
+    function fmt(u){
+      if (u >= 1000000000) return (Math.round(u / 100000000) / 10) + 'B';
+      if (u >= 1000000) return (Math.round(u / 100000) / 10) + 'M';
+      if (u >= 1000) return (Math.round(u / 100) / 10) + 'k';
+      return String(Math.round(u));
+    }
+    function log2(x){ return Math.log(Math.max(x, 1)) / Math.LN2; }
+
+    function render(){
+      var n = NS[Number(ns.value)] || NS[0];
+      var kWant = KS[Number(kSl.value)] || 1;
+      var k = Math.min(kWant, n);
+      var clamped = k !== kWant;
+      nl.textContent = n.toLocaleString();
+      kl.textContent = k.toLocaleString() + (clamped ? ' (clamped to n)' : '');
+
+      var sortU = n * log2(n);
+      // Every candidate pays at least one root comparison, so n is the floor of the heap path.
+      var heapU = n * Math.max(1, log2(k));
+      var max = Math.max(sortU, heapU, 1);
+      var ratio = heapU > 0 ? Math.round(sortU / heapU * 10) / 10 : 1;
+
+      function bar(t, v, c, sub){
+        return '<div class="v4-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + fmt(v) + ' units</b></h6>' +
+          '<div class="v4-track"><i style="width:' + Math.max(2, Math.round(v / max * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div class="v4-sub">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('full sort — O(n log n)', sortU, 'var(--viz-red)',
+            'n log₂ n = ' + n.toLocaleString() + ' × ' + (Math.round(log2(n) * 10) / 10)) +
+        bar('bounded min-heap — O(n log k)', heapU, 'var(--viz-green)',
+            'n log₂ k = ' + n.toLocaleString() + ' × ' + (Math.round(Math.max(1, log2(k)) * 10) / 10) + ' (worst case; most candidates do 1)');
+
+      var same = k === n;
+      var big = !same && k / n > 0.1;
+      var c = same ? 'var(--viz-red)' : (big ? 'var(--viz-amber)' : 'var(--viz-green)');
+      pills.innerHTML =
+        '<span class="v4-pill" style="color:' + c + ';border-color:' + c + '">' + (same ? 'NO ADVANTAGE — bounds meet' : ratio + '× fewer comparison units') + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-red);border-color:var(--viz-red)">sort retains ' + n.toLocaleString() + ' records</span>' +
+        '<span class="v4-pill" style="color:var(--viz-green);border-color:var(--viz-green)">heap retains ' + k.toLocaleString() + '</span>';
+
+      why.innerHTML = same
+        ? '<b style="color:var(--viz-red)">At k = n the bounds meet: log k = log n.</b>' +
+          'Asking for everything <em>is</em> asking for a sort, so the heap offers no selection advantage at all — and worse constants. Draining it is n extract-mins at O(log n) each. ' +
+          '<br><br>This is the honest end of the trade: <b>full sorting is correct and sometimes preferable</b>. If the consumer needs every result in order, sorting is doing necessary work.'
+        : big
+          ? '<b style="color:var(--viz-amber)">k is ' + Math.round(k / n * 100) + '% of n — the asymptotic gap is thin.</b>' +
+            'The bounds still differ, but at this ratio the heap\'s branches and swaps can lose to a cache-friendly library sort despite similar asymptotics, and for numeric data a non-comparison algorithm or a vectorized partial-selection routine can beat a binary heap outright. ' +
+            '<br><br>The memory column still favours the heap: ' + k.toLocaleString() + ' retained against ' + n.toLocaleString() + '. Decide on <em>both</em> columns, not the exponent alone.'
+          : '<b style="color:var(--viz-green)">' + ratio + '× fewer comparison units, and ' + Math.round(n / Math.max(k, 1)) + '× less retained.</b>' +
+            'The sort paid to establish the relative order of every loser against every other loser. The heap established only the order needed to enforce the cutoff — and in practice it beats even its own worst case, because most candidates lose a single root comparison and are never touched again. ' +
+            '<br><br>The anchor to memorise: n = 1,000,000 and k = 10 gives ≈20M units for the sort against ≈3.3M for the heap.';
+    }
+    ns.addEventListener('input', render);
+    kSl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Choosing The Algorithm</h2>
+  <p class="vz-lede">Three tools, and the deciding question is never "which is fastest?" — it is <em>how
+    much order must the consumer actually receive</em>, and <em>how does the data arrive</em>. Pick a
+    scenario. <b>Like choosing between reading the whole leaderboard, finding the cut line, or standing at
+    the door with a clipboard.</b></p>
+
+  <div class="v5-scen" id="v5-scen"></div>
+
+  <div class="v5-rows" id="v5-rows"></div>
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The bounded heap's real distinction is that it is <b>online</b>: it never needs to see
+    a future candidate, so it works on a stream larger than RAM. Quickselect and full sort both need the
+    whole input resident and mutable. Read a question for the words "stream", "iterator" or "larger than
+    memory" — they settle the answer before any asymptotics are compared.</p>
+
+  <style>
+    .v5-scen{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;line-height:1.4}
+    .v5-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-rows{display:flex;flex-direction:column;gap:7px}
+    .v5-r{border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 11px;background:var(--viz-surface)}
+    .v5-top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12.5px}
+    .v5-nm{font-weight:800}
+    .v5-vd{margin-left:auto;font-size:10.5px;font-weight:800;letter-spacing:.04em}
+    .v5-facts{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+    .v5-f{font-size:10.5px;font-weight:700;border:1.5px solid var(--viz-line);border-radius:999px;padding:3px 9px;
+      color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v5-note{font-size:11.5px;color:var(--viz-muted);line-height:1.5;margin-top:7px}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SCEN = [
+      { t:'A Cloud Run service reads 10,000,000 scored chunk IDs from a streaming iterator and needs 100 candidates for a reranker.',
+        rows:[
+          { n:'full sort', time:'O(n log n) ≈ 233M units', mem:'10,000,000 records', on:'needs all input resident', v:'wrong tool',
+            note:'Must materialise all ten million records before it can return the first one.' },
+          { n:'quickselect', time:'expected O(n) ≈ 10M units', mem:'10,000,000 records', on:'needs all input resident', v:'wrong tool',
+            note:'Cheaper in comparisons, but it still requires the full array in mutable memory — and rearranges it.' },
+          { n:'bounded min-heap', time:'O(n log k) ≈ 66M units', mem:'100 entries', on:'online — one pass', v:'WINS',
+            note:'Consumes the iterator once, holds 100 entries, height under 7. Never sees a future candidate.' }],
+        why:['Memory and arrival decide this, not the exponent.',
+          'Quickselect has the best time bound here and is still the wrong answer: expected O(n) is worthless if you cannot hold n. <b>The heap is the only online option</b> — the one that works when the data is a stream rather than an array — and it is the reason retrieval services keep k tiny and stream everything else past them.'] },
+      { t:'A UI asks to export every scored record, ordered by score, 1,000,000 rows.',
+        rows:[
+          { n:'full sort', time:'O(n log n) ≈ 20M units', mem:'1,000,000 records', on:'in-memory or external', v:'WINS',
+            note:'The consumer needs complete order, so establishing it is necessary work, not waste.' },
+          { n:'quickselect', time:'no boundary to find', mem:'1,000,000 records', on:'needs all input resident', v:'wrong tool',
+            note:'It partitions around a kth boundary. There is no boundary here — everything is wanted.' },
+          { n:'bounded min-heap', time:'O(n log n) by draining', mem:'1,000,000 entries', on:'k = n, no bound left', v:'wrong tool',
+            note:'With k = n the heap is unbounded and draining it is n extract-mins — the sort you avoided, with worse constants.' }],
+        why:['The heap cannot avoid producing a complete order, so it should not pretend to.',
+          '<b>Full sorting, in memory or external, is the honest operation.</b> This is the row that keeps the lesson from becoming "heaps are better": the bounded heap is a <em>selection</em> structure, and selection stops being a saving the moment the consumer wants everything ranked.'] },
+      { t:'One batch of 1,000,000 rows is already resident in mutable memory; a report needs the top 1,000.',
+        rows:[
+          { n:'full sort', time:'O(n log n) ≈ 20M units', mem:'1,000,000 records', on:'already resident', v:'workable',
+            note:'Simple, highly optimised, and correct. On a small enough n it is often the right call outright.' },
+          { n:'quickselect', time:'expected O(n) ≈ 1M units', mem:'in place, retains all n', on:'already resident', v:'WINS',
+            note:'Partitions around the 1,000th boundary, then sorts only the winners: O(n + k log k).' },
+          { n:'bounded min-heap', time:'O(n log k) ≈ 10M units', mem:'1,000 entries', on:'online (not needed here)', v:'workable',
+            note:'Still fine, and its online property buys nothing when the array is already in hand.' }],
+        why:['Quickselect wins on one resident, mutable batch — with two caveats worth stating.',
+          'It <b>rearranges and retains the full input</b>, and it has a <b>quadratic worst case</b> without careful pivoting (median-of-medians or randomised pivots). Neither matters much for one in-memory batch, and both are disqualifying for a stream. ' +
+          '<br><br>Note also that k here is 0.1% of n, so the heap\'s asymptotic advantage over the sort is real; it simply is not the best available tool for this shape of input.'] }
+    ];
+    var scen = document.getElementById('v5-scen');
+    var rows = document.getElementById('v5-rows');
+    var why = document.getElementById('v5-why');
+
+    function col(v){ return v === 'WINS' ? 'var(--viz-green)' : (v === 'workable' ? 'var(--viz-amber)' : 'var(--viz-red)'); }
+
+    function show(i){
+      var s = SCEN[i];
+      [].slice.call(scen.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      rows.innerHTML = s.rows.map(function(r){
+        var c = col(r.v);
+        return '<div class="v5-r" style="border-color:' + c + '">' +
+          '<div class="v5-top"><span class="v5-nm">' + r.n + '</span>' +
+          '<span class="v5-vd" style="color:' + c + '">' + r.v.toUpperCase() + '</span></div>' +
+          '<div class="v5-facts"><span class="v5-f">time: ' + r.time + '</span>' +
+          '<span class="v5-f">retains: ' + r.mem + '</span>' +
+          '<span class="v5-f">' + r.on + '</span></div>' +
+          '<div class="v5-note">' + r.note + '</div></div>';
+      }).join('');
+      why.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1];
+    }
+    SCEN.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v5-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = s.t;
+      b.addEventListener('click', function(){ show(i); });
+      scen.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+</body>
+</html>

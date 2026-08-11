@@ -1,0 +1,695 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Terms Or Places</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Price Of Positions</button>
+  <button class="viz-tab" data-viz-tab="3">3. Marching The Positions</button>
+  <button class="viz-tab" data-viz-tab="4">4. Taking A Skip</button>
+  <button class="viz-tab" data-viz-tab="5">5. Sizing The Skips</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Terms Or Places</h2>
+  <p class="vz-lede"><b>The Inverted Index: Dictionary and Postings</b> and <b>Boolean Query Processing by
+    Intersecting Postings</b> can tell you a document holds every term. They cannot tell you the terms are
+    <em>next to each other</em>. Flip the index and ask the same five questions.
+    <b>Like a guest list versus a seating plan: one says who came, the other says who sat together.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Index kind">
+    <button id="v1-doc" aria-pressed="true">document-level postings</button>
+    <button id="v1-pos" aria-pressed="false">positional postings</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v1-strip" id="v1-strip"></div>
+    <div class="v1-post vz-mono" id="v1-post"></div>
+  </div>
+
+  <div class="v1-qs" id="v1-qs"></div>
+  <div class="vz-card"><div class="v1-why" id="v1-why"></div></div>
+
+  <p class="vz-note">Note what the analyzer already decided. <b>Stop Words: Space Savings vs Phrase-Query
+    Damage</b> warned that dropping <code>and</code> is only safe if the retained tokens keep their
+    positions — <code>vector:[2,5]</code>, <code>database:[3,6]</code>. Renumber them and the index invents
+    phrases nobody wrote. Positions are an <em>output</em> of the analyzer, not a separate feature.</p>
+
+  <style>
+    .v1-strip{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:11px}
+    .v1-tok{border:1.5px solid var(--viz-line);border-radius:8px;padding:5px 7px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;text-align:center;line-height:1.3}
+    .v1-tok b{display:block;font-size:9.5px;color:var(--viz-muted);font-weight:800}
+    .v1-tok.is-off b{visibility:hidden}
+    .v1-post{border-top:1px dashed var(--viz-line);padding-top:10px}
+    .v1-qs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-q{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v1-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-mk{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;flex:0 0 auto}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TOKENS = ['neural','vector','database','and','vector','database'];
+    var DOCPOST = [
+      'neural    -> [doc 1]',
+      'vector    -> [doc 1]',
+      'database  -> [doc 1]',
+      'and       -> [doc 1]'
+    ].join('\n');
+    var POSPOST = [
+      'neural    -> [(doc 1, tf=1, positions=[1])]',
+      'vector    -> [(doc 1, tf=2, positions=[2, 5])]',
+      'database  -> [(doc 1, tf=2, positions=[3, 6])]',
+      'and       -> [(doc 1, tf=1, positions=[4])]'
+    ].join('\n');
+
+    var QS = [
+      { q:'Does the document contain vector AND database?',
+        doc:['YES — this is all a document-level index is for.',
+          'Both terms have a posting for doc 1, so intersecting the two lists returns it. Cheap, correct, and the whole of lesson 01. It is also the <em>only</em> question this index can answer, which is the point of the panel.'],
+        pos:['YES — and the positional index answers it the same way.',
+          'Stage one of phrase evaluation <em>is</em> the document intersection you already know: find the documents holding every term first, then verify inside them. Positions never replace that step, they add a second one after it.'] },
+      { q:'Does the phrase "vector database" appear?',
+        doc:['CANNOT TELL — and that is not a small gap.',
+          '<code>vector</code> and <code>database</code> both occur. So would they in a document reading <em>"the database is queried by vector"</em>. A document-level posting records presence and discards order, so every arrangement collapses to the same answer.'],
+        pos:['YES — at starts 2 and 5.',
+          'Seek pairs where <code>database_position = vector_position + 1</code>. With <code>vector:[2,5]</code> and <code>database:[3,6]</code> that is <code>(2,3)</code> and <code>(5,6)</code>: two occurrences of the phrase, and the index can say <em>where</em>.'] },
+      { q:'Does the phrase "neural vector database" appear?',
+        doc:['CANNOT TELL — same three terms, either way.',
+          'This is the sharpest version of the gap. All three terms are present, and Boolean AND returns the document whether it reads <em>neural vector database</em> or <em>database neural vector</em>. Nothing in the postings distinguishes them.'],
+        pos:['YES — at start 1 only.',
+          'Anchor on <code>neural</code> at <em>p</em> = 1 and require <code>vector</code> at <em>p</em>+1 = 2 and <code>database</code> at <em>p</em>+2 = 3. Both hold. The second <code>vector database</code> at 5–6 has no <code>neural</code> at 4 — that slot holds <code>and</code> — so it is not a match for the three-term phrase.'] },
+      { q:'Are neural and database within two tokens?',
+        doc:['CANNOT TELL — distance is not stored.',
+          'Proximity is a distance question, and a document-level posting stores no distance at all. <code>NEAR/5</code>, passage scoring and snippet windows are all unavailable, not merely approximate.'],
+        pos:['YES — 1 and 3 are two tokens apart.',
+          'Proximity falls out of the same lists: compare positions and test the gap instead of demanding exactly +1. Careful though — positions encode <em>order and distance</em>, not meaning. Two terms adjacent across a sentence boundary can be less related than the number suggests.'] },
+      { q:'Where should the match be highlighted?',
+        doc:['CANNOT TELL — no location is recorded.',
+          'You can re-analyze the stored source text at query time to find it, trading query CPU for index bytes. That is a real option, and for approximate highlighting often the right one.'],
+        pos:['Token positions 2–3 and 5–6.',
+          'Token positions give order and distance. <b>Character offsets are separate metadata</b>, stored when exact highlighting must land on the original characters even after normalization changed the token. Do not conflate the two.'] }
+    ];
+
+    var mode = 'doc', cur = 0;
+    var bD = document.getElementById('v1-doc'), bP = document.getElementById('v1-pos');
+    var strip = document.getElementById('v1-strip'), post = document.getElementById('v1-post');
+    var qs = document.getElementById('v1-qs'), why = document.getElementById('v1-why');
+
+    QS.forEach(function(item, i){
+      var b = document.createElement('button');
+      b.className = 'v1-q';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + item.q + '</span><span class="v1-mk"></span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      qs.appendChild(b);
+    });
+
+    function render(){
+      var isPos = mode === 'pos';
+      bD.setAttribute('aria-pressed', isPos ? 'false' : 'true');
+      bP.setAttribute('aria-pressed', isPos ? 'true' : 'false');
+
+      strip.innerHTML = TOKENS.map(function(t, i){
+        return '<span class="v1-tok' + (isPos ? '' : ' is-off') + '"><b>' + (i + 1) + '</b>' + t + '</span>';
+      }).join('');
+      post.textContent = isPos ? POSPOST : DOCPOST;
+
+      [].slice.call(qs.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', j === cur ? 'true' : 'false');
+        var a = isPos ? QS[j].pos[0] : QS[j].doc[0];
+        var can = a.indexOf('CANNOT') !== 0;
+        var mk = b.querySelector('.v1-mk');
+        mk.textContent = can ? 'CAN ANSWER' : 'CANNOT TELL';
+        mk.style.color = can ? 'var(--viz-green)' : 'var(--viz-red)';
+      });
+
+      var chosen = isPos ? QS[cur].pos : QS[cur].doc;
+      why.innerHTML = '<b>' + chosen[0] + '</b>' + chosen[1];
+    }
+
+    bD.addEventListener('click', function(){ mode = 'doc'; render(); });
+    bP.addEventListener('click', function(){ mode = 'pos'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Price Of Positions</h2>
+  <p class="vz-lede">Document postings are counted over term-document <em>pairs</em>; positions are counted
+    over token <em>occurrences</em>. Drag the collection and watch the two counts separate.
+    <b>Like the difference between a guest list and a photo of every time each guest spoke.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-docs">Documents: <span id="v2-docsl">1,000,000</span></label>
+    <input type="range" id="v2-docs" min="1" max="50" value="10" step="1" aria-label="Documents in the collection">
+    <label class="v2-lab" for="v2-tok">Indexed tokens per document: <span id="v2-tokl">500</span></label>
+    <input type="range" id="v2-tok" min="50" max="1500" value="500" step="50" aria-label="Indexed tokens per document">
+    <label class="v2-lab" for="v2-dist">Distinct terms per document: <span id="v2-distl">300</span></label>
+    <input type="range" id="v2-dist" min="25" max="1000" value="300" step="25" aria-label="Distinct terms per document">
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v2-gaprow">
+      <span class="v2-gapl vz-mono" id="v2-gapl"></span>
+      <button class="v2-gapb" id="v2-gapb">show gaps</button>
+    </div>
+    <p class="v2-gapn" id="v2-gapn"></p>
+  </div>
+
+  <p class="vz-note">The judgment is <b>per field, not per index</b>. A title can afford positions; a tag
+    field with one unordered value per tag needs presence only; a huge body field may keep frequencies and
+    drop positions if the product will never run a phrase, a proximity query or a highlight. Measure
+    positional bytes by field against the query classes they buy — one verbose field can dominate the whole
+    number.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 5px}
+    .v2-lab:first-child{margin-top:0}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-bars{margin-top:16px;display:flex;flex-direction:column;gap:10px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%}
+    .v2-sub{font-size:11px;color:var(--viz-muted);margin-top:4px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-gaprow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .v2-gapl{flex:1 1 160px}
+    .v2-gapb{min-height:44px;flex:0 0 auto;border:1.5px solid var(--viz-accent);background:var(--viz-surface);
+      color:var(--viz-accent);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 12px}
+    .v2-gapn{font-size:11.5px;color:var(--viz-muted);line-height:1.5;margin:9px 0 0}
+  </style>
+  <script>
+  (function(){
+    var sD = document.getElementById('v2-docs'), lD = document.getElementById('v2-docsl');
+    var sT = document.getElementById('v2-tok'), lT = document.getElementById('v2-tokl');
+    var sX = document.getElementById('v2-dist'), lX = document.getElementById('v2-distl');
+    var bars = document.getElementById('v2-bars'), why = document.getElementById('v2-why');
+    var gapl = document.getElementById('v2-gapl'), gapb = document.getElementById('v2-gapb'), gapn = document.getElementById('v2-gapn');
+
+    function big(n){
+      if (!isFinite(n) || n <= 0) return '0';
+      if (n >= 1e9) return (n / 1e9).toFixed(2) + ' billion';
+      if (n >= 1e6) return Math.round(n / 1e6).toLocaleString() + ' million';
+      return Math.round(n).toLocaleString();
+    }
+
+    function render(){
+      var D = Number(sD.value) * 100000;
+      var tok = Number(sT.value);
+      var distinct = Math.min(Number(sX.value), tok);   // a doc cannot hold more distinct terms than tokens
+      lD.textContent = D.toLocaleString();
+      lT.textContent = tok.toLocaleString();
+      lX.textContent = distinct.toLocaleString() + (distinct < Number(sX.value) ? ' (capped at tokens)' : '');
+
+      var T = D * tok, P = D * distinct;
+      var ratio = P > 0 ? T / P : 0;                     // P is never 0 here, but never divide unguarded
+      var gb = (4 * T) / 1e9;                            // raw 32-bit positions, before IDs or structure
+      var max = Math.max(T, P, 1);
+
+      function bar(t, v, c, sub){
+        return '<div class="v2-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + big(v) + '</b></h6>' +
+          '<div class="v2-track"><i style="width:' + Math.max(2, Math.round(v / max * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div class="v2-sub">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('P — term-document pairs (document postings, O(P))', P, 'var(--viz-accent)',
+            D.toLocaleString() + ' docs x ' + distinct + ' distinct terms. One entry per pair.') +
+        bar('T — token occurrences (positions, O(T))', T, 'var(--viz-violet)',
+            D.toLocaleString() + ' docs x ' + tok + ' tokens. One value per occurrence.');
+
+      var even = ratio < 1.02;
+      why.innerHTML = '<b style="color:' + (even ? 'var(--viz-amber)' : 'var(--viz-violet)') + '">' +
+          'T / P = ' + ratio.toFixed(2) + ' position values per document posting.</b>' +
+        'A term can repeat inside a document and can never occur fewer than once, so <b>T &ge; P always</b> — ' +
+        'the two counts can meet but never cross. Positions here add <b>' + big(T) + '</b> values on top of <b>' +
+        big(P) + '</b> document-level entries; at 4 bytes each, raw 32-bit positions alone are <b>' +
+        gb.toFixed(2) + ' GB</b>, before any document IDs or structure. ' +
+        (even
+          ? '<br><br>You have pushed distinct terms up to the token count — every term occurs exactly once per document. That is the <em>only</em> case where positions cost no more entries than postings do, and no real corpus looks like it.'
+          : '<br><br>Push "distinct terms" toward "tokens per document" and the gap closes; pull it down — long documents that repeat their vocabulary — and it widens. The dial that actually moves your bill is <em>which fields</em> get positions at all.');
+    }
+
+    var showGaps = false;
+    function gaps(){
+      gapl.textContent = showGaps
+        ? 'positions [7, 31, 35]  ->  gaps [7, 24, 4]'
+        : 'positions [7, 31, 35]';
+      gapb.textContent = showGaps ? 'show absolute' : 'show gaps';
+      gapn.innerHTML = showGaps
+        ? 'Only the first value is absolute; the rest are differences. <b>Smaller numbers, fewer bytes</b> under a variable-length code — and the nesting matters: document-ID gaps run <em>across</em> the postings list while position gaps <b>reset inside each document</b>. It makes positions cheaper. It never makes them free.'
+        : 'Stored raw, every position is a full-width integer however close together they are. Tap the button.';
+    }
+    gapb.addEventListener('click', function(){ showGaps = !showGaps; gaps(); });
+
+    sD.addEventListener('input', render);
+    sT.addEventListener('input', render);
+    sX.addEventListener('input', render);
+    render(); gaps();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Marching The Positions</h2>
+  <p class="vz-lede">Inside one candidate document, phrase verification is the postings intersection you
+    already know — one level down, over positions instead of document IDs. Step the cursors and move the
+    slop. <b>Like two people walking separate rows of seats, calling out whenever they are side by side.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-slop">Slop allowed between the terms: <span id="v3-slopl">0</span></label>
+    <input type="range" id="v3-slop" min="0" max="3" value="0" step="1" aria-label="Slop allowed between the terms">
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-ctl">
+      <button id="v3-next">Step</button>
+      <button id="v3-run">Run to end</button>
+      <button id="v3-reset">Reset</button>
+    </div>
+    <div class="v3-log" id="v3-log"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">Two traps this walk hides. <b>Repeated terms</b>: a phrase like <code>"to be or not to
+    be"</code> uses <code>to</code> and <code>be</code> twice, so the matcher must consume complete
+    sequences instead of reusing one occurrence for two slots. And <b>removed terms cannot be verified at
+    all</b> — if a stop list deleted <code>to</code> and <code>be</code>, no gap arithmetic brings the
+    postings back. Cost follows both document frequency and within-document frequency, which is why a rare
+    anchor term is what actually collapses the work.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:5px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-rows{margin-top:15px;display:flex;flex-direction:column;gap:7px}
+    .v3-r{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+    .v3-nm{flex:0 0 68px;font-size:11px;font-weight:800;font-family:ui-monospace,Consolas,monospace;color:var(--viz-muted)}
+    .v3-p{min-width:38px;border:1.5px solid var(--viz-line);border-radius:8px;padding:5px 8px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:center}
+    .v3-p.is-cur{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v3-p.is-hit{border-color:var(--viz-green);color:var(--viz-green);font-weight:800}
+    .v3-p.is-done{opacity:.4;border-style:dashed}
+    .v3-ctl{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap}
+    .v3-ctl button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v3-ctl button:first-child{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v3-log{margin-top:12px;display:flex;flex-direction:column;gap:4px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;line-height:1.5}
+    .v3-l{border-left:2.5px solid var(--viz-line);padding:2px 0 2px 8px;color:var(--viz-muted)}
+    .v3-l.is-hit{border-left-color:var(--viz-green);color:var(--viz-green)}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var V = [2, 10, 20];        // vector   in doc 7
+    var Db = [3, 12, 21];       // database in doc 7
+    var i = 0, j = 0, done = false, hits = [], log = [];
+
+    var sl = document.getElementById('v3-slop'), sll = document.getElementById('v3-slopl');
+    var rows = document.getElementById('v3-rows'), logEl = document.getElementById('v3-log');
+    var why = document.getElementById('v3-why');
+    var bNext = document.getElementById('v3-next'), bRun = document.getElementById('v3-run'), bReset = document.getElementById('v3-reset');
+
+    function reset(){ i = 0; j = 0; done = false; hits = []; log = []; render(); }
+
+    function step(){
+      if (done) return;
+      var slop = Number(sl.value);
+      if (i >= V.length || j >= Db.length) {
+        done = true;
+        log.push({ t: 'one list is exhausted — stop. ' + hits.length + ' phrase occurrence(s).', hit: false });
+        render(); return;
+      }
+      var pv = V[i], pd = Db[j], gap = pd - pv - 1;
+      if (gap >= 0 && gap <= slop) {
+        hits.push(pv);
+        log.push({ t: 'p_v=' + pv + ', p_d=' + pd + ': gap ' + gap + ' <= slop ' + slop + '  MATCH at start ' + pv + ' — advance both', hit: true });
+        i += 1; j += 1;
+      } else if (gap > slop) {
+        log.push({ t: 'p_v=' + pv + ', p_d=' + pd + ': p_v+1 = ' + (pv + 1) + ' < p_d — database is ahead, advance vector', hit: false });
+        i += 1;
+      } else {
+        log.push({ t: 'p_v=' + pv + ', p_d=' + pd + ': p_v+1 = ' + (pv + 1) + ' > p_d — database is behind, advance database', hit: false });
+        j += 1;
+      }
+      render();
+    }
+
+    function runAll(){ var guard = 0; while (!done && guard < 40) { step(); guard += 1; } }
+
+    function rowHtml(name, arr, cur, hitSet){
+      return '<div class="v3-r"><span class="v3-nm">' + name + '</span>' + arr.map(function(p, k){
+        var cls = 'v3-p';
+        if (hitSet.indexOf(p) !== -1) cls += ' is-hit';
+        else if (k === cur && !done) cls += ' is-cur';
+        else if (k < cur) cls += ' is-done';
+        return '<span class="' + cls + '">' + p + '</span>';
+      }).join('') + '</div>';
+    }
+
+    function render(){
+      var slop = Number(sl.value);
+      sll.textContent = slop;
+      var vHits = hits.slice();
+      // a start at p paired with some p_d; mark the database position it consumed
+      var marked = [];
+      hits.forEach(function(p){
+        for (var k = 0; k < Db.length; k++) { if (Db[k] - p - 1 >= 0 && Db[k] - p - 1 <= slop && marked.indexOf(Db[k]) === -1) { marked.push(Db[k]); break; } }
+      });
+      rows.innerHTML = rowHtml('vector', V, i, vHits) + rowHtml('database', Db, j, marked);
+      logEl.innerHTML = log.length
+        ? log.map(function(l){ return '<div class="v3-l' + (l.hit ? ' is-hit' : '') + '">' + l.t + '</div>'; }).join('')
+        : '<div class="v3-l">press Step. Compare p_v + 1 against p_d; equal is a phrase, otherwise advance whichever list is behind.</div>';
+
+      var expected = 0;
+      for (var a = 0; a < V.length; a++) for (var b = 0; b < Db.length; b++) { if (Db[b] - V[a] - 1 >= 0 && Db[b] - V[a] - 1 <= slop) { expected += 1; break; } }
+      why.innerHTML = slop === 0
+        ? '<b style="color:var(--viz-green)">Slop 0: exact adjacency, ' + expected + ' matches.</b>' +
+          'Pairs <code>(2,3)</code> and <code>(20,21)</code> satisfy <code>database_position = vector_position + 1</code>. <code>(10,12)</code> has a one-token gap and is <b>not</b> a match. ' +
+          'The walk is linear in the two position-list lengths for this document — the same merge as the document intersection, at a finer grain.'
+        : '<b style="color:var(--viz-amber)">Slop ' + slop + ': ' + expected + ' matches — you have changed the question.</b>' +
+          '<code>(10,12)</code> now qualifies: one intervening token is within tolerance. Slop is a proximity query wearing quotation marks, and <b>its semantics are not universal</b> — some engines preserve order under slop, others allow the terms to swap, and the count of "intervening tokens" is defined differently across stacks. ' +
+          '<br><br>Test your own engine rather than assuming, and expose looser matching as its own feature instead of quietly redefining what quotation marks mean.';
+    }
+
+    sl.addEventListener('input', reset);
+    bNext.addEventListener('click', step);
+    bRun.addEventListener('click', runAll);
+    bReset.addEventListener('click', reset);
+    reset();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Taking A Skip</h2>
+  <p class="vz-lede">A skip pointer is a shortcut from one posting to a later one, labelled with its
+    destination document ID. It is bought with bytes and it comes with one rule you cannot break. Change the
+    opposing list and watch the same skip become legal or illegal.
+    <b>Like an express train: brilliant, unless it runs past your stop.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Skip policy">
+    <button id="v4-off" aria-pressed="false">no skips</button>
+    <button id="v4-safe" aria-pressed="true">skips, rule obeyed</button>
+    <button id="v4-wild" aria-pressed="false">skips, rule ignored</button>
+  </div>
+  <div class="vz-seg" role="group" aria-label="Opposing list">
+    <button id="v4-bs" aria-pressed="true">B = [2, 128]</button>
+    <button id="v4-bl" aria-pressed="false">B = [2, 16, 128]</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-lists" id="v4-lists"></div>
+    <div class="v4-stats" id="v4-stats"></div>
+    <div class="v4-log" id="v4-log"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Everything else about skips is performance; <b>this is the part that can return the
+    wrong answer</b>. Note too that the skip destinations are baked into the list: inserting a document ID
+    would invalidate the spacing and the targets, which is why skips are built once over finalised postings
+    inside immutable segments and rebuilt when segments merge.</p>
+
+  <style>
+    .v4-lists{display:flex;flex-direction:column;gap:9px}
+    .v4-r{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+    .v4-nm{flex:0 0 26px;font-size:12px;font-weight:800;font-family:ui-monospace,Consolas,monospace;color:var(--viz-muted)}
+    .v4-c{min-width:40px;border:1.5px solid var(--viz-line);border-radius:8px;padding:5px 7px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:center;position:relative}
+    .v4-c.has-skip{border-style:dashed;border-color:var(--viz-violet)}
+    .v4-c.is-hit{border-color:var(--viz-green);color:var(--viz-green);font-weight:800}
+    .v4-c.is-miss{border-color:var(--viz-red);color:var(--viz-red);font-weight:800}
+    .v4-skip{font-size:9px;color:var(--viz-violet);display:block;font-weight:800}
+    .v4-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-log{margin-top:12px;display:flex;flex-direction:column;gap:4px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;line-height:1.5}
+    .v4-l{border-left:2.5px solid var(--viz-line);padding:2px 0 2px 8px;color:var(--viz-muted)}
+    .v4-l.is-hit{border-left-color:var(--viz-green);color:var(--viz-green)}
+    .v4-l.is-jump{border-left-color:var(--viz-violet);color:var(--viz-violet)}
+    .v4-l.is-stop{border-left-color:var(--viz-red);color:var(--viz-red)}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var A = [2, 4, 8, 16, 32, 64, 128];
+    var SKIP = { 4: 32, 32: 128 };            // destination document ID for each skip source
+    var BS = [2, 128], BL = [2, 16, 128];
+    var policy = 'safe', useLong = false;
+
+    var bOff = document.getElementById('v4-off'), bSafe = document.getElementById('v4-safe'), bWild = document.getElementById('v4-wild');
+    var bS = document.getElementById('v4-bs'), bL = document.getElementById('v4-bl');
+    var lists = document.getElementById('v4-lists'), stats = document.getElementById('v4-stats');
+    var logEl = document.getElementById('v4-log'), why = document.getElementById('v4-why');
+
+    function run(B){
+      var i = 0, j = 0, cmp = 0, jumps = 0, refused = 0, out = [], log = [], guard = 0;
+      while (i < A.length && j < B.length && guard < 60) {
+        guard += 1; cmp += 1;
+        if (A[i] === B[j]) {
+          out.push(A[i]);
+          log.push({ t: 'A=' + A[i] + '  B=' + B[j] + '  equal -> emit ' + A[i], k: 'hit' });
+          i += 1; j += 1;
+        } else if (A[i] < B[j]) {
+          var dest = SKIP[A[i]];
+          if (policy !== 'off' && dest !== undefined) {
+            var legal = dest <= B[j];
+            if (legal || policy === 'wild') {
+              log.push({ t: 'A=' + A[i] + ' < B=' + B[j] + '  skip to ' + dest + (legal ? '  (dest <= B, legal)' : '  (dest > B, ILLEGAL)'), k: legal ? 'jump' : 'stop' });
+              i = A.indexOf(dest);
+              jumps += 1;
+              continue;
+            }
+            refused += 1;
+            log.push({ t: 'A=' + A[i] + ' < B=' + B[j] + '  skip to ' + dest + ' REFUSED (dest > B) -> step', k: 'stop' });
+          } else {
+            log.push({ t: 'A=' + A[i] + ' < B=' + B[j] + '  advance A', k: '' });
+          }
+          i += 1;
+        } else {
+          log.push({ t: 'A=' + A[i] + ' > B=' + B[j] + '  advance B', k: '' });
+          j += 1;
+        }
+      }
+      return { cmp: cmp, jumps: jumps, refused: refused, out: out, log: log };
+    }
+
+    function truth(B){ return A.filter(function(x){ return B.indexOf(x) !== -1; }); }
+
+    function render(){
+      bOff.setAttribute('aria-pressed', policy === 'off' ? 'true' : 'false');
+      bSafe.setAttribute('aria-pressed', policy === 'safe' ? 'true' : 'false');
+      bWild.setAttribute('aria-pressed', policy === 'wild' ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', useLong ? 'false' : 'true');
+      bL.setAttribute('aria-pressed', useLong ? 'true' : 'false');
+
+      var B = useLong ? BL : BS;
+      var r = run(B), want = truth(B);
+      var missed = want.filter(function(x){ return r.out.indexOf(x) === -1; });
+
+      lists.innerHTML =
+        '<div class="v4-r"><span class="v4-nm">A</span>' + A.map(function(x){
+          var cls = 'v4-c' + (policy !== 'off' && SKIP[x] !== undefined ? ' has-skip' : '') +
+            (r.out.indexOf(x) !== -1 ? ' is-hit' : (missed.indexOf(x) !== -1 ? ' is-miss' : ''));
+          return '<span class="' + cls + '">' + x + (policy !== 'off' && SKIP[x] !== undefined ? '<span class="v4-skip">-> ' + SKIP[x] + '</span>' : '') + '</span>';
+        }).join('') + '</div>' +
+        '<div class="v4-r"><span class="v4-nm">B</span>' + B.map(function(x){
+          var cls = 'v4-c' + (r.out.indexOf(x) !== -1 ? ' is-hit' : (missed.indexOf(x) !== -1 ? ' is-miss' : ''));
+          return '<span class="' + cls + '">' + x + '</span>';
+        }).join('') + '</div>';
+
+      var ok = missed.length === 0;
+      stats.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + r.cmp + ' comparisons</span>' +
+        '<span class="v4-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + r.jumps + ' skip' + (r.jumps === 1 ? '' : 's') + ' taken' + (r.refused ? ', ' + r.refused + ' refused' : '') + '</span>' +
+        '<span class="v4-pill" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (ok ? 'CORRECT: {' + r.out.join(', ') + '}' : 'WRONG: missed ' + missed.join(', ')) + '</span>';
+
+      logEl.innerHTML = r.log.map(function(l){
+        return '<div class="v4-l' + (l.k ? ' is-' + l.k : '') + '">' + l.t + '</div>';
+      }).join('');
+
+      if (!ok) {
+        why.innerHTML = '<b style="color:var(--viz-red)">The rule was ignored, and the answer is now wrong.</b>' +
+          'From <code>A=4</code> the skip destination is <code>32</code> while <code>B</code> sits at <code>16</code>. ' +
+          '<b>32 &gt; 16</b>, so the jump crosses a region of A that may still contain B\'s current ID — and here it does: <code>16</code> is in both lists and has just been thrown away. ' +
+          '<br><br>Nothing about this failure is slow. It is silent, it is data-dependent, and no amount of benchmarking finds it. Take a skip <b>only</b> when its destination is at or below the opposing cursor; equality can still be tested once you arrive.';
+      } else if (policy === 'off') {
+        why.innerHTML = '<b>Plain merge: ' + r.cmp + ' comparisons.</b>' +
+          'The cursor advances one document ID at a time. After matching 2, B jumps to ' + B[1] + ' while A sits at 4, so A grinds through the IDs in between confirming one at a time that each is too small. ' +
+          'Every one of those comparisons produces nothing. That wasted region is exactly what a skip exists to jump over — turn skips on and compare the count.';
+      } else if (r.refused > 0) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Correct — because the skip was refused.</b>' +
+          'With <code>B = [2, 16, 128]</code>, the skip from <code>4</code> to <code>32</code> would overshoot B\'s cursor at <code>16</code>, so it is declined and the walk steps normally until it finds the match at 16. ' +
+          'Later, from <code>A=32</code> with B at <code>128</code>, the destination <code>128 &le; 128</code> is legal and the jump is taken. ' +
+          '<br><br>Same list, same pointers: <b>legality is a property of the pair of cursors, not of the skip</b>. Which is also why skip benefit depends on query pairing rather than on list length.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">' + r.cmp + ' comparisons instead of 7.</b>' +
+          'B is short and lands far ahead, so both skips are legal: <code>4 &rarr; 32</code> (32 &le; 128) then <code>32 &rarr; 128</code> (128 &le; 128), discarding only IDs no greater than the target. ' +
+          'This is the shape skips are for — a long common-term list intersected with a short selective one, where galloping or binary search would serve equally well. ' +
+          '<br><br>Two dense lists of similar length with frequent matches offer almost no jump opportunities, and sequential decoding can beat testing skips outright.';
+      }
+    }
+
+    bOff.addEventListener('click', function(){ policy = 'off'; render(); });
+    bSafe.addEventListener('click', function(){ policy = 'safe'; render(); });
+    bWild.addEventListener('click', function(){ policy = 'wild'; render(); });
+    bS.addEventListener('click', function(){ useLong = false; render(); });
+    bL.addEventListener('click', function(){ useLong = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Sizing The Skips</h2>
+  <p class="vz-lede">How many skips should a million-entry list carry? Too few and the jumps are useless;
+    too many and you pay bytes and branch checks to avoid work that was cheap. Drag the count, then switch
+    the workload and watch the whole argument evaporate.
+    <b>Like motorway exits: one per mile is clutter, one per county is no help.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Workload">
+    <button id="v5-lop" aria-pressed="true">1,000,000 &cap; 1,000</button>
+    <button id="v5-dense" aria-pressed="false">1,000,000 &cap; 1,000,000</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-k">Skips in the long list: <span id="v5-kl">1,000</span></label>
+    <input type="range" id="v5-k" min="0" max="8" value="4" step="1" aria-label="Number of skips in the long list">
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-stats" id="v5-stats"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Evenly spaced skips are a heuristic, not a law: if document IDs cluster, uniform spacing
+    jumps over the sparse regions and crawls the dense ones. Hierarchical skips serve both long and short
+    jumps at the cost of more metadata, and <b>modern formats often skip a level of indirection entirely</b>
+    by storing a maximum document ID per compressed block — the same principle at block granularity, where
+    decoding one small block can be cheaper than navigating fine-grained pointers.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:5px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-rows{margin-top:15px;display:flex;flex-direction:column;gap:3px}
+    .v5-r{display:flex;align-items:center;gap:7px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v5-k{flex:0 0 62px;text-align:right;color:var(--viz-muted)}
+    .v5-bar{flex:1;height:13px;border-radius:3px;background:var(--viz-line);overflow:hidden}
+    .v5-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v5-v{flex:0 0 74px;font-size:9.5px;font-weight:800;letter-spacing:.02em}
+    .v5-r.is-sel .v5-k{color:var(--viz-accent);font-weight:800}
+    .v5-r.is-best .v5-bar i{background:var(--viz-green)}
+    .v5-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var L = 1000000;
+    var KS = [1, 10, 100, 316, 1000, 3162, 10000, 100000, 1000000];
+    var lop = true;
+
+    var bLop = document.getElementById('v5-lop'), bDen = document.getElementById('v5-dense');
+    var s = document.getElementById('v5-k'), lab = document.getElementById('v5-kl');
+    var rows = document.getElementById('v5-rows'), stats = document.getElementById('v5-stats'), why = document.getElementById('v5-why');
+
+    // Traversal cost model straight from the lesson: roughly L/k sequential steps
+    // between checkpoints, plus about k skip tests. Minimised where k = sqrt(L).
+    function cost(k){ return Math.round(L / Math.max(k, 1)) + Math.max(k, 1); }
+
+    function render(){
+      bLop.setAttribute('aria-pressed', lop ? 'true' : 'false');
+      bDen.setAttribute('aria-pressed', lop ? 'false' : 'true');
+
+      var k = KS[Number(s.value)];
+      lab.textContent = k.toLocaleString() + (k === 1000 ? '  (= sqrt(L))' : '');
+
+      var costs = KS.map(cost);
+      var best = Math.min.apply(null, costs);
+      var worst = Math.max.apply(null, costs);
+      var span = Math.log10(Math.max(worst, 10));
+
+      rows.innerHTML = KS.map(function(kk, idx){
+        var c = costs[idx];
+        var w = Math.max(2, Math.round(Math.log10(Math.max(c, 1)) / Math.max(span, 0.001) * 100));
+        var isBest = c === best;
+        return '<div class="v5-r' + (kk === k ? ' is-sel' : '') + (isBest ? ' is-best' : '') + '">' +
+          '<span class="v5-k">' + kk.toLocaleString() + '</span>' +
+          '<span class="v5-bar"><i style="width:' + w + '%"></i></span>' +
+          '<span class="v5-v" style="color:' + (isBest ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+            c.toLocaleString() + (isBest ? ' best' : '') + '</span></div>';
+      }).join('');
+
+      var span2 = Math.max(1, Math.round(L / Math.max(k, 1)));
+      if (lop) {
+        stats.innerHTML =
+          '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">span ' + span2.toLocaleString() + ' postings</span>' +
+          '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + k.toLocaleString() + ' skip entries stored</span>' +
+          '<span class="v5-pill" style="color:' + (cost(k) === best ? 'var(--viz-green)' : 'var(--viz-amber)') + ';border-color:' + (cost(k) === best ? 'var(--viz-green)' : 'var(--viz-amber)') + '">~' + cost(k).toLocaleString() + ' units of work</span>';
+        why.innerHTML = cost(k) === best
+          ? '<b style="color:var(--viz-green)">About sqrt(L) skips, spanning about sqrt(L) postings each.</b>' +
+            'With k evenly spaced skips a traversal costs roughly <code>L/k</code> sequential steps plus about <code>k</code> skip tests, and <code>L/k + k</code> is minimised at <code>k = sqrt(L)</code> — 1,000 skips over 1,000,000 postings. ' +
+            'Notice it is a shallow bowl: the classic layout is a balance, not a tuned constant, and the neighbouring rows are barely worse.'
+          : k < 1000
+            ? '<b style="color:var(--viz-amber)">Too few skips: ' + span2.toLocaleString() + ' postings between checkpoints.</b>' +
+              'Each jump lands a long way short of where you wanted to be, so most of the traversal is still the plain one-at-a-time merge the skips were meant to replace. The stored pointers are nearly free — and nearly useless.'
+            : '<b style="color:var(--viz-amber)">Too many skips: ' + k.toLocaleString() + ' entries to store and test.</b>' +
+              'The jumps are short, but you now pay bytes for the metadata and a branch check at almost every posting to avoid work that had become cheap. At the extreme there is one skip per posting: pure overhead. ' +
+              '<br><br>On short lists this is the permanent state, which is why fine-grained skips on tiny postings lists cost more than they save.';
+      } else {
+        stats.innerHTML =
+          '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">1,000,000 results emitted</span>' +
+          '<span class="v5-pill" style="color:var(--viz-red);border-color:var(--viz-red)">skips unusable</span>' +
+          '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">work is Omega(1,000,000)</span>';
+        why.innerHTML = '<b style="color:var(--viz-red)">Every posting matches, so there is nothing to jump over.</b>' +
+          'Intersecting two identical million-entry lists must <em>emit</em> a million results, so the work is <code>Omega(1,000,000)</code> whatever structure you add — the dial above cannot help, at any setting. In adversarial layouts the algorithm stays <code>O(m + n)</code> and few skips are ever usable. ' +
+          '<br><br>Skips reduce <b>actual comparisons and decoded bytes on favourable unequal lists</b>. They never reduce the size of the output, and they never change the worst case. ' +
+          'Which is the whole judgment: store them where measured workloads justify them, and benchmark end to end — a skip that saves integer comparisons but causes a random read can lose to a sequential decoder.';
+      }
+    }
+
+    bLop.addEventListener('click', function(){ lop = true; render(); });
+    bDen.addEventListener('click', function(){ lop = false; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

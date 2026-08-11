@@ -1,0 +1,590 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Six Stages, One Document</button>
+  <button class="viz-tab" data-viz-tab="2">2. Batch Or Streaming</button>
+  <button class="viz-tab" data-viz-tab="3">3. Which Write Wins</button>
+  <button class="viz-tab" data-viz-tab="4">4. Contracts On Arrows</button>
+  <button class="viz-tab" data-viz-tab="5">5. Wipe And Rebuild</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Six Stages, One Document</h2>
+  <p class="vz-lede">Nothing here is new machinery — every stage was built in an earlier course. What is new
+    is the conveyor between them. Tap a stage to see which course gave it to you, what it holds, and where
+    the 40-page PDF is at that moment. <b>Like a factory whose machines you already own: this lesson is the
+    floor plan that connects them.</b></p>
+
+  <div class="v1-stages" id="v1-stages"></div>
+
+  <div class="vz-card">
+    <div class="v1-clock" id="v1-clock"></div>
+    <div class="v1-detail" id="v1-detail"></div>
+  </div>
+  <p class="vz-note">Each stage carries <b>four labels</b>: the storage system it lives in, the transform that
+    produces it, the team that owns it, and its freshness SLA. That is not bureaucracy — the next lesson
+    measures this path, the cost lesson prices it and the backfill lesson replays it. You cannot monitor,
+    price or rebuild a stage you cannot name.</p>
+
+  <style>
+    .v1-stages{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:14px}
+    .v1-tag{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+    .v1-clock{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-t{flex:1 1 78px;border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 8px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.35}
+    .v1-t b{display:block;font-size:14px;margin-bottom:2px}
+    .v1-t.is-now{border-color:var(--viz-accent)}
+    .v1-detail{font-size:12.5px;line-height:1.6;padding-top:12px;border-top:1px dashed var(--viz-line)}
+    .v1-detail b.v1-hd{display:block;font-size:13px;margin-bottom:4px}
+    .v1-row{margin-top:8px}
+    .v1-k{font-size:9.5px;font-weight:800;letter-spacing:.07em;color:var(--viz-muted);display:block}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { n:'Sources', built:'your application stack + DE 202’s log-based capture',
+        here:'the application database arriving as change events, user uploads, crawled pages, SaaS exports',
+        walk:'A 40-page PDF is uploaded and an upload event is emitted.', clock:0,
+        tag:'ORIGIN', tone:'var(--viz-muted)' },
+      { n:'Ingestion', built:'DE 201 — the landing zone',
+        here:'raw events and files landing <b>immutably</b> in cloud storage',
+        walk:'14:00 — the file and its event land in the raw zone, unchanged and append-only.', clock:0,
+        tag:'CORPUS OF RECORD', tone:'var(--viz-green)' },
+      { n:'The lake', built:'DE 201 — medallion + snapshot publication',
+        here:'bronze raw landing, silver normalized documents, gold serving artifacts, in an open table format',
+        walk:'The parse job writes the silver document: <code>doc_id</code>, <code>source_uri</code>, a monotonic version, text, MIME type, ACL, tenant.', clock:1,
+        tag:'CORPUS OF RECORD', tone:'var(--viz-green)' },
+      { n:'Pipelines (feature store)', built:'DE 301 — feature and embedding pipelines',
+        here:'parsing, deduplication, chunking, embedding',
+        walk:'12 chunks with deterministic IDs from document, version, span and chunker version — all 12 encoded with <b>model v3</b>.', clock:1,
+        tag:'DERIVED', tone:'var(--viz-violet)' },
+      { n:'Indexes', built:'IR 101 (inverted) + IR 201 (vector)',
+        here:'postings and vector rows keyed by <code>chunk_id</code>, tagged with model and index generation',
+        walk:'Upserts publish to the vector namespace and the inverted index — by <b>14:07</b> the document is visible to the funnel.', clock:1,
+        tag:'DERIVED', tone:'var(--viz-violet)' },
+      { n:'Serving', built:'IR 202 (ranking funnel) + IR 301 (RAG endpoint)',
+        here:'the hybrid funnel behind a RAG endpoint that answers with citations',
+        walk:'14:32 — an answer cites chunk 7, and the citation resolves chunk → silver document → the original <code>source_uri</code>.', clock:2,
+        tag:'DERIVED', tone:'var(--viz-violet)' }
+    ];
+    var MARKS = [
+      { t:'14:00', s:'the PDF lands in raw' },
+      { t:'→ 14:07', s:'parsed, chunked, embedded, indexed' },
+      { t:'14:32', s:'cited in an answer' }
+    ];
+    var wrap = document.getElementById('v1-stages');
+    var clock = document.getElementById('v1-clock');
+    var detail = document.getElementById('v1-detail');
+
+    function show(i){
+      var st = STAGES[i];
+      [].slice.call(wrap.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      clock.innerHTML = MARKS.map(function(m, j){
+        return '<div class="v1-t' + (j === st.clock ? ' is-now' : '') + '"><b style="color:' +
+          (j === st.clock ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' + m.t + '</b>' + m.s +
+          (j === st.clock ? '<br><span style="color:var(--viz-accent);font-weight:800">◀ here</span>' : '') + '</div>';
+      }).join('');
+      detail.innerHTML =
+        '<b class="v1-hd">' + st.n + ' — <span style="color:' + st.tone + '">' + st.tag + '</span></b>' +
+        '<div class="v1-row"><span class="v1-k">ALREADY YOURS, FROM</span>' + st.built + '</div>' +
+        '<div class="v1-row"><span class="v1-k">IN THIS BACKBONE</span>' + st.here + '</div>' +
+        '<div class="v1-row"><span class="v1-k">THE 40-PAGE PDF, HERE</span>' + st.walk + '</div>' +
+        '<div class="v1-row" style="color:var(--viz-muted)">' +
+          (st.tag === 'DERIVED'
+            ? 'Derived means <b>recomputable from silver by definition</b> — wipe it and rebuild it, and nothing is lost. Visual 5 tests exactly that.'
+            : st.tag === 'CORPUS OF RECORD'
+              ? 'Bronze and silver hold the corpus of record. Everything downstream is rebuilt <b>from here</b>, never from another copy.'
+              : 'Outside your boundary. Everything after this point is yours to name, own and give a freshness SLA.') +
+        '</div>';
+    }
+    STAGES.forEach(function(st, i){
+      var b = document.createElement('button');
+      b.className = 'v1-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-n">' + (i + 1) + '</span><span>' + st.n + '</span>' +
+        '<span class="v1-tag" style="color:' + st.tone + '">' + st.tag + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      wrap.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Batch Or Streaming</h2>
+  <p class="vz-lede">One real product: 8,000 document edits a day, 40 ACL-or-deletion events, 300 price-sheet
+    updates. Put each one on a path and watch the bill and the exposure move in opposite directions.
+    <b>Like posting a letter versus sending a courier — you do not courier the newsletter, and you never post
+    the keys back.</b></p>
+
+  <div class="v2-rows" id="v2-rows"></div>
+
+  <div class="vz-card">
+    <div class="v2-out" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The rule is <b>freshness requirement × volume × cost</b>, decided per hop — but one input
+    is not a preference. Revocation is a security property, so the 40 ACL events go streaming whatever they
+    cost. Evaluation datasets and analytics are batch, full stop.</p>
+
+  <style>
+    .v2-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35;width:100%}
+    .v2-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-path{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.04em;border:1.5px solid;
+      border-radius:999px;padding:3px 9px;white-space:nowrap}
+    .v2-sub{display:block;font-size:11px;color:var(--viz-muted);margin-top:2px;line-height:1.35}
+    .v2-out{display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b.v2-hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var WORK = [
+      { k:'edits',  n:'8,000 document edits / day', vol:8000,
+        need:'tolerates a 15-minute micro-batch — most corpora show no user-visible difference', best:'batch' },
+      { k:'acl',    n:'40 ACL changes + deletions / day', vol:40,
+        need:'absolute: a revocation SLA is a security property, not a freshness preference', best:'stream' },
+      { k:'price',  n:'300 price-sheet updates / day', vol:300,
+        need:'answers depend on these facts being current', best:'stream' }
+    ];
+    var path = { edits:'batch', acl:'stream', price:'stream' };
+    var rows = document.getElementById('v2-rows');
+    var out = document.getElementById('v2-out');
+    var why = document.getElementById('v2-why');
+
+    function pill(text, tone){
+      return '<span class="v2-pill" style="color:' + tone + ';border-color:' + tone + '">' + text + '</span>';
+    }
+    function render(){
+      var stream = 0, batch = 0;
+      WORK.forEach(function(w){ if (path[w.k] === 'stream') stream += w.vol; else batch += w.vol; });
+      [].slice.call(rows.children).forEach(function(b, j){
+        var w = WORK[j], p = path[w.k], streaming = p === 'stream';
+        var tone = streaming ? 'var(--viz-violet)' : 'var(--viz-accent)';
+        b.setAttribute('aria-pressed', streaming ? 'true' : 'false');
+        b.querySelector('.v2-path').setAttribute('style', 'color:' + tone + ';border-color:' + tone);
+        b.querySelector('.v2-path').textContent = streaming ? 'STREAMING · seconds' : 'BATCH · ≤15 min';
+      });
+
+      var exposed = path.acl === 'batch';
+      var stale = path.price === 'batch';
+      var overpay = path.edits === 'stream';
+      var ratio = Math.round(stream / 340 * 10) / 10;
+
+      out.innerHTML =
+        pill(stream.toLocaleString() + ' rec/day streaming', overpay ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(batch.toLocaleString() + ' rec/day batch', 'var(--viz-muted)') +
+        pill(exposed ? 'revocation exposure: up to 15 min' : 'revocation exposure: seconds',
+             exposed ? 'var(--viz-red)' : 'var(--viz-green)');
+
+      var msg = '';
+      if (exposed) {
+        msg += '<b class="v2-hd" style="color:var(--viz-red)">A breach window, not a latency number.</b>' +
+          'With deletions and ACL tightenings on the batch path, a revoked document stays answerable for up to a quarter of an hour. ' +
+          'Those are <b>40 records a day</b> — the per-record premium on 40 records is irrelevant, and the freshness requirement is absolute. This one is never a cost decision.';
+      } else if (overpay) {
+        msg += '<b class="v2-hd" style="color:var(--viz-red)">Paying the premium for nothing.</b>' +
+          'Everything now rides the expensive path: <b>' + stream.toLocaleString() + '</b> records a day instead of 340, about <b>' + ratio + '×</b> the streaming volume — ' +
+          'to move ordinary content edits from fifteen minutes fresh to seconds fresh, which no user can perceive. Running everything streaming multiplies the ingestion bill for zero user-visible gain.';
+      } else if (stale) {
+        msg += '<b class="v2-hd" style="color:var(--viz-amber)">Cheap, and quietly wrong in answers.</b>' +
+          'Security is safe, but pricing and status facts that answers depend on are now up to fifteen minutes stale — and the answer arrives with a citation, so it reads authoritative. ' +
+          '300 records a day is the cheapest streaming decision on this board.';
+      } else {
+        msg += '<b class="v2-hd" style="color:var(--viz-green)">The split the rule produces.</b>' +
+          'Bulk edits micro-batch at essentially batch prices; the <b>340</b> records a day whose freshness is non-negotiable ride streaming, where their tiny volume makes the premium irrelevant. ' +
+          'That is freshness × volume × cost applied per hop rather than per system.';
+      }
+      msg += '<br><br><span style="color:var(--viz-muted)">Both paths write the <b>same</b> silver tables and the <b>same</b> indexes — which is what makes visual 3 necessary — and both run the <b>same transforms</b>. ' +
+        'Fork batch and streaming into two codebases and the drift only surfaces during an incident, when the two parses produce different chunks from the same document.</span>';
+      why.innerHTML = msg;
+    }
+    WORK.forEach(function(w, i){
+      var b = document.createElement('button');
+      b.className = 'v2-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span><b>' + w.n + '</b><span class="v2-sub">' + w.need + '</span></span>' +
+        '<span class="v2-path"></span>';
+      b.addEventListener('click', function(){
+        path[w.k] = path[w.k] === 'stream' ? 'batch' : 'stream';
+        render();
+      });
+      rows.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Which Write Wins</h2>
+  <p class="vz-lede">A slow batch backfill replays document <code>d-7712</code> at <b>version 4</b> while a
+    streaming update has already written <b>version 6</b>. Slide the backfill's arrival and switch the rule.
+    <b>Like two people editing the same shared document: you settle it by the draft number written on the
+    page, not by who hit save last.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Conflict rule">
+    <button id="v3-arr" aria-pressed="false">last write by arrival</button>
+    <button id="v3-ver" aria-pressed="true">last-writer-wins on (doc_id, version)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-delay">Batch replay arrives <span id="v3-dl">+3 min</span> relative to the streaming update</label>
+    <input type="range" id="v3-delay" min="-8" max="8" value="3" step="1" aria-label="Batch replay arrival, minutes relative to the streaming update">
+    <div class="v3-time" id="v3-time"></div>
+    <div class="v3-out" id="v3-out"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">This is why every upsert carries a <b>monotonic version</b> and why identity is
+    deterministic: reprocessing the same input yields the same <code>doc_id</code> and the same
+    <code>chunk_id</code>, so a replay is idempotent instead of destructive. The whole backfill playbook in
+    lesson 4 stands on this one property.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-time{margin-top:16px;display:flex;flex-direction:column;gap:5px}
+    .v3-w{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.4}
+    .v3-w.is-win{border-color:var(--viz-green)}
+    .v3-w.is-lose{opacity:.5;border-style:dashed}
+    .v3-mk{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;font-family:inherit;white-space:nowrap}
+    .v3-out{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b.v3-hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var byVersion = true;
+    var bA = document.getElementById('v3-arr'), bV = document.getElementById('v3-ver');
+    var s = document.getElementById('v3-delay'), dl = document.getElementById('v3-dl');
+    var time = document.getElementById('v3-time'), out = document.getElementById('v3-out'), why = document.getElementById('v3-why');
+
+    function render(){
+      var d = Number(s.value);
+      dl.textContent = (d > 0 ? '+' : '') + d + ' min';
+      bA.setAttribute('aria-pressed', byVersion ? 'false' : 'true');
+      bV.setAttribute('aria-pressed', byVersion ? 'true' : 'false');
+
+      var batchLater = d > 0;
+      var winner = byVersion ? 'stream' : (batchLater ? 'batch' : 'stream');
+      var stored = winner === 'stream' ? 6 : 4;
+
+      var writes = [
+        { k:'stream', t:'streaming CDC · v6', at:'T+0', txt:'the corrected page, ACL tightened' },
+        { k:'batch',  t:'batch backfill replay · v4', at:'T' + (d >= 0 ? '+' : '') + d, txt:'a snapshot re-derived from an older parse' }
+      ];
+      time.innerHTML = writes.map(function(w){
+        var win = w.k === winner;
+        return '<div class="v3-w ' + (win ? 'is-win' : 'is-lose') + '"><span>' + w.t + '</span>' +
+          '<span style="color:var(--viz-muted)">arrives ' + w.at + ' · ' + w.txt + '</span>' +
+          '<span class="v3-mk" style="color:' + (win ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (win ? 'STORED' : 'discarded') + '</span></div>';
+      }).join('');
+
+      var wrong = stored === 4;
+      out.innerHTML =
+        '<span class="v3-pill" style="color:' + (wrong ? 'var(--viz-red)' : 'var(--viz-green)') +
+          ';border-color:' + (wrong ? 'var(--viz-red)' : 'var(--viz-green)') + '">stored: v' + stored + '</span>' +
+        '<span class="v3-pill" style="color:' + (wrong ? 'var(--viz-red)' : 'var(--viz-green)') +
+          ';border-color:' + (wrong ? 'var(--viz-red)' : 'var(--viz-green)') + '">index text: ' + (wrong ? 'STALE — and the old ACL is back' : 'current') + '</span>' +
+        '<span class="v3-pill" style="color:' + (byVersion ? 'var(--viz-green)' : 'var(--viz-amber)') +
+          ';border-color:' + (byVersion ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' +
+          (byVersion ? 'deterministic at every delay' : 'result depends on the clock') + '</span>';
+
+      why.innerHTML = byVersion
+        ? '<b class="v3-hd" style="color:var(--viz-green)">Version decides, so arrival is irrelevant.</b>' +
+          'Writers apply last-writer-wins on <code>(doc_id, version)</code>, so v4 loses to v6 whether it lands eight minutes early or eight minutes late. Drag the slider across its whole range and the answer never moves — ' +
+          'that is what "deterministic" buys you, and it is the reason a batch backfill can safely run over live streaming traffic at all. ' +
+          '<br><br>Note what this is <em>not</em>: it is not a lock, not a queue and not an ordering guarantee from the transport. It is one monotonic integer on the record.'
+        : (batchLater
+            ? '<b class="v3-hd" style="color:var(--viz-red)">The backfill just reinstated stale content.</b>' +
+              'With arrival order deciding, the replay landed last and won, so the silver row and every derived copy fall back to <b>v4</b>. The corrected text is gone from the index and the loosened ACL is live again — ' +
+              'from a job whose whole purpose was to repair data. <br><br>Nothing errored. Reconciliation counts still match, because the counts are right and the <em>content</em> is old.'
+            : '<b class="v3-hd" style="color:var(--viz-amber)">Right answer, wrong reason — the dangerous case.</b>' +
+              'The replay happened to land first, so the newer streamed write still wins and everything looks correct. This is exactly why the bug survives review: on the happy path arrival order and version order agree. ' +
+              'Push the slider past 0 and the same code silently reverts the document.');
+    }
+    bA.addEventListener('click', function(){ byVersion = false; render(); });
+    bV.addEventListener('click', function(){ byVersion = true; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Contracts On Arrows</h2>
+  <p class="vz-lede">Seven contracts, each with four parts: schema, semantics, SLA, failure behavior. Tap one
+    to open it, then run the two scenarios and watch which arrows hold. <b>Like plumbing to a standard thread:
+    you can swap any fitting for a better one, right up until someone solders straight through the joint.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Scenario">
+    <button id="v4-swap" aria-pressed="true">swap the embedding model</button>
+    <button id="v4-couple" aria-pressed="false">serving reads the parser's internals</button>
+  </div>
+
+  <div class="v4-list" id="v4-list"></div>
+
+  <div class="vz-card">
+    <div class="v4-detail" id="v4-detail"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">An SLA per contract — ingestion lag, parse success rate, chunk coverage, embedding
+    freshness, index visibility lag, query p95, answer p95 — is what makes the next lesson possible.
+    <b>A contract without an SLA is a hope</b>, and a contract without a stated failure behavior quietly
+    becomes "drop it and carry on", which destroys the coverage numbers you monitor with.</p>
+
+  <style>
+    .v4-list{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v4-c{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35;width:100%}
+    .v4-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-b{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+    .v4-detail{font-size:12.5px;line-height:1.6}
+    .v4-detail b.v4-hd{display:block;font-size:13px;margin-bottom:4px}
+    .v4-k{font-size:9.5px;font-weight:800;letter-spacing:.07em;color:var(--viz-muted);display:block;margin-top:8px}
+    .v4-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b.v4-hd2{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var C = [
+      { n:'raw event',
+        schema:'source_uri · ingested_at · immutable payload · content hash',
+        sem:'append-only; nothing is ever edited in place',
+        sla:'ingestion lag', fail:'unparseable payload is retained and quarantined, never dropped',
+        swap:['untouched','var(--viz-muted)'], couple:['held','var(--viz-muted)'] },
+      { n:'silver document',
+        schema:'doc_id · source_uri · monotonic version · content hash · text · MIME · ACL · tenant · updated_at',
+        sem:'upserted by (doc_id, version) — the rule visual 3 tested',
+        sla:'parse success rate', fail:'validation failure quarantines the row; consumers read published snapshots only',
+        swap:['untouched','var(--viz-muted)'], couple:['BYPASSED','var(--viz-red)'] },
+      { n:'chunk',
+        schema:'chunk_id = hash(document, version, span, chunker version) · text · offsets · ACL · tenant',
+        sem:'deterministic identity ⇒ reprocessing yields the same IDs ⇒ replay is idempotent',
+        sla:'chunk coverage', fail:'a document with zero chunks is a coverage alert, not a silent gap',
+        swap:['untouched','var(--viz-muted)'], couple:['held','var(--viz-muted)'] },
+      { n:'embedding',
+        schema:'chunk_id · model_id · vector · embedded_at',
+        sem:'model_id makes a mixed population visible instead of silent',
+        sla:'embedding freshness', fail:'a failed encode leaves the chunk unembedded and counted, never half-written',
+        swap:['CHANGES — new model_id','var(--viz-amber)'], couple:['held','var(--viz-muted)'] },
+      { n:'index',
+        schema:'postings + vector rows keyed by chunk_id, tagged with model and index generation',
+        sem:'generation tag identifies which build a row came from',
+        sla:'index visibility lag', fail:'a failed build does not become the live generation',
+        swap:['CHANGES — new generation tag','var(--viz-amber)'], couple:['held','var(--viz-muted)'] },
+      { n:'query API',
+        schema:'in: query + tenant context + filters · out: candidates with chunk IDs and provenance',
+        sem:'every candidate is attributable back to a chunk and a document',
+        sla:'query p95', fail:'a degraded index answers with fewer candidates, not with someone else’s tenant',
+        swap:['untouched','var(--viz-muted)'], couple:['held','var(--viz-muted)'] },
+      { n:'answer API',
+        schema:'in: question · out: answer with citations and a trace ID',
+        sem:'every claim resolves to a chunk, a document and a source_uri',
+        sla:'answer p95', fail:'no grounding ⇒ say so; never answer uncited',
+        swap:['untouched','var(--viz-muted)'], couple:['BROKE AT 02:00','var(--viz-red)'] }
+    ];
+    var scenario = 'swap', cur = 3;
+    var bS = document.getElementById('v4-swap'), bC = document.getElementById('v4-couple');
+    var list = document.getElementById('v4-list');
+    var detail = document.getElementById('v4-detail'), why = document.getElementById('v4-why');
+
+    function render(){
+      bS.setAttribute('aria-pressed', scenario === 'swap' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', scenario === 'couple' ? 'true' : 'false');
+      [].slice.call(list.children).forEach(function(b, j){
+        var badge = scenario === 'swap' ? C[j].swap : C[j].couple;
+        b.setAttribute('aria-pressed', j === cur ? 'true' : 'false');
+        var el = b.querySelector('.v4-b');
+        el.textContent = badge[0];
+        el.setAttribute('style', 'color:' + badge[1]);
+      });
+      var c = C[cur], badge = scenario === 'swap' ? c.swap : c.couple;
+      detail.innerHTML =
+        '<b class="v4-hd">' + c.n + ' — <span style="color:' + badge[1] + '">' + badge[0] + '</span></b>' +
+        '<span class="v4-k">SCHEMA</span><span class="v4-mono">' + c.schema + '</span>' +
+        '<span class="v4-k">SEMANTICS</span>' + c.sem +
+        '<span class="v4-k">SLA</span>' + c.sla +
+        '<span class="v4-k">FAILURE BEHAVIOR</span>' + c.fail;
+      why.innerHTML = scenario === 'swap'
+        ? '<b class="v4-hd2" style="color:var(--viz-green)">Two arrows move; five do not.</b>' +
+          'Replacing the embedding model changed only the <b>embedding stage</b> and the <b>index generation tag</b>. The chunk contract upstream and the index contract downstream never learned that a new model existed, ' +
+          'so nothing else needed reading, testing or redeploying. <br><br>That is the entire return on writing contracts down: a component is replaceable exactly as far as its interface is stable.'
+        : '<b class="v4-hd2" style="color:var(--viz-red)">The break appears at the far end of the chain.</b>' +
+          'An early version let the serving API read the <b>parser’s internal row format</b> directly — no contract there, just an implementation. A parser upgrade renamed one field and answers broke in production at <b>02:00</b>, ' +
+          'with every schema still technically valid. <br><br>Note where the damage lands: the change was at stage 3, the failure at stage 6, and no schema check anywhere in between could see it. The fix that weekend was to write the contract down and version it.';
+    }
+    C.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v4-c';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span><b>' + c.n + '</b></span><span class="v4-b"></span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      list.appendChild(b);
+    });
+    bS.addEventListener('click', function(){ scenario = 'swap'; render(); });
+    bC.addEventListener('click', function(){ scenario = 'couple'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Wipe And Rebuild</h2>
+  <p class="vz-lede">The ruthless test: any derived store may be wiped and rebuilt from truth without
+    information loss. Tap stores to wipe them, then turn on the lossy parser and run it again.
+    <b>Like negatives and prints — you can reprint any photo you like, right up until you discover one print
+    had no negative.</b></p>
+
+  <div class="v5-list" id="v5-list"></div>
+
+  <div class="vz-seg" role="group" aria-label="Parser quality">
+    <button id="v5-lossy" aria-pressed="false">the parser was lossy — it dropped tables from PDFs for months</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-out" id="v5-out"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Disaster recovery is therefore a backup of the <b>truth</b> plus a rebuild runbook — the
+    copies need no backups at all. Embeddings are the one nuance: derived, but expensive to recompute, so
+    keeping an old generation is a <em>cost</em> decision for lesson 3 to price, never a truth question.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v5-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35;width:100%}
+    .v5-s[aria-pressed="true"]{border-color:var(--viz-red);border-style:dashed;opacity:.72}
+    .v5-role{font-size:9.5px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+    .v5-mk{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;white-space:nowrap}
+    .v5-out{display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b.v5-hd{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STORES = [
+      { k:'silver', n:'silver documents + ACLs (the lake)', role:'TRUTH', tone:'var(--viz-green)', holdsTables:false },
+      { k:'chunks', n:'chunks', role:'derived', tone:'var(--viz-violet)', holdsTables:true },
+      { k:'emb',    n:'embeddings (model v3)', role:'derived · expensive', tone:'var(--viz-violet)', holdsTables:false },
+      { k:'post',   n:'inverted-index postings', role:'derived', tone:'var(--viz-violet)', holdsTables:true },
+      { k:'vec',    n:'vector rows', role:'derived', tone:'var(--viz-violet)', holdsTables:true },
+      { k:'cache',  n:'retrieval + answer caches', role:'derived', tone:'var(--viz-violet)', holdsTables:false }
+    ];
+    var wiped = { silver:false, chunks:false, emb:false, post:false, vec:false, cache:false };
+    var lossy = false;
+    var list = document.getElementById('v5-list');
+    var lossyB = document.getElementById('v5-lossy');
+    var out = document.getElementById('v5-out'), why = document.getElementById('v5-why');
+
+    function render(){
+      lossyB.setAttribute('aria-pressed', lossy ? 'true' : 'false');
+      var truthGone = wiped.silver;
+      var lostText = lossy && !truthGone && STORES.some(function(s){ return s.holdsTables && wiped[s.k]; });
+      var n = STORES.filter(function(s){ return wiped[s.k]; }).length;
+
+      [].slice.call(list.children).forEach(function(b, j){
+        var s = STORES[j], w = wiped[s.k];
+        b.setAttribute('aria-pressed', w ? 'true' : 'false');
+        var mk = b.querySelector('.v5-mk');
+        var permanent = w && (truthGone || (lossy && s.holdsTables));
+        mk.textContent = !w ? 'live · tap to wipe'
+          : permanent ? '✖ GONE FOR GOOD'
+          : '↻ rebuilt from truth';
+        mk.setAttribute('style', 'color:' + (!w ? 'var(--viz-muted)' : permanent ? 'var(--viz-red)' : 'var(--viz-green)'));
+      });
+
+      var okTone = (truthGone || lostText) ? 'var(--viz-red)' : 'var(--viz-green)';
+      out.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + n + ' of 6 stores wiped</span>' +
+        '<span class="v5-pill" style="color:' + okTone + ';border-color:' + okTone + '">' +
+          (truthGone ? 'unrecoverable — truth is gone' : lostText ? 'unrecoverable — table text is gone' : 'fully rebuildable') + '</span>' +
+        '<span class="v5-pill" style="color:' + (wiped.emb ? 'var(--viz-amber)' : 'var(--viz-muted)') +
+          ';border-color:' + (wiped.emb ? 'var(--viz-amber)' : 'var(--viz-line)') + '">re-embed cost: ' + (wiped.emb ? 'every chunk, model v3' : 'none') + '</span>';
+
+      if (truthGone) {
+        why.innerHTML = '<b class="v5-hd" style="color:var(--viz-red)">Wipe truth and nothing rebuilds anything.</b>' +
+          'The derived stores may still be sitting there full of data, but there is no longer a system that can regenerate them, reconcile against them, or say which of them to believe when they disagree. ' +
+          'This is why truth gets <b>truth-grade care</b> — backups, schema governance, change control — and the copies get none of it. ' +
+          '<br><br>The corollary is the useful half: disaster recovery here is one backup plus a rebuild runbook, not six backups.';
+      } else if (lostText) {
+        why.innerHTML = '<b class="v5-hd" style="color:var(--viz-red)">A derived store that had secretly become truth.</b>' +
+          'The parser dropped tables from PDFs for months and nobody noticed, because the index <em>looked</em> fine. Wipe it now and the table text does not come back: it never existed anywhere else. ' +
+          'The index had quietly become the only place some content lived. ' +
+          '<br><br>Any store that cannot survive this test <b>is</b> a source of truth, whether or not that was the plan, and must be given truth-grade care until the gap is repaired from the raw zone. ' +
+          'If you cannot rebuild every index from the lake tonight, you have already lost the truth — you just have not needed it yet.';
+      } else if (n === 0) {
+        why.innerHTML = '<b class="v5-hd">Run the test before you need it.</b>' +
+          'For each entity exactly one system holds the truth and everything else is a derived, recomputable, disposable copy. Here the lake’s silver documents table is truth for documents and their ACLs; ' +
+          'chunks, embeddings, postings, vector rows and every cache are copies. <br><br>Tap any of them to wipe it — the claim is that it comes back. Then turn on the lossy parser and try again.';
+      } else {
+        why.innerHTML = '<b class="v5-hd" style="color:var(--viz-green)">Rebuilt from truth, and only from truth.</b>' +
+          'Backfills read from the silver table, never from another copy — read a copy and errors photocopy into the rebuild you were doing to fix them. ' +
+          'Nobody hand-edits the vector database either: a hand edit is invisible to the next rebuild and silently reverts. ' +
+          '<br><br>Between rebuilds, <b>reconciliation</b> is what keeps the claim honest: count documents in silver against live chunks against live vectors <em>per model generation</em>, and alert when the counts diverge beyond a threshold. ' +
+          (wiped.emb ? 'Note the embeddings pill — that store is derived but expensive, which is a cost decision, not a truth one.' : '');
+      }
+    }
+    STORES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v5-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span><b>' + s.n + '</b> <span class="v5-role" style="color:' + s.tone + '">' + s.role + '</span></span>' +
+        '<span class="v5-mk"></span>';
+      b.addEventListener('click', function(){ wiped[s.k] = !wiped[s.k]; render(); });
+      list.appendChild(b);
+    });
+    lossyB.addEventListener('click', function(){ lossy = !lossy; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

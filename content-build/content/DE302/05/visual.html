@@ -1,0 +1,563 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Load To Transform</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Dependency Graph</button>
+  <button class="viz-tab" data-viz-tab="3">3. Compile Then Execute</button>
+  <button class="viz-tab" data-viz-tab="4">4. Fusion Run Modes</button>
+  <button class="viz-tab" data-viz-tab="5">5. Airflow Or Workflows</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Load To Transform</h2>
+  <p class="vz-lede"><b>Pub/Sub</b>, <b>Dataflow</b> and <b>Datastream</b> filled the warehouse;
+    <b>partitioning and clustering</b> and <b>materialized views</b> made it cheap to read. This lesson is
+    the band in the middle. Tap a stage to see who owns it and which lesson taught it.
+    <b>Like a kitchen: deliveries, cold store, prep bench and pass are different jobs, and the head chef
+    calls the order without cooking.</b></p>
+
+  <div class="v1-flow" id="v1-flow"></div>
+  <div class="v1-bandwrap"><div class="v1-band" id="v1-band"></div></div>
+
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The band is not a fifth processing engine. <b>An orchestrator should start work, pass
+    small parameters, observe status, enforce dependencies and record outcomes</b> — never absorb the
+    processing itself. Let BigQuery and Dataform run SQL, Dataflow process distributed data, and Cloud Data
+    Fusion run its integration pipeline. That separation is what gives you clean retries, real scaling and
+    service-specific monitoring.</p>
+
+  <style>
+    .v1-flow{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:6px}
+    .v1-chip{flex:1 1 104px;min-height:56px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-size:11.5px;font-weight:700;
+      padding:8px 8px;text-align:left;line-height:1.3}
+    .v1-chip[aria-pressed="true"]{border-color:var(--viz-accent);border-width:2.5px}
+    .v1-chip.is-new{background:var(--viz-bg)}
+    .v1-tagline{display:block;font-weight:800;font-size:9px;letter-spacing:.05em;margin-top:5px}
+    .v1-bandwrap{margin-bottom:12px}
+    .v1-band{width:100%;min-height:48px;border:1.5px dashed var(--viz-line);border-radius:10px;
+      background:var(--viz-bg);color:var(--viz-ink);font:inherit;font-size:11.5px;font-weight:700;
+      padding:9px 10px;text-align:left;line-height:1.35}
+    .v1-band[aria-pressed="true"]{border-color:var(--viz-accent);border-style:solid;border-width:2.5px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b.v1-t{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { t:'Ingest and stream', svc:'Pub/Sub · Dataflow · Datastream', mine:false, tag:'ALREADY TAUGHT · lesson 04',
+        h:'Getting events and rows into the platform.',
+        p:'Topics and subscriptions with their delivery guarantees, autoscaling streaming Dataflow jobs, and Datastream turning a source database into managed change data capture. All of it answers <em>how does the data arrive</em>. ' +
+          'None of it answers <em>what shape should it be in once it is here</em> — which is exactly where this lesson starts.' },
+      { t:'Store and lay out', svc:'BigQuery storage · partitioning · clustering', mine:false, tag:'ALREADY TAUGHT · lesson 02',
+        h:'Storage-compute separation and physical layout.',
+        p:'Partitioning and clustering decide how many bytes a query has to touch. They stay relevant here: an incremental Dataform table is still a BigQuery table, and partitioning or clustering it is one of the levers that reduces the work each incremental run does.' },
+      { t:'Transform in place', svc:'Dataform — SQLX actions, ref, assertions', mine:true, tag:'THIS LESSON',
+        h:'The transform stage of an ELT design.',
+        p:'Data is already extracted and loaded; Dataform turns it into tested, documented tables and views. A repository holds the code, development workspaces isolate contributors, and Git supplies the review and release path. ' +
+          '<br><br>Choose it when BigQuery SQL transformations, dependency-aware builds, tests, documentation and version control are the <b>centre</b> of the workload. It is not a general extraction engine.' },
+      { t:'Integrate and move', svc:'Cloud Data Fusion — visual pipelines, plugins', mine:true, tag:'THIS LESSON',
+        h:'Visual, connector-rich data integration.',
+        p:'A pipeline drawn as sources, transformations and sinks, assembled from plugins rather than hand-written adapters. Attractive for migrating several relational systems, standardising ingestion flows, or letting engineers configure approved components instead of writing a new Beam or Spark application. ' +
+          '<br><br>It overlaps without replacing: Dataform is the more direct fit for SQL that stays in BigQuery, Dataflow for code-centred fine-grained processing, Datastream for managed CDC.' },
+      { t:'Serve and analyse', svc:'Materialized views · BI Engine', mine:false, tag:'ALREADY TAUGHT · lesson 03',
+        h:'Making the modelled tables fast to read.',
+        p:'The consumers at the end of the chain. Note the dependency direction: a materialized view is only as trustworthy as the transformation that built the table under it, which is why assertions belong in the graph rather than in a dashboard caveat.' }
+    ];
+    var BAND = { t:'Orchestrate the whole row', svc:'Managed Airflow (Composer) · Workflows', mine:true, tag:'THIS LESSON',
+      h:'Coordination, spanning every stage above.',
+      p:'An orchestrator coordinates steps; it should not absorb all business processing into its control plane. Managed Service for Apache Airflow runs Python DAGs of operators and tasks; Workflows executes a defined sequence of service calls in YAML or JSON. ' +
+        '<br><br>Visual 5 is how you choose between them. What matters here is that it is a <b>different layer</b> from the four boxes above — most wrong answers in this lesson are a correct service from the wrong layer.' };
+
+    var flow = document.getElementById('v1-flow');
+    var band = document.getElementById('v1-band');
+    var why = document.getElementById('v1-why');
+    var chips = [];
+
+    function paint(item, el){
+      [].forEach.call(chips, function(c){ c.setAttribute('aria-pressed', c === el ? 'true' : 'false'); });
+      var col = item.mine ? 'var(--viz-accent)' : 'var(--viz-muted)';
+      why.innerHTML = '<b class="v1-t">' + item.h + '</b>' +
+        '<span style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:' + col + ';font-weight:800">' +
+        item.tag + '</span><br><span style="font-size:11.5px;color:var(--viz-muted)">' + item.svc + '</span><br><br>' + item.p;
+    }
+
+    STAGES.forEach(function(s){
+      var b = document.createElement('button');
+      b.className = 'v1-chip' + (s.mine ? ' is-new' : '');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = s.t + '<span class="v1-tagline" style="color:' + (s.mine ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' +
+        (s.mine ? 'THIS LESSON' : 'ALREADY TAUGHT') + '</span>';
+      b.addEventListener('click', function(){ paint(s, b); });
+      flow.appendChild(b);
+      chips.push(b);
+    });
+
+    band.setAttribute('role', 'button');
+    band.setAttribute('tabindex', '0');
+    band.setAttribute('aria-pressed', 'false');
+    band.innerHTML = '⟵ orchestration spans all four ⟶<span class="v1-tagline" style="color:var(--viz-accent)">THIS LESSON · Managed Airflow (Composer) or Workflows</span>';
+    band.addEventListener('click', function(){ paint(BAND, band); });
+    chips.push(band);
+
+    paint(STAGES[2], chips[2]);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Dependency Graph</h2>
+  <p class="vz-lede">Calling <code>ref</code> on an upstream object both qualifies its name and declares the
+    edge, so Dataform compiles an <em>ordered graph</em> instead of a list. Switch how the same five build
+    steps are wired and watch the wall clock move. <b>Like cooking a roast dinner: the potatoes do not have
+    to wait for the gravy just because the recipe printed them in that order.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="How the actions are wired" id="v2-seg"></div>
+
+  <div class="vz-card">
+    <div class="v2-chart" id="v2-chart"></div>
+    <div class="v2-stat" id="v2-stat"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The assertion is part of the graph on purpose. A built-in check for uniqueness or
+    non-null values, or a custom SQL test like <code>revenue &gt;= 0</code>, is a <b>data contract</b>:
+    a failure is not a cosmetic warning, it means downstream consumers are about to be served data whose
+    promise is known to be broken. Place the check beside the model whose promise it protects, name it
+    usefully, and route the failure to an owner.</p>
+
+  <style>
+    .v2-chart{display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v2-nm{flex:0 0 116px;color:var(--viz-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .v2-track{position:relative;flex:1;height:16px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{position:absolute;top:0;bottom:0;border-radius:4px;opacity:.9}
+    .v2-min{flex:0 0 52px;text-align:right;font-size:10px;color:var(--viz-muted)}
+    .v2-stat{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b.v2-t{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The doc's worked example: raw orders and customers are declared, two cleaned
+    // models build from them, daily_sales refs both, an assertion guards revenue,
+    // and one model hangs off customers only — the branch a hand-written list ruins.
+    var BASE = [
+      { id:'cleaned_orders',    dur:4, deps:['raw_orders'] },
+      { id:'cleaned_customers', dur:2, deps:['raw_customers'] },
+      { id:'customer_segments', dur:3, deps:['cleaned_customers'] },
+      { id:'daily_sales',       dur:5, deps:['cleaned_orders','cleaned_customers'] },
+      { id:'assert_revenue>=0', dur:1, deps:['daily_sales'] }
+    ];
+    var MODES = [
+      { lab:'hand-written list', kind:'serial' },
+      { lab:'compiled graph', kind:'graph' },
+      { lab:'graph + a false ref', kind:'false' }
+    ];
+    var cur = 1;
+    var seg = document.getElementById('v2-seg'), chart = document.getElementById('v2-chart');
+    var stat = document.getElementById('v2-stat'), why = document.getElementById('v2-why');
+
+    function schedule(kind){
+      var acts = BASE.map(function(a){ return { id:a.id, dur:a.dur, deps:a.deps.slice(), start:0 }; });
+      if (kind === 'false') acts[2].deps.push('daily_sales');   // segments told to wait on sales
+      var byId = {};
+      acts.forEach(function(a){ byId[a.id] = a; });
+      var finish = {};
+      // Resolved recursively, not in list order: a false dependency can point FORWARD,
+      // and reading the list top to bottom would score it as costing nothing.
+      function fin(id){
+        var a = byId[id];
+        if (!a) return 0;                       // a declaration — already in BigQuery
+        if (finish[id] != null) return Math.max(finish[id], 0);
+        finish[id] = -1;                        // cycle guard; the graph here has none
+        var s = 0;
+        a.deps.forEach(function(d){ var f = fin(d); if (f > s) s = f; });
+        a.start = s;
+        finish[id] = s + a.dur;
+        return finish[id];
+      }
+      if (kind === 'serial') {
+        var t = 0;
+        acts.forEach(function(a){ a.start = t; t += a.dur; });
+      } else {
+        acts.forEach(function(a){ fin(a.id); });
+      }
+      return acts.map(function(a){ return { id:a.id, start:a.start, end:a.start + a.dur, deps:a.deps }; });
+    }
+
+    function render(){
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      var kind = MODES[cur].kind;
+      var rows = schedule(kind);
+      var total = rows.reduce(function(m, r){ return Math.max(m, r.end); }, 0);
+      var best = 10;
+
+      chart.innerHTML = rows.map(function(r){
+        var isAssert = r.id.indexOf('assert') === 0;
+        var col = isAssert ? 'var(--viz-violet)' : (r.start === 0 ? 'var(--viz-green)' : 'var(--viz-accent)');
+        return '<div class="v2-r"><span class="v2-nm">' + r.id + '</span>' +
+          '<span class="v2-track"><i style="left:' + (r.start / total * 100) + '%;width:' +
+          Math.max(3, (r.end - r.start) / total * 100) + '%;background:' + col + '"></i></span>' +
+          '<span class="v2-min">' + r.start + '→' + r.end + ' min</span></div>';
+      }).join('') +
+      '<div class="v2-r" style="margin-top:4px"><span class="v2-nm" style="color:var(--viz-muted)">waits on</span>' +
+      '<span style="flex:1;color:var(--viz-muted)">' + rows.map(function(r){
+        return r.deps.length ? r.id.split('_')[0] + '←' + r.deps.length : r.id.split('_')[0] + '←0';
+      }).join(' · ') + '</span></div>';
+
+      var good = total <= best;
+      var c = good ? 'var(--viz-green)' : 'var(--viz-red)';
+      stat.innerHTML =
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">' + total + ' min end to end' +
+        (good ? ' — as fast as the data allows' : ' — ' + (total - best) + ' min of pure waiting') + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">15 min of work either way</span>';
+
+      why.innerHTML = kind === 'serial'
+        ? '<b class="v2-t" style="color:var(--viz-red)">A list invents dependencies the data does not have.</b>' +
+          '<em>query one, query two, query three</em> forces every step behind the one printed above it, so 15 minutes of work takes 15 minutes of wall clock. ' +
+          '<code>customer_segments</code> needs nothing from the orders branch and still waits for it. ' +
+          '<br><br>Nobody writes this deliberately; it is what a project becomes when execution order is maintained by hand in a scheduler.'
+        : kind === 'graph'
+          ? '<b class="v2-t" style="color:var(--viz-green)">The compiled graph runs independent branches at once.</b>' +
+            '<code>daily_sales</code> refs both cleaned models, so both must finish first — a real relationship. <code>customer_segments</code> refs only <code>cleaned_customers</code>, so it starts at minute 2 alongside the orders branch, and the whole run lands in 10 minutes instead of 15. ' +
+            '<br><br>The edges came free: <code>ref</code> returns the qualified relation name you needed anyway, so the graph <b>cannot drift from the SQL</b>. Dataform compiles the project, rejects missing or circular dependencies, and emits Standard SQL plus this ordering.'
+          : '<b class="v2-t" style="color:var(--viz-amber)">A dependency that is not real costs you the branch.</b>' +
+            'Here <code>customer_segments</code> has been given an explicit dependency on <code>daily_sales</code> that its SQL never needed. Nothing errors, nothing looks wrong, and the run stretches to 12 minutes. ' +
+            '<br><br>Explicit dependency lists exist for the honest case where a SQL reference does not express the execution relationship — a custom operation, a side effect. Reach for one only then; <b>the graph is supposed to communicate real data relationships</b>.';
+    }
+
+    MODES.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = m.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Compile Then Execute</h2>
+  <p class="vz-lede">Dataform has two phases and they fail for completely different reasons. Compilation is
+    <em>hermetic</em> — no arbitrary internet calls, identical inputs intended to give identical SQL.
+    Execution is BigQuery doing the work. Tap a defect and watch which box it lands in.
+    <b>Like proof-reading a recipe versus burning the dinner: one is caught at the desk, the other only at
+    the stove.</b></p>
+
+  <div class="v3-boxes">
+    <div class="v3-box" id="v3-boxa"><h5>PHASE 1 · COMPILE</h5><span>config · refs · JavaScript · metadata → one deterministic compilation result. Nothing has touched BigQuery yet.</span></div>
+    <div class="v3-box" id="v3-boxb"><h5>PHASE 2 · EXECUTE</h5><span>the selected compiled actions are sent to BigQuery in dependency order.</span></div>
+  </div>
+
+  <div class="v3-list" id="v3-list"></div>
+  <div class="vz-card">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The third row of that list is the one that never announces itself. An incremental
+    predicate is a promise to capture every new <em>or changed</em> record; a strict
+    <code>&gt; last_timestamp</code> filter quietly drops late arrivals, so a <b>rolling lookback</b>, a
+    stable unique key for merge behaviour, and periodic full reconciliation are the real design.
+    <b>An efficient incremental job can consistently produce the wrong answer and never fail.</b></p>
+
+  <style>
+    .v3-boxes{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+    .v3-box{flex:1 1 150px;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 11px;
+      background:var(--viz-surface);font-size:11.5px;line-height:1.45;color:var(--viz-muted)}
+    .v3-box h5{margin:0 0 5px;font-size:10.5px;letter-spacing:.05em;color:var(--viz-ink);font-weight:800}
+    .v3-box.is-hit{border-color:var(--viz-accent);border-width:2.5px;color:var(--viz-ink)}
+    .v3-box.is-hit h5:after{content:' ← lands here';color:var(--viz-accent);font-weight:800}
+    .v3-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-f{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v3-f[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-code{font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted)}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b.v3-t{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var FAULTS = [
+      { t:'ref(\'cleaned_ordrs\') — no such object', phase:0,
+        h:'Compilation problem. BigQuery is never contacted.',
+        p:'Compilation resolves every reference into a qualified relation name, so a name that resolves to nothing stops the build there. The same is true of a <b>circular dependency</b> and of an error in a Dataform Core JavaScript helper. ' +
+          '<br><br>Triage rule: if the complaint is about a <em>name, a cycle or the project’s own configuration</em>, you are in phase 1, and no query ran.' },
+      { t:'service account cannot write the target dataset', phase:1,
+        h:'Execution problem. The SQL compiled perfectly.',
+        p:'An IAM denial is invisible to a hermetic compiler — the compilation result is valid Standard SQL and the graph order is correct; BigQuery simply refuses the job. Separate service accounts and projects per environment are exactly why this shows up on promotion and not in a workspace. ' +
+          '<br><br>Triage rule: <em>permission denied, quota, invalid source data</em> ⇒ phase 2.' },
+      { t:'late-arriving events missed by the incremental predicate', phase:1,
+        h:'Execution — and the dangerous kind, because nothing fails.',
+        p:'The job runs, finishes green, and the target table is wrong. The incremental predicate must capture every new <em>or changed</em> record that belongs in the target; a strict greater-than-last-timestamp filter cannot see an event that arrived after the watermark moved. ' +
+          '<br><br>The fixes are a <b>rolling lookback</b> window, a stable unique key so merge behaviour can correct a row rather than duplicate it, partitioning or clustering to keep the work small, and periodic full reconciliation to catch what all of that still misses.' },
+      { t:'assertion revenue >= 0 fails on today’s load', phase:1,
+        h:'Execution — a failed data contract, not a warning.',
+        p:'The assertion is an action in the graph, so it ran in dependency order after <code>daily_sales</code> and told you the model’s promise is broken. Treat it as a stop, route it to an operational owner, and resist the urge to mark it non-blocking. ' +
+          '<br><br>Built-in checks cover uniqueness, non-null values and accepted row conditions; custom assertions carry the domain-specific tests.' },
+      { t:'production built the wrong schema after a rename', phase:0,
+        h:'Compilation — but the cause is configuration, not code.',
+        p:'Output names come from <b>compilation settings</b>, not from hand-editing models. Workspace compilation overrides isolate each developer with a project, schema, prefix or suffix change; release configurations define repeatable production compilation settings and variables; workflow configurations select actions and schedule the compiled result. ' +
+          '<br><br>The principle: <em>reviewed code plus controlled configuration</em> determines production output. If someone had to rename a model to promote it, the promotion path is the defect.' }
+    ];
+    var list = document.getElementById('v3-list'), why = document.getElementById('v3-why');
+    var boxes = [document.getElementById('v3-boxa'), document.getElementById('v3-boxb')];
+
+    function show(i){
+      var f = FAULTS[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      boxes.forEach(function(b, j){ b.className = 'v3-box' + (j === f.phase ? ' is-hit' : ''); });
+      why.innerHTML = '<b class="v3-t">' + f.h + '</b>' + f.p;
+    }
+    FAULTS.forEach(function(f, i){
+      var b = document.createElement('button');
+      b.className = 'v3-f';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-code">' + (i + 1) + '</span><span>' + f.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Fusion Run Modes</h2>
+  <p class="vz-lede">In Cloud Data Fusion the <em>logical pipeline</em> says what should happen and the
+    <em>compute profile</em> says where and with what resources it runs. Switch the profile and notice what
+    does <b>not</b> move. <b>Like a play: the same script can be staged in a rented hall for one night or in
+    a theatre you keep year-round.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Compute profile" id="v4-seg"></div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v4-cap">logical pipeline — identical in all three modes</div>
+    <div class="v4-pipe" id="v4-pipe"></div>
+    <div class="v4-cap" style="margin-top:12px">compute profile</div>
+    <div class="v4-profile" id="v4-profile"></div>
+  </div>
+
+  <div class="v4-risks" id="v4-risks"></div>
+  <div class="vz-card"><div class="v4-why" id="v4-why"></div></div>
+  <p class="vz-note">Awareness level means: recognise Cloud Data Fusion as the <b>visual, connector-rich
+    integration option</b> built on the open-source CDAP project, then check whether its abstraction matches
+    the workload. Dataform is the more direct fit for SQL that stays in BigQuery; Dataflow gives
+    code-centred, fine-grained batch and streaming through Apache Beam; Datastream specialises in managed
+    CDC; and unusually specialised logic may simply want a custom application.</p>
+
+  <style>
+    .v4-cap{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      font-weight:800;margin-bottom:7px}
+    .v4-pipe{display:flex;gap:4px;flex-wrap:wrap;align-items:stretch}
+    .v4-n{flex:1 1 74px;border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 8px;
+      background:var(--viz-bg);font-size:10.5px;line-height:1.3;font-family:ui-monospace,Consolas,monospace}
+    .v4-n b{display:block;font-size:9px;letter-spacing:.04em;color:var(--viz-muted);font-family:inherit}
+    .v4-profile{display:flex;flex-direction:column;gap:5px}
+    .v4-step{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v4-tag{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v4-risks{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:11px}
+    .v4-chip{font-size:10.5px;font-weight:700;border-radius:999px;padding:5px 10px;border:1.5px solid var(--viz-line);
+      color:var(--viz-muted)}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b.v4-t{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NODES = [
+      { k:'source', v:'relational DB' }, { k:'transform', v:'standardise' },
+      { k:'transform', v:'join + filter' }, { k:'sink', v:'BigQuery' }
+    ];
+    var MODES = [
+      { lab:'preview (subset)',
+        steps:[['run on a SUBSET of data','design check'],['no production cluster','no scale test']],
+        h:'Preview tests the design. It is not a production proof.',
+        p:'Preview runs the pipeline over a subset so you can see whether the nodes wire up and the records come out the shape you expected. What it cannot tell you is whether <b>production volume, permissions, or malformed edge cases</b> will work — every one of those first appears at full scale, with the real service account, on the real data. ' +
+          '<br><br>A green preview followed by a failed run is not a contradiction; they answered different questions.' },
+      { lab:'ephemeral Spark',
+        steps:[['provision Managed Spark cluster','in your project'],['run the pipeline','full data'],['delete the cluster','pay per run']],
+        h:'The default managed shape: provision, run, delete.',
+        p:'For supported batch execution, Cloud Data Fusion provisions an ephemeral Managed Service for Apache Spark cluster in the customer project, runs the pipeline and deletes the cluster afterwards. You pay for the run rather than for an idle cluster, and there is no long-lived compute to patch. ' +
+          '<br><br>Note what is still long-lived: the <b>instance</b> itself, whose services cover pipeline design, metadata, lifecycle management and coordination. That is a standing cost even on a day when no pipeline runs.' },
+      { lab:'existing Spark env',
+        steps:[['reuse a managed Spark environment','always on'],['run the pipeline','full data'],['environment persists','tighter control']],
+        h:'Tighter control, in exchange for an environment you own.',
+        p:'An organisation that needs to pin versions, control networking precisely, or keep compute inside an existing governed environment can point Cloud Data Fusion at one instead of letting it create clusters. The pipeline definition does not change — only where it runs. ' +
+          '<br><br>This is the same trade you will meet in visual 5 between Managed Airflow and Workflows: capability and control on one side, an environment to size, secure, upgrade and observe on the other.' }
+    ];
+    var RISKS = ['network routes', 'private connectivity', 'firewall rules', 'source credentials',
+      'service accounts', 'plugin versions', 'schema drift', 'sink behaviour'];
+    var cur = 1;
+    var seg = document.getElementById('v4-seg'), pipe = document.getElementById('v4-pipe');
+    var prof = document.getElementById('v4-profile'), risks = document.getElementById('v4-risks');
+    var why = document.getElementById('v4-why');
+
+    pipe.innerHTML = NODES.map(function(n){
+      return '<div class="v4-n"><b>' + n.k + ' node</b>' + n.v + '</div>';
+    }).join('');
+    risks.innerHTML = '<span class="v4-chip" style="color:var(--viz-amber);border-color:var(--viz-amber)">STILL YOURS in every mode →</span>' +
+      RISKS.map(function(r){ return '<span class="v4-chip">' + r + '</span>'; }).join('');
+
+    function render(){
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      var m = MODES[cur];
+      prof.innerHTML = m.steps.map(function(s, i){
+        return '<div class="v4-step"><span style="color:var(--viz-muted);font-weight:800">' + (i + 1) + '</span>' +
+          '<span>' + s[0] + '</span><span class="v4-tag" style="color:var(--viz-accent)">' + s[1] + '</span></div>';
+      }).join('');
+      why.innerHTML = '<b class="v4-t">' + m.h + '</b>' + m.p +
+        '<br><br><span style="color:var(--viz-muted)">The four nodes above never changed. <b>Design and execution are separate concerns</b> — namespaces partition applications and metadata inside the instance, Studio is where the pipeline is built and operated, and the compute profile is a property of the run.</span>';
+    }
+    MODES.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = m.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Airflow Or Workflows</h2>
+  <p class="vz-lede">The choice is not Python versus YAML. Begin with operating model and workload shape.
+    Toggle the requirements that are actually true of your process and read the selection statement it
+    produces. <b>Like hiring a full-time head chef or booking caterers per event — both can serve dinner;
+    only one of them is on your payroll all year.</b></p>
+
+  <div class="v5-toggles" id="v5-toggles"></div>
+
+  <div class="vz-card">
+    <div class="v5-bar" id="v5-bar"></div>
+    <div class="v5-verdict" id="v5-verdict"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Whichever you pick, <b>make every task idempotent</b>. A retry can happen after a
+    remote action succeeded but before the orchestrator recorded that success, so pass stable operation IDs,
+    check existing state, and make create-or-update explicit. Keep large data outside orchestration
+    variables, grant the runtime identity only the permissions it needs, bound retries for transient
+    failures, and send permanent failures to an actionable alert or recovery path.</p>
+
+  <style>
+    .v5-toggles{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-t{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v5-t[aria-pressed="true"]{border-color:var(--viz-accent);border-width:2.5px}
+    .v5-box{flex:0 0 auto;width:18px;height:18px;border-radius:5px;border:1.5px solid var(--viz-line);
+      display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:900}
+    .v5-side{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;white-space:nowrap}
+    .v5-bar{display:flex;height:22px;border-radius:6px;overflow:hidden;border:1.5px solid var(--viz-line)}
+    .v5-bar span{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;
+      color:var(--viz-bg);letter-spacing:.03em}
+    .v5-verdict{margin-top:12px;font-size:13px;font-weight:700;line-height:1.5}
+    .v5-why{margin-top:12px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b.v5-t2{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var REQS = [
+      { t:'Hundreds of scheduled data DAGs with cross-DAG conventions', side:'A', cap:'hundreds of scheduled data DAGs' },
+      { t:'Backfills and historical reruns matter', side:'A', cap:'Airflow-compatible backfills' },
+      { t:'The team already relies on Airflow semantics and providers', side:'A', cap:'an existing Airflow provider library' },
+      { t:'Starts from an event or a direct invocation', side:'W', cap:'an event-driven trigger' },
+      { t:'Steps are mostly managed API calls that spend the time waiting', side:'W', cap:'a chain of managed API calls' },
+      { t:'No persistent orchestration environment should exist', side:'W', cap:'no persistent scheduler environment' }
+    ];
+    var on = [true, true, false, false, false, false];
+    var wrap = document.getElementById('v5-toggles'), bar = document.getElementById('v5-bar');
+    var verdict = document.getElementById('v5-verdict'), why = document.getElementById('v5-why');
+
+    function render(){
+      var a = 0, w = 0, capsA = [], capsW = [];
+      REQS.forEach(function(r, i){
+        if (!on[i]) return;
+        if (r.side === 'A') { a += 1; capsA.push(r.cap); } else { w += 1; capsW.push(r.cap); }
+      });
+      [].slice.call(wrap.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', on[i] ? 'true' : 'false');
+        b.querySelector('.v5-box').textContent = on[i] ? '✓' : '';
+      });
+
+      var tot = Math.max(1, a + w);
+      bar.innerHTML =
+        '<span style="width:' + (a / tot * 100) + '%;background:var(--viz-violet)">' + (a ? 'AIRFLOW ' + a : '') + '</span>' +
+        '<span style="width:' + (w / tot * 100) + '%;background:var(--viz-green)">' + (w ? 'WORKFLOWS ' + w : '') + '</span>';
+
+      if (a === 0 && w === 0) {
+        verdict.innerHTML = '<span style="color:var(--viz-amber)">Nothing selected — no defensible statement yet.</span>';
+        why.innerHTML = '<b class="v5-t2">Either service could implement most examples.</b>' +
+          'That is precisely why "it can do it" is a weak argument. A defensible selection names <b>both the required capability and the accepted operational burden</b>. Toggle the requirements that are genuinely true of the process and the statement writes itself.';
+        return;
+      }
+      var airflow = a >= w;
+      var caps = (airflow ? capsA : capsW).join(', ');
+      verdict.innerHTML = airflow
+        ? '<span style="color:var(--viz-violet)">▲ Managed Service for Apache Airflow</span> (the Cloud Composer name) — because the platform needs ' + caps + ', <b>accepting an environment to size, upgrade, secure and observe</b>.'
+        : '<span style="color:var(--viz-green)">▲ Workflows</span> — because the process is ' + caps + ', <b>avoiding a persistent scheduler environment</b>.';
+
+      var mixed = a > 0 && w > 0;
+      why.innerHTML = airflow
+        ? '<b class="v5-t2">Airflow is a control plane with an ecosystem.</b>' +
+          'Workflows are Python DAGs of operators and tasks; logical run dates, catchup, task instances, pools and trigger rules support mature batch operations, and existing DAGs often move with limited conceptual change. Picture the nightly warehouse process with hundreds of task dependencies, dataset schedules, sensors and historical reruns — that is its natural shape. ' +
+          '<br><br>The bill is an environment with ongoing resources and an administrative lifecycle, which is justified when it serves a substantial portfolio and hard to justify for one chain of five calls.'
+        : '<b class="v5-t2">Workflows is a defined sequence of service calls.</b>' +
+          'Written in YAML or JSON, it calls Google Cloud APIs, HTTP endpoints and subworkflows while expressing conditions, loops, parallel branches, retries and error handling — with no Airflow environment to operate and billing around executions and steps. Picture a file-arrival event that calls a validation function, launches a Dataflow job, waits for it, invokes a Dataform workflow and posts an HTTP notification: five steps, most of the time spent inside managed services. ' +
+          '<br><br>Its weak spots are the mirror image: very chatty loops, or designs that hold excessive state, get awkward. Estimate the <b>whole</b> control flow, not the first successful demonstration.';
+      if (mixed) {
+        why.innerHTML += '<br><br><span style="color:var(--viz-amber)"><b>Mixed signals (' + a + ' vs ' + w + ').</b> ' +
+          'Real estates often run both: a scheduled portfolio on Airflow and event-driven chains on Workflows. What you must not do is decide by whichever product already appears on the architecture diagram.</span>';
+      }
+    }
+
+    REQS.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.className = 'v5-t';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-box"></span><span>' + r.t + '</span>' +
+        '<span class="v5-side" style="color:' + (r.side === 'A' ? 'var(--viz-violet)' : 'var(--viz-green)') + '">' +
+        (r.side === 'A' ? 'AIRFLOW' : 'WORKFLOWS') + '</span>';
+      b.addEventListener('click', function(){ on[i] = !on[i]; render(); });
+      wrap.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

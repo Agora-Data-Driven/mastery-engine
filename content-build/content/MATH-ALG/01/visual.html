@@ -1,0 +1,708 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes. */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 120px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.75;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:32px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Three Possible Fates</button>
+  <button class="viz-tab" data-viz-tab="2">2. Clear The Clutter</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Taxi Meter</button>
+  <button class="viz-tab" data-viz-tab="4">4. Distance From A Point</button>
+  <button class="viz-tab" data-viz-tab="5">5. And Versus Or</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Three Possible Fates</h2>
+  <p class="vz-lede">You already know the trichotomy: a linear system A x = b has one solution, none, or
+    infinitely many, decided by rank. One variable is the same theorem with n = 1. Drag the four
+    coefficients and watch which fate you land in. <b>Like two walkers on a road: different speeds and
+    they meet once, same speed and they either never meet or were always together.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>linear algebra</h5><div class="vz-mono">A x = b
+rank A = rank[A|b] = n  → unique
+rank A = rank[A|b] &lt; n  → infinitely many
+rank A &lt; rank[A|b]      → no solution</div></div>
+    <div class="v1-half"><h5>this lesson (n = 1)</h5><div class="vz-mono">a x = b
+a ≠ 0            → unique, x = b/a
+a = 0 and b = 0  → 0 = 0, all x
+a = 0 and b ≠ 0  → false, no x</div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v1-a">left side: <b><span id="v1-la">4</span>x</b> + <b><span id="v1-lb">1</span></b></label>
+    <input class="vz-range" type="range" id="v1-a" min="-6" max="6" value="4" step="1" aria-label="Left coefficient of x">
+    <input class="vz-range" type="range" id="v1-b" min="-10" max="10" value="1" step="1" aria-label="Left constant">
+    <label class="vz-lab" for="v1-c">right side: <b><span id="v1-lc">4</span>x</b> + <b><span id="v1-ld">5</span></b></label>
+    <input class="vz-range" type="range" id="v1-c" min="-6" max="6" value="4" step="1" aria-label="Right coefficient of x">
+    <input class="vz-range" type="range" id="v1-d" min="-10" max="10" value="5" step="1" aria-label="Right constant">
+
+    <div class="v1-eq vz-mono" id="v1-eq"></div>
+    <div class="vz-mono" id="v1-steps"></div>
+    <div id="v1-verdict" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-presets"></div>
+  </div>
+
+  <p class="vz-note">Notice what has to happen for either degenerate case: the x-terms must cancel
+    <em>exactly</em>, which needs identical coefficients on the two sides. That is why a linear equation in
+    one variable has exactly one solution <b>unless it simplifies otherwise</b> — one solution is the generic
+    case, and the other two are the measure-zero coincidences.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+    .v1-eq{margin-top:12px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:14px;font-weight:700}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v1-a'), B = document.getElementById('v1-b');
+    var C = document.getElementById('v1-c'), D = document.getElementById('v1-d');
+    var la = document.getElementById('v1-la'), lb = document.getElementById('v1-lb');
+    var lc = document.getElementById('v1-lc'), ld = document.getElementById('v1-ld');
+    var eq = document.getElementById('v1-eq'), steps = document.getElementById('v1-steps');
+    var verdict = document.getElementById('v1-verdict'), why = document.getElementById('v1-why');
+    var pres = document.getElementById('v1-presets');
+
+    function xt(k){ return k === 1 ? 'x' : (k === -1 ? '-x' : k + 'x'); }
+    function side(k, c){
+      if (k === 0) return String(c);
+      if (c === 0) return xt(k);
+      return xt(k) + (c > 0 ? ' + ' + c : ' - ' + Math.abs(c));
+    }
+    function gcd(p, q){ p = Math.abs(p); q = Math.abs(q); while (q) { var t = q; q = p % q; p = t; } return p || 1; }
+    function exact(b, a){
+      if (a === 0) return '—';
+      var s = a < 0 ? -1 : 1, n = b * s, d = a * s, g = gcd(n, d);
+      n = n / g; d = d / g;
+      if (d === 1) return String(n);
+      var v = n / d;
+      return n + '/' + d + '  = ' + (isFinite(v) ? Math.round(v * 1000) / 1000 : '—');
+    }
+
+    function render(){
+      var a1 = Number(A.value), b1 = Number(B.value), c1 = Number(C.value), d1 = Number(D.value);
+      la.textContent = a1; lb.textContent = b1; lc.textContent = c1; ld.textContent = d1;
+      var a = a1 - c1, b = d1 - b1;
+
+      eq.textContent = side(a1, b1) + '  =  ' + side(c1, d1);
+      steps.textContent =
+        'move x-terms left, constants right\n' +
+        '  (' + a1 + ' - ' + c1 + ')x = (' + d1 + ' - ' + b1 + ')\n' +
+        '  ' + (a === 1 ? 'x' : (a === -1 ? '-x' : a + 'x')) + ' = ' + b;
+
+      var tag, col, note;
+      if (a !== 0) {
+        tag = 'EXACTLY ONE SOLUTION'; col = 'var(--viz-green)';
+        note = '<b style="color:var(--viz-green)">a = ' + a + ' ≠ 0, so divide: x = ' + exact(b, a) + '.</b>' +
+          'This is the generic case and the one the coefficient matrix has full rank in. Everything else in this ' +
+          'lesson — parentheses, fractions, decimals, absolute values — is a way of getting an equation <em>into</em> ' +
+          'this shape so that this one division finishes it.';
+      } else if (b === 0) {
+        tag = 'INFINITELY MANY SOLUTIONS'; col = 'var(--viz-violet)';
+        note = '<b style="color:var(--viz-violet)">Both sides collapsed to the true statement 0 = 0.</b>' +
+          'The variable did not merely cancel — the constants matched too, so the two sides were never different ' +
+          'expressions. Every real number satisfies it: this is an <b>identity</b>. In rank language, the augmented ' +
+          'column added no new information. Try 2(x + 3) = 2x + 6 below.';
+      } else {
+        tag = 'NO SOLUTION'; col = 'var(--viz-red)';
+        note = '<b style="color:var(--viz-red)">You are left with the false statement 0 = ' + b + '.</b>' +
+          'The x-terms cancelled but the constants did not match, so no value of x can ever satisfy it and the ' +
+          'solution set is <b>empty</b>. Read that carefully: "no solution" is not "x = 0" — x = 0 would be a ' +
+          'solution. In rank language the augmented column raised the rank, so the system is inconsistent.';
+      }
+      verdict.innerHTML = '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + tag + '</span>';
+      why.innerHTML = note;
+    }
+
+    var PRESETS = [
+      { t:'4x + 1 = 4x + 5', v:[4, 1, 4, 5] },
+      { t:'2(x+3) = 2x + 6', v:[2, 6, 2, 6] },
+      { t:'2x + 3 = 11',     v:[2, 3, 0, 11] },
+      { t:'3x = 9',          v:[3, 0, 0, 9] },
+      { t:'5x - 2 = 5x + 2', v:[5, -2, 5, 2] },
+      { t:'x + 1 = 0',       v:[1, 1, 0, 0] }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        A.value = p.v[0]; B.value = p.v[1]; C.value = p.v[2]; D.value = p.v[3]; render();
+      });
+      pres.appendChild(btn);
+    });
+    [A, B, C, D].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Clear The Clutter</h2>
+  <p class="vz-lede">Parentheses, fractions and decimals are the same linear equation in three costumes. One
+    cleaning move each, then it is a x = b again. Pick a costume and drag the number in it.
+    <b>Like tidying a desk before you start work — the job never changes, only how long you spend
+    finding the pen.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Equation type">
+    <button type="button" id="v2-p" aria-pressed="true">parentheses</button>
+    <button type="button" id="v2-f" aria-pressed="false">fractions</button>
+    <button type="button" id="v2-d" aria-pressed="false">decimals</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-k"><span id="v2-klab">multiplier k = 3</span></label>
+    <input class="vz-range" type="range" id="v2-k" min="1" max="9" value="3" step="1" aria-label="The number inside the equation">
+    <div class="v2-eq vz-mono" id="v2-eq"></div>
+    <div class="vz-mono" id="v2-steps"></div>
+    <div class="v2-check" id="v2-check"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">The cleaning move is always multiplication by something that is <b>not zero</b>, applied
+    to <b>every term on both sides</b> — that is what keeps the equation equivalent rather than merely
+    similar. Multiply only the fractional terms by the LCD, or only the left side, and you have quietly
+    changed which equation you are solving.</p>
+
+  <style>
+    .v2-eq{margin-top:6px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:15px;font-weight:700}
+    .v2-steps-line{display:block}
+    .v2-check{margin-top:10px;font-size:12px;font-family:ui-monospace,Consolas,monospace;
+      border-left:3px solid var(--viz-green);padding:4px 0 4px 9px;line-height:1.6}
+    .v2-bad{margin-top:9px;font-size:12px;font-family:ui-monospace,Consolas,monospace;
+      border-left:3px solid var(--viz-red);padding:4px 0 4px 9px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var mode = 'p';
+    var bp = document.getElementById('v2-p'), bf = document.getElementById('v2-f'), bd = document.getElementById('v2-d');
+    var k = document.getElementById('v2-k'), klab = document.getElementById('v2-klab');
+    var eq = document.getElementById('v2-eq'), steps = document.getElementById('v2-steps');
+    var check = document.getElementById('v2-check'), why = document.getElementById('v2-why');
+
+    function n(v){ if (!isFinite(v)) return '—'; return String(Math.round(v * 1000) / 1000); }
+
+    function render(){
+      bp.setAttribute('aria-pressed', mode === 'p' ? 'true' : 'false');
+      bf.setAttribute('aria-pressed', mode === 'f' ? 'true' : 'false');
+      bd.setAttribute('aria-pressed', mode === 'd' ? 'true' : 'false');
+      var v = Number(k.value);
+      if (!isFinite(v) || v < 1) v = 1;
+
+      if (mode === 'p') {
+        klab.textContent = 'multiplier k = ' + v;
+        eq.textContent = v + '(x - 2) = 9';
+        var x = (9 + 2 * v) / v;
+        steps.textContent =
+          '1  distribute k to EVERY term inside\n' +
+          '     ' + v + 'x - ' + (2 * v) + ' = 9\n' +
+          '2  add ' + (2 * v) + ' to both sides\n' +
+          '     ' + v + 'x = ' + (9 + 2 * v) + '\n' +
+          '3  divide both sides by ' + v + '\n' +
+          '     x = ' + n(x);
+        var wrong = 11 / v;
+        check.innerHTML = 'check: ' + v + '(' + n(x) + ' - 2) = ' + v + ' × ' + n(x - 2) + ' = 9 ✓';
+        why.innerHTML = '<b>The classic error, computed live.</b>' +
+          '<span class="v2-bad">distribute to the FIRST term only → ' + v + 'x - 2 = 9 → x = ' + n(wrong) + '  ✗</span>' +
+          '<br>The correct answer is <b>' + n(x) + '</b>; the mistake gives <b>' + n(wrong) + '</b>. They agree only ' +
+          'when the equation was not really a distribution problem at all. At k = 3 this is the difference between ' +
+          'x = 5 and x = 11/3 — and both look equally plausible on a page. ' +
+          '<br><br>A leading minus is the same rule with an invisible k = -1: -(x - 4) = -x + 4, <em>both</em> signs.';
+      } else if (mode === 'f') {
+        klab.textContent = 'denominator d = ' + v;
+        eq.textContent = 'x/' + v + ' + 2 = 5';
+        var xf = 3 * v;
+        steps.textContent =
+          '1  LCD of the denominators = ' + v + '\n' +
+          '2  multiply BOTH SIDES by ' + v + '\n' +
+          '     x + ' + (2 * v) + ' = ' + (5 * v) + '\n' +
+          '3  subtract ' + (2 * v) + '\n' +
+          '     x = ' + xf;
+        check.innerHTML = 'check: ' + xf + '/' + v + ' + 2 = ' + n(xf / v) + ' + 2 = 5 ✓';
+        why.innerHTML = '<b>The LCD is a least common MULTIPLE, never a sum.</b>' +
+          'For x/2 + x/3 = 5 the LCD is 6, not 2 + 3 = 5. Multiplying through by 6 gives 3x + 2x = 30, so x = 6 — ' +
+          'and every denominator has vanished in one step. ' +
+          '<br><br>At d = ' + v + ' above, notice the constant terms got multiplied too: 2 became ' + (2 * v) +
+          ' and 5 became ' + (5 * v) + '. Multiplying only the fraction is the commonest way to break this.';
+      } else {
+        var c = v / 2;
+        klab.textContent = 'constant c = ' + n(c);
+        eq.textContent = '0.5x + ' + n(c) + ' = 4.5';
+        var xd = 9 - 2 * c;
+        steps.textContent =
+          '1  multiply both sides by 10 (exact integers)\n' +
+          '     5x + ' + n(10 * c) + ' = 45\n' +
+          '2  subtract ' + n(10 * c) + '\n' +
+          '     5x = ' + n(45 - 10 * c) + '\n' +
+          '3  divide by 5\n' +
+          '     x = ' + n(xd);
+        check.innerHTML = 'check: 0.5 × ' + n(xd) + ' + ' + n(c) + ' = ' + n(0.5 * xd + c) + ' = 4.5 ✓';
+        why.innerHTML = '<b>Decimals are the same equation, rescaled.</b>' +
+          'You can subtract first (0.5x = ' + n(4.5 - c) + ', then divide by 0.5) or clear to integers first. ' +
+          'Both are legal because both operations preserve equivalence. ' +
+          '<br><br>The reason to prefer clearing: floating point. You already know <code>0.1 + 0.2 != 0.3</code> in ' +
+          'Python — integer arithmetic is the exact one, and multiplying by the right power of 10 buys it for free. ' +
+          'At c = 1.5 this is the quiz’s 0.5x + 1.5 = 4.5, with x = 6.';
+      }
+    }
+    bp.addEventListener('click', function(){ mode = 'p'; render(); });
+    bf.addEventListener('click', function(){ mode = 'f'; render(); });
+    bd.addEventListener('click', function(){ mode = 'd'; render(); });
+    k.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Taxi Meter</h2>
+  <p class="vz-lede">A model is two numbers with jobs: one is charged per unit, one is charged once. Drag the
+    fee and the rate, then press the swap button to see the distractor every modeling question is built on.
+    <b>Like a phone plan: the monthly line rental and the price per gigabyte are not interchangeable.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-b">starting amount b (charged once) = <b><span id="v3-bl">4</span></b></label>
+    <input class="vz-range" type="range" id="v3-b" min="-6" max="10" value="4" step="1" aria-label="Starting amount">
+    <label class="vz-lab" for="v3-m">rate of change m (per mile) = <b><span id="v3-ml">2</span></b></label>
+    <input class="vz-range" type="range" id="v3-m" min="-3" max="5" value="2" step="0.5" aria-label="Rate of change">
+    <label class="vz-lab" for="v3-x">evaluate at x = <b><span id="v3-xl">4</span></b></label>
+    <input class="vz-range" type="range" id="v3-x" min="0" max="10" value="4" step="1" aria-label="Where to evaluate">
+
+    <div class="v3-eq vz-mono" id="v3-eq"></div>
+    <div id="v3-plot" class="v3-plot"></div>
+    <div class="v3-read" id="v3-read"></div>
+    <button type="button" class="v3-swap" id="v3-swap" aria-pressed="false">show the swapped model  b·x + m</button>
+    <div class="vz-why" id="v3-why"></div>
+    <div class="vz-pre" id="v3-presets"></div>
+  </div>
+
+  <p class="vz-note">The units are the whole argument. Dollars-per-mile × miles = dollars, which can then be
+    added to a dollar fee; dollars × miles is not a thing anyone charges. Run that check on any model you
+    write and the swapped distractor becomes impossible to pick by accident.</p>
+
+  <style>
+    .v3-eq{margin-top:10px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:14px;font-weight:700}
+    .v3-plot{margin-top:10px}
+    .v3-plot svg{width:100%;height:auto;display:block}
+    .v3-read{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-swap{width:100%;min-height:44px;margin-top:11px;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v3-swap[aria-pressed="true"]{border-color:var(--viz-amber);color:var(--viz-amber)}
+  </style>
+  <script>
+  (function(){
+    var B = document.getElementById('v3-b'), M = document.getElementById('v3-m'), X = document.getElementById('v3-x');
+    var bl = document.getElementById('v3-bl'), ml = document.getElementById('v3-ml'), xl = document.getElementById('v3-xl');
+    var eq = document.getElementById('v3-eq'), plot = document.getElementById('v3-plot');
+    var read = document.getElementById('v3-read'), swap = document.getElementById('v3-swap');
+    var why = document.getElementById('v3-why'), pres = document.getElementById('v3-presets');
+    var swapped = false;
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+    function sgn(c){ return c < 0 ? ' - ' + n(Math.abs(c)) : ' + ' + n(c); }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var b = Number(B.value), m = Number(M.value), x = Number(X.value);
+      if (!isFinite(b)) b = 0; if (!isFinite(m)) m = 0; if (!isFinite(x)) x = 0;
+      bl.textContent = n(b); ml.textContent = n(m); xl.textContent = n(x);
+      eq.textContent = 'y = ' + n(m) + 'x' + sgn(b) + '        at x = ' + n(x) + ':  y = ' + n(m) + '×' + n(x) + sgn(b) + ' = ' + n(m * x + b);
+
+      var W = 320, H = 168, L = 30, R = 10, T = 10, Bo = 24;
+      var lo = 0, hi = 10, vals = [];
+      for (var i = lo; i <= hi; i++) { vals.push(m * i + b); if (swapped) vals.push(b * i + m); }
+      var ymin = Math.min.apply(null, vals.concat([0])), ymax = Math.max.apply(null, vals.concat([0]));
+      if (!isFinite(ymin) || !isFinite(ymax)) { ymin = 0; ymax = 1; }
+      if (ymax - ymin < 1) ymax = ymin + 1;
+      var pad = (ymax - ymin) * 0.1; ymin -= pad; ymax += pad;
+      function px(v){ return L + (v - lo) / (hi - lo) * (W - L - R); }
+      function py(v){ return T + (ymax - v) / (ymax - ymin) * (H - T - Bo); }
+
+      function line(fm, fb, col, dash){
+        var pts = [];
+        for (var i = lo; i <= hi; i++) pts.push(px(i).toFixed(1) + ',' + py(fm * i + fb).toFixed(1));
+        return '<polyline points="' + pts.join(' ') + '" style="fill:none;stroke:' + col +
+          ';stroke-width:2.5' + (dash ? ';stroke-dasharray:5 4' : '') + '"></polyline>';
+      }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Cost against miles">';
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      svg += '<line x1="' + L + '" y1="' + T + '" x2="' + L + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+      if (swapped) svg += line(b, m, 'var(--viz-amber)', true);
+      svg += line(m, b, 'var(--viz-accent)', false);
+      svg += '<circle cx="' + px(0) + '" cy="' + py(b) + '" r="4.5" style="fill:var(--viz-violet)"></circle>';
+      svg += '<circle cx="' + px(x) + '" cy="' + py(m * x + b) + '" r="4.5" style="fill:var(--viz-green)"></circle>';
+      svg += '<text x="' + (px(0) + 7) + '" y="' + (py(b) - 6) + '" style="font-size:9px;fill:var(--viz-violet)">b = ' + n(b) + ' at x = 0</text>';
+      svg += '<text x="' + (W - R) + '" y="' + (H - 6) + '" text-anchor="end" style="font-size:9px;fill:var(--viz-muted)">x (miles)</text>';
+      svg += '<text x="2" y="' + (T + 8) + '" style="font-size:9px;fill:var(--viz-muted)">y</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var rise = (m * 5 + b) - (m * 2 + b), run = 3;
+      read.innerHTML =
+        pill('b = ' + n(b) + '  starting amount', 'var(--viz-violet)') +
+        pill('m = ' + n(m) + '  per mile', 'var(--viz-accent)') +
+        pill('Δy/Δx over x=2→5 : ' + n(rise) + '/' + run + ' = ' + n(rise / run), 'var(--viz-green)');
+
+      swap.setAttribute('aria-pressed', swapped ? 'true' : 'false');
+      swap.textContent = swapped ? 'hide the swapped model' : 'show the swapped model  b·x + m';
+
+      why.innerHTML = swapped
+        ? '<b style="color:var(--viz-amber)">The dashed line is y = ' + n(b) + 'x' + sgn(m) + ' — a different business.</b>' +
+          'At x = ' + n(x) + ' the correct model costs <b>' + n(m * x + b) + '</b> and the swapped one costs <b>' +
+          n(b * x + m) + '</b>. The taxi question is exactly this: a $4 starting fee plus $2 per mile is ' +
+          'C = 2m + 4, and C = 4m + 2 charges $4 a mile with a $2 fee. ' +
+          '<br><br>They coincide only when the fee and the rate happen to be equal — which is why the distractor ' +
+          'survives a careless glance. Check the units, not the digits.'
+        : '<b style="color:var(--viz-accent)">m is a rate; b is a level.</b>' +
+          'The violet dot sits at x = 0, so b is literally the value <em>before anything happens</em> — the starting ' +
+          'amount, not the largest value and not the final one. The green readout is measured from the line itself: ' +
+          'moving 3 miles changes y by ' + n(rise) + ', and ' + n(rise) + '/3 = ' + n(rise / run) + ' = m, whichever two ' +
+          'points you pick. That constancy is what makes the model linear. ' +
+          '<br><br>This is a one-feature regression: m is the coefficient, b is the bias.';
+    }
+
+    var PRESETS = [
+      { t:'taxi: 4 + 2/mi', b:4,  m:2 },
+      { t:'y = 3x - 5',     b:-5, m:3 },
+      { t:'slope -2, (0,6)', b:6, m:-2 },
+      { t:'flat fee only',  b:6,  m:0 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ B.value = p.b; M.value = p.m; render(); });
+      pres.appendChild(btn);
+    });
+    [B, M, X].forEach(function(s){ s.addEventListener('input', render); });
+    swap.addEventListener('click', function(){ swapped = !swapped; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Distance From A Point</h2>
+  <p class="vz-lede">|x − c| = d asks one question: which points sit exactly d away from c? Drag the centre
+    and the distance and count the answers — two, then one, then none.
+    <b>Like asking who lives 3 blocks from the station: there is someone up the road and someone down it.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-c">centre c = <b><span id="v4-cl">2</span></b></label>
+    <input class="vz-range" type="range" id="v4-c" min="-8" max="8" value="2" step="0.5" aria-label="Centre point">
+    <label class="vz-lab" for="v4-d">distance d = <b><span id="v4-dl">3</span></b></label>
+    <input class="vz-range" type="range" id="v4-d" min="-2" max="8" value="3" step="0.5" aria-label="Distance on the right hand side">
+
+    <div class="v4-eq vz-mono" id="v4-eq"></div>
+    <div id="v4-line" class="v4-line"></div>
+    <div class="vz-mono" id="v4-steps"></div>
+    <div class="vz-why" id="v4-why"></div>
+    <div class="vz-pre" id="v4-presets"></div>
+  </div>
+
+  <p class="vz-note">Isolate the bars <em>before</em> splitting. In 2|x| + 1 = 9 you must reach |x| = 4 first;
+    splitting the unisolated form gives two equations that are not equivalent to the original. And once split,
+    substitute both answers back — the check is what turns a remembered rule into a verified one.</p>
+
+  <style>
+    .v4-eq{margin-top:8px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:15px;font-weight:700}
+    .v4-line{margin-top:12px}
+    .v4-line svg{width:100%;height:auto;display:block}
+  </style>
+  <script>
+  (function(){
+    var C = document.getElementById('v4-c'), D = document.getElementById('v4-d');
+    var cl = document.getElementById('v4-cl'), dl = document.getElementById('v4-dl');
+    var eq = document.getElementById('v4-eq'), lineBox = document.getElementById('v4-line');
+    var steps = document.getElementById('v4-steps'), why = document.getElementById('v4-why');
+    var pres = document.getElementById('v4-presets');
+    var note = '';
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+    function inner(c){ return c === 0 ? 'x' : (c > 0 ? 'x - ' + n(c) : 'x + ' + n(Math.abs(c))); }
+
+    function render(){
+      var c = Number(C.value), d = Number(D.value);
+      if (!isFinite(c)) c = 0; if (!isFinite(d)) d = 0;
+      cl.textContent = n(c); dl.textContent = n(d);
+      eq.textContent = '|' + inner(c) + '| = ' + n(d);
+
+      var lo = -12, hi = 12, W = 320, H = 74, L = 12, R = 12, mid = 40;
+      function px(v){ return L + (v - lo) / (hi - lo) * (W - L - R); }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Number line with the solutions marked">';
+      svg += '<line x1="' + L + '" y1="' + mid + '" x2="' + (W - R) + '" y2="' + mid + '" style="stroke:var(--viz-line);stroke-width:2"></line>';
+      for (var t = -10; t <= 10; t += 5) {
+        svg += '<line x1="' + px(t) + '" y1="' + (mid - 4) + '" x2="' + px(t) + '" y2="' + (mid + 4) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+        svg += '<text x="' + px(t) + '" y="' + (mid + 17) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-muted)">' + t + '</text>';
+      }
+      svg += '<circle cx="' + px(c) + '" cy="' + mid + '" r="4" style="fill:var(--viz-violet)"></circle>';
+      svg += '<text x="' + px(c) + '" y="' + (mid - 11) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-violet)">c = ' + n(c) + '</text>';
+
+      var sols = [];
+      if (d > 0) sols = [c - d, c + d];
+      else if (d === 0) sols = [c];
+      sols.forEach(function(s){
+        svg += '<line x1="' + px(c) + '" y1="' + (mid + 12) + '" x2="' + px(s) + '" y2="' + (mid + 12) + '" style="stroke:var(--viz-green);stroke-width:2"></line>';
+        svg += '<circle cx="' + px(s) + '" cy="' + mid + '" r="5" style="fill:var(--viz-green)"></circle>';
+        svg += '<text x="' + px(s) + '" y="' + (H - 4) + '" text-anchor="middle" style="font-size:9.5px;fill:var(--viz-green);font-weight:700">x = ' + n(s) + '</text>';
+      });
+      if (d < 0) svg += '<text x="' + (W / 2) + '" y="' + (H - 6) + '" text-anchor="middle" style="font-size:10px;fill:var(--viz-red);font-weight:700">no solution — a distance is never negative</text>';
+      svg += '</svg>';
+      lineBox.innerHTML = svg;
+
+      if (d > 0) {
+        steps.textContent =
+          'split into two ordinary equations\n' +
+          '  ' + inner(c) + ' = ' + n(d) + '   →  x = ' + n(c + d) + '\n' +
+          '  ' + inner(c) + ' = ' + n(-d) + '   →  x = ' + n(c - d) + '\n' +
+          'check |' + n(c + d) + ' - ' + n(c) + '| = ' + n(d) + ' ✓   |' + n(c - d) + ' - ' + n(c) + '| = ' + n(d) + ' ✓';
+        why.innerHTML = '<b style="color:var(--viz-green)">Two solutions, symmetric about c.</b>' +
+          'Absolute value returns <b>nonnegative distance</b>, so it throws away direction — and that lost sign is ' +
+          'exactly what the second branch puts back. The answers are always c ± d, here ' + n(c) + ' ± ' + n(d) + '. ' +
+          'Reporting only ' + n(c + d) + ' is the single commonest miss on this topic. ' + note +
+          '<br><br>This is the one-dimensional norm ball you know from linear algebra: the "sphere" of radius ' +
+          n(d) + ' about ' + n(c) + ' in R¹ is a set of exactly two points.';
+      } else if (d === 0) {
+        steps.textContent = 'both branches collapse\n  ' + inner(c) + ' = 0  →  x = ' + n(c) + '\nexactly one solution';
+        why.innerHTML = '<b style="color:var(--viz-violet)">d = 0 is the degenerate case: one solution.</b>' +
+          'The two branches +0 and -0 are the same equation, so the pair of answers merges into the single point ' +
+          'x = ' + n(c) + '. The number of solutions to an absolute value equation is therefore 2, 1 or 0 — decided ' +
+          'entirely by the sign of the right-hand side. ' + note;
+      } else {
+        steps.textContent = 'do not split\n  |' + inner(c) + '| ≥ 0 for every x\n  ' + n(d) + ' < 0\nno real solution';
+        why.innerHTML = '<b style="color:var(--viz-red)">No solution, and you can see it without solving.</b>' +
+          'The left side is a distance and can never be negative, so the equation asserts something impossible. ' +
+          'Splitting anyway produces two branches with answers in them — which is why this is a trap: the ' +
+          'arithmetic keeps working long after the equation has stopped making sense. ' + note;
+      }
+    }
+
+    var PRESETS = [
+      { t:'|x| = 5',      c:0,    d:5,   nt:'' },
+      { t:'|x - 2| = 3',  c:2,    d:3,   nt:'' },
+      { t:'|2x + 1| = 7', c:-0.5, d:3.5, nt:'<br><br><b style="display:inline">Where this one came from:</b> |2x + 1| = 7 divides through by 2 into |x + 0.5| = 3.5, so c = -0.5 and d = 3.5 — giving x = 3 and x = -4, the same pair you get by splitting 2x + 1 = ±7.' },
+      { t:'|x - 1| = 0',  c:1,    d:0,   nt:'' },
+      { t:'|x + 3| = -2', c:-3,   d:-2,  nt:'' }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ C.value = p.c; D.value = p.d; note = p.nt; render(); });
+      pres.appendChild(btn);
+    });
+    [C, D].forEach(function(s){ s.addEventListener('input', function(){ note = ''; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. And Versus Or</h2>
+  <p class="vz-lede">Two things to hold at once: dividing by a negative reverses the sign, and a compound
+    inequality is a set operation — "and" intersects, "or" unites. Drag the coefficient through zero, then
+    switch the connector. <b>Like a job filter: "senior AND remote" narrows the list, "senior OR remote"
+    widens it.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-a">multi-step: solve <b>a·x − 4 ≥ 8</b> with a = <b><span id="v5-al">3</span></b></label>
+    <input class="vz-range" type="range" id="v5-a" min="0" max="7" value="6" step="1" aria-label="Coefficient of x">
+    <div class="vz-mono" id="v5-steps"></div>
+    <div id="v5-flip" style="margin-top:8px"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Connector" style="margin-top:12px">
+    <button type="button" id="v5-and" aria-pressed="true">and  (intersection)</button>
+    <button type="button" id="v5-or" aria-pressed="false">or  (union)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-lo">lower bound = <b><span id="v5-lol">1</span></b></label>
+    <input class="vz-range" type="range" id="v5-lo" min="-8" max="8" value="1" step="1" aria-label="Lower bound">
+    <label class="vz-lab" for="v5-hi">upper bound = <b><span id="v5-hil">5</span></b></label>
+    <input class="vz-range" type="range" id="v5-hi" min="-8" max="8" value="5" step="1" aria-label="Upper bound">
+    <div class="v5-eq vz-mono" id="v5-eq"></div>
+    <div id="v5-line" class="v5-line"></div>
+    <div id="v5-set" style="margin-top:10px"></div>
+    <div class="vz-why" id="v5-why"></div>
+    <div class="vz-pre" id="v5-presets"></div>
+  </div>
+
+  <p class="vz-note">Notice which rules did <em>not</em> change: adding, subtracting and multiplying by a
+    positive all behave exactly as they do for equations. Only the negative multiplier is new, and it is new
+    because reflecting the number line through zero reverses order — 3 &lt; 5 but −3 &gt; −5. Everything else
+    you already knew.</p>
+
+  <style>
+    .v5-eq{margin-top:8px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:14px;font-weight:700}
+    .v5-line{margin-top:10px}
+    .v5-line svg{width:100%;height:auto;display:block}
+  </style>
+  <script>
+  (function(){
+    var COEF = [-4, -3, -2, -1, 1, 2, 3, 4];
+    var A = document.getElementById('v5-a'), al = document.getElementById('v5-al');
+    var stepsEl = document.getElementById('v5-steps'), flip = document.getElementById('v5-flip');
+    var bAnd = document.getElementById('v5-and'), bOr = document.getElementById('v5-or');
+    var LO = document.getElementById('v5-lo'), HI = document.getElementById('v5-hi');
+    var lol = document.getElementById('v5-lol'), hil = document.getElementById('v5-hil');
+    var eq = document.getElementById('v5-eq'), lineBox = document.getElementById('v5-line');
+    var setEl = document.getElementById('v5-set'), why = document.getElementById('v5-why');
+    var pres = document.getElementById('v5-presets');
+    var isAnd = true;
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function renderSteps(){
+      var i = Number(A.value);
+      if (!isFinite(i) || i < 0 || i > COEF.length - 1) i = 6;
+      var a = COEF[i];
+      al.textContent = a;
+      var bound = 12 / a;
+      var sign = a > 0 ? '≥' : '≤';
+      stepsEl.textContent =
+        '   ' + a + 'x - 4 ≥ 8\n' +
+        '1  add 4 to both sides        (order unchanged)\n' +
+        '     ' + a + 'x ≥ 12\n' +
+        '2  divide both sides by ' + a + (a < 0 ? '     (order REVERSED)' : '     (order unchanged)') + '\n' +
+        '     x ' + sign + ' ' + n(bound);
+      flip.innerHTML = a < 0
+        ? pill('÷ by a negative → sign flipped to ' + sign, 'var(--viz-red)')
+        : pill('÷ by a positive → sign stays ' + sign, 'var(--viz-green)');
+    }
+
+    function renderSet(){
+      bAnd.setAttribute('aria-pressed', isAnd ? 'true' : 'false');
+      bOr.setAttribute('aria-pressed', isAnd ? 'false' : 'true');
+      var lo = Number(LO.value), hi = Number(HI.value);
+      if (!isFinite(lo)) lo = 0; if (!isFinite(hi)) hi = 0;
+      lol.textContent = lo; hil.textContent = hi;
+
+      eq.textContent = isAnd
+        ? 'x > ' + lo + '   AND   x ≤ ' + hi
+        : 'x < ' + lo + '   OR   x ≥ ' + hi;
+
+      var dlo = -10, dhi = 10, W = 320, H = 66, L = 12, R = 12, mid = 34;
+      function px(v){ return L + (Math.max(dlo, Math.min(dhi, v)) - dlo) / (dhi - dlo) * (W - L - R); }
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Number line showing the solution set">';
+      var bands = [];
+      if (isAnd) { if (hi > lo) bands.push([lo, hi]); }
+      else { bands.push([dlo - 1, Math.min(lo, dhi)]); bands.push([Math.max(hi, dlo), dhi + 1]); }
+      bands.forEach(function(bd){
+        var x1 = px(bd[0]), x2 = px(bd[1]);
+        if (x2 > x1) svg += '<rect x="' + x1 + '" y="' + (mid - 9) + '" width="' + (x2 - x1) + '" height="18" style="fill:var(--viz-accent);opacity:.3"></rect>';
+      });
+      svg += '<line x1="' + L + '" y1="' + mid + '" x2="' + (W - R) + '" y2="' + mid + '" style="stroke:var(--viz-line);stroke-width:2"></line>';
+      for (var t = -10; t <= 10; t += 5) {
+        svg += '<line x1="' + px(t) + '" y1="' + (mid - 4) + '" x2="' + px(t) + '" y2="' + (mid + 4) + '" style="stroke:var(--viz-line);stroke-width:1.5"></line>';
+        svg += '<text x="' + px(t) + '" y="' + (mid + 18) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-muted)">' + t + '</text>';
+      }
+      svg += '<circle cx="' + px(lo) + '" cy="' + mid + '" r="4.5" style="fill:var(--viz-bg);stroke:var(--viz-accent);stroke-width:2"></circle>';
+      svg += '<circle cx="' + px(hi) + '" cy="' + mid + '" r="4.5" style="fill:var(--viz-accent)"></circle>';
+      svg += '<text x="' + px(lo) + '" y="' + (mid - 12) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-muted)">open ' + lo + '</text>';
+      svg += '<text x="' + px(hi) + '" y="' + (mid - 12) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-muted)">closed ' + hi + '</text>';
+      svg += '</svg>';
+      lineBox.innerHTML = svg;
+
+      var notation, kind, col, body;
+      if (isAnd) {
+        if (hi > lo) {
+          notation = '(' + lo + ', ' + hi + ']'; kind = 'ONE CLOSED-ENDED INTERVAL'; col = 'var(--viz-green)';
+          body = '<b style="color:var(--viz-green)">"And" gives the intersection: ' + notation + '.</b>' +
+            'Both conditions must hold, so the answer is the overlap of x > ' + lo + ' with x ≤ ' + hi +
+            ' — a single stretch. This is why 2 &lt; x + 1 ≤ 6 can be written as one three-part chain: subtract 1 ' +
+            'from <em>all three</em> parts and it becomes 1 &lt; x ≤ 5. Every operation touches every part.';
+        } else {
+          notation = '∅'; kind = 'EMPTY SET'; col = 'var(--viz-red)';
+          body = '<b style="color:var(--viz-red)">The two conditions do not overlap, so the intersection is empty.</b>' +
+            'x > ' + lo + ' and x ≤ ' + hi + ' cannot both be true of any number. An "and" whose parts miss each ' +
+            'other has no solutions at all — the same empty-set answer you saw in visual 1, arrived at from ' +
+            'geometry rather than from a contradiction.';
+        }
+      } else {
+        if (hi > lo) {
+          notation = '(-∞, ' + lo + ') ∪ [' + hi + ', ∞)'; kind = 'UNION OF TWO INTERVALS'; col = 'var(--viz-violet)';
+          body = '<b style="color:var(--viz-violet)">"Or" gives the union: ' + notation + '.</b>' +
+            'Either condition suffices, so the set is two separate pieces with a gap between ' + lo + ' and ' + hi +
+            '. It cannot be written as one three-part chain — there is nothing continuous to chain. That gap is the ' +
+            'whole reason x &lt; -2 or x ≥ 3 is described as a union rather than an interval. ' +
+            '<br><br>Note the brackets: the open circle at ' + lo + ' is strict (&lt;), the filled circle at ' + hi +
+            ' is inclusive (≥), and the notation copies that exactly.';
+        } else {
+          notation = '(-∞, ∞)'; kind = 'ALL REAL NUMBERS'; col = 'var(--viz-amber)';
+          body = '<b style="color:var(--viz-amber)">The two pieces overlap, so their union covers everything.</b>' +
+            'Every real number satisfies at least one of x &lt; ' + lo + ' and x ≥ ' + hi + '. A union can be ' +
+            'larger than either part — which is the mirror image of the empty intersection, and the reason ' +
+            'connector words are not decoration.';
+        }
+      }
+      setEl.innerHTML = pill(kind, col) + ' ' + pill(notation, 'var(--viz-muted)');
+      why.innerHTML = body;
+    }
+
+    function render(){ renderSteps(); renderSet(); }
+
+    var PRESETS = [
+      { t:'2 < x+1 ≤ 6', and:true,  lo:1,  hi:5 },
+      { t:'x < -2 or x ≥ 3', and:false, lo:-2, hi:3 },
+      { t:'empty "and"', and:true,  lo:5,  hi:1 },
+      { t:'"or" covering R', and:false, lo:3, hi:-2 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ isAnd = p.and; LO.value = p.lo; HI.value = p.hi; render(); });
+      pres.appendChild(btn);
+    });
+    bAnd.addEventListener('click', function(){ isAnd = true; renderSet(); });
+    bOr.addEventListener('click', function(){ isAnd = false; renderSet(); });
+    A.addEventListener('input', renderSteps);
+    [LO, HI].forEach(function(s){ s.addEventListener('input', renderSet); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>
