@@ -45,6 +45,9 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    (free browser voice by default, or a paid Google voice via `POST /api/tts`), and `ttsSeq` is
    what stops an interrupted reply from talking a second after the barge-in. Adding a voice or
    an engine is one edit in [../lib/tts.js](../lib/tts.js) — the picker is server-driven.
+   Every synthesized chunk is kept in `ttsCache` (keyed engine|voice|text), so **saying the same
+   words again is free** — that is what the bubble's ↻ Replay spends. Cache the **Blob**, never
+   an object URL: `playTtsBlob` revokes its URL after each play.
    Rationale + the IAM landmine: [../AGENTS.md §7](../AGENTS.md).
 6. **Let the assistant see something new on screen** — add it to `assistantContext()` (app.js).
    That single object is sent by BOTH assistant transports, so one edit covers typing, streaming,

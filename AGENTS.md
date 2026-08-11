@@ -1094,6 +1094,24 @@ Four things are load-bearing:
 
    🔴 **Gemini Flash TTS has a ~2.6s fixed floor**, so it is the wrong engine for conversation
    mode however cheap it is. Chirp is the conversational one. The picker notes say so.
+2c. **Hearing it AGAIN is free — that is the whole design of `ttsCache`** (added 2026-08-11).
+   Every synthesized chunk is kept in memory keyed `engine|voice|text`, and `speakChunk()` is the
+   cached front door `cloudSpeak` fetches through. Mishearing a word is the ordinary case in voice
+   mode and the expensive recovery is the obvious one: asking again regenerates the answer with the
+   model *and* re-synthesizes it, to say the same thing. So a spoken reply's bubble carries a
+   **↻ Replay** (`addReplayButton` → `replaySpeech`), and Speaker Mode's 🔊 toggle is its own replay.
+   - **The key includes the engine and the voice.** The same sentence in Chirp and in Gemini is
+     different audio; keying on text alone replays the voice you just switched away from.
+   - **Cache the Blob, never an object URL.** `playTtsBlob` revokes its URL after every play, so a
+     cached URL replays as an instant error. The Blob outlives the revoke.
+   - **Bounded by BYTES** (8 MB), evicted least-recently-*used* — a dozen chunks of one long answer
+     is several MB, so an entry-counted cache holds it forever.
+   - 🔴 **Replay goes back through `speakAssistantReply` while conversation mode is on**, not
+     straight to `ttsSpeak`: the echo guard tests what the recognizer hears against `convo.spoken`,
+     so audio played outside that dance is heard by our own mic as the learner talking and fires a
+     turn at the assistant. And it is added **only to bubbles this session actually spoke** — on a
+     bubble restored from history the audio was never made, so the button would silently be a paid
+     first read, which is the exact thing it exists to avoid.
 3. **The cost lever is the 1-to-3-sentence rule** in `styleRule` ([lib/gemini.js](lib/gemini.js)).
    A spoken reply is ~250 chars / ~15 seconds ≈ 0.75c (Chirp) or 0.4c (Gemini) per turn. Loosen
    that instruction and this bill scales with it. `MAX_TTS_CHARS` (5,000) is the backstop.
