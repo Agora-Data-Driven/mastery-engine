@@ -92,13 +92,13 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `genjobs.js` | Background question-generation job runner (stepped, resumable). |
 | `graph.js` | Knowledge-map prerequisite edges + warm-up/readiness logic. |
 | `programs.js` `priority.js` | Pure logic, IO-free. |
-| `usage.js` | Token/cost tallying per user. |
+| `usage.js` | Text-token + TTS usage/cost tallying per user. |
 | `tts.js` | Google Cloud Text-to-Speech — the **paid** cloud voices for spoken replies (Chirp 3 HD + Gemini Flash TTS). Opt-in; the free browser voice is the default and never reaches the server. See §7. |
 | `googleauth.js` | Google OAuth flow. |
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
-| `_*_test.js` | The **seven** Node unit tests (auth, graph, programs, progress credit, priority, visual, deep) — see §6. |
+| `_*_test.js` | The **eight** Node unit tests (auth, graph, programs, progress credit, priority, visual, deep, usage) — see §6. |
 
 ### Finding a route fast
 
@@ -455,7 +455,7 @@ There is **no test runner and no linter configured**. `npm test` does not exist.
 node --check server.js
 Get-ChildItem lib\*.js | ForEach-Object { node --check $_.FullName }
 
-# 2. The seven real unit tests (pure logic, no cloud needed — all print "PASS")
+# 2. The eight real unit tests (pure logic, no cloud needed — all print "PASS")
 node lib\_auth_test.js
 node lib\_graph_test.js              # warm-up / readiness graph logic
 node lib\_programs_test.js
@@ -463,6 +463,7 @@ node lib\_progress_credit_test.js
 node lib\_priority_test.js           # priority + the depth-mastery properties (§3)
 node lib\_visual_test.js             # visual-guide parsing + the truncation guard (§7)
 node lib\_deep_test.js               # deep mode's answer-key / declared-gap invariants (§7)
+node lib\_usage_test.js              # AI/TTS usage accounting + cost estimates
 
 # 3. Boot it and hit a route
 npm run dev
@@ -1060,10 +1061,10 @@ settings preview. The learner picks the engine in the assistant settings (⚙ �
 |---|---|---|
 | **Browser voice** (default) | `window.speechSynthesis`, never touches the network | free, works offline |
 | **Chirp 3 HD** | `POST /api/tts` → [lib/tts.js](lib/tts.js) | ~$30 / 1M characters |
-| **Gemini Flash TTS** | same route, `voice.model_name` carries the model | ~$10 / 1M audio-output tokens @ 25 tok/sec |
+| **Gemini Flash TTS** | same route, `voice.model_name` carries the model | text input tokens + ~$10 / 1M audio-output tokens @ 25 tok/sec |
 
 Both cloud engines hit the SAME endpoint (`texttospeech.googleapis.com/v1/text:synthesize`,
-already enabled on the project) with the same auth and the same response shape — they differ
+already enabled on the project), record spend through `lib/usage.js`, and use the same auth and response shape — they differ
 only in whether a `model_name` rides along. Keep that symmetry when adding a third.
 
 Four things are load-bearing:

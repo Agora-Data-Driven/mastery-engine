@@ -5630,25 +5630,52 @@ const App = (() => {
     } catch { /* ignore (guest / offline) */ }
   }
 
+  function costRowNote(x = {}) {
+    const parts = [];
+    if ((x.inputTokens || 0) || (x.outputTokens || 0)) {
+      parts.push(fmtTokens(x.inputTokens) + ' / ' + fmtTokens(x.outputTokens) + ' tok');
+    }
+    if (x.ttsChars) parts.push(fmtTokens(x.ttsChars) + ' chars');
+    if ((x.ttsInputTokens || 0) || (x.ttsAudioTokens || 0)) {
+      parts.push(fmtTokens(x.ttsInputTokens) + ' in / ' + fmtTokens(x.ttsAudioTokens) + ' audio tok est.');
+    }
+    if (x.calls) parts.push(x.calls + ' calls');
+    return parts.join(' - ');
+  }
+
   function renderCost() {
     const u = cost.total;
     if (!u) return;
     const sessionCost = Math.max(0, (u.costUsd || 0) - (cost.baseline || 0));
     $('costMain').textContent = fmtUsd(sessionCost);
-    $('costSub').textContent = `session · ${fmtUsd(u.costUsd)} all-time`;
+    $('costSub').textContent = 'session - ' + fmtUsd(u.costUsd) + ' all-time';
+    const voiceRows = [];
+    if (u.ttsChars) {
+      voiceRows.push('<div class="cost-row"><span>Voice characters</span><span>' + fmtTokens(u.ttsChars) + '</span></div>');
+    }
+    if ((u.ttsInputTokens || 0) || (u.ttsAudioTokens || 0)) {
+      voiceRows.push('<div class="cost-row"><span>Voice tokens (est.)</span><span>' + fmtTokens(u.ttsInputTokens) + ' in / ' + fmtTokens(u.ttsAudioTokens) + ' audio</span></div>');
+    }
     const rows = Object.entries(u.byModel || {})
       .sort((a, b) => (b[1].costUsd || 0) - (a[1].costUsd || 0))
-      .map(([m, x]) => `<div class="cost-row"><span>${esc(m)}</span><span>${fmtUsd(x.costUsd)}</span></div>`)
+      .map(([m, x]) => {
+        const note = costRowNote(x);
+        const label = x.label || m;
+        return '<div class="cost-row cost-row-model"><span><b>' + esc(label) + '</b>' +
+          (note ? '<em>' + esc(note) + '</em>' : '') +
+          '</span><span>' + fmtUsd(x.costUsd) + '</span></div>';
+      })
       .join('') || '<div class="cost-row"><span>No spend yet</span><span>$0</span></div>';
-    $('costDetail').innerHTML = `
-      <div class="cost-detail-head">Your AI spend</div>
-      <div class="cost-row total"><span>All-time</span><span>${fmtUsd(u.costUsd)}</span></div>
-      <div class="cost-row"><span>Tokens in / out</span><span>${fmtTokens(u.inputTokens)} / ${fmtTokens(u.outputTokens)}</span></div>
-      <div class="cost-row"><span>Requests</span><span>${u.calls || 0}</span></div>
-      <div class="cost-detail-head">By model</div>
-      ${rows}`;
+    $('costDetail').innerHTML = [
+      '<div class="cost-detail-head">Your AI + voice spend</div>',
+      '<div class="cost-row total"><span>All-time</span><span>' + fmtUsd(u.costUsd) + '</span></div>',
+      '<div class="cost-row"><span>Text tokens in / out</span><span>' + fmtTokens(u.inputTokens) + ' / ' + fmtTokens(u.outputTokens) + '</span></div>',
+      voiceRows.join(''),
+      '<div class="cost-row"><span>Requests</span><span>' + (u.calls || 0) + '</span></div>',
+      '<div class="cost-detail-head">By provider/model</div>',
+      rows,
+    ].join('');
   }
-
   function toggleCostDetail() { $('costDetail').classList.toggle('hidden'); }
 
   /* --------------------- Multi-select quiz builder ----------------------- */

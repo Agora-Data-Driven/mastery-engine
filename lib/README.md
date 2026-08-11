@@ -22,13 +22,13 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 | [lmstudio.js](lmstudio.js) | LM Studio adapter (local). | `json_object` → 400 (use `json_schema`/`text`); qwen3 `<think>` suppression — both workarounds load-bearing |
 | [anthropic.js](anthropic.js) / [ollama.js](ollama.js) | Remaining adapters, same shape: `callX()` + `streamX()` (+ `listXModels()`). | — |
 | [genjobs.js](genjobs.js) | Background question-gen job runner — stepped, resumable, **browser-driven** (a dead tab = "queued forever"). | — |
-| [usage.js](usage.js) | Token/cost tally per user; its ALS store also carries `req.aiPolicy`. | `recordUsage` |
+| [usage.js](usage.js) | Text-token + TTS usage/cost tally per user; its ALS store also carries `req.aiPolicy`. | `recordUsage` |
 | [tts.js](tts.js) | Google Cloud Text-to-Speech, the **paid** spoken voices. Both engines share one endpoint + response shape; only `voice.model_name` differs. Returns MP3 BYTES (not a URL) so playback stays on our origin and the CSP needs no `media-src`. **Throws on every failure** — the browser falls back to its free voice. | `TTS_ENGINES` · `ttsCatalog()` · `synthesize()` · `MAX_TTS_CHARS` |
 | [googleauth.js](googleauth.js) | Google OAuth flow. | — |
 | [sentinel.js](sentinel.js) | Sentinel bridge, all HMAC (`SSO_SECRET`, `SENTINEL_URL`), all null-safe. People roster (admin enrollment UI) · `sentinelUserLookup` (the /api gate) · `holisticProfile` + `growthDetail` (development, small-to-big) · `mentorSearch` · **`workDigest` + `workDetail`** (their TASK BOARD, scoped by Sentinel to what the caller may see). | Purposes must match Sentinel's `internal.py` exactly; `workDetail` ids capped by `WORK_MAX_IDS` in server.js |
 | [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer). | — |
 | [watcher.js](watcher.js) | Atrium's Watcher archive, both ways. `listClients`/`listChannels`/`listVideos`/`getVideo` READ the shared bucket; `addSource`/`fetchBodies` ADD a source by calling Atrium's HMAC bridge (`SSO_SECRET`, `ATRIUM_URL`) — never a bucket write. Reads degrade to a message, writes throw. | — |
-| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` `_priority_test.js` `_visual_test.js` `_deep_test.js` | The **seven** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
+| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` `_priority_test.js` `_visual_test.js` `_deep_test.js` `_usage_test.js` | The **eight** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
 
 ## Data contract — Firestore doc → lib accessor → app.js consumer
 
@@ -76,9 +76,9 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 7. **Edit a NUL line** (firestore.js:1788/:1790, `tupleKey`) — Node script only:
    `fs.readFileSync` → `s.replace('… …', '…')` → `fs.writeFileSync`. `Edit` cannot match
    these lines; never open-and-rewrite the file.
-8. **Verify → deploy → re-port** — `node --check` every edited file; run the seven tests
+8. **Verify → deploy → re-port** — `node --check` every edited file; run the eight tests
    (`node lib\_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js`
-   `_priority_test.js` `_visual_test.js` `_deep_test.js`);
+   `_priority_test.js` `_visual_test.js` `_deep_test.js` `_usage_test.js`);
    then `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed
    (`gcloud run services describe mastery-engine --region us-central1
