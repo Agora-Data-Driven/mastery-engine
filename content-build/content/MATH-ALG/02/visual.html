@@ -1,0 +1,991 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 120px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.75;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:32px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Solve Then See</button>
+  <button class="viz-tab" data-viz-tab="2">2. Rise Over Run</button>
+  <button class="viz-tab" data-viz-tab="3">3. One Line Three Forms</button>
+  <button class="viz-tab" data-viz-tab="4">4. Name That Form</button>
+  <button class="viz-tab" data-viz-tab="5">5. Parallel Or Perpendicular</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Solve Then See</h2>
+  <p class="vz-lede">In <b>Modeling with linear equations</b> you read m as a rate and b as a starting amount,
+    and in <b>Number of solutions to equations</b> you solved one equation for one number. Same y = mx + b —
+    now it is a whole line, and the number you solved for is a labelled point on it. Drag m and b.
+    <b>Like a receipt versus the price list: one answer, or every answer at once.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>lesson 01 — algebra</h5><div class="vz-mono">y = mx + b   is a MODEL
+m = rate of change
+b = starting amount at x = 0
+solve  m·x + b = 0   ->  one number</div></div>
+    <div class="v1-half"><h5>this lesson — geometry</h5><div class="vz-mono">y = mx + b   is a LINE
+m = slope = rise / run
+set x = 0  ->  y-intercept (0, b)
+set y = 0  ->  x-intercept, that same number</div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v1-m">slope m = <b><span id="v1-ml">3</span></b></label>
+    <input class="vz-range" type="range" id="v1-m" min="-4" max="4" value="3" step="0.5" aria-label="Slope m">
+    <label class="vz-lab" for="v1-b">y-intercept value b = <b><span id="v1-bl">-2</span></b></label>
+    <input class="vz-range" type="range" id="v1-b" min="-8" max="8" value="-2" step="1" aria-label="Y-intercept value b">
+
+    <div class="v1-eq vz-mono" id="v1-eq"></div>
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="vz-mono" id="v1-steps"></div>
+    <div id="v1-verdict" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-presets"></div>
+  </div>
+
+  <p class="vz-note">One line is missing from this panel and no value of the slider can produce it: the
+    <b>vertical</b> line x = 3. Its run is zero, so its slope is undefined rather than large, and y = mx + b
+    has no way to say it. Every other visual here has to keep that case in mind — it is the exception the
+    forms and the parallel/perpendicular rules all trip over.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+    .v1-eq{margin-top:12px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1.5px solid var(--viz-line);font-size:15px;font-weight:700}
+  </style>
+  <script>
+  (function(){
+    var M = document.getElementById('v1-m'), B = document.getElementById('v1-b');
+    var ml = document.getElementById('v1-ml'), bl = document.getElementById('v1-bl');
+    var eq = document.getElementById('v1-eq'), plot = document.getElementById('v1-plot');
+    var steps = document.getElementById('v1-steps'), verdict = document.getElementById('v1-verdict');
+    var why = document.getElementById('v1-why'), pres = document.getElementById('v1-presets');
+
+    var LO = -8, HI = 8, W = 320, H = 190, L = 24, R = 10, T = 10, Bo = 16;
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+    function sgn(c){ return c < 0 ? ' - ' + n(Math.abs(c)) : ' + ' + n(c); }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function px(v){ return L + (v - LO) / (HI - LO) * (W - L - R); }
+    function py(v){ return T + (HI - v) / (HI - LO) * (H - T - Bo); }
+
+    function segment(m, b){
+      if (m === 0) return (b >= LO && b <= HI) ? [LO, HI] : null;
+      var a = (LO - b) / m, c = (HI - b) / m;
+      var x1 = Math.max(LO, Math.min(a, c)), x2 = Math.min(HI, Math.max(a, c));
+      return (x2 > x1) ? [x1, x2] : null;
+    }
+
+    function render(){
+      var m = Number(M.value), b = Number(B.value);
+      if (!isFinite(m)) m = 0;
+      if (!isFinite(b)) b = 0;
+      ml.textContent = n(m); bl.textContent = n(b);
+      eq.textContent = 'y = ' + n(m) + 'x' + sgn(b);
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The line y = mx + b with its intercepts marked">';
+      for (var t = -8; t <= 8; t += 2) {
+        svg += '<line x1="' + px(t) + '" y1="' + T + '" x2="' + px(t) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:0.5"></line>';
+        svg += '<line x1="' + L + '" y1="' + py(t) + '" x2="' + (W - R) + '" y2="' + py(t) + '" style="stroke:var(--viz-line);stroke-width:0.5"></line>';
+      }
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+
+      var seg = segment(m, b);
+      if (seg) {
+        svg += '<line x1="' + px(seg[0]) + '" y1="' + py(m * seg[0] + b) + '" x2="' + px(seg[1]) + '" y2="' +
+          py(m * seg[1] + b) + '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+      }
+      if (b >= LO && b <= HI) {
+        svg += '<circle cx="' + px(0) + '" cy="' + py(b) + '" r="4.5" style="fill:var(--viz-violet)"></circle>';
+        svg += '<text x="' + (px(0) + 7) + '" y="' + (py(b) - 7) + '" style="font-size:9px;fill:var(--viz-violet)">y-int (0, ' + n(b) + ')</text>';
+      }
+      var xi = (m === 0) ? null : -b / m;
+      if (xi !== null && isFinite(xi) && xi >= LO && xi <= HI) {
+        svg += '<circle cx="' + px(xi) + '" cy="' + py(0) + '" r="4.5" style="fill:var(--viz-green)"></circle>';
+        svg += '<text x="' + px(xi) + '" y="' + (py(0) + 15) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-green)">x-int (' + n(xi) + ', 0)</text>';
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      if (m !== 0) {
+        steps.textContent =
+          'set x = 0  ->  y = ' + n(b) + '        y-intercept (0, ' + n(b) + ')\n' +
+          'set y = 0  ->  ' + n(m) + 'x' + sgn(b) + ' = 0\n' +
+          '               ' + n(m) + 'x = ' + n(-b) + '\n' +
+          '               x = ' + n(-b) + ' / ' + n(m) + ' = ' + n(xi) + '\n' +
+          '               x-intercept (' + n(xi) + ', 0)';
+        verdict.innerHTML = pill('SLOPE ' + n(m) + ' · ONE X-INTERCEPT', 'var(--viz-green)');
+        why.innerHTML = '<b style="color:var(--viz-green)">The x-intercept is last lesson’s equation, drawn.</b>' +
+          'Setting y = 0 turns the line back into ' + n(m) + 'x' + sgn(b) + ' = 0, which is exactly the shape ax = b you ' +
+          'reduced everything to — nonzero coefficient, so exactly one solution, and that solution is where the ' +
+          'graph crosses the x-axis. The y-intercept needs no solving at all: put x = 0 and the mx term vanishes, ' +
+          'leaving b. ' +
+          '<br><br>Both answers are <b>points</b>, and the order matters: the y-intercept is (0, ' + n(b) + '), never (' + n(b) + ', 0). ' +
+          'The zero always sits in the slot of the variable you set to zero.';
+      } else if (b !== 0) {
+        steps.textContent =
+          'set x = 0  ->  y = ' + n(b) + '        y-intercept (0, ' + n(b) + ')\n' +
+          'set y = 0  ->  0·x' + sgn(b) + ' = 0\n' +
+          '               0 = ' + n(-b) + '   false\n' +
+          '               no x-intercept';
+        verdict.innerHTML = pill('HORIZONTAL · SLOPE = 0 · NO X-INTERCEPT', 'var(--viz-amber)');
+        why.innerHTML = '<b style="color:var(--viz-amber)">A horizontal line has slope exactly 0 — not "no slope".</b>' +
+          'Every point on it has the same y, so the rise between any two of them is 0 and the ratio rise/run is 0/run = 0. ' +
+          'The line is y = ' + n(b) + ', which still fits y = mx + b perfectly, with m = 0. ' +
+          '<br><br>Setting y = 0 now produces the false statement 0 = ' + n(-b) + ' — the "no solution" case from last ' +
+          'lesson, and geometrically it says the line runs parallel to the x-axis and never touches it. ' +
+          '<b>Undefined</b> slope is the opposite failure and belongs to vertical lines; visual 2 puts the two side by side.';
+      } else {
+        steps.textContent =
+          'set x = 0  ->  y = 0\n' +
+          'set y = 0  ->  0·x + 0 = 0\n' +
+          '               0 = 0   true for every x\n' +
+          '               every point of the line is an x-intercept';
+        verdict.innerHTML = pill('THIS IS THE X-AXIS · INFINITELY MANY', 'var(--viz-violet)');
+        why.innerHTML = '<b style="color:var(--viz-violet)">m = 0 and b = 0 is the identity case, seen from the graph.</b>' +
+          'Last lesson 0 = 0 meant infinitely many solutions. Here the line y = 0 <em>is</em> the x-axis, so it does not ' +
+          'cross it at one place — it lies along it, and every one of its points has y = 0. ' +
+          '<br><br>The trichotomy you learned algebraically is visible in the picture: one crossing, no crossing, or ' +
+          'total overlap.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'y = 3x - 2', m:3, b:-2 },
+      { t:'y = -2x + 4', m:-2, b:4 },
+      { t:'slope 0: y = 4', m:0, b:4 },
+      { t:'through the origin', m:2, b:0 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ M.value = p.m; B.value = p.b; render(); });
+      pres.appendChild(btn);
+    });
+    [M, B].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Rise Over Run</h2>
+  <p class="vz-lede">Slope is one ratio of two differences, and every wrong answer on this topic is that ratio
+    assembled wrongly. Drag the two points, watch the triangle, and watch the three broken formulas fail
+    beside the right one. <b>Like a staircase: how much you climb per step forward, not how far you are from
+    the ground.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-x1">point 1 = (<b><span id="v2-x1l">1</span></b>, <b><span id="v2-y1l">2</span></b>)</label>
+    <input class="vz-range" type="range" id="v2-x1" min="-6" max="6" value="1" step="1" aria-label="First point x">
+    <input class="vz-range" type="range" id="v2-y1" min="-6" max="6" value="2" step="1" aria-label="First point y">
+    <label class="vz-lab" for="v2-x2">point 2 = (<b><span id="v2-x2l">5</span></b>, <b><span id="v2-y2l">6</span></b>)</label>
+    <input class="vz-range" type="range" id="v2-x2" min="-6" max="6" value="5" step="1" aria-label="Second point x">
+    <input class="vz-range" type="range" id="v2-y2" min="-6" max="6" value="6" step="1" aria-label="Second point y">
+
+    <div class="vz-plot" id="v2-plot"></div>
+    <div class="vz-mono" id="v2-calc"></div>
+    <div class="v2-wrong" id="v2-wrong"></div>
+    <div class="vz-why" id="v2-why"></div>
+    <div class="vz-pre" id="v2-presets"></div>
+  </div>
+
+  <p class="vz-note">Order does not matter, <em>consistency</em> does. Taking point 2 first flips the sign of
+    the numerator and of the denominator at the same time, and the two flips cancel. Take the y-difference one
+    way and the x-difference the other and nothing cancels — you get the negative of the truth, which is a
+    perfectly plausible-looking wrong answer.</p>
+
+  <style>
+    .v2-wrong{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v2-row{display:flex;align-items:center;gap:8px;border:1.5px dashed var(--viz-line);border-radius:9px;
+      padding:7px 9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.35}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v2-good{border-style:solid;border-color:var(--viz-green)}
+  </style>
+  <script>
+  (function(){
+    var X1 = document.getElementById('v2-x1'), Y1 = document.getElementById('v2-y1');
+    var X2 = document.getElementById('v2-x2'), Y2 = document.getElementById('v2-y2');
+    var x1l = document.getElementById('v2-x1l'), y1l = document.getElementById('v2-y1l');
+    var x2l = document.getElementById('v2-x2l'), y2l = document.getElementById('v2-y2l');
+    var plot = document.getElementById('v2-plot'), calc = document.getElementById('v2-calc');
+    var wrong = document.getElementById('v2-wrong'), why = document.getElementById('v2-why');
+    var pres = document.getElementById('v2-presets');
+
+    var W = 320, H = 200, L = 22, R = 10, T = 10, Bo = 14;
+    var YLO = -6.5, YHI = 6.5;
+    var SC = (H - T - Bo) / (YHI - YLO);        // one scale for both axes, so the triangle keeps its true shape
+    var XHI = (W - L - R) / SC / 2, XLO = -XHI;
+
+    function px(v){ return L + (v - XLO) * SC; }
+    function py(v){ return T + (YHI - v) * SC; }
+    function gcd(p, q){ p = Math.abs(p); q = Math.abs(q); while (q) { var t = q; q = p % q; p = t; } return p || 1; }
+    function frac(num, den){
+      if (den === 0) return null;                // no value exists — callers phrase it, never print a blank
+      var s = den < 0 ? -1 : 1, a = num * s, b = den * s, g = gcd(a, b);
+      a = a / g; b = b / g;
+      return b === 1 ? String(a) : a + '/' + b;
+    }
+    function says(txt, num, den){
+      var f = frac(num, den);
+      return f === null ? txt + ' is undefined (zero denominator)' : txt + ' = ' + f;
+    }
+    function row(txt, num, den, ok){
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v2-row' + (ok ? ' v2-good' : '') + '"><span>' + says(txt, num, den) + '</span>' +
+        '<span class="v2-tag" style="color:' + col + '">' + (ok ? 'CORRECT' : 'WRONG') + '</span></div>';
+    }
+
+    function render(){
+      var x1 = Number(X1.value), y1 = Number(Y1.value), x2 = Number(X2.value), y2 = Number(Y2.value);
+      if (!isFinite(x1)) x1 = 0;
+      if (!isFinite(y1)) y1 = 0;
+      if (!isFinite(x2)) x2 = 0;
+      if (!isFinite(y2)) y2 = 0;
+      x1l.textContent = x1; y1l.textContent = y1; x2l.textContent = x2; y2l.textContent = y2;
+      var dy = y2 - y1, dx = x2 - x1;
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Two points with the rise and run triangle between them">';
+      for (var t = -10; t <= 10; t += 2) {
+        if (t >= XLO && t <= XHI) svg += '<line x1="' + px(t) + '" y1="' + T + '" x2="' + px(t) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:0.5"></line>';
+        if (t >= YLO && t <= YHI) svg += '<line x1="' + L + '" y1="' + py(t) + '" x2="' + (W - R) + '" y2="' + py(t) + '" style="stroke:var(--viz-line);stroke-width:0.5"></line>';
+      }
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+
+      if (dx === 0 && dy !== 0) {
+        svg += '<line x1="' + px(x1) + '" y1="' + T + '" x2="' + px(x1) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+      } else if (dx !== 0) {
+        var m = dy / dx, b0 = y1 - m * x1;
+        var sx = XLO, ex = XHI;
+        if (m !== 0) {
+          var a = (YLO - b0) / m, c = (YHI - b0) / m;
+          sx = Math.max(XLO, Math.min(a, c)); ex = Math.min(XHI, Math.max(a, c));
+        }
+        if (ex > sx) {
+          svg += '<line x1="' + px(sx) + '" y1="' + py(m * sx + b0) + '" x2="' + px(ex) + '" y2="' + py(m * ex + b0) +
+            '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+        }
+      }
+      if (dx !== 0 || dy !== 0) {
+        svg += '<line x1="' + px(x1) + '" y1="' + py(y1) + '" x2="' + px(x2) + '" y2="' + py(y1) +
+          '" style="stroke:var(--viz-amber);stroke-width:2;stroke-dasharray:4 3"></line>';
+        svg += '<line x1="' + px(x2) + '" y1="' + py(y1) + '" x2="' + px(x2) + '" y2="' + py(y2) +
+          '" style="stroke:var(--viz-green);stroke-width:2;stroke-dasharray:4 3"></line>';
+        svg += '<text x="' + ((px(x1) + px(x2)) / 2) + '" y="' + (py(y1) + 12) + '" text-anchor="middle" style="font-size:9.5px;fill:var(--viz-amber)">run ' + dx + '</text>';
+        svg += '<text x="' + (px(x2) + 5) + '" y="' + ((py(y1) + py(y2)) / 2) + '" style="font-size:9.5px;fill:var(--viz-green)">rise ' + dy + '</text>';
+      }
+      svg += '<circle cx="' + px(x1) + '" cy="' + py(y1) + '" r="4.5" style="fill:var(--viz-violet)"></circle>';
+      svg += '<circle cx="' + px(x2) + '" cy="' + py(y2) + '" r="4.5" style="fill:var(--viz-violet)"></circle>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      calc.textContent =
+        'm = (y2 - y1) / (x2 - x1)\n' +
+        '  = (' + y2 + ' - ' + y1 + ') / (' + x2 + ' - ' + x1 + ')\n' +
+        '  = ' + dy + ' / ' + dx + '\n' +
+        (dx === 0
+          ? '  -> the run is 0, so the slope is undefined\n'
+          : '  = ' + frac(dy, dx) + '   (' + (Math.round(dy / dx * 1000) / 1000) + ')\n') +
+        'reversed: (' + y1 + ' - ' + y2 + ') / (' + x1 + ' - ' + x2 + ') = ' + (-dy) + ' / ' + (-dx) + ',  ' + says('same answer', -dy, -dx);
+
+      wrong.innerHTML =
+        row('(y2 - y1)/(x2 - x1)', dy, dx, true) +
+        row('(y2 + y1)/(x2 + x1)', y2 + y1, x2 + x1, false) +
+        row('(x2 - x1)/(y2 - y1)', dx, dy, false) +
+        row('(x2 - x1)/(y1 - y2)', dx, -dy, false);
+
+      if (dx === 0 && dy === 0) {
+        why.innerHTML = '<b style="color:var(--viz-red)">Both points are the same point.</b>' +
+          'The formula gives 0/0, and geometrically two identical points name infinitely many lines rather than ' +
+          'one. Move either slider and a single line reappears. This is the one case where "undefined" is not ' +
+          'about verticality at all.';
+      } else if (dx === 0) {
+        why.innerHTML = '<b style="color:var(--viz-red)">Run = 0, so the slope is UNDEFINED — not zero, not infinite.</b>' +
+          'Both points share x = ' + x1 + ', so the line is x = ' + x1 + ': a <b>vertical</b> line. Division by zero is not a ' +
+          'large number, it is no number, and that is why a vertical line cannot be written as y = mx + b at all. ' +
+          '<br><br>Compare with the horizontal case (drag the two y sliders equal instead): there the <em>numerator</em> ' +
+          'goes to zero and the slope is exactly 0. Zero on top and zero on the bottom are opposite situations, and ' +
+          'swapping them is the most reliable way to lose a mark on this topic.';
+      } else if (dy === 0) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Rise = 0, so the slope is exactly 0.</b>' +
+          'The line is y = ' + y1 + ', flat: move any distance to the right and y does not change, so 0 divided by ' + dx +
+          ' is 0. A horizontal line has a slope, and that slope is a number. ' +
+          '<br><br>Now make the two x values equal instead and the zero moves to the denominator, where it means ' +
+          'something completely different: undefined.';
+      } else {
+        var m2 = dy / dx, sumF = frac(y2 + y1, x2 + x1);
+        why.innerHTML = '<b style="color:var(--viz-green)">m = ' + frac(dy, dx) + ': y changes by ' + frac(dy, dx) + ' for every 1 you move right.</b>' +
+          'The dashed triangle is the whole definition — amber run along the bottom, green rise up the side, and the ' +
+          'slope is the second divided by the first. Because the line is straight, any other pair of points draws a ' +
+          'similar triangle with the same ratio, which is exactly what makes m a property of the <em>line</em> rather ' +
+          'than of the points you picked. ' +
+          '<br><br>The rows above are computed from the same four numbers. Adding coordinates instead of subtracting ' +
+          (sumF === null ? 'divides by a zero sum and produces nothing at all' : 'produces ' + sumF + ' — not a rate of anything') +
+          '; inverting produces ' + frac(dx, dy) + '; mismatching the order produces ' + frac(dx, -dy) +
+          '. Only the first row answers "change in y per unit change in x". ' +
+          (m2 > 0 ? 'Positive slope, so the line rises to the right.' : 'Negative slope, so the line falls to the right.');
+      }
+    }
+
+    var PRESETS = [
+      { t:'slope 2: (-1,-2)→(2,4)', v:[-1, -2, 2, 4] },
+      { t:'horizontal', v:[-4, 3, 5, 3] },
+      { t:'vertical', v:[2, -5, 2, 6] },
+      { t:'falling line', v:[-3, 5, 3, -4] }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        X1.value = p.v[0]; Y1.value = p.v[1]; X2.value = p.v[2]; Y2.value = p.v[3]; render();
+      });
+      pres.appendChild(btn);
+    });
+    [X1, Y1, X2, Y2].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. One Line Three Forms</h2>
+  <p class="vz-lede">Three equations, one line, zero disagreement. Drag the slope, the intercept and the point,
+    and all three forms rewrite themselves together — then pick a conversion and watch the algebra that moves
+    between them. <b>Like a phone number written with dashes, spaces or brackets: same number, different
+    thing made easy to read.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-m">slope m = <b><span id="v3-ml">-2/3</span></b></label>
+    <input class="vz-range" type="range" id="v3-m" min="0" max="14" value="4" step="1" aria-label="Slope m">
+    <label class="vz-lab" for="v3-b">y-intercept b = <b><span id="v3-bl">4</span></b></label>
+    <input class="vz-range" type="range" id="v3-b" min="-8" max="8" value="4" step="1" aria-label="Y-intercept b">
+    <label class="vz-lab" for="v3-x1">point-slope uses the point at x1 = <b><span id="v3-x1l">3</span></b></label>
+    <input class="vz-range" type="range" id="v3-x1" min="-4" max="6" value="3" step="1" aria-label="X coordinate of the chosen point">
+
+    <div class="v3-forms">
+      <div class="v3-f"><h5>slope-intercept</h5><div class="v3-eq" id="v3-si"></div></div>
+      <div class="v3-f"><h5>point-slope</h5><div class="v3-eq" id="v3-ps"></div></div>
+      <div class="v3-f"><h5>standard (A &gt; 0)</h5><div class="v3-eq" id="v3-st"></div></div>
+    </div>
+    <div class="vz-plot" id="v3-plot"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Which conversion to show" style="margin-top:12px">
+    <button type="button" id="v3-t1" aria-pressed="true">standard → slope-int</button>
+    <button type="button" id="v3-t2" aria-pressed="false">point-slope → slope-int</button>
+    <button type="button" id="v3-t3" aria-pressed="false">slope-int → standard</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v3-steps"></div>
+    <div class="vz-why" id="v3-why"></div>
+    <div class="vz-pre" id="v3-presets"></div>
+  </div>
+
+  <p class="vz-note">Nothing in this panel changes the line — every conversion is the same equivalence-preserving
+    rearrangement you have used since lesson 01, so the graph never moves while the three cards rewrite
+    themselves. The form is a <b>presentation choice</b>, and the only question worth asking is which fact you
+    want visible without doing any work.</p>
+
+  <style>
+    .v3-forms{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px}
+    .v3-f{flex:1 1 150px;background:var(--viz-bg);border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px}
+    .v3-f h5{margin:0 0 5px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-eq{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:700;line-height:1.4}
+  </style>
+  <script>
+  (function(){
+    var MS = [[-4,1],[-3,1],[-3,2],[-2,1],[-2,3],[-1,1],[-1,2],[0,1],[1,2],[1,1],[2,3],[3,2],[2,1],[3,1],[4,1]];
+    var M = document.getElementById('v3-m'), B = document.getElementById('v3-b'), X1 = document.getElementById('v3-x1');
+    var ml = document.getElementById('v3-ml'), bl = document.getElementById('v3-bl'), x1l = document.getElementById('v3-x1l');
+    var si = document.getElementById('v3-si'), ps = document.getElementById('v3-ps'), st = document.getElementById('v3-st');
+    var plot = document.getElementById('v3-plot'), stepsEl = document.getElementById('v3-steps');
+    var why = document.getElementById('v3-why'), pres = document.getElementById('v3-presets');
+    var b1 = document.getElementById('v3-t1'), b2 = document.getElementById('v3-t2'), b3 = document.getElementById('v3-t3');
+    var mode = 1;
+
+    var LO = -8, HI = 8, W = 320, H = 150, L = 22, R = 10, T = 8, Bo = 12;
+    function px(v){ return L + (v - LO) / (HI - LO) * (W - L - R); }
+    function py(v){ return T + (HI - v) / (HI - LO) * (H - T - Bo); }
+    function gcd(p, q){ p = Math.abs(p); q = Math.abs(q); while (q) { var t = q; q = p % q; p = t; } return p || 1; }
+
+    function frac(num, den){
+      if (den === 0) return 'undefined';
+      var s = den < 0 ? -1 : 1, a = num * s, d = den * s, g = gcd(a, d);
+      a = a / g; d = d / g;
+      return d === 1 ? String(a) : a + '/' + d;
+    }
+    function mterm(num, den){
+      if (den === 1) return num === 1 ? 'x' : (num === -1 ? '-x' : num + 'x');
+      var f = frac(num, den);
+      return f.charAt(0) === '-' ? '-(' + f.slice(1) + ')x' : '(' + f + ')x';
+    }
+    function plus(v){ return v < 0 ? ' - ' + Math.abs(v) : ' + ' + v; }
+    function plusF(num, den){
+      var f = frac(num, den);
+      return f.charAt(0) === '-' ? ' - ' + f.slice(1) : ' + ' + f;
+    }
+    function minusVal(name, num, den){
+      var f = frac(num, den);
+      if (f === '0') return name;
+      return f.charAt(0) === '-' ? name + ' + ' + f.slice(1) : name + ' - ' + f;
+    }
+
+    function render(){
+      var i = Number(M.value);
+      if (!isFinite(i) || i < 0 || i > MS.length - 1) i = 4;
+      var mn = MS[i][0], md = MS[i][1];
+      var b = Number(B.value), x1 = Number(X1.value);
+      if (!isFinite(b)) b = 0;
+      if (!isFinite(x1)) x1 = 0;
+      ml.textContent = frac(mn, md); bl.textContent = b; x1l.textContent = x1;
+
+      // the chosen point (x1, y1) with y1 = m*x1 + b kept exact as y1n/md
+      var y1n = mn * x1 + b * md;
+
+      // standard form: -mn x + md y = b*md, then normalised so A > 0
+      var A = -mn, Bc = md, C = b * md;
+      if (A < 0 || (A === 0 && Bc < 0)) { A = -A; Bc = -Bc; C = -C; }
+      var g = gcd(gcd(A, Bc), Math.abs(C) || 1);
+      if (g > 1) { A = A / g; Bc = Bc / g; C = C / g; }
+      var aTerm = (A === 0) ? '' : (A === 1 ? 'x' : A + 'x');
+      var bTerm = (Bc === 1 ? 'y' : (Bc === -1 ? '-y' : Bc + 'y'));
+      var stTxt = (A === 0) ? (bTerm + ' = ' + C)
+        : (aTerm + (Bc < 0 ? ' - ' + (Bc === -1 ? 'y' : Math.abs(Bc) + 'y') : ' + ' + bTerm) + ' = ' + C);
+
+      si.textContent = 'y = ' + mterm(mn, md) + plus(b);
+      ps.textContent = minusVal('y', y1n, md) + ' = ' + (md === 1 ? (mn === 1 ? '' : (mn === -1 ? '-' : String(mn))) : '(' + frac(mn, md) + ')') +
+        '(' + minusVal('x', x1, 1) + ')';
+      st.textContent = stTxt;
+
+      var mv = mn / md;
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The single line all three forms describe">';
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      var sx = LO, ex = HI;
+      if (mv !== 0) {
+        var p1 = (LO - b) / mv, p2 = (HI - b) / mv;
+        sx = Math.max(LO, Math.min(p1, p2)); ex = Math.min(HI, Math.max(p1, p2));
+      }
+      if (ex > sx) {
+        svg += '<line x1="' + px(sx) + '" y1="' + py(mv * sx + b) + '" x2="' + px(ex) + '" y2="' + py(mv * ex + b) +
+          '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+      }
+      if (b >= LO && b <= HI) svg += '<circle cx="' + px(0) + '" cy="' + py(b) + '" r="4" style="fill:var(--viz-violet)"></circle>';
+      var y1v = y1n / md;
+      if (isFinite(y1v) && y1v >= LO && y1v <= HI && x1 >= LO && x1 <= HI) {
+        svg += '<circle cx="' + px(x1) + '" cy="' + py(y1v) + '" r="4" style="fill:var(--viz-green)"></circle>';
+        svg += '<text x="' + px(x1) + '" y="' + (py(y1v) - 7) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-green)">point (' + x1 + ', ' + frac(y1n, md) + ')</text>';
+      }
+      svg += '<text x="' + (px(0) + 6) + '" y="' + (py(b) - 6) + '" style="font-size:9px;fill:var(--viz-violet)">(0, ' + b + ')</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      b1.setAttribute('aria-pressed', mode === 1 ? 'true' : 'false');
+      b2.setAttribute('aria-pressed', mode === 2 ? 'true' : 'false');
+      b3.setAttribute('aria-pressed', mode === 3 ? 'true' : 'false');
+
+      if (mode === 1) {
+        var moved = (A === 0) ? (bTerm + ' = ' + C) : (bTerm + ' = -' + (A === 1 ? 'x' : A + 'x') + plus(C));
+        stepsEl.textContent =
+          'start                    ' + stTxt + '\n' +
+          (A === 0 ? 'no x-term to move        ' + moved : 'subtract ' + aTerm + '            ' + moved) + '\n' +
+          'divide EVERY term by ' + Bc + '   y = ' + mterm(mn, md) + plus(b) + '\n' +
+          'check the constant       ' + C + ' / ' + Bc + ' = ' + b;
+        why.innerHTML = '<b>Solve for y — and divide the constant too.</b>' +
+          'From ' + stTxt + ', moving the x-term over gives ' + moved +
+          ', and then <em>every</em> term is divided by ' + Bc + ': the x-coefficient becomes ' + frac(mn, md) +
+          ' and the constant becomes ' + C + '/' + Bc + ' = ' + b + '. ' +
+          '<br><br>Forgetting the second division is the classic manufactured wrong answer — it leaves the constant at ' +
+          C + ' and produces a line parallel to the true one, which looks right until you check a point. ' +
+          'Notice too that the printed coefficients of a standard-form equation can all be positive while the slope ' +
+          'is <b>' + (mn < 0 ? 'negative' : (mn === 0 ? 'zero' : 'positive')) + '</b>: the slope is -A/B = ' + frac(mn, md) +
+          ', and any minus sign in it comes from the move, not from the page.';
+      } else if (mode === 2) {
+        var cn = -mn * x1;
+        stepsEl.textContent =
+          'start          ' + ps.textContent + '\n' +
+          'distribute m   ' + minusVal('y', y1n, md) + ' = ' + mterm(mn, md) + plusF(cn, md) + '\n' +
+          'add ' + frac(y1n, md) + ' to both sides\n' +
+          '               y = ' + mterm(mn, md) + plus(b);
+        why.innerHTML = '<b>Two moves: distribute, then undo the subtraction on the left.</b>' +
+          'The bracket multiplies m by <em>both</em> terms — ' + frac(mn, md) + ' times x and ' + frac(mn, md) + ' times ' +
+          minusVal('', x1, 1).trim() + ' — and a negative slope must reach the second term as well. That is the ' +
+          'parenthesis rule from lesson 01 with new labels. ' +
+          '<br><br>Then adding ' + frac(y1n, md) + ' isolates y and the y-intercept appears: ' + b + '. Read the two forms ' +
+          'side by side and you can see what each one hands you for free — point-slope shows the point (' + x1 + ', ' +
+          frac(y1n, md) + ') and the slope; slope-intercept shows the slope and (0, ' + b + '). Same line, different ' +
+          'facts on the surface.';
+      } else {
+        var ax = -mn, pre = (ax === 0) ? '' : ((ax === 1) ? 'x + ' : ((ax === -1) ? '-x + ' : ax + 'x + '));
+        var yt = (md === 1) ? 'y' : md + 'y';
+        stepsEl.textContent =
+          'start                     y = ' + mterm(mn, md) + plus(b) + '\n' +
+          (md === 1 ? 'coefficients already whole' : 'multiply every term by ' + md + '   ' + md + 'y = ' + (mn === 1 ? 'x' : (mn === -1 ? '-x' : mn + 'x')) + plus(b * md)) + '\n' +
+          'move the x-term across    ' + pre + yt + ' = ' + (b * md) + '\n' +
+          'make A > 0                ' + stTxt;
+        why.innerHTML = '<b>Clear fractions, then move x across and force A positive.</b>' +
+          'Standard form wants <b>integer</b> coefficients, so a slope of ' + frac(mn, md) + ' is multiplied away first' +
+          (md === 1 ? ' (nothing to clear here — the slope is already whole)' : ' by ' + md) + '. ' +
+          'Moving the x-term to the left flips its sign, and if that leaves A negative the whole equation is ' +
+          'multiplied by -1 — which flips all three signs at once, never just one. ' +
+          '<br><br>The convention A &gt; 0 exists so that one line has one printed standard form; without it, ' +
+          stTxt + ' and its negation would both be "correct" and every multiple-choice question on the topic would ' +
+          'have two right answers.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'2x + 3y = 12', i:4, b:4, x:3 },
+      { t:'3x + 2y = 8', i:2, b:4, x:2 },
+      { t:'y = -4x + 5', i:0, b:5, x:1 },
+      { t:'y - 3 = -2(x+1)', i:3, b:1, x:-1 },
+      { t:'y + 1 = 3(x-2)', i:13, b:-7, x:2 },
+      { t:'y - 4 = -2(x+1)', i:3, b:2, x:-1 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ M.value = p.i; B.value = p.b; X1.value = p.x; render(); });
+      pres.appendChild(btn);
+    });
+    b1.addEventListener('click', function(){ mode = 1; render(); });
+    b2.addEventListener('click', function(){ mode = 2; render(); });
+    b3.addEventListener('click', function(){ mode = 3; render(); });
+    [M, B, X1].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Name That Form</h2>
+  <p class="vz-lede">Half the questions on this topic only ask "which form is this?". Tap an equation to see
+    what it is and what it gives you for free — then drag the nudge slider and watch every number change while
+    every form stays exactly what it was. <b>Like recognising a phone number versus a postcode: you know
+    which is which without reading the digits.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="vz-lab" for="v4-k">nudge every constant by k = <b><span id="v4-kl">0</span></b></label>
+    <input class="vz-range" type="range" id="v4-k" min="-4" max="4" value="0" step="1" aria-label="Nudge every constant">
+  </div>
+
+  <div class="v4-list" id="v4-list"></div>
+
+  <div class="vz-card">
+    <div id="v4-verdict"></div>
+    <div class="v4-facts" id="v4-facts"></div>
+    <div class="vz-plot" id="v4-plot"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">The four shapes worth memorising: <b>y = mx + b</b> (slope-intercept),
+    <b>y − y1 = m(x − x1)</b> (point-slope), <b>Ax + By = C</b> (standard) and <b>x = a</b>, the vertical line
+    that only standard form can express, with B = 0. A question naming a form is asking about the template,
+    never about the numbers poured into it.</p>
+
+  <style>
+    .v4-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-b{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:12.5px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v4-b[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-facts{margin-top:10px;display:flex;flex-direction:column;gap:4px}
+    .v4-r{display:flex;align-items:center;gap:8px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace;
+      border:1px solid var(--viz-line);border-radius:8px;padding:6px 9px;background:var(--viz-bg)}
+    .v4-r span:last-child{margin-left:auto;font-weight:800;font-size:10.5px;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var K = document.getElementById('v4-k'), kl = document.getElementById('v4-kl');
+    var list = document.getElementById('v4-list'), verdict = document.getElementById('v4-verdict');
+    var facts = document.getElementById('v4-facts'), plot = document.getElementById('v4-plot');
+    var why = document.getElementById('v4-why');
+    var cur = 0;
+
+    var LO = -8, HI = 8, W = 320, H = 140, L = 22, R = 10, T = 8, Bo = 10;
+    function px(v){ return L + (v - LO) / (HI - LO) * (W - L - R); }
+    function py(v){ return T + (HI - v) / (HI - LO) * (H - T - Bo); }
+    function plus(v){ return v < 0 ? ' - ' + Math.abs(v) : ' + ' + v; }
+    function minusV(name, v){ return v === 0 ? name : (v < 0 ? name + ' + ' + Math.abs(v) : name + ' - ' + v); }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+
+    // Each entry rebuilds itself from k, so the digits move and the FORM does not.
+    var EQS = [
+      { form:'Slope-intercept form', col:'var(--viz-green)',
+        txt:function(k){ return 'y = 2x' + plus(3 + k); },
+        line:function(k){ return { m:2, b:3 + k }; },
+        note:'An isolated y on the left and nothing else: the template is y = mx + b, so m = 2 and the y-intercept is (0, ' },
+      { form:'Slope-intercept form (m = 0)', col:'var(--viz-green)',
+        txt:function(k){ return 'y = ' + (4 + k); },
+        line:function(k){ return { m:0, b:4 + k }; },
+        note:'A horizontal line is still slope-intercept form, with the x-term carrying coefficient 0. Its y-intercept is (0, ' },
+      { form:'Point-slope form', col:'var(--viz-violet)',
+        txt:function(k){ return minusV('y', 4 + k) + ' = 2(x - 1)'; },
+        line:function(k){ return { m:2, b:(4 + k) - 2 * 1, pt:[1, 4 + k] }; },
+        note:'(y minus a number) = (a number)(x minus a number). It hands you a point and a slope, and the y-intercept only after one distribution: (0, ' },
+      { form:'Point-slope form', col:'var(--viz-violet)',
+        txt:function(k){ return minusV('y', -1 + k) + ' = 3(x - 2)'; },
+        line:function(k){ return { m:3, b:(-1 + k) - 3 * 2, pt:[2, -1 + k] }; },
+        note:'The signs are the whole trick: the template subtracts both coordinates, so a negative y1 shows up as a plus while x1 = 2 stays a minus. Its y-intercept is (0, ' },
+      { form:'Standard form', col:'var(--viz-amber)',
+        txt:function(k){ return '2x + y = ' + (5 + k); },
+        line:function(k){ return { m:-2, b:5 + k }; },
+        note:'Both variables on the left, the constant alone on the right: Ax + By = C with A = 2 and B = 1. The slope is -A/B = -2 and the y-intercept is (0, ' },
+      { form:'Standard form, B = 0 — a vertical line', col:'var(--viz-red)',
+        txt:function(k){ return 'x' + plus(2 - k) + ' = 0'; },
+        line:function(k){ return { vert:-(2 - k) }; },
+        note:'Rearranged it is x = ' },
+      { form:'Slope-intercept form', col:'var(--viz-green)',
+        txt:function(k){ return 'y = -(2/3)x' + plus(4 + k); },
+        line:function(k){ return { m:-2 / 3, b:4 + k }; },
+        note:'A fractional slope changes nothing about the template. m = -2/3 and the y-intercept is (0, ' }
+    ];
+
+    function facRow(label, ok, val){
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v4-r"><span>' + label + '</span><span style="color:var(--viz-muted)">' + val + '</span>' +
+        '<span style="color:' + col + '">' + (ok ? 'FREE' : 'NEEDS WORK') + '</span></div>';
+    }
+
+    function show(i){
+      cur = i;
+      var k = Number(K.value);
+      if (!isFinite(k)) k = 0;
+      kl.textContent = k;
+      [].slice.call(list.children).forEach(function(btn, j){
+        btn.setAttribute('aria-pressed', i === j ? 'true' : 'false');
+        btn.innerHTML = '<span style="color:var(--viz-muted);font-weight:800">' + (j + 1) + '</span><span>' + EQS[j].txt(k) + '</span>';
+      });
+
+      var e = EQS[i], ln = e.line(k);
+      verdict.innerHTML = pill(e.form.toUpperCase(), e.col);
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The line this equation describes">';
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+
+      if (ln.vert !== undefined) {
+        var xv = ln.vert;
+        if (xv >= LO && xv <= HI) {
+          svg += '<line x1="' + px(xv) + '" y1="' + T + '" x2="' + px(xv) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+          svg += '<text x="' + px(xv) + '" y="' + (T + 10) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-accent)">x = ' + n(xv) + '</text>';
+        }
+        facts.innerHTML =
+          facRow('slope', false, 'undefined — no run') +
+          facRow('y-intercept', false, xv === 0 ? 'the whole y-axis' : 'none, it never crosses x = 0') +
+          facRow('x-intercept', true, '(' + n(xv) + ', 0)');
+        why.innerHTML = '<b style="color:var(--viz-red)">A vertical line, and the one line y = mx + b cannot express.</b>' +
+          e.note + n(xv) + ' — every point on it has the same x and any y, so the run between two of its points is 0 and ' +
+          'the slope is <b>undefined</b>. It is standard form with B = 0, which is exactly why standard form is worth ' +
+          'keeping around. ' +
+          '<br><br>Drag k and the line slides sideways; it never acquires a slope. Distractors love to offer "slope 0" ' +
+          'here — that belongs to the horizontal line in row 2, which is the opposite object.';
+      } else {
+        var m = ln.m, b = ln.b;
+        var sx = LO, ex = HI;
+        if (m !== 0) {
+          var p1 = (LO - b) / m, p2 = (HI - b) / m;
+          sx = Math.max(LO, Math.min(p1, p2)); ex = Math.min(HI, Math.max(p1, p2));
+        }
+        if (ex > sx && (m !== 0 || (b >= LO && b <= HI))) {
+          svg += '<line x1="' + px(sx) + '" y1="' + py(m * sx + b) + '" x2="' + px(ex) + '" y2="' + py(m * ex + b) +
+            '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+        }
+        if (b >= LO && b <= HI) svg += '<circle cx="' + px(0) + '" cy="' + py(b) + '" r="4" style="fill:var(--viz-violet)"></circle>';
+        if (ln.pt && ln.pt[0] >= LO && ln.pt[0] <= HI && ln.pt[1] >= LO && ln.pt[1] <= HI) {
+          svg += '<circle cx="' + px(ln.pt[0]) + '" cy="' + py(ln.pt[1]) + '" r="4" style="fill:var(--viz-green)"></circle>';
+          svg += '<text x="' + px(ln.pt[0]) + '" y="' + (py(ln.pt[1]) - 7) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-green)">(' + ln.pt[0] + ', ' + ln.pt[1] + ')</text>';
+        }
+        var xint = (m === 0) ? null : -b / m;
+        var isSI = e.form.indexOf('Slope-intercept') === 0;
+        var isPS = e.form.indexOf('Point-slope') === 0;
+        facts.innerHTML =
+          facRow('slope', isSI || isPS, n(m)) +
+          facRow('y-intercept', isSI, '(0, ' + n(b) + ')') +
+          facRow('a point on the line', isPS, ln.pt ? '(' + ln.pt[0] + ', ' + ln.pt[1] + ')' : (isSI ? 'only (0, ' + n(b) + ')' : 'none shown — compute one')) +
+          facRow('x-intercept', false, xint === null ? (b === 0 ? 'every x' : 'none — the line is flat') : '(' + n(xint) + ', 0)');
+        why.innerHTML = '<b style="color:' + e.col + '">' + e.form + '.</b>' +
+          e.note + n(b) + ')' +
+          (isSI ? '. Slope-intercept is the form that shows the slope <b>and</b> the y-intercept with no rearrangement at all, which is what "displays them most directly" means when a question asks.'
+                : (isPS ? '. Point-slope shows a point and a slope for free; the y-intercept costs one distribution.'
+                        : '. Standard form shows neither directly — both take a step of algebra.')) +
+          '<br><br><b style="display:inline">Now drag k.</b> Every constant in every row moves, the graph moves with it, ' +
+          'and not one row changes its form. Form is the shape of the template; the numbers are just what got poured ' +
+          'into it, which is why "which of these is in point-slope form?" can be answered without any arithmetic.';
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+    }
+
+    EQS.forEach(function(e, i){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'v4-b';
+      btn.setAttribute('aria-pressed', 'false');
+      btn.addEventListener('click', function(){ show(i); });
+      list.appendChild(btn);
+    });
+    K.addEventListener('input', function(){ show(cur); });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Parallel Or Perpendicular</h2>
+  <p class="vz-lede">Two lines, and only their slopes decide the answer. Drag the first slope and watch the
+    four candidates every question is built from — the slope itself, its negative, its reciprocal, and its
+    negative reciprocal — get sorted live. <b>Like two roads: same bearing and they never meet; bearings a
+    quarter turn apart and they cross square.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Relationship to show">
+    <button type="button" id="v5-par" aria-pressed="true">parallel</button>
+    <button type="button" id="v5-perp" aria-pressed="false">perpendicular</button>
+    <button type="button" id="v5-vert" aria-pressed="false">two vertical lines</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-m">first line: y = <b><span id="v5-ml">3</span></b>x + 1</label>
+    <input class="vz-range" type="range" id="v5-m" min="0" max="12" value="12" step="1" aria-label="Slope of the first line">
+    <div class="vz-plot" id="v5-plot"></div>
+    <div class="v5-read" id="v5-read"></div>
+    <div class="v5-scan" id="v5-scan"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">The product test is the fastest thing you own here: multiply the two slopes and look for
+    <b>−1</b>. A product of <b>+1</b> means you inverted without negating, and equal slopes with equal
+    intercepts means you are looking at one line twice. Neither of those is a relationship between two
+    distinct lines.</p>
+
+  <style>
+    .v5-read{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+    .v5-scan{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v5-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v5-row span:last-child{margin-left:auto;font-weight:800;font-size:10px;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var MS = [[-3,1],[-2,1],[-3,2],[-1,1],[-2,3],[-1,2],[0,1],[1,2],[2,3],[1,1],[3,2],[2,1],[3,1]];
+    var S = document.getElementById('v5-m'), ml = document.getElementById('v5-ml');
+    var bPar = document.getElementById('v5-par'), bPerp = document.getElementById('v5-perp'), bVert = document.getElementById('v5-vert');
+    var plot = document.getElementById('v5-plot'), read = document.getElementById('v5-read');
+    var scan = document.getElementById('v5-scan'), why = document.getElementById('v5-why');
+    var mode = 'par';
+
+    var W = 320, H = 200, L = 24, R = 10, T = 10, Bo = 16;
+    var XLO = -8, XHI = 8;
+    var SC = (W - L - R) / (XHI - XLO);          // equal scale on both axes, so right angles look right
+    var YHI = (H - T - Bo) / SC / 2, YLO = -YHI;
+    function px(v){ return L + (v - XLO) * SC; }
+    function py(v){ return T + (YHI - v) * SC; }
+    function gcd(p, q){ p = Math.abs(p); q = Math.abs(q); while (q) { var t = q; q = p % q; p = t; } return p || 1; }
+    function frac(num, den){
+      if (den === 0) return 'undefined';
+      var s = den < 0 ? -1 : 1, a = num * s, d = den * s, g = gcd(a, d);
+      a = a / g; d = d / g;
+      return d === 1 ? String(a) : a + '/' + d;
+    }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function plus(v){ return v < 0 ? ' - ' + Math.abs(v) : ' + ' + v; }
+
+    function seg(m, b){
+      var p1 = XLO, p2 = XHI;
+      if (m !== 0) {
+        var a = (YLO - b) / m, c = (YHI - b) / m;
+        p1 = Math.max(XLO, Math.min(a, c)); p2 = Math.min(XHI, Math.max(a, c));
+      } else if (b < YLO || b > YHI) return null;
+      return (p2 > p1) ? [p1, p2] : null;
+    }
+    function drawLine(m, b, col, dash){
+      var s = seg(m, b);
+      if (!s) return '';
+      return '<line x1="' + px(s[0]) + '" y1="' + py(m * s[0] + b) + '" x2="' + px(s[1]) + '" y2="' + py(m * s[1] + b) +
+        '" style="stroke:' + col + ';stroke-width:2.5' + (dash ? ';stroke-dasharray:6 4' : '') + '"></line>';
+    }
+
+    function render(){
+      var i = Number(S.value);
+      if (!isFinite(i) || i < 0 || i > MS.length - 1) i = 12;
+      var mn = MS[i][0], md = MS[i][1], m1 = mn / md;
+      ml.textContent = frac(mn, md);
+      bPar.setAttribute('aria-pressed', mode === 'par' ? 'true' : 'false');
+      bPerp.setAttribute('aria-pressed', mode === 'perp' ? 'true' : 'false');
+      bVert.setAttribute('aria-pressed', mode === 'vert' ? 'true' : 'false');
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Two lines drawn on equal axes">';
+      svg += '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+      svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-line);stroke-width:1.6"></line>';
+
+      if (mode === 'vert') {
+        svg += '<line x1="' + px(-3) + '" y1="' + T + '" x2="' + px(-3) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-accent);stroke-width:2.5"></line>';
+        svg += '<line x1="' + px(2) + '" y1="' + T + '" x2="' + px(2) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-accent);stroke-width:2.5;stroke-dasharray:6 4"></line>';
+        svg += drawLine(0, 1, 'var(--viz-amber)', false);
+        svg += '<text x="' + (px(-3) + 4) + '" y="' + (T + 11) + '" style="font-size:9px;fill:var(--viz-accent)">x = -3</text>';
+        svg += '<text x="' + (px(2) + 4) + '" y="' + (T + 11) + '" style="font-size:9px;fill:var(--viz-accent)">x = 2</text>';
+        svg += '<text x="' + (W - R - 4) + '" y="' + (py(1) - 5) + '" text-anchor="end" style="font-size:9px;fill:var(--viz-amber)">y = 1</text>';
+        svg += '<rect x="' + px(2) + '" y="' + (py(1) - 11) + '" width="11" height="11" style="fill:none;stroke:var(--viz-amber);stroke-width:1.5"></rect>';
+        svg += '</svg>';
+        plot.innerHTML = svg;
+
+        read.innerHTML = pill('x = -3 has no slope', 'var(--viz-accent)') +
+          pill('x = 2 has no slope', 'var(--viz-accent)') +
+          pill('PARALLEL', 'var(--viz-green)');
+        scan.innerHTML =
+          '<div class="v5-row"><span>two distinct vertical lines</span><span style="color:var(--viz-green)">ALWAYS PARALLEL</span></div>' +
+          '<div class="v5-row"><span>a vertical and a horizontal line</span><span style="color:var(--viz-violet)">ALWAYS PERPENDICULAR</span></div>' +
+          '<div class="v5-row"><span>m1·m2 = -1 applied to either pair</span><span style="color:var(--viz-red)">CANNOT BE USED</span></div>';
+        why.innerHTML = '<b style="color:var(--viz-green)">Both slopes are undefined, and they still never meet.</b>' +
+          'x = -3 and x = 2 have zero run, so neither has a slope to compare — yet every point of the first is 5 units ' +
+          'left of the second forever, which is exactly what parallel means. The rule "equal slopes" is really a rule ' +
+          'about direction, and two verticals share a direction. ' +
+          '<br><br>The amber horizontal line meets both at a right angle (marked). This is the perpendicular pair the ' +
+          'product test cannot express: multiplying by an undefined slope is not an operation. Settle vertical and ' +
+          'horizontal cases <b>geometrically</b>, and save m1·m2 = -1 for lines that actually have slopes.';
+        return;
+      }
+
+      var b1 = 1;
+      var m2n, m2d, m2, b2, label;
+      if (mode === 'par') { m2n = mn; m2d = md; b2 = -3; label = 'parallel'; }
+      else {
+        if (mn === 0) { m2n = null; m2d = null; b2 = 0; label = 'perpendicular'; }
+        else { m2n = -md; m2d = mn; b2 = 1; label = 'perpendicular'; }
+      }
+      m2 = (m2n === null) ? null : m2n / m2d;
+
+      svg += drawLine(m1, b1, 'var(--viz-accent)', false);
+      if (m2 === null) {
+        svg += '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - Bo) + '" style="stroke:var(--viz-violet);stroke-width:2.5;stroke-dasharray:6 4"></line>';
+      } else {
+        svg += drawLine(m2, b2, mode === 'par' ? 'var(--viz-green)' : 'var(--viz-violet)', true);
+      }
+
+      if (mode === 'par') {
+        [-5, 0, 5].forEach(function(x){
+          var ya = m1 * x + b1, yb = m1 * x + b2;
+          if (ya <= YHI && yb >= YLO) {
+            svg += '<line x1="' + px(x) + '" y1="' + py(ya) + '" x2="' + px(x) + '" y2="' + py(yb) +
+              '" style="stroke:var(--viz-muted);stroke-width:1.5;stroke-dasharray:2 3"></line>';
+          }
+        });
+        svg += '<text x="' + px(0) + '" y="' + (H - 3) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-muted)">vertical gap = 4 everywhere</text>';
+      } else if (m2 !== null) {
+        var s0 = 0.7;
+        var n1 = Math.sqrt(1 + m1 * m1), n2 = Math.sqrt(1 + m2 * m2);
+        var u1x = s0 / n1, u1y = s0 * m1 / n1, u2x = s0 / n2, u2y = s0 * m2 / n2;
+        if (isFinite(u1x) && isFinite(u2x)) {
+          svg += '<polyline points="' + px(u1x) + ',' + py(1 + u1y) + ' ' + px(u1x + u2x) + ',' + py(1 + u1y + u2y) +
+            ' ' + px(u2x) + ',' + py(1 + u2y) + '" style="fill:none;stroke:var(--viz-violet);stroke-width:1.5"></polyline>';
+        }
+        svg += '<text x="' + (px(0) + 6) + '" y="' + (py(1) - 6) + '" style="font-size:9px;fill:var(--viz-violet)">right angle at (0, 1)</text>';
+      } else {
+        svg += '<rect x="' + px(0) + '" y="' + (py(1) - 11) + '" width="11" height="11" style="fill:none;stroke:var(--viz-violet);stroke-width:1.5"></rect>';
+      }
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var prodTxt = (m2 === null) ? null : frac(mn * m2n, md * m2d);
+      read.innerHTML =
+        pill('m1 = ' + frac(mn, md), 'var(--viz-accent)') +
+        pill(m2 === null ? 'the second line is vertical' : 'm2 = ' + frac(m2n, m2d), mode === 'par' ? 'var(--viz-green)' : 'var(--viz-violet)') +
+        pill(mode === 'par' ? 'equal slopes → PARALLEL'
+          : (m2 === null ? 'no product exists → PERPENDICULAR by geometry' : 'm1·m2 = ' + prodTxt + ' → PERPENDICULAR'),
+          mode === 'par' ? 'var(--viz-green)' : 'var(--viz-violet)');
+
+      var CANDS = [
+        { t:'m1        = ' + frac(mn, md), n:mn, d:md },
+        { t:'-m1       = ' + frac(-mn, md), n:-mn, d:md },
+        { t:mn === 0 ? '1/m1      does not exist' : '1/m1      = ' + frac(md, mn), n:(mn === 0 ? null : md), d:mn },
+        { t:mn === 0 ? '-1/m1     does not exist' : '-1/m1     = ' + frac(-md, mn), n:(mn === 0 ? null : -md), d:mn }
+      ];
+      scan.innerHTML = CANDS.map(function(c){
+        var tag, col;
+        if (c.n === null) { tag = mn === 0 ? 'PERPENDICULAR (vertical)' : 'undefined'; col = mn === 0 ? 'var(--viz-violet)' : 'var(--viz-muted)'; }
+        else if (c.n * md === mn * c.d) { tag = 'PARALLEL'; col = 'var(--viz-green)'; }
+        else if (c.n * mn === -(c.d * md)) { tag = 'PERPENDICULAR'; col = 'var(--viz-violet)'; }
+        else { tag = 'neither'; col = 'var(--viz-muted)'; }
+        return '<div class="v5-row"><span>' + c.t + '</span><span style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      if (mode === 'par') {
+        why.innerHTML = '<b style="color:var(--viz-green)">Equal slopes, different intercepts — and the second half matters.</b>' +
+          'y = ' + frac(mn, md) + 'x + 1 and y = ' + frac(mn, md) + 'x - 3 rise at the same rate, so the dotted gap measured at ' +
+          'x = -5, 0 and 5 is the same every time: they can never close it. Give the second line the intercept +1 as well ' +
+          'and there is no gap at all — that is <b>one line written twice</b>, not a parallel pair. ' +
+          '<br><br>Read the scan above: of the four things a question can do to a slope of ' + frac(mn, md) + ', only leaving ' +
+          'it alone gives parallel. Negating it, inverting it, or both are the three distractors, and they are the same ' +
+          'three every time.';
+      } else if (m2 === null) {
+        why.innerHTML = '<b style="color:var(--viz-violet)">Slope 0 is the case the formula cannot handle.</b>' +
+          'The first line is horizontal, so a line at right angles to it is <b>vertical</b> — and a vertical line has no ' +
+          'slope for m1·m2 = -1 to use. The product rule needs both slopes to exist. ' +
+          '<br><br>Drag the slope off zero and the rule works again immediately; that single value is the only gap in it, ' +
+          'and it is the same gap that makes x = a live outside y = mx + b.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-violet)">Negative reciprocal: flip it AND change its sign.</b>' +
+          'm1 = ' + frac(mn, md) + ' gives m2 = ' + frac(m2n, m2d) + ', and the product is ' + prodTxt + '. The derivation is one line of ' +
+          'linear algebra: a slope-m line has direction (1, m), perpendicular means the dot product vanishes, and ' +
+          '(1, m1)·(1, m2) = 1 + m1·m2 = 0. ' +
+          '<br><br>Half the transformation is the trap. Inverting alone gives ' + frac(md, mn) + ', whose product with m1 is +1 — ' +
+          'a positive product means you forgot the sign. Negating alone gives ' + frac(-mn, md) + ', product ' +
+          frac(-mn * mn, md * md) + '. Multiply and look for <b>-1</b>; the small drawn square at (0, 1) is what that number means.';
+      }
+    }
+
+    bPar.addEventListener('click', function(){ mode = 'par'; render(); });
+    bPerp.addEventListener('click', function(){ mode = 'perp'; render(); });
+    bVert.addEventListener('click', function(){ mode = 'vert'; render(); });
+    S.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

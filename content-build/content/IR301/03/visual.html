@@ -1,0 +1,769 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Query Becomes Material</button>
+  <button class="viz-tab" data-viz-tab="2">2. Four Ways To Rewrite</button>
+  <button class="viz-tab" data-viz-tab="3">3. Search, Read, Stop</button>
+  <button class="viz-tab" data-viz-tab="4">4. Hops Multiply</button>
+  <button class="viz-tab" data-viz-tab="5">5. Gates And Guardrails</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Query Becomes Material</h2>
+  <p class="vz-lede">Chunking and context assembly both assume the query is a fixed input: it arrives, fires
+    once, is never touched. Everything here edits it instead. Tap a symptom and see which side owns the fix —
+    and what the fix costs. <b>Like a librarian who stops re-shelving the books and starts asking you what you
+    actually meant.</b></p>
+
+  <div class="v1-sides">
+    <div class="v1-side" id="v1-left">
+      <h5>already yours · corpus + context</h5>
+      <ul>
+        <li>Chunk size and overlap</li>
+        <li>Structure-aware / semantic chunking</li>
+        <li>Contextual chunk enrichment</li>
+        <li>Selecting and ordering context</li>
+        <li>Citation-grounded spans</li>
+        <li>Metadata filters</li>
+        <li>Window budgeting</li>
+      </ul>
+      <p class="v1-tag">the query is a FIXED input</p>
+    </div>
+    <div class="v1-side" id="v1-right">
+      <h5>this lesson · the query side</h5>
+      <ul>
+        <li>Rewriting, expansion, HyDE</li>
+        <li>Retrieval as a tool + decide-to-stop</li>
+        <li>Decomposition and multi-hop</li>
+        <li>Conversational rewriting</li>
+        <li>Self-correcting RAG</li>
+        <li>Text-to-SQL</li>
+      </ul>
+      <p class="v1-tag">the query is RAW MATERIAL</p>
+    </div>
+  </div>
+
+  <div class="v1-syms" id="v1-syms"></div>
+  <div class="vz-card">
+    <div class="v1-cost" id="v1-cost"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Notice what every right-hand lever charges: <b>extra model calls and latency</b>. That is
+    the only currency in this lesson, and the judgment is never "is this technique good" but "does this
+    traffic deserve to pay". A rewrite costs 100–300 ms and is nearly always worth it; a three-iteration
+    agentic loop costs ten seconds before generation even starts and is worth it for almost nothing.</p>
+
+  <style>
+    .v1-sides{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-side{flex:1 1 155px;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 11px;
+      background:var(--viz-surface)}
+    .v1-side.is-on{border-color:var(--viz-accent)}
+    .v1-side h5{margin:0 0 7px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-side ul{margin:0;padding:0 0 0 15px}
+    .v1-side li{font-size:11.5px;line-height:1.55;margin:0 0 1px}
+    .v1-side li.is-hit{font-weight:800;color:var(--viz-accent)}
+    .v1-tag{margin:8px 0 0;font-size:10px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted);
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-side.is-on .v1-tag{color:var(--viz-accent)}
+    .v1-syms{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;line-height:1.4;
+      display:flex;align-items:center;gap:9px}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-s code{font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v1-cost{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+    .v1-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SYMS = [
+      { q:'The right passage came back — buried under nine others', side:'left', hit:3,
+        lever:'Selecting and Ordering Retrieved Context', cost:'0 extra model calls',
+        why:['An assembly problem, and you already fixed it.',
+          'Nothing about the query was wrong: the evidence was retrieved. Ordering, budgeting and relevance density decide what the model actually reads. Reach for a query-side technique here and you pay latency to solve a problem that lives after retrieval.'] },
+      { q:'A chunk arrived without the heading that gave it meaning', side:'left', hit:2,
+        lever:'Contextual Chunk Enrichment: Titles, Headers, Summaries', cost:'0 extra model calls',
+        why:['A corpus problem — fixed at indexing time, not at query time.',
+          'The enrichment happens once per chunk when you build the index. Query-side machinery cannot put back a header that was never stored, and no amount of rewriting recovers it.'] },
+      { q:'User typed <code>renewal terms</code>; the corpus says <code>subscription renewal policy</code>', side:'right', hit:0,
+        lever:'Single-shot query rewriting', cost:'+1 small call &middot; 100&ndash;300 ms',
+        why:['Vocabulary mismatch — the cheapest fix in the lesson.',
+          'Retrieval quality is <b>query-bound</b>: nothing downstream recovers a query that never matched. One small model call normalizes vocabulary toward the corpus, expands abbreviations and adds implied constraints. Stateless and pre-retrieval, so it is trivial to A/B — and the original query is kept as the fallback.'] },
+      { q:'<code>How much does it cost?</code> retrieved generic pricing text', side:'right', hit:3,
+        lever:'Conversational query rewriting across turns', cost:'+1 small call per turn',
+        why:['Coreference and ellipsis — resolvable only against the history.',
+          'The bare turn is unanswerable by search. Contextualize-then-retrieve rewrites it into a standalone query using recent history, including the assistant&rsquo;s own previous answer, where the entities being discussed usually live. It becomes <code>Team plan pricing</code>, and that standalone form is what retrieval runs on, what is logged, and what is evaluated.'] },
+      { q:'The first search was wrong and the pipeline could not try again', side:'right', hit:1,
+        lever:'Retrieval as a tool: search, read, decide-to-stop', cost:'1&ndash;3 s per iteration',
+        why:['Single-shot RAG has exactly one attempt, by construction.',
+          'Give the model <code>search(query, filters, top_k)</code> and <code>read(document_id)</code> and retrieval becomes deliberative: search, inspect snippets, read, then decide whether to answer or search again. Visual 3 is the loop and, more importantly, its stop policy.'] },
+      { q:'No single document holds the answer — it has to be chained', side:'right', hit:2,
+        lever:'Query decomposition and multi-hop retrieval', cost:'+1 call and one retrieval per hop',
+        why:['Compositional questions need sub-questions, then a synthesis.',
+          '<code>Which company founded by a Google alumnus raised the largest Series B in 2019</code> is in no single document. Decompose, retrieve per sub-question, aggregate — and pay the multiplicative failure rate visual 4 makes concrete.'] },
+      { q:'Retrieval returned junk and the model answered anyway, fluently', side:'right', hit:4,
+        lever:'Self-correcting RAG: reflect, re-retrieve, refine', cost:'2&ndash;4&times; single-pass',
+        why:['The defining failure of single-pass RAG: it fails <em>silently</em>.',
+          'A confident, fluent, wrong answer looks exactly like a right one. Explicit gates go at the two places failure happens — grading the retrieval, and checking the draft against the context — each with a budget and a fall-through to caveats or abstention.'] },
+      { q:'&ldquo;What was churn in Q3 by plan?&rdquo; — the answer is rows, not a chunk', side:'right', hit:5,
+        lever:'Text-to-SQL as a retrieval tool for structured data', cost:'+1 call, then a read-only query',
+        why:['Some questions are not document questions at all.',
+          'The model writes SQL from the question plus schema context, the system executes it read-only, and the returned rows become the context. In hybrid systems an orchestrator routes each question to documents, to SQL, or to both — and the agentic loop is what chooses.'] }
+    ];
+    var syms = document.getElementById('v1-syms'), why = document.getElementById('v1-why'),
+        cost = document.getElementById('v1-cost'),
+        left = document.getElementById('v1-left'), right = document.getElementById('v1-right');
+
+    function show(i){
+      var s = SYMS[i];
+      [].slice.call(syms.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      left.className = 'v1-side' + (s.side === 'left' ? ' is-on' : '');
+      right.className = 'v1-side' + (s.side === 'right' ? ' is-on' : '');
+      [left, right].forEach(function(side){
+        [].slice.call(side.getElementsByTagName('li')).forEach(function(li){ li.className = ''; });
+      });
+      var host = s.side === 'left' ? left : right;
+      var items = host.getElementsByTagName('li');
+      if (items[s.hit]) items[s.hit].className = 'is-hit';
+
+      var c = s.side === 'left' ? 'var(--viz-green)' : 'var(--viz-violet)';
+      cost.innerHTML =
+        '<span class="v1-pill" style="color:' + c + ';border-color:' + c + '">' +
+          (s.side === 'left' ? 'ALREADY TAUGHT' : 'THIS LESSON') + '</span>' +
+        '<span class="v1-pill" style="color:var(--viz-ink);border-color:var(--viz-line)">' + s.lever + '</span>' +
+        '<span class="v1-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">' + s.cost + '</span>';
+      why.innerHTML = '<b>' + s.why[0] + '</b>' + s.why[1];
+    }
+    SYMS.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v1-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span style="color:var(--viz-muted);font-weight:800">' + (i + 1) + '</span><span>' + s.q + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      syms.appendChild(b);
+    });
+    show(2);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Four Ways To Rewrite</h2>
+  <p class="vz-lede">Four transforms that all end in the same place — a different string goes to the index than
+    the one the user typed. Switch between them and watch the query change and the bill change with it.
+    <b>Like translating a question into the language the archive was written in, before you ask it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Transform">
+    <button id="v2-m0" aria-pressed="true">rewrite</button>
+    <button id="v2-m1" aria-pressed="false">expansion</button>
+    <button id="v2-m2" aria-pressed="false">HyDE</button>
+    <button id="v2-m3" aria-pressed="false">across turns</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-io" id="v2-io"></div>
+
+    <div class="v2-ctl" id="v2-varwrap">
+      <label class="v2-lab" for="v2-var">Paraphrase variants: <span id="v2-varl">3</span></label>
+      <input type="range" id="v2-var" min="1" max="8" value="3" step="1" aria-label="Number of paraphrase variants">
+    </div>
+
+    <div class="v2-ctl" id="v2-hydwrap" role="group" aria-label="Query type">
+      <div class="v2-mini">
+        <button id="v2-hy0" aria-pressed="true">conceptual how-to</button>
+        <button id="v2-hy1" aria-pressed="false">precise entity lookup</button>
+      </div>
+    </div>
+
+    <div class="v2-cost" id="v2-cost"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">All four are <b>pre-retrieval</b>, and the first three are stateless, which is why they are
+    trivial to A/B against the raw query. Order of adoption in a real system: rewriting first, expansion only
+    when recall is measurably short, HyDE for conceptual traffic only — and always log the original query so a
+    transform that degrades results can be switched off without losing what the user typed.</p>
+
+  <style>
+    .v2-io{display:flex;flex-direction:column;gap:7px;margin-bottom:12px}
+    .v2-row{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5}
+    .v2-row b{display:block;font-family:inherit;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;
+      color:var(--viz-muted);margin-bottom:3px}
+    .v2-row.is-out{border-color:var(--viz-accent)}
+    .v2-row.is-bad{border-color:var(--viz-red);border-style:dashed}
+    .v2-ctl{margin:0 0 12px}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-mini{display:flex;gap:6px;flex-wrap:wrap}
+    .v2-mini button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px}
+    .v2-mini button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v2-cost{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+    .v2-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var VARIANTS = [
+      'subscription renewal policy',
+      'how do I renew my subscription',
+      'auto-renewal terms and conditions',
+      'renewal notice period for a paid plan',
+      'end-of-term renewal rules',
+      'renewal billing cycle',
+      'cancelling before the renewal date',
+      'contract renewal clause'
+    ];
+    var mode = 0, hyde = 0;
+    var btns = [document.getElementById('v2-m0'), document.getElementById('v2-m1'),
+                document.getElementById('v2-m2'), document.getElementById('v2-m3')];
+    var io = document.getElementById('v2-io'), cost = document.getElementById('v2-cost'),
+        why = document.getElementById('v2-why');
+    var varWrap = document.getElementById('v2-varwrap'), varS = document.getElementById('v2-var'),
+        varL = document.getElementById('v2-varl');
+    var hydWrap = document.getElementById('v2-hydwrap'),
+        hy0 = document.getElementById('v2-hy0'), hy1 = document.getElementById('v2-hy1');
+
+    function row(label, text, cls){
+      return '<div class="v2-row ' + (cls || '') + '"><b>' + label + '</b>' + text + '</div>';
+    }
+    function pill(text, c){
+      return '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">' + text + '</span>';
+    }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', mode === i ? 'true' : 'false'); });
+      varWrap.style.display = mode === 1 ? 'block' : 'none';
+      hydWrap.style.display = mode === 2 ? 'block' : 'none';
+      hy0.setAttribute('aria-pressed', hyde === 0 ? 'true' : 'false');
+      hy1.setAttribute('aria-pressed', hyde === 1 ? 'true' : 'false');
+
+      var n = Math.max(1, Math.min(8, Number(varS.value) || 1));
+      varL.textContent = n;
+
+      if (mode === 0) {
+        io.innerHTML =
+          row('user typed', 'renewal terms') +
+          row('sent to the index', 'subscription renewal policy', 'is-out');
+        cost.innerHTML = pill('+1 small model call', 'var(--viz-amber)') +
+          pill('100–300 ms', 'var(--viz-amber)') + pill('retrieval cost ×1', 'var(--viz-green)');
+        why.innerHTML = '<b>The highest-leverage transform in the lesson.</b>' +
+          'Users type the words they use; the corpus is written in the words its authors used. The rewriter normalizes vocabulary toward the corpus, expands abbreviations, fixes misspelled product names and adds constraints the previous screen made obvious. ' +
+          '<br><br>Why it dominates: <b>retrieval quality is query-bound</b>. A reranker can only reorder what came back, so a query that matched nothing cannot be repaired downstream at any price — and this repair costs one small-model call.';
+      } else if (mode === 1) {
+        var list = VARIANTS.slice(0, n).map(function(v, i){ return (i + 1) + '. ' + v; }).join('\n');
+        io.innerHTML =
+          row('user typed', 'renewal terms') +
+          row(n + ' parallel queries, ' + n + ' ranked lists, fused with RRF', list, 'is-out');
+        var ok = n >= 2 && n <= 4;
+        cost.innerHTML = pill('+1 model call', 'var(--viz-amber)') +
+          pill('retrieval cost ×' + n, ok ? 'var(--viz-amber)' : 'var(--viz-red)') +
+          pill(ok ? 'inside the practical range' : (n < 2 ? 'no expansion at all' : 'past the practical range'),
+               ok ? 'var(--viz-green)' : 'var(--viz-red)');
+        why.innerHTML = n > 4
+          ? '<b style="color:var(--viz-red)">Past the practical range.</b>' +
+            'Cost rises multiplicatively with the variant count — ' + n + ' variants is ' + n + '× the retrieval work — while the extra paraphrases increasingly say the same thing and their ranked lists overlap. ' +
+            'Fusion cannot invent coverage that no variant found. <b>Two to four</b> is the range that pays.'
+          : '<b>Different phrasings catch different documents.</b>' +
+            'That is the whole mechanism: recall rises because each paraphrase lands in a slightly different region of the index, and the ' + n + ' ranked list' + (n === 1 ? '' : 's') + ' ' + (n === 1 ? 'is' : 'are') + ' combined with the same reciprocal-rank fusion you met in IR 202 — no score calibration needed, just ranks. ' +
+            '<br><br>Reach for this <em>after</em> rewriting, and only when recall is measurably short: it multiplies retrieval cost where a rewrite added one small call.';
+      } else if (mode === 2) {
+        if (hyde === 0) {
+          io.innerHTML =
+            row('user asked', 'what causes dizziness when standing up?') +
+            row('model writes a hypothetical answer — this is what gets embedded',
+              'Orthostatic hypotension when standing occurs when blood pools in the legs and blood pressure drops on rising, causing brief dizziness…', 'is-out') +
+            row('search finds', 'real medical pages near that passage in embedding space', 'is-out');
+          cost.innerHTML = pill('+1 generation call', 'var(--viz-amber)') +
+            pill('longer than a rewrite', 'var(--viz-amber)') + pill('good fit: conceptual', 'var(--viz-green)');
+          why.innerHTML = '<b>Answer-shaped text sits near real answers.</b>' +
+            'HyDE inverts the direction: embed a hypothetical <em>answer</em> instead of the question, then search for real documents near it. Questions and answers are worded differently, so the question embedding is often the worse probe. ' +
+            '<br><br>The subtle part: <b>the hypothetical answer&rsquo;s facts may be wrong and it still works</b>. A generated passage about orthostatic hypotension lands in the right neighbourhood of embedding space because it is written like the documents you want, and the neighbourhood is what retrieval uses.';
+        } else {
+          io.innerHTML =
+            row('user asked', 'how much did that company raise in its Series B in 2019?') +
+            row('model writes a confident, invented answer — and it is embedded anyway',
+              'The company raised a $42M Series B in 2019 led by…  (fabricated: the model does not know)', 'is-bad') +
+            row('search finds', 'documents near the hallucination, not near the fact', 'is-bad');
+          cost.innerHTML = pill('+1 generation call', 'var(--viz-amber)') +
+            pill('retrieval steered wrong', 'var(--viz-red)') + pill('bad fit: entity lookup', 'var(--viz-red)');
+          why.innerHTML = '<b style="color:var(--viz-red)">The failure is symmetric to the mechanism.</b>' +
+            'The same property that helps — the embedding follows the hypothetical passage — is what hurts here. For a niche factual lookup the model invents a confident wrong answer, and the embedding drags retrieval toward the hallucination instead of the fact. ' +
+            '<br><br>So HyDE is traffic-dependent, not universally on: conceptual how-to queries yes, precise entity lookups no. Route it, and keep the plain query as the fallback.';
+        }
+      } else {
+        io.innerHTML =
+          row('turn 1 (history)', 'user: Tell me about the Team plan\nassistant: The Team plan includes…') +
+          row('turn 2, as typed', 'How much does it cost?', 'is-bad') +
+          row('standalone rewrite — this is what retrieval sees, logs and evaluates', 'Team plan pricing', 'is-out');
+        cost.innerHTML = pill('+1 small call per turn', 'var(--viz-amber)') +
+          pill('nearly always worth it in chat', 'var(--viz-green)');
+        why.innerHTML = '<b>Contextualize, then retrieve.</b>' +
+          'The bare follow-up is unanswerable by search — it retrieves generic pricing text — because coreference and ellipsis live in the history, not in the turn. The rewrite call reads the recent history <b>including the assistant&rsquo;s previous answer</b>, which is usually where the entities under discussion actually appear. ' +
+          '<br><br><b>Three failure modes, each with its own fix.</b> <em>Over-anchoring</em>: the user changes topic and the rewrite drags in stale entities — so the instruction must say <code>if the turn is already standalone, return it unchanged</code>. <em>Error lock-in</em>: a wrong previous answer injects its wrong entities into every later rewrite, so confidence-degraded answers are excluded from rewrite context. <em>History bloat</em>: keep the last few turns or a running summary, never the full transcript. ' +
+          '<br><br>Evaluate the rewriter as its own component against history-plus-turn to gold-standalone pairs: a retrieval failure in conversation is as often a rewriting failure as a search failure.';
+      }
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    hy0.addEventListener('click', function(){ hyde = 0; render(); });
+    hy1.addEventListener('click', function(){ hyde = 1; render(); });
+    varS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Search, Read, Stop</h2>
+  <p class="vz-lede">The model holds the search tool and calls it in a loop. Press <b>search again</b> and watch
+    the three stop signals move — coverage, marginal utility, budget. The hard part is not searching.
+    <b>Like a researcher who has to decide when the reading is enough, with the clock running.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Question type">
+    <button id="v3-q0" aria-pressed="true">simple factual question</button>
+    <button id="v3-q1" aria-pressed="false">multi-entity comparison</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-cap">Tool-call budget: <span id="v3-capl">4</span> searches</label>
+    <input type="range" id="v3-cap" min="1" max="8" value="4" step="1" aria-label="Maximum number of searches">
+
+    <div class="v3-sig" id="v3-sig"></div>
+    <div class="v3-trace" id="v3-trace"></div>
+    <div class="v3-btns">
+      <button class="v3-go" id="v3-go">search again</button>
+      <button class="v3-go" id="v3-reset">reset</button>
+    </div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Tool design carries the reliability: stable document IDs in snippets so <code>read</code>
+    is cheap, filters in the tool schema so the model can scope its own searches, identical searches cached
+    within a session, and the <b>whole trace recorded</b> — when an agent goes wrong, the sequence of queries
+    it issued is the primary debugging artifact, and nothing else in the log explains the answer.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-sig{display:flex;gap:7px;flex-wrap:wrap;margin:14px 0 11px}
+    .v3-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-trace{display:flex;flex-direction:column;gap:5px;min-height:34px}
+    .v3-t{border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 9px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.5}
+    .v3-t.is-dup{border-style:dashed;opacity:.62}
+    .v3-t i{font-style:normal;float:right;font-weight:800;font-size:10px}
+    .v3-btns{display:flex;gap:7px;margin:12px 0 0}
+    .v3-go{flex:1 1 auto;min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-accent);
+      color:var(--viz-bg);border-radius:10px;font:inherit;font-weight:800;font-size:12.5px}
+    .v3-go[disabled]{background:var(--viz-surface);color:var(--viz-muted);border-color:var(--viz-line)}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SEC = 3;   // one model call + one retrieval, 1-3 s; taken at the top of that range
+    var KINDS = [
+      { facets:1, name:'simple factual',
+        steps:[
+          { q:'renewal notice period', fresh:3, cov:1 },
+          { q:'subscription renewal notice terms', fresh:0, cov:1 },
+          { q:'contract renewal notice policy', fresh:0, cov:1 },
+          { q:'notice period before auto-renewal', fresh:0, cov:1 }
+        ] },
+      { facets:3, name:'multi-entity comparison',
+        steps:[
+          { q:'annual billing discount', fresh:4, cov:1 },
+          { q:'Team plan annual price', fresh:3, cov:2 },
+          { q:'Business plan annual price', fresh:2, cov:3 },
+          { q:'enterprise annual discount', fresh:0, cov:3 }
+        ] }
+    ];
+    var kind = 0, i = 0;
+    var q0 = document.getElementById('v3-q0'), q1 = document.getElementById('v3-q1');
+    var cap = document.getElementById('v3-cap'), capL = document.getElementById('v3-capl');
+    var sig = document.getElementById('v3-sig'), trace = document.getElementById('v3-trace');
+    var go = document.getElementById('v3-go'), reset = document.getElementById('v3-reset');
+    var why = document.getElementById('v3-why');
+
+    function stepAt(k){ var s = KINDS[kind].steps; return s[Math.min(k, s.length - 1)]; }
+    function pill(t, c){ return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      q0.setAttribute('aria-pressed', kind === 0 ? 'true' : 'false');
+      q1.setAttribute('aria-pressed', kind === 1 ? 'true' : 'false');
+      var C = Math.max(1, Math.min(8, Number(cap.value) || 1));
+      capL.textContent = C;
+      if (i > C) i = C;
+
+      var facets = KINDS[kind].facets;
+      var cov = i === 0 ? 0 : stepAt(i - 1).cov;
+      var lastFresh = i === 0 ? null : stepAt(i - 1).fresh;
+      var prevFresh = i > 1 ? stepAt(i - 2).fresh : null;
+      var elapsed = i * SEC;
+
+      var covered = cov >= facets;
+      var stale = lastFresh === 0 && prevFresh === 0;
+      var spent = i >= C;
+      var stop = covered || stale || spent;
+
+      sig.innerHTML =
+        pill('coverage ' + cov + '/' + facets + ' facets', covered ? 'var(--viz-green)' : 'var(--viz-amber)') +
+        pill('new docs last search: ' + (lastFresh === null ? '—' : lastFresh),
+             lastFresh === 0 ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        pill('budget ' + i + '/' + C, spent ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        pill('~' + elapsed + ' s before generation', elapsed >= 9 ? 'var(--viz-red)' : 'var(--viz-muted)');
+
+      var rows = '';
+      for (var k = 0; k < i; k++) {
+        var st = stepAt(k);
+        rows += '<div class="v3-t' + (st.fresh === 0 ? ' is-dup' : '') + '">' +
+          'search(&ldquo;' + st.q + '&rdquo;)' +
+          '<i style="color:' + (st.fresh === 0 ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+          (st.fresh === 0 ? 'all seen before' : '+' + st.fresh + ' new') + '</i></div>';
+      }
+      if (!i) rows = '<div class="v3-t" style="opacity:.6">no searches issued yet</div>';
+      trace.innerHTML = rows;
+      go.disabled = stop;
+      go.textContent = stop ? 'loop halted' : 'search again';
+
+      if (!i) {
+        why.innerHTML = '<b>The loop has not started.</b>' +
+          'The model receives <code>search(query, filters, top_k)</code> and usually <code>read(document_id)</code>. It searches, inspects snippets, reads promising documents, then decides whether to answer or search again with a better query — a deliberative process that can recover from a bad first query, which single-shot RAG cannot do.';
+      } else if (covered) {
+        why.innerHTML = '<b style="color:var(--viz-green)">Coverage met — stop and answer.</b>' +
+          'Every facet of the question now has evidence behind it, at a cost of ' + i + ' iteration' + (i === 1 ? '' : 's') + ' and about ' + elapsed + ' s before generation starts. ' +
+          (kind === 0
+            ? '<br><br><b>And that is the routing lesson.</b> This question was answered by the very first search; every further iteration is pure latency. Route with a cheap classifier or heuristic — multiple entities, constraints or comparison structure go agentic, simple factual questions go down the single-shot path.'
+            : '<br><br>This is what the loop is <em>for</em>: the sub-answers arrived one search at a time and no single query would have produced them.');
+      } else if (stale) {
+        why.innerHTML = '<b style="color:var(--viz-red)">Marginal utility exhausted — stop.</b>' +
+          'The last two searches returned documents already seen. That is the signal that rephrasing is no longer reaching new evidence, and continuing just spends latency and tokens on the same corpus region. ' +
+          '<br><br>Without this check an agent will happily loop, rewording a failing query while the clock runs. The honest output now is an answer with what it has, or a declaration of insufficiency.';
+      } else if (spent) {
+        why.innerHTML = '<b style="color:var(--viz-red)">Budget exhausted — answer or declare insufficiency.</b>' +
+          'The cap fired at ' + C + ' search' + (C === 1 ? '' : 'es') + ' with coverage still at ' + cov + '/' + facets + '. A hard cap on tool calls and total latency is the one stop signal that cannot be argued with by a model that thinks one more query will do it. ' +
+          '<br><br>Typical production caps sit at <b>three to five searches</b>. Raise the slider and watch the time-to-answer: each iteration is one model call plus one retrieval, roughly 1–3 s, so three iterations already push toward ten seconds <em>before generation begins</em>.';
+      } else {
+        why.innerHTML = '<b>Keep going — but on which grounds?</b>' +
+          'Coverage is ' + cov + '/' + facets + ', the last search returned ' + lastFresh + ' new document' + (lastFresh === 1 ? '' : 's') + ', and ' + (C - i) + ' of the ' + C + ' allowed searches remain. A decide-to-stop policy weighs exactly those three: coverage, marginal utility, budget. ' +
+          '<br><br>Notice that none of them is "the model feels done".';
+      }
+    }
+    q0.addEventListener('click', function(){ kind = 0; i = 0; render(); });
+    q1.addEventListener('click', function(){ kind = 1; i = 0; render(); });
+    cap.addEventListener('input', render);
+    go.addEventListener('click', function(){ i += 1; render(); });
+    reset.addEventListener('click', function(){ i = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Hops Multiply</h2>
+  <p class="vz-lede">Compositional questions are answered by chaining facts, and chains multiply. Drag the
+    per-hop success rate and the number of hops, and watch the end-to-end number fall faster than intuition
+    says it should. <b>Like a relay race: every runner is excellent, and the baton still gets dropped.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <div class="vz-mono" id="v4-qn"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-hops">Hops in the chain: <span id="v4-hopsl">3</span></label>
+    <input type="range" id="v4-hops" min="1" max="5" value="3" step="1" aria-label="Number of hops">
+    <label class="v4-lab" for="v4-p" style="margin-top:10px">Per-hop retrieval success:
+      <span id="v4-pl">0.90</span></label>
+    <input type="range" id="v4-p" min="50" max="99" value="90" step="1" aria-label="Per-hop success probability">
+
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-math vz-mono" id="v4-math"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Decomposition mechanism" style="margin-top:14px">
+    <button id="v4-m0" aria-pressed="true">single-pass</button>
+    <button id="v4-m1" aria-pressed="false">iterative</button>
+    <button id="v4-m2" aria-pressed="false">recursive</button>
+  </div>
+  <div class="vz-card"><div class="v4-mech" id="v4-mech"></div></div>
+
+  <p class="vz-note">Two judgments follow from the arithmetic. <b>Decompose only genuinely compositional
+    questions</b> — comparisons and bridging-entity chains — and try a single retrieval first for anything
+    simpler. And <b>evaluate per-hop retrieval success separately from final answer accuracy</b>: one
+    end-to-end number cannot tell you which hop leaked, and the fix for a retrieval miss is not the fix for a
+    decomposition that split the question along the wrong joints.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bars{margin-top:15px;display:flex;flex-direction:column;gap:7px}
+    .v4-b{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v4-lbl{flex:0 0 46px;color:var(--viz-muted)}
+    .v4-track{flex:1;height:14px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%;background:var(--viz-accent)}
+    .v4-val{flex:0 0 44px;text-align:right;font-weight:800}
+    .v4-math{margin-top:13px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-mech{font-size:12.5px;line-height:1.6}
+    .v4-mech b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var HOPQ = [
+      'Which company founded by a Google alumnus raised the largest Series B in 2019?',
+      '  hop 1 → find companies founded by Google alumni',
+      '  hop 2 → find each company&rsquo;s funding history',
+      '  hop 3 → compare the Series B rounds and pick the largest'
+    ];
+    document.getElementById('v4-qn').innerHTML = HOPQ.join('\n');
+
+    var MECH = [
+      ['Single-pass decomposition','The model writes a numbered plan of sub-queries <em>up front</em>, each is executed, and a final synthesis pass combines the evidence. Cheapest to parallelise, because the plan does not depend on what comes back — and it is the mechanism that fails when the question cannot be split before you know something.'],
+      ['Iterative retrieval','Reasoning and retrieval interleave: the model reads what it has, emits the next sub-query, retrieves, and repeats until the chain completes. Strictly more capable and strictly more expensive — every hop is another round trip on the latency bill.'],
+      ['Recursive resolution','The answer to one hop becomes an <em>input</em> to the next query: the entity found in hop one fills the template for hop two. This is where semantic error propagation bites hardest — a wrong entity is not a missing fact, it is a confidently wrong query.']
+    ];
+    var hops = document.getElementById('v4-hops'), hopsL = document.getElementById('v4-hopsl');
+    var pS = document.getElementById('v4-p'), pL = document.getElementById('v4-pl');
+    var bars = document.getElementById('v4-bars'), math = document.getElementById('v4-math'),
+        why = document.getElementById('v4-why'), mech = document.getElementById('v4-mech');
+    var mBtns = [document.getElementById('v4-m0'), document.getElementById('v4-m1'), document.getElementById('v4-m2')];
+    var m = 0;
+
+    function render(){
+      var n = Math.max(1, Math.min(5, Number(hops.value) || 1));
+      var p = Math.min(0.99, Math.max(0.5, (Number(pS.value) || 90) / 100));
+      hopsL.textContent = n;
+      pL.textContent = p.toFixed(2);
+
+      var rows = '', cum = 1;
+      for (var k = 1; k <= n; k++) {
+        cum = cum * p;
+        var pct = Math.max(1, Math.round(cum * 100));
+        rows += '<div class="v4-b"><span class="v4-lbl">hop ' + k + '</span>' +
+          '<span class="v4-track"><i style="width:' + pct + '%"></i></span>' +
+          '<span class="v4-val" style="color:' + (cum >= 0.8 ? 'var(--viz-green)' : cum >= 0.6 ? 'var(--viz-amber)' : 'var(--viz-red)') + '">' +
+          cum.toFixed(2) + '</span></div>';
+      }
+      bars.innerHTML = rows;
+
+      var terms = [];
+      for (var j = 0; j < n; j++) terms.push(p.toFixed(2));
+      math.textContent = terms.join(' × ') + ' = ' + cum.toFixed(3) +
+        '   → about ' + Math.round(cum * 100) + '% of chains complete, before any reasoning error';
+
+      var lost = Math.round((1 - cum) * 100);
+      why.innerHTML = '<b>' + (cum >= 0.8 ? 'Survivable — for now.' : 'The chain is leaking.') + '</b>' +
+        'Each hop retrieves the fact it needs with probability ' + p.toFixed(2) + ', independently, so the chain succeeds with probability p to the power of the hop count: <b>' + cum.toFixed(2) + '</b>. ' +
+        'At the lesson&rsquo;s worked numbers — 0.9 per hop over three hops — that is 0.729, about <b>0.73</b>, and roughly one question in four fails on retrieval alone. Here ' + lost + '% of chains break. ' +
+        '<br><br><b>And the failures are worse than they look.</b> Errors propagate <em>semantically</em>: a wrong entity from hop one becomes the query for hop two, so the chain does not stop — it walks confidently off a cliff and produces a fluent answer about the wrong company. ' +
+        'That is why you cap chain depth and prefer the fewest hops that work: every hop is another multiplicative term <em>and</em> another model call on the latency bill.';
+
+      mBtns.forEach(function(b, i){ b.setAttribute('aria-pressed', m === i ? 'true' : 'false'); });
+      mech.innerHTML = '<b>' + MECH[m][0] + '</b>' + MECH[m][1];
+    }
+    hops.addEventListener('input', render);
+    pS.addEventListener('input', render);
+    mBtns.forEach(function(b, i){ b.addEventListener('click', function(){ m = i; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Gates And Guardrails</h2>
+  <p class="vz-lede">Two places a system refuses to trust model output: the gates that check a RAG answer, and
+    the guardrails around generated SQL. Toggle each one off and watch what gets through.
+    <b>Like a kitchen pass: someone looks at every plate before it leaves, and nobody is offended.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Mode">
+    <button id="v5-mA" aria-pressed="true">self-correcting RAG</button>
+    <button id="v5-mB" aria-pressed="false">text-to-SQL</button>
+  </div>
+
+  <div id="v5-gates">
+    <div class="v5-chips">
+      <button class="v5-c" id="v5-g0" aria-pressed="true">grade retrieval</button>
+      <button class="v5-c" id="v5-g1" aria-pressed="true">check grounding</button>
+      <button class="v5-c" id="v5-g2" aria-pressed="true">check relevance</button>
+    </div>
+    <div class="vz-card">
+      <div class="v5-cost" id="v5-gcost"></div>
+      <div class="v5-list" id="v5-glist"></div>
+      <div class="v5-why" id="v5-gwhy"></div>
+    </div>
+  </div>
+
+  <div id="v5-sqlbody">
+    <div class="v5-chips">
+      <button class="v5-c" id="v5-s0" aria-pressed="true">schema linking</button>
+      <button class="v5-c" id="v5-s1" aria-pressed="true">few-shot exemplars</button>
+      <button class="v5-c" id="v5-s2" aria-pressed="true">value grounding</button>
+      <button class="v5-c" id="v5-s3" aria-pressed="true">guardrails</button>
+    </div>
+    <div class="vz-card">
+      <div class="vz-mono v5-sql" id="v5-sql"></div>
+      <div class="v5-list" id="v5-slist"></div>
+      <div class="v5-why" id="v5-swhy"></div>
+    </div>
+  </div>
+
+  <p class="vz-note">The common rule: <b>a check is a model judgment, so it needs a budget</b>, and generated
+    SQL is never executed raw. Allow one or two re-retrievals, then answer with explicit caveats or abstain —
+    for a support product, <code>I could not verify this from our documentation</code> beats a fabricated
+    policy detail every time. And log which corrective path fired per request: the distribution of those flags
+    is the health metric of the retrieval layer underneath.</p>
+
+  <style>
+    .v5-chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+    .v5-c{flex:1 1 130px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 8px}
+    .v5-c[aria-pressed="true"]{border-color:var(--viz-green);color:var(--viz-green)}
+    .v5-c[aria-pressed="true"]::before{content:"on · "}
+    .v5-c[aria-pressed="false"]::before{content:"off · "}
+    .v5-cost{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+    .v5-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-sql{border:1.5px solid var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg);
+      margin-bottom:11px;overflow-x:auto}
+    .v5-list{display:flex;flex-direction:column;gap:5px}
+    .v5-i{border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 9px;font-size:11.5px;line-height:1.45;
+      background:var(--viz-bg)}
+    .v5-i b{font-family:ui-monospace,Consolas,monospace;font-size:10px;letter-spacing:.04em;margin-right:6px}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var mode = 0;
+    var mA = document.getElementById('v5-mA'), mB = document.getElementById('v5-mB');
+    var gatesBox = document.getElementById('v5-gates'), sqlBox = document.getElementById('v5-sqlbody');
+    var g = [document.getElementById('v5-g0'), document.getElementById('v5-g1'), document.getElementById('v5-g2')];
+    var s = [document.getElementById('v5-s0'), document.getElementById('v5-s1'),
+             document.getElementById('v5-s2'), document.getElementById('v5-s3')];
+    var gOn = [true, true, true], sOn = [true, true, true, true];
+    var gcost = document.getElementById('v5-gcost'), glist = document.getElementById('v5-glist'),
+        gwhy = document.getElementById('v5-gwhy');
+    var sql = document.getElementById('v5-sql'), slist = document.getElementById('v5-slist'),
+        swhy = document.getElementById('v5-swhy');
+
+    function item(tag, colour, text){
+      return '<div class="v5-i" style="border-color:' + colour + '"><b style="color:' + colour + '">' + tag + '</b>' + text + '</div>';
+    }
+    function pill(t, c){ return '<span class="v5-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    var GATES = [
+      { name:'Retrieval grading',
+        caught:'A model or small classifier judges whether the retrieved documents are relevant and sufficient. On a failing grade the system rewrites the query and retrieves again — the corrective pattern known from CRAG-style systems.',
+        missed:'Weak retrieval goes straight to generation, and the model answers fluently from documents that never contained the answer.' },
+      { name:'Generation reflection (grounding)',
+        caught:'After drafting, every claim is checked against the retrieved context; unsupported sentences are flagged and the answer is regenerated or abstained on.',
+        missed:'Unsupported claims ship as fact. This is the failure that makes single-pass RAG dangerous rather than merely wrong: it is confident, fluent, and silent.' },
+      { name:'Relevance check',
+        caught:'A final check asks whether the draft addresses the question at all — a grounded answer to a different question is still a failure.',
+        missed:'A well-cited answer to something the user did not ask sails through, because grounding alone cannot notice it.' }
+    ];
+
+    function renderGates(){
+      g.forEach(function(b, i){ b.setAttribute('aria-pressed', gOn[i] ? 'true' : 'false'); });
+      var n = gOn.filter(Boolean).length;
+      var mult = 1 + n;   // each check is one more model call on top of the single pass
+      gcost.innerHTML =
+        pill(n + ' of 3 gates on', n ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill('≈' + mult + '× single-pass cost', mult >= 3 ? 'var(--viz-red)' : 'var(--viz-amber)') +
+        pill('fall-through: 1–2 re-retrievals', 'var(--viz-violet)');
+      glist.innerHTML = GATES.map(function(gate, i){
+        return gOn[i]
+          ? item('CAUGHT', 'var(--viz-green)', '<b style="color:var(--viz-ink)">' + gate.name + '</b> ' + gate.caught)
+          : item('THROUGH', 'var(--viz-red)', '<b style="color:var(--viz-ink)">' + gate.name + ' off</b> ' + gate.missed);
+      }).join('');
+      gwhy.innerHTML = n === 0
+        ? '<b style="color:var(--viz-red)">This is single-pass RAG, and it fails silently.</b>' +
+          'Weak retrieval produces a confident, fluent, wrong answer that is indistinguishable from a correct one without opening the sources. Nothing in the response says so, which is precisely why the gates exist.'
+        : '<b>Gates with budgets, not loops without end.</b>' +
+          'Each check is a model call, so a fully checked pipeline runs <b>two to four times</b> the latency and token cost of single-pass RAG — here about ' + mult + '×. Apply them selectively: skip reflection when retrieval scores are strong and the question is simple, and reserve the full loop for low-confidence or high-stakes traffic. ' +
+          '<br><br>And keep the checks honest about themselves: they are model judgments and go wrong in <em>both</em> directions, approving bad evidence and rejecting good. That is why every gate has a fall-through — one or two re-retrieval attempts at most, then caveats or abstention. <b>Abstention is a legitimate output.</b>';
+    }
+
+    function renderSql(){
+      s.forEach(function(b, i){ b.setAttribute('aria-pressed', sOn[i] ? 'true' : 'false'); });
+      var lines = ['-- question: What was churn in Q3 by plan?'];
+      var issues = [];
+
+      if (sOn[0]) {
+        lines.push('-- schema subset retrieved: fct_subscription_quarter(plan_id, quarter, churned)');
+        lines.push('--                          dim_plan(plan_id, plan_name)');
+      } else {
+        issues.push(['SCHEMA', 'var(--viz-red)', '<b style="color:var(--viz-ink)">No schema linking.</b> The prompt got no relevant schema subset, so the model invented <code>subscriptions.churn_pct</code> — a hallucinated table and column. For a large warehouse you retrieve the relevant schema first; dumping thousands of columns is not an option.']);
+      }
+      lines.push('SELECT p.plan_name,');
+      lines.push(sOn[0] ? '       AVG(s.churned) AS churn' : '       AVG(s.churn_pct) AS churn   -- hallucinated column');
+      lines.push(sOn[1] ? 'FROM   fct_subscription_quarter s' : 'FROM   subscription_events s   -- row-level: wrong grain');
+      lines.push('JOIN   dim_plan p USING (plan_id)');
+      lines.push(sOn[2] ? "WHERE  s.quarter = '2026Q3'" : "WHERE  s.quarter = '2026Q3' AND p.plan_name = 'Team plan'");
+      lines.push('GROUP  BY 1');
+      if (sOn[3]) lines.push('LIMIT  1000');
+
+      if (!sOn[1]) issues.push(['GRAIN', 'var(--viz-red)', '<b style="color:var(--viz-ink)">No few-shot exemplars.</b> A handful of question-to-SQL pairs in the house style outperforms zero-shot by a wide margin — including which table answers a metric. Here the join lands on a row-level events table, so <b>fanout duplicates</b> inflate the average: the exact grain hazard from DE 102.']);
+      if (!sOn[2]) issues.push(['VALUES', 'var(--viz-amber)', '<b style="color:var(--viz-ink)">No value grounding.</b> The filter <code>Team plan</code> was written as the user said it; the dimension actually stores <code>team_monthly</code>. Zero rows come back — and an empty result is misread as <code>zero churn</code> instead of <code>wrong query</code>. Fix with a lookup query or a curated list of dimension values in the prompt.']);
+      if (!sOn[3]) issues.push(['EXECUTION', 'var(--viz-red)', '<b style="color:var(--viz-ink)">No guardrails.</b> Model output is being executed raw: no read-only role, no allow-listed tables, no row limit or timeout, no estimate of bytes scanned, and no parse rejecting anything that is not a single SELECT.']);
+      if (!issues.length) issues.push(['CLEAN', 'var(--viz-green)', '<b style="color:var(--viz-ink)">Schema linked, exemplars supplied, values grounded, executed read-only.</b> The rows come back and become context for the answer — and the SQL and the rows stay in the request trace, because they are the audit artifact that makes the answer defensible.']);
+
+      sql.textContent = lines.join('\n');
+      slist.innerHTML = issues.map(function(x){ return item(x[0], x[1], x[2]); }).join('');
+      swhy.innerHTML = '<b>Some questions are not document questions.</b>' +
+        '<code>What was churn in Q3 by plan?</code> is answered by rows in the warehouse, not by any chunk in the index, so the database becomes another retrieval tool: the model generates SQL from the question plus schema context, the system executes it read-only, and the returned rows become context. ' +
+        '<br><br><b>Quality is bounded by schema documentation, not model cleverness.</b> Column descriptions and metric definitions — in effect a semantic layer — do more for accuracy than a better model, and for governed business metrics curated semantic-layer queries beat free-form generation outright. Ambiguous questions deserve a clarification loop rather than a guess.';
+    }
+
+    function render(){
+      mA.setAttribute('aria-pressed', mode === 0 ? 'true' : 'false');
+      mB.setAttribute('aria-pressed', mode === 1 ? 'true' : 'false');
+      gatesBox.style.display = mode === 0 ? 'block' : 'none';
+      sqlBox.style.display = mode === 1 ? 'block' : 'none';
+      renderGates();
+      renderSql();
+    }
+    mA.addEventListener('click', function(){ mode = 0; render(); });
+    mB.addEventListener('click', function(){ mode = 1; render(); });
+    g.forEach(function(b, i){ b.addEventListener('click', function(){ gOn[i] = !gOn[i]; render(); }); });
+    s.forEach(function(b, i){ b.addEventListener('click', function(){ sOn[i] = !sOn[i]; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

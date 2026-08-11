@@ -1,0 +1,705 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, range inputs. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 8px;
+  display:flex;align-items:center;justify-content:center;gap:6px;line-height:1.3;text-align:center}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-range{width:100%;min-height:44px;accent-color:var(--viz-accent)}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b.hd{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Heap To Disk</button>
+  <button class="viz-tab" data-viz-tab="2">2. Runs And Merge Levels</button>
+  <button class="viz-tab" data-viz-tab="3">3. Stepping The Merge</button>
+  <button class="viz-tab" data-viz-tab="4">4. Tuples Become Postings</button>
+  <button class="viz-tab" data-viz-tab="5">5. Sizing A Safe Run</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Heap To Disk</h2>
+  <p class="vz-lede">Everything in this lesson is four things you already have, bolted together. Drag the
+    dataset past the memory budget and watch the familiar in-memory sort break into <b>runs</b> — then tap
+    each row to see which earlier idea takes over. <b>Like tidying a library: one trolley of books you can
+    alphabetise on the table, a whole floor you must do shelf by shelf and then walk the shelves together.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-n">Dataset to sort: <b id="v1-nl">1024 GB</b>
+      &nbsp;·&nbsp; usable sort memory M = 8 GB</label>
+    <input type="range" class="vz-range" id="v1-n" min="0" max="10" value="10" step="1"
+      aria-label="Dataset size in gigabytes">
+    <div class="v1-fit" id="v1-fit"></div>
+    <div class="v1-strip" id="v1-strip"></div>
+  </div>
+
+  <div class="v1-rows" id="v1-rows"></div>
+  <div class="vz-card"><div class="vz-why" id="v1-why"></div></div>
+
+  <p class="vz-note">The one genuinely new idea is that <b>order survives a write</b>. A sorted run on disk
+    keeps its guarantee for free, so the expensive comparison work is done once, in memory, at a size you
+    chose — and every later pass is a cursor walk over sequential bytes. Nothing here ever seeks backwards.</p>
+
+  <style>
+    .v1-fit{margin-top:10px;font-size:12.5px;font-weight:700;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .v1-strip{margin-top:11px;display:flex;gap:2px;flex-wrap:wrap;min-height:24px;align-items:center}
+    .v1-run{height:20px;width:9px;border-radius:2px;background:var(--viz-accent);opacity:.85}
+    .v1-more{font-size:11px;color:var(--viz-muted);margin-left:5px}
+    .v1-rows{display:flex;flex-direction:column;gap:6px;margin:12px 0}
+    .v1-r{min-height:44px;text-align:left;width:100%;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v1-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-mk{flex:0 0 auto;font-weight:800;color:var(--viz-muted);width:14px}
+    .v1-r[aria-pressed="true"] .v1-mk{color:var(--viz-accent)}
+    .v1-num{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-accent);
+      flex:0 0 auto;text-align:right}
+  </style>
+  <script>
+  (function(){
+    var SIZES = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];   // GB
+    var M = 8;                                                    // usable sort memory, GB
+    var sl = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var fit = document.getElementById('v1-fit'), strip = document.getElementById('v1-strip');
+    var rows = document.getElementById('v1-rows'), why = document.getElementById('v1-why');
+    var cur = 0;
+
+    function runs(){ var n = SIZES[Number(sl.value)]; return Math.max(1, Math.ceil(n / M)); }
+    function log2(x){ return Math.max(1, Math.ceil(Math.log(Math.max(2, x)) / Math.log(2))); }
+
+    var BRIDGE = [
+      { was: 'Memory Hierarchy: sequential beats random',
+        now: 'every phase is a long sequential read or write',
+        num: function(){ return '0 seeks'; },
+        why: ['Why the algorithm has this shape at all.',
+          'Treating storage as slow random-access memory performs terribly: comparisons trigger scattered page reads and swapping distant records multiplies I/O. External merge sort is designed around the real cost model — it does nearly all storage access sequentially, and pays for that with extra full passes it can count in advance.'] },
+      { was: 'Binary heap: insert and extract-min',
+        now: 'picks the next record among the run heads',
+        num: function(){ var K = runs(); return 'log2 ' + K + ' = ' + log2(K) + ' cmp/record'; },
+        why: ['The same structure, doing a different job.',
+          'Scanning all K run heads for the minimum costs O(K) per emitted record, so O(NK) overall. The heap makes each choice O(log K) while holding one candidate per run, giving <b>O(N log K)</b> time and <b>O(K)</b> heap memory. Visual 3 steps through it.'] },
+      { was: 'Maintaining top-k with a bounded min-heap',
+        now: 'bounded again — but by run count, not by k',
+        num: function(){ return 'heap ≤ ' + runs() + ' entries'; },
+        why: ['Same bound, different meaning — and this is a real distractor.',
+          'In top-k the heap held the <em>answers</em>, capped at k. Here it holds <em>one head per run</em>, capped at K, and every record passes through it exactly once. Memory is O(K) plus one I/O buffer per run and an output buffer — the buffers usually cost far more than the heap.'] },
+      { was: 'Big-O of intersecting two sorted lists',
+        now: 'the merge is that cursor walk, with K cursors',
+        num: function(){ return runs() + ' cursors'; },
+        why: ['Merging is intersection’s sibling, and the invariant is the same one.',
+          'Two sorted lists intersect in one pass because the smaller cursor can always advance safely. Here: each run is sorted, so the smallest un-emitted record globally must be one of the current heads. Emit the smallest head, advance only that run, and the invariant survives — which is the entire correctness proof.'] }
+    ];
+
+    function showRow(i){
+      cur = i;
+      [].slice.call(rows.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      why.innerHTML = '<b class="hd">' + BRIDGE[i].why[0] + '</b>' + BRIDGE[i].why[1];
+    }
+
+    function render(){
+      var n = SIZES[Number(sl.value)], R = runs();
+      nl.textContent = n + ' GB';
+      var fits = n <= M;
+      fit.innerHTML = fits
+        ? '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">FITS — one in-memory sort</span>' +
+          '<span style="color:var(--viz-muted);font-weight:400">no runs, no merge, none of this lesson</span>'
+        : '<span class="vz-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">DOES NOT FIT</span>' +
+          '<span style="color:var(--viz-muted);font-weight:400">ceil(' + n + '/' + M + ') = <b style="color:var(--viz-accent)">' +
+          R + ' sorted runs</b>, read once and written once</span>';
+
+      var shown = Math.min(R, 96);
+      strip.innerHTML = Array.from({ length: shown }, function(){ return '<div class="v1-run"></div>'; }).join('') +
+        (R > shown ? '<span class="v1-more">… ' + (R - shown) + ' more runs</span>' : '') +
+        (fits ? '<span class="v1-more">one block, sorted in place</span>' : '');
+
+      [].slice.call(rows.children).forEach(function(b, j){
+        b.querySelector('.v1-num').textContent = BRIDGE[j].num();
+      });
+    }
+
+    BRIDGE.forEach(function(b, i){
+      var el = document.createElement('button');
+      el.className = 'v1-r';
+      el.setAttribute('aria-pressed', 'false');
+      el.innerHTML = '<span class="v1-mk">' + (i + 1) + '</span>' +
+        '<span><b>' + b.was + '</b><br><span style="color:var(--viz-muted)">→ ' + b.now + '</span></span>' +
+        '<span class="v1-num"></span>';
+      el.addEventListener('click', function(){ showRow(i); });
+      rows.appendChild(el);
+    });
+    sl.addEventListener('input', render);
+    render();
+    showRow(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Runs And Merge Levels</h2>
+  <p class="vz-lede">One terabyte, two dials. Run size decides how many runs you make; fan-in decides how many
+    times you have to read them all again. Every merge level is a full read <em>and</em> a full write of the
+    whole dataset. <b>Like a knockout tournament: more matches per round means fewer rounds, but every round
+    still puts every player back on the pitch.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-m">Sort memory per run M = <b id="v2-ml">8 GB</b></label>
+    <input type="range" class="vz-range" id="v2-m" min="0" max="6" value="3" step="1" aria-label="Sort memory per run">
+    <label class="vz-lab" for="v2-f" style="margin-top:8px">Merge fan-in F = <b id="v2-fl">16</b> runs at a time</label>
+    <input type="range" class="vz-range" id="v2-f" min="0" max="7" value="3" step="1" aria-label="Merge fan-in">
+
+    <div class="vz-seg" style="margin:12px 0 0" role="group" aria-label="Run generation strategy">
+      <button id="v2-chunk" aria-pressed="true"><span>●</span> chunk-sort runs</button>
+      <button id="v2-repl" aria-pressed="false"><span>○</span> replacement selection (~2× M)</button>
+    </div>
+
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="vz-pills" id="v2-pills"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Judgment lives in the buffer number, not in the level count. Large sequential reads and
+    writes amortise object-store requests and saturate disks, so a fan-in that shrinks each buffer to
+    kilobytes can lose to an extra level with generous ones. Runs should also be <b>checksummed,
+    deterministically named, and committed only after a complete write</b> — then a failed job resumes from
+    valid runs instead of re-reading the raw input.</p>
+
+  <style>
+    .v2-bars{margin-top:15px;display:flex;flex-direction:column;gap:9px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v2-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%}
+    .v2-sub{font-size:11px;color:var(--viz-muted);margin-top:4px}
+  </style>
+  <script>
+  (function(){
+    var MEM = [1, 2, 4, 8, 16, 32, 64];          // GB per run
+    var FAN = [2, 4, 8, 16, 32, 64, 128, 256];   // runs merged at a time
+    var N_GB = 1024;                             // 1 TB dataset
+    var repl = false;
+    var sm = document.getElementById('v2-m'), ml = document.getElementById('v2-ml');
+    var sf = document.getElementById('v2-f'), fl = document.getElementById('v2-fl');
+    var bC = document.getElementById('v2-chunk'), bR = document.getElementById('v2-repl');
+    var bars = document.getElementById('v2-bars'), pills = document.getElementById('v2-pills'), why = document.getElementById('v2-why');
+
+    function render(){
+      var M = MEM[Number(sm.value)], F = FAN[Number(sf.value)];
+      ml.textContent = M + ' GB';
+      fl.textContent = F;
+      bC.setAttribute('aria-pressed', repl ? 'false' : 'true');
+      bR.setAttribute('aria-pressed', repl ? 'true' : 'false');
+      bC.firstChild.textContent = repl ? '○' : '●';
+      bR.firstChild.textContent = repl ? '●' : '○';
+
+      var runLen = M * (repl ? 2 : 1);
+      var R = Math.max(1, Math.ceil(N_GB / runLen));
+      var levels = R <= 1 ? 0 : Math.ceil(Math.log(R) / Math.log(F) - 1e-9);
+      var tb = 2 * (1 + levels);                       // TB of I/O, since N = 1 TB
+      var bufMB = Math.max(0.01, (M * 1024) / (F + 1)); // one input buffer per run + an output buffer
+
+      function bar(t, tbv, colour, sub){
+        var pct = Math.max(4, Math.round(tbv / 10 * 100));
+        return '<div class="v2-b"><h6><span>' + t + '</span><b style="color:' + colour + '">' +
+          tbv.toFixed(0) + ' TB</b></h6><div class="v2-track"><i style="width:' + Math.min(100, pct) +
+          '%;background:' + colour + '"></i></div><div class="v2-sub">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('run generation (2N)', 2, 'var(--viz-green)',
+            'Read 1 TB, sort in ' + runLen + ' GB blocks, write ' + R + ' immutable sorted run' + (R === 1 ? '' : 's') + '.') +
+        bar('merging (2N per level)', 2 * levels, levels > 2 ? 'var(--viz-red)' : 'var(--viz-accent)',
+            levels === 0 ? 'Everything fitted in one run — nothing to merge.'
+              : 'ceil(log' + F + ' ' + R + ') = ' + levels + ' level' + (levels === 1 ? '' : 's') + ', each a full read and a full write.') +
+        bar('TOTAL I/O = 2N(1 + levels)', tb, tb <= 4 ? 'var(--viz-green)' : (tb >= 8 ? 'var(--viz-red)' : 'var(--viz-amber)'),
+            '2 × 1 TB + 2 × 1 TB × ' + levels + ' = ' + tb + ' TB moved to sort 1 TB.');
+
+      var tiny = bufMB < 16;
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + R + ' initial runs</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + levels + ' merge level' + (levels === 1 ? '' : 's') + '</span>' +
+        '<span class="vz-pill" style="color:' + (tiny ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' +
+          (tiny ? 'var(--viz-red)' : 'var(--viz-line)') + '">' + (tiny ? 'TINY ' : '') + 'buffer ≈ ' +
+          (bufMB >= 1 ? bufMB.toFixed(0) + ' MB' : (bufMB * 1024).toFixed(0) + ' KB') + ' per stream</span>' +
+        '<span class="vz-pill" style="color:' + (F > 128 ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' +
+          (F > 128 ? 'var(--viz-amber)' : 'var(--viz-line)') + '">' + (F + 1) + ' open streams</span>';
+
+      var head, body;
+      if (M === 8 && F === 16 && !repl) {
+        head = ['var(--viz-accent)', 'The worked case: 128 runs, fan-in 16, about 6 TB.'];
+        body = 'ceil(1024/8) = 128 runs, and ceil(log16 128) = <b>2</b> merge levels. One terabyte is read and ' +
+          'written during run generation, then read and written twice more. Now drag fan-in to 128: one level, ' +
+          'about <b>4 TB</b> — but 129 open streams and buffers a quarter the size.';
+      } else if (tiny) {
+        head = ['var(--viz-red)', 'Fan-in has eaten the buffers.'];
+        body = 'Splitting ' + M + ' GB across ' + (F + 1) + ' streams leaves roughly ' +
+          (bufMB >= 1 ? bufMB.toFixed(0) + ' MB' : (bufMB * 1024).toFixed(0) + ' KB') + ' each. ' +
+          '<b>The largest possible fan-in is not automatically best.</b> Tiny buffers turn a sequential merge into ' +
+          'many small reads alternating between streams — exactly the access pattern the whole design exists to avoid — ' +
+          'and a large F can also exceed file-descriptor limits. An extra level with generous buffers often wins.';
+      } else if (levels === 0) {
+        head = ['var(--viz-green)', 'It all fits in one run — there is no merge phase.'];
+        body = 'With ' + runLen + ' GB of sortable memory the whole terabyte becomes a single sorted run, so total I/O ' +
+          'collapses to 2N. That is the limit case worth holding onto: <b>merging is the price of not fitting</b>, ' +
+          'and every level of it costs the dataset twice over.';
+      } else if (repl) {
+        head = ['var(--viz-violet)', 'Replacement selection: runs about twice as long.'];
+        body = 'Maintain a heap of records; after emitting the minimum, admit the next input record into the current run ' +
+          'if it is at least the last output, otherwise freeze it for the next run. Under random input, runs average ' +
+          '<b>roughly twice</b> the number of records fitting memory — here ' + R + ' runs instead of ' +
+          Math.ceil(N_GB / M) + ' — which can remove a whole merge level. It also complicates the builder and makes ' +
+          'parallel run generation harder, so plain chunk-sort runs are often preferable.';
+      } else {
+        head = ['var(--viz-amber)', levels + ' merge level' + (levels === 1 ? '' : 's') + ' at fan-in ' + F + '.'];
+        body = 'Each level divides the run count by F, so levels = ceil(logF R) — and the cost model is blunt: ' +
+          '<b>every level reads and writes the entire dataset</b>. Halving levels halves the merge bill; ' +
+          'shaving comparisons does not.';
+      }
+      why.innerHTML = '<b class="hd" style="color:' + head[0] + '">' + head[1] + '</b>' + body;
+    }
+    sm.addEventListener('input', render);
+    sf.addEventListener('input', render);
+    bC.addEventListener('click', function(){ repl = false; render(); });
+    bR.addEventListener('click', function(){ repl = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Stepping The Merge</h2>
+  <p class="vz-lede">Three sorted runs, one min-heap, nine emissions. Step it and watch the invariant hold:
+    the smallest record left anywhere in the world is always one of the three heads. <b>Like three queues at
+    passport control where you always wave through whoever holds the lowest number.</b></p>
+
+  <div class="v3-runs" id="v3-runs"></div>
+
+  <div class="vz-card">
+    <div class="v3-heap" id="v3-heap"></div>
+    <div class="v3-out" id="v3-out"></div>
+    <div class="v3-ctl">
+      <button id="v3-back" class="v3-btn">◀ Back</button>
+      <button id="v3-next" class="v3-btn">Emit next ▶</button>
+      <button id="v3-reset" class="v3-btn">Reset</button>
+    </div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <label class="vz-lab" for="v3-k">If instead there were <b id="v3-kl">128</b> runs…</label>
+    <input type="range" class="vz-range" id="v3-k" min="1" max="10" value="7" step="1" aria-label="Number of runs K">
+    <div class="vz-pills" id="v3-cmp"></div>
+  </div>
+
+  <p class="vz-note">The heap does not dominate physical cost in every regime. At K = 128, log2 K = 7
+    comparisons per record is modest next to reading and decoding it — but at extremely large K, comparisons,
+    tiny per-run buffers and random alternation among streams all bite at once. That is the real argument for
+    multi-level merging: trade one more full pass for buffering you can live with.</p>
+
+  <style>
+    .v3-runs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-r{display:flex;align-items:center;gap:7px;font-family:ui-monospace,Consolas,monospace;font-size:12px;
+      border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 10px;background:var(--viz-surface);flex-wrap:wrap}
+    .v3-nm{flex:0 0 auto;font-weight:800;color:var(--viz-muted);width:22px}
+    .v3-v{min-width:30px;text-align:center;border-radius:6px;padding:3px 6px;border:1.5px solid var(--viz-line);
+      color:var(--viz-muted)}
+    .v3-v.is-head{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v3-v.is-done{opacity:.4;text-decoration:line-through}
+    .v3-heap{font-family:ui-monospace,Consolas,monospace;font-size:12px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+    .v3-hl{font-family:inherit;font-size:11px;font-weight:800;color:var(--viz-muted);letter-spacing:.04em}
+    .v3-he{border:1.5px solid var(--viz-violet);color:var(--viz-violet);border-radius:6px;padding:3px 7px;font-weight:700}
+    .v3-out{margin-top:11px;font-family:ui-monospace,Consolas,monospace;font-size:12px;display:flex;gap:5px;
+      flex-wrap:wrap;align-items:center;min-height:26px}
+    .v3-oe{border:1.5px solid var(--viz-green);color:var(--viz-green);border-radius:6px;padding:3px 7px;font-weight:700}
+    .v3-ctl{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-btn{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v3-btn:disabled{opacity:.4}
+  </style>
+  <script>
+  (function(){
+    var NAMES = ['A', 'B', 'C'];
+    var RUNS = { A: [2, 8, 20], B: [1, 8, 9], C: [3, 7, 30] };
+
+    // Replay the whole merge once; every state is derivable from "records emitted per run".
+    var STATES = [];
+    (function build(){
+      var em = { A: 0, B: 0, C: 0 }, out = [];
+      STATES.push({ em: { A: 0, B: 0, C: 0 }, out: [], note: 0 });
+      for (var step = 0; step < 9; step++) {
+        var best = null;
+        NAMES.forEach(function(r){
+          if (em[r] >= RUNS[r].length) return;
+          var k = RUNS[r][em[r]];
+          if (!best || k < best.k) best = { k: k, r: r };   // ties break by run_id, A before B before C
+        });
+        if (!best) break;
+        out = out.concat([{ k: best.k, r: best.r }]);
+        em[best.r] += 1;
+        STATES.push({ em: { A: em.A, B: em.B, C: em.C }, out: out.slice(), note: step + 1 });
+      }
+    })();
+
+    var NOTES = [
+      ['var(--viz-accent)', 'Seed the heap with one head per run.',
+        'Each entry is <code>(key, run_id, record)</code> — the record rides along, and the run_id is what tells you which stream to read from next. Heapify costs O(K); heap size never exceeds K = 3.'],
+      ['var(--viz-green)', 'Emit 1 from B, then pull B’s next.',
+        'Extract-min gives the smallest of {2, 1, 3}. Because every run is sorted, no unseen record anywhere can beat a head — that is the invariant, and it is the whole correctness argument. B advances by one; A and C do not move.'],
+      ['var(--viz-green)', 'Emit 2 from A.',
+        'B’s head is now 8, so the heap holds {2, 8, 3} and 2 wins. Note that each record is extracted exactly once and, except for a run’s last record, causes exactly one insertion — which is where O(N log K) comes from.'],
+      ['var(--viz-green)', 'Emit 3 from C, then C’s head becomes 7.',
+        'The output so far is 1, 2, 3 and only three heads have ever been compared. Memory is O(K) for the heap plus one I/O buffer per run and an output buffer.'],
+      ['var(--viz-green)', 'Emit 7 from C.',
+        'Heads are {8 from A, 8 from B, 7 from C}. Seven wins outright; the interesting comparison arrives next.'],
+      ['var(--viz-violet)', 'A tie: 8 from A and 8 from B.',
+        'Equal keys require deterministic ordering, so <code>run_id</code> (or a stable secondary key) goes into the comparison — otherwise some priority-queue implementations treat equal items inconsistently and the output order wobbles between runs of the same job. Here A precedes B, so A’s 8 goes first.'],
+      ['var(--viz-violet)', 'And now B’s 8.',
+        'For index construction this is not cosmetic. Sort by <code>(term, doc_id, position)</code>, not merely term: that makes postings for a term consecutive, document IDs ordered, positions ordered inside a document — and duplicate tuples adjacent, so they can be detected without a lookup. Visual 4 is that idea end to end.'],
+      ['var(--viz-green)', 'Emit 9 from B — B is now exhausted.',
+        'When a run runs dry you simply do not insert a replacement. The heap shrinks, and the merge keeps going with fewer cursors.'],
+      ['var(--viz-green)', 'Emit 20 from A.',
+        'Two heads left. Every record has passed through the heap exactly once, and no run was ever read out of order.'],
+      ['var(--viz-green)', 'Emit 30 — the heap is empty and the merge is done.',
+        'Nine records out in nondecreasing order: 1, 2, 3, 7, 8, 8, 9, 20, 30. The output is one long sequential write, and it is already in the order the next stage wants — which is why the merged result of an index build can be handed straight to the postings writer.']
+    ];
+
+    var i = 0;
+    var runsEl = document.getElementById('v3-runs'), heapEl = document.getElementById('v3-heap');
+    var outEl = document.getElementById('v3-out'), why = document.getElementById('v3-why');
+    var bB = document.getElementById('v3-back'), bN = document.getElementById('v3-next'), bR = document.getElementById('v3-reset');
+
+    function render(){
+      var st = STATES[i];
+      runsEl.innerHTML = NAMES.map(function(r){
+        var cells = RUNS[r].map(function(v, j){
+          var cls = j < st.em[r] ? 'is-done' : (j === st.em[r] ? 'is-head' : '');
+          return '<span class="v3-v ' + cls + '">' + v + '</span>';
+        }).join('');
+        var tag = st.em[r] >= RUNS[r].length ? 'exhausted' : 'head';
+        return '<div class="v3-r"><span class="v3-nm">' + r + '</span>' + cells +
+          '<span style="margin-left:auto;font-size:10.5px;color:var(--viz-muted);font-family:inherit">' + tag + '</span></div>';
+      }).join('');
+
+      var heads = NAMES.filter(function(r){ return st.em[r] < RUNS[r].length; })
+        .map(function(r){ return '<span class="v3-he">' + RUNS[r][st.em[r]] + ' · ' + r + '</span>'; });
+      heapEl.innerHTML = '<span class="v3-hl">HEAP (' + heads.length + '/3)</span>' +
+        (heads.length ? heads.join('') : '<span style="color:var(--viz-muted)">empty — merge complete</span>');
+
+      outEl.innerHTML = '<span class="v3-hl">OUTPUT</span>' +
+        (st.out.length ? st.out.map(function(o){ return '<span class="v3-oe">' + o.k + '</span>'; }).join('')
+                       : '<span style="color:var(--viz-muted)">nothing written yet</span>');
+
+      var n = NOTES[Math.min(i, NOTES.length - 1)];
+      why.innerHTML = '<b class="hd" style="color:' + n[0] + '">' + n[1] + '</b>' + n[2];
+      bB.disabled = i === 0;
+      bN.disabled = i >= STATES.length - 1;
+    }
+    bN.addEventListener('click', function(){ if (i < STATES.length - 1) { i += 1; render(); } });
+    bB.addEventListener('click', function(){ if (i > 0) { i -= 1; render(); } });
+    bR.addEventListener('click', function(){ i = 0; render(); });
+
+    var KS = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024];
+    var ks = document.getElementById('v3-k'), kl = document.getElementById('v3-kl'), kc = document.getElementById('v3-cmp');
+    function renderK(){
+      var K = KS[Number(ks.value) - 1];
+      kl.textContent = K;
+      var lg = Math.ceil(Math.log(K) / Math.log(2));
+      var ratio = lg > 0 ? Math.round(K / lg * 10) / 10 : 1;
+      kc.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">rescan heads: ' + K + ' cmp/record → O(NK)</span>' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">min-heap: ' + lg + ' cmp/record → O(N log K)</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + ratio + '× fewer comparisons</span>';
+    }
+    ks.addEventListener('input', renderK);
+    render();
+    renderK();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Tuples Become Postings</h2>
+  <p class="vz-lede">Three tiny documents, six occurrence tuples. Switch the sort key and watch the inverted
+    index appear — or fail to. The transformation an index builder needs <em>is</em> a sort, and the sort key
+    is not "term". <b>Like a class photo list: sorted by who walked in you can count nobody; sorted by
+    surname then first name, every family is together and in order.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Sort key">
+    <button id="v4-doc" aria-pressed="true"><span>●</span> document order</button>
+    <button id="v4-term" aria-pressed="false"><span>○</span> by term only</button>
+    <button id="v4-full" aria-pressed="false"><span>○</span> by (term, doc_id, position)</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v4-src" style="margin-bottom:11px"></div>
+  <div class="v4-tuples" id="v4-tuples"></div>
+
+  <div class="vz-card">
+    <div class="v4-post" id="v4-post"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">The alternative is a giant in-memory map from term to a growing postings list — fine
+    until vocabulary, buffers and object overhead outgrow RAM, at which point spilling individual lists makes
+    an enormous number of small random writes and a nasty consistency problem. <b>Blocked index construction
+    is just this recipe at scale</b>: parse a memory-sized block, accumulate tuples, sort, write a run, repeat,
+    merge by term and document ID — and the final merge can write dictionary and postings at once, because
+    term boundaries arrive in order.</p>
+
+  <style>
+    .v4-tuples{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+    .v4-t{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;border:1.5px solid var(--viz-line);
+      border-radius:8px;padding:6px 8px;background:var(--viz-surface)}
+    .v4-t.is-grouped{border-color:var(--viz-green)}
+    .v4-t.is-split{border-color:var(--viz-amber);border-style:dashed}
+    .v4-post{display:flex;flex-direction:column;gap:6px}
+    .v4-p{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;flex-wrap:wrap}
+    .v4-p.is-bad{border-color:var(--viz-red)}
+    .v4-p.is-ok{border-color:var(--viz-green)}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var T = [
+      { t:'blue', d:1, p:1 }, { t:'vector', d:1, p:2 }, { t:'blue', d:2, p:1 },
+      { t:'index', d:2, p:2 }, { t:'vector', d:3, p:1 }, { t:'index', d:3, p:2 }
+    ];
+    var ORDERS = {
+      doc:  [0, 1, 2, 3, 4, 5],
+      term: [2, 0, 5, 3, 4, 1],   // grouped by term, but ARBITRARY inside it — a non-total comparator
+      full: [0, 2, 3, 5, 1, 4]    // (term, doc_id, position)
+    };
+    var mode = 'doc';
+    var bD = document.getElementById('v4-doc'), bT = document.getElementById('v4-term'), bF = document.getElementById('v4-full');
+    var srcEl = document.getElementById('v4-src'), tupEl = document.getElementById('v4-tuples');
+    var postEl = document.getElementById('v4-post'), why = document.getElementById('v4-why');
+
+    srcEl.innerHTML = [
+      'doc 1:  blue vector',
+      'doc 2:  blue index',
+      'doc 3:  vector index',
+      '',
+      'tokenizing doc 42 would emit (vector,42,5) (index,42,6) (vector,42,19)',
+      'the stream is ordered by DOCUMENT processing, never by term'
+    ].join('\n');
+
+    function groups(order){
+      var out = [], cur = null;
+      order.forEach(function(idx){
+        var r = T[idx];
+        if (!cur || cur.term !== r.t) { cur = { term: r.t, docs: [], pos: [] }; out.push(cur); }
+        cur.docs.push(r.d); cur.pos.push(r.p);
+      });
+      return out;
+    }
+
+    function render(){
+      bD.setAttribute('aria-pressed', mode === 'doc' ? 'true' : 'false');
+      bT.setAttribute('aria-pressed', mode === 'term' ? 'true' : 'false');
+      bF.setAttribute('aria-pressed', mode === 'full' ? 'true' : 'false');
+      [[bD, 'doc'], [bT, 'term'], [bF, 'full']].forEach(function(pair){
+        pair[0].firstChild.textContent = mode === pair[1] ? '●' : '○';
+      });
+
+      var order = ORDERS[mode], g = groups(order);
+      var fragCount = {};
+      g.forEach(function(x){ fragCount[x.term] = (fragCount[x.term] || 0) + 1; });
+
+      tupEl.innerHTML = order.map(function(idx){
+        var r = T[idx];
+        var cls = fragCount[r.t] > 1 ? 'is-split' : 'is-grouped';
+        return '<span class="v4-t ' + cls + '">(' + r.t + ',' + r.d + ',' + r.p + ')</span>';
+      }).join('');
+
+      var anyBad = false;
+      postEl.innerHTML = g.map(function(x){
+        var gaps = x.docs.map(function(d, j){ return j === 0 ? d : d - x.docs[j - 1]; });
+        var neg = gaps.some(function(v){ return v <= 0; });
+        var frag = fragCount[x.term] > 1;
+        if (neg || frag) anyBad = true;
+        var cls = (neg || frag) ? 'is-bad' : 'is-ok';
+        var tag = frag ? 'FRAGMENT — term not contiguous' : (neg ? 'BROKEN — gap ≤ 0' : 'ready to gap-encode');
+        var col = (neg || frag) ? 'var(--viz-red)' : 'var(--viz-green)';
+        return '<div class="v4-p ' + cls + '"><span><b>' + x.term + '</b> → [' + x.docs.join(', ') + ']</span>' +
+          '<span style="color:var(--viz-muted)">positions [' + x.pos.join(', ') + ']</span>' +
+          '<span style="color:var(--viz-muted)">gaps [' + gaps.join(', ') + ']</span>' +
+          '<span class="v4-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('') +
+        '<div style="margin-top:9px;font-size:11.5px;color:var(--viz-muted)">' + g.length +
+        ' postings run' + (g.length === 1 ? '' : 's') + ' produced for 3 distinct terms' +
+        (anyBad ? ' — this pass cannot write the index.' : ' — one sequential pass writes the whole index.') + '</div>';
+
+      var head, body;
+      if (mode === 'doc') {
+        head = ['var(--viz-amber)', 'Document order: the occurrences of a term are not adjacent.'];
+        body = 'Tokenization emits <code>(blue,1,1) (vector,1,2) (blue,2,1) (index,2,2) (vector,3,1) (index,3,2)</code>. ' +
+          'A single pass over this stream produces <b>6 fragments for 3 terms</b>, because it meets each term again ' +
+          'after it has already moved on. To finish a postings list you would have to go back — corpus-wide random ' +
+          'insertion, which is precisely what does not scale.';
+      } else if (mode === 'term') {
+        head = ['var(--viz-red)', 'By term only: grouped, but the inside of each list is arbitrary.'];
+        body = 'Terms are contiguous now, so grouping works. But the comparator is not <b>total</b>: two tuples with ' +
+          'the same term compare equal, so document IDs can arrive in any order. Look at the gaps — a value of zero or ' +
+          'below is not encodable as a gap, positions inside a document are unordered, and duplicate tuples are no ' +
+          'longer adjacent, so they cannot be detected in one pass. This is the same lesson as the heap tie-break in ' +
+          'visual 3, one level up.';
+      } else {
+        head = ['var(--viz-green)', 'By (term, doc_id, position): the index falls out of one pass.'];
+        body = 'Sorted, the stream is <code>(blue,1,1) (blue,2,1) (index,2,2) (index,3,2) (vector,1,2) (vector,3,1)</code>, ' +
+          'and one sequential walk writes <b>blue:[1,2], index:[2,3], vector:[1,3]</b> with positions attached. ' +
+          'The sort is also what creates the compression: increasing document IDs become small gaps, so do positions ' +
+          'within a document, and the term key need not be repeated on every occurrence once grouped. ' +
+          '<br><br><b>The transferable insight:</b> grouping at scale is sorting in disguise — SQL <code>GROUP BY</code>, ' +
+          'distributed shuffle and LSM compaction all route equal keys together and then reduce them. For a live index, ' +
+          'you never re-sort the corpus: new data becomes small immutable sorted segments, queries run across them, and ' +
+          'background merges compact them, trading write amplification for a bounded segment count. Deletions wait in ' +
+          'tombstone bitsets until a merge removes them physically.';
+      }
+      why.innerHTML = '<b class="hd" style="color:' + head[0] + '">' + head[1] + '</b>' + body;
+    }
+    bD.addEventListener('click', function(){ mode = 'doc'; render(); });
+    bT.addEventListener('click', function(){ mode = 'term'; render(); });
+    bF.addEventListener('click', function(){ mode = 'full'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Sizing A Safe Run</h2>
+  <p class="vz-lede">An 8 GB worker does not give you an 8 GB run. Set the budget you declare, then set how
+    much the things you forgot actually multiply it by — and watch where the failure lands. <b>Like packing a
+    suitcase to the airline's exact weight limit and then remembering the suitcase itself weighs something.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-b">Declared sort budget: <b id="v5-bl">8 GB</b> of record payload
+      &nbsp;·&nbsp; worker has 8 GB</label>
+    <input type="range" class="vz-range" id="v5-b" min="1" max="12" value="8" step="1" aria-label="Declared sort budget in gigabytes">
+    <label class="vz-lab" for="v5-f" style="margin-top:8px">What you forgot multiplies it by <b id="v5-fl">×1.0</b></label>
+    <input type="range" class="vz-range" id="v5-f" min="10" max="25" value="10" step="1" aria-label="Overhead multiplier">
+    <div class="v5-bar" id="v5-bar"></div>
+    <div class="vz-pills" id="v5-pills"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <div class="v5-list" id="v5-list"></div>
+
+  <p class="vz-note">Production builders set a conservative <b>explicit</b> budget, spill before reaching it,
+    and measure peak resident memory against realistic skew rather than against average records. The instinct
+    to squeeze one more gigabyte into a run is exactly backwards: the merge bill grows with the
+    <em>logarithm</em> of the run count, and the crash bill grows with the number of retries.</p>
+
+  <style>
+    .v5-bar{margin-top:15px;height:26px;border-radius:7px;background:var(--viz-line);position:relative;overflow:hidden}
+    .v5-bar i{position:absolute;top:0;bottom:0;left:0}
+    .v5-bar span{position:absolute;top:0;bottom:0;border-left:2px dashed var(--viz-ink);opacity:.55}
+    .v5-cap{font-size:11px;color:var(--viz-muted);margin-top:5px;display:flex;justify-content:space-between}
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+    .v5-i{display:flex;gap:9px;align-items:flex-start;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px 11px;background:var(--viz-surface);font-size:12.5px;line-height:1.4}
+    .v5-i b{flex:0 0 auto;color:var(--viz-violet);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+  </style>
+  <script>
+  (function(){
+    var WORKER = 8;   // GB of RAM on the worker
+    var N_GB = 1024;  // the same 1 TB dataset as visual 2
+    var F = 16;       // the worked fan-in
+    var sb = document.getElementById('v5-b'), bl = document.getElementById('v5-bl');
+    var sf = document.getElementById('v5-f'), fl = document.getElementById('v5-fl');
+    var bar = document.getElementById('v5-bar'), pills = document.getElementById('v5-pills');
+    var why = document.getElementById('v5-why'), list = document.getElementById('v5-list');
+
+    var ITEMS = [
+      ['pointers', 'Sort implementations need pointer arrays and temporary merge buffers — neither is record payload.'],
+      ['offsets', 'Variable-length strings carry offsets alongside their bytes.'],
+      ['decode', 'The runtime and the decoder need working space of their own, which peaks mid-sort.'],
+      ['shared', 'The budget must leave headroom for OS caching, monitoring agents and concurrent readers on the same worker.'],
+      ['skew', 'Averages lie: peak resident memory has to be measured against realistic skew, not the mean record.']
+    ];
+    list.innerHTML = ITEMS.map(function(it){
+      return '<div class="v5-i"><b>' + it[0] + '</b><span>' + it[1] + '</span></div>';
+    }).join('');
+
+    function render(){
+      var budget = Number(sb.value);                  // GB declared
+      var factor = Number(sf.value) / 10;             // 1.0 … 2.5
+      bl.textContent = budget + ' GB';
+      fl.textContent = '×' + factor.toFixed(1);
+
+      var peak = budget * factor;
+      var oom = peak > WORKER;
+      var scale = Math.max(WORKER, peak) * 1.05;
+      var pct = Math.max(2, Math.min(100, peak / scale * 100));
+      var cap = WORKER / scale * 100;
+      var col = oom ? 'var(--viz-red)' : (peak > WORKER * 0.85 ? 'var(--viz-amber)' : 'var(--viz-green)');
+      bar.innerHTML = '<i style="width:' + pct + '%;background:' + col + ';opacity:.85"></i>' +
+        '<span style="left:' + cap + '%"></span>';
+
+      var R = Math.max(1, Math.ceil(N_GB / budget));
+      var levels = R <= 1 ? 0 : Math.ceil(Math.log(R) / Math.log(F) - 1e-9);
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">peak ≈ ' + peak.toFixed(1) +
+          ' GB vs 8 GB worker — ' + (oom ? 'ALLOCATION FAILURE' : 'fits, ' + (WORKER - peak).toFixed(1) + ' GB spare') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + R + ' runs</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + levels +
+          ' merge level' + (levels === 1 ? '' : 's') + ' at fan-in 16 → ' + (2 * (1 + levels)) + ' TB I/O</span>';
+
+      var head, body;
+      if (oom) {
+        head = ['var(--viz-red)', 'The crash arrives DURING the sort, not at startup.'];
+        body = 'You declared ' + budget + ' GB of record payload, but pointer arrays, string offsets, merge buffers ' +
+          'and decoder working space push the real peak to about <b>' + peak.toFixed(1) + ' GB</b> on an 8 GB worker. ' +
+          'Nothing complains while the records are being read; the allocation fails once the sort is under way, so the ' +
+          'job dies having done all the reading and none of the writing — and then does it again on retry. ' +
+          '<br><br>This is why an "8 GB run" sized from raw fields alone is the classic way to lose a night.';
+      } else if (budget <= 2) {
+        head = ['var(--viz-amber)', 'Very safe, and still only ' + levels + ' merge level' + (levels === 1 ? '' : 's') + '.'];
+        body = 'At ' + budget + ' GB per run you make ' + R + ' runs — many more than the worked 128 — yet the merge bill ' +
+          'is ' + (2 * (1 + levels)) + ' TB, because levels grow with <b>log</b> of the run count, not with the count. ' +
+          'That asymmetry is the whole argument: <b>more, smaller valid runs are cheaper than repeatedly crashing while ' +
+          'attempting an oversized one.</b> Go further down and you eventually add a level, so there is a floor — just a ' +
+          'much softer one than intuition suggests.';
+      } else {
+        head = ['var(--viz-green)', 'Fits, with ' + (WORKER - peak).toFixed(1) + ' GB of headroom.'];
+        body = 'A conservative explicit budget that spills <em>before</em> reaching the limit is what production builders ' +
+          'set, and peak resident memory is measured with realistic skew rather than average records. ' +
+          'The knock-on is visible in the pills: ' + R + ' runs, ' + levels + ' merge level' + (levels === 1 ? '' : 's') +
+          ' at fan-in 16, ' + (2 * (1 + levels)) + ' TB of total I/O. ' +
+          '<br><br>Now drag the multiplier right and watch how little it takes to cross the line.';
+      }
+      why.innerHTML = '<b class="hd" style="color:' + head[0] + '">' + head[1] + '</b>' + body +
+        '<div class="v5-cap"><span>0</span><span>dashed mark = the 8 GB the worker actually has</span></div>';
+    }
+    sb.addEventListener('input', render);
+    sf.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

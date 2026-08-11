@@ -1,0 +1,716 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Index To Model</button>
+  <button class="viz-tab" data-viz-tab="2">2. Softmax Over Candidates</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Batch Is The Negatives</button>
+  <button class="viz-tab" data-viz-tab="4">4. Fine-Tune Or Shortlist</button>
+  <button class="viz-tab" data-viz-tab="5">5. Cheaper Vectors</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Index To Model</h2>
+  <p class="vz-lede">Last lesson's dials all lived in the <em>index</em> and took the vectors as given. This
+    lesson's dials live in the <em>model</em>. Switch sides and tap a dial to see who owns it and what it can
+    actually move. <b>Like a library: last lesson tuned how fast you walk the shelves, this one decides what
+    gets shelved next to what.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which side owns the dial">
+    <button id="v1-idx" aria-pressed="true">IR 201/03 — the index</button>
+    <button id="v1-mod" aria-pressed="false">this lesson — the model</button>
+  </div>
+
+  <div class="v1-list" id="v1-list"></div>
+
+  <div class="vz-card">
+    <div class="v1-chips" id="v1-chips"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The connection is one sentence: <b>an embedding index inherits the judgments encoded
+    during training</b> — which pairs count as matches, which nonmatches are confusing, which distinctions the
+    vector must preserve. No value of <code>nprobe</code> or <code>efSearch</code> recovers a distinction the
+    loss never taught, because the index is only ever <em>agreeing with the embedder</em>.</p>
+
+  <style>
+    .v1-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-b{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v1-b[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-tag{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;border:1.5px solid var(--viz-line);
+      border-radius:999px;padding:2px 7px;color:var(--viz-muted)}
+    .v1-chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+    .v1-chip{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{font-size:12.5px;line-height:1.6;padding-top:11px;border-top:1px dashed var(--viz-line)}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var INDEX = [
+      { t:'efSearch: 20 → 80 (HNSW frontier)', tag:'INDEX',
+        chips:[['ANN recall@10 0.91 → 0.975','var(--viz-green)'],['p95 8 ms → 21 ms','var(--viz-amber)'],['bytes/vector unchanged','var(--viz-muted)']],
+        why:['A query-time dial that buys agreement with exact search.',
+          'Widening the frontier visits more of the graph, so the approximate neighbours converge on the exact ones. It costs latency and nothing else. <b>What it cannot do is change which vectors are near each other</b> — it only finds the neighbours the embedder already decided on.'] },
+      { t:'nprobe: 1 → 10 over 1,000 IVF cells', tag:'INDEX',
+        chips:[['~10,000 of 1,000,000 scanned','var(--viz-accent)'],['≈10× the comparisons','var(--viz-amber)'],['bytes/vector unchanged','var(--viz-muted)']],
+        why:['Repairs the boundary miss, at proportional cost.',
+          'A query sitting between two centroids is assigned to one while its true nearest vector lives in the other; probing more cells repairs that. Still a search-side fix: the cells were drawn by k-means over <em>whatever geometry the model produced</em>.'] },
+      { t:'Product quantization: 96 subspaces × 8 bits', tag:'INDEX',
+        chips:[['3,072 → 96 bytes/vector','var(--viz-green)'],['distortion, then rerank','var(--viz-amber)'],['applied AFTER training','var(--viz-muted)']],
+        why:['Compression bolted on after the fact.',
+          'PQ replaces each subvector with its nearest codeword from a learned codebook — a 32-fold cut, paid for with distance error and repaired by reranking survivors on full-precision vectors. <b>The model was never told this would happen.</b> Everything on the other tab is compression the model was trained to survive.'] }
+    ];
+    var MODEL = [
+      { t:'The contrastive objective + negative sampling', tag:'MODEL',
+        chips:[['decides the geometry','var(--viz-violet)'],['no index dial recovers it','var(--viz-red)'],['bytes/vector unchanged','var(--viz-muted)']],
+        why:['This is the one the index cannot argue with.',
+          'Positives teach what should be close, negatives teach which distinctions matter, and the sampling distribution sets the difficulty. If the training never contrasted <code>cancel my subscription</code> against <em>changing a subscription plan</em>, the two sit together in the space and every index in the world will faithfully return both. Visuals 2 and 3 are this dial.'] },
+      { t:'Matryoshka truncation: 768 → 256 dimensions', tag:'MODEL',
+        chips:[['30.72 GB → 10.24 GB / 10M','var(--viz-green)'],['recall 0.88 → measure it','var(--viz-amber)'],['trained to be truncatable','var(--viz-violet)']],
+        why:['Fewer dimensions, on a model built to allow it.',
+          'Matryoshka training applies the objective at several prefix lengths, so the first 384 or 256 coordinates are a usable smaller embedding. An ordinary model offers no such guarantee — its first 256 dimensions are simply 256 arbitrary coordinates. Visual 5 has the numbers.'] },
+      { t:'Scalar / binary quantization: fewer bits per dimension', tag:'MODEL',
+        chips:[['int8 ≈ 4× smaller','var(--viz-green)'],['binary 3,072 → 96 bytes','var(--viz-green)'],['recall 0.88 → 0.877 or 0.79','var(--viz-amber)']],
+        why:['Same dimensions, cheaper coordinates.',
+          'int8 maps each coordinate into 256 bins via a scale and offset; binary keeps only the sign, which makes Hamming distance the whole comparison and throws magnitude away. The first slips recall by 0.003 in the worked case; the second falls to 0.79 and needs the reranker twice as hard. <b>Recall per dollar, not recall.</b>'] }
+    ];
+    var onIndex = true, cur = 0;
+    var bI = document.getElementById('v1-idx'), bM = document.getElementById('v1-mod');
+    var list = document.getElementById('v1-list'), chips = document.getElementById('v1-chips'), why = document.getElementById('v1-why');
+
+    function rows(){ return onIndex ? INDEX : MODEL; }
+    function detail(){
+      var r = rows()[cur] || rows()[0];
+      chips.innerHTML = r.chips.map(function(c){
+        return '<span class="v1-chip" style="color:' + c[1] + ';border-color:' + c[1] + '">' + c[0] + '</span>';
+      }).join('');
+      why.innerHTML = '<b>' + r.why[0] + '</b>' + r.why[1];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+    }
+    function render(){
+      bI.setAttribute('aria-pressed', onIndex ? 'true' : 'false');
+      bM.setAttribute('aria-pressed', onIndex ? 'false' : 'true');
+      list.innerHTML = '';
+      rows().forEach(function(r, i){
+        var b = document.createElement('button');
+        b.className = 'v1-b';
+        b.setAttribute('aria-pressed', 'false');
+        b.innerHTML = '<span class="v1-tag">' + r.tag + '</span><span>' + r.t + '</span>';
+        b.addEventListener('click', function(){ cur = i; detail(); });
+        list.appendChild(b);
+      });
+      detail();
+    }
+    bI.addEventListener('click', function(){ onIndex = true; cur = 0; render(); });
+    bM.addEventListener('click', function(){ onIndex = false; cur = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Softmax Over Candidates</h2>
+  <p class="vz-lede">The contrastive loss is cross-entropy over the candidate documents for one query. Drag
+    the competitor's score and the temperature, and watch the positive's probability, the loss and the
+    gradient move together. <b>Like grading on a curve: what you score matters far less than who else sat the
+    exam.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v2-lab" for="v2-neg">Competing document scores <span id="v2-negl">1.00</span>
+      &nbsp;·&nbsp; positive scores 3.00 &nbsp;·&nbsp; third candidate 0.00</label>
+    <input type="range" id="v2-neg" min="0" max="3" value="1" step="0.05" aria-label="Score of the competing document">
+    <label class="v2-lab" for="v2-temp" style="margin-top:12px">Temperature <span id="v2-templ">1.00</span></label>
+    <input type="range" id="v2-temp" min="0.05" max="1" value="1" step="0.05" aria-label="Softmax temperature">
+    <div class="v2-bars" id="v2-bars"></div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-out" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The loss does <b>not</b> make scores calibrated probabilities of relevance. A dot product
+    of 0.72 from one model is not comparable with 0.72 from another, and one model's distribution shifts by
+    query segment. Candidate generation ranks <em>within</em> a query, which hides this — until someone
+    hard-codes an absolute threshold, which must be calibrated on held-out data <b>including queries with no
+    relevant document at all</b>.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-bars{margin-top:15px;display:flex;flex-direction:column;gap:9px}
+    .v2-r h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-r h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v2-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%}
+    .v2-out{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{font-size:12.5px;line-height:1.6;padding-top:11px;border-top:1px dashed var(--viz-line)}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var sN = document.getElementById('v2-neg'), lN = document.getElementById('v2-negl');
+    var sT = document.getElementById('v2-temp'), lT = document.getElementById('v2-templ');
+    var bars = document.getElementById('v2-bars'), out = document.getElementById('v2-out'), why = document.getElementById('v2-why');
+
+    function render(){
+      var neg = Number(sN.value), tau = Math.max(0.05, Number(sT.value));
+      lN.textContent = neg.toFixed(2);
+      lT.textContent = tau.toFixed(2);
+
+      var S = [
+        { n:'d+  the labelled positive', s:3, pos:true },
+        { n:'d1  the competitor', s:neg, pos:false },
+        { n:'d2  an unrelated passage', s:0, pos:false }
+      ];
+      // max-subtraction keeps exp() finite at small temperature
+      var m = Math.max(3, neg, 0) / tau;
+      var ex = S.map(function(c){ return Math.exp(c.s / tau - m); });
+      var Z = ex.reduce(function(a, b){ return a + b; }, 0);
+      if (!(Z > 0) || !isFinite(Z)) Z = 1;
+      var p = ex.map(function(e){ return e / Z; });
+      var pPlus = Math.min(1, Math.max(1e-12, p[0]));
+      var loss = -Math.log(pPlus);
+      var grad = (1 - pPlus) / tau;
+
+      bars.innerHTML = S.map(function(c, i){
+        var col = c.pos ? 'var(--viz-green)' : (c.s >= 2.4 ? 'var(--viz-red)' : 'var(--viz-accent)');
+        return '<div class="v2-r"><h6><span>' + c.n + (c.pos ? '' : '') + '</span>' +
+          '<b style="color:' + col + '">score ' + c.s.toFixed(2) + ' · p = ' + p[i].toFixed(3) + '</b></h6>' +
+          '<div class="v2-track"><i style="width:' + Math.max(1, p[i] * 100).toFixed(1) + '%;background:' + col + '"></i></div></div>';
+      }).join('');
+
+      var lossCol = loss > 0.9 ? 'var(--viz-red)' : (loss > 0.35 ? 'var(--viz-amber)' : 'var(--viz-green)');
+      out.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-green);border-color:var(--viz-green)">p+ = ' + pPlus.toFixed(3) + '</span>' +
+        '<span class="v2-pill" style="color:' + lossCol + ';border-color:' + lossCol + '">loss = −ln p+ = ' + loss.toFixed(3) + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">|∂L/∂s+| = (1−p+)/τ = ' + grad.toFixed(3) + '</span>';
+
+      var head, body;
+      if (tau <= 0.2) {
+        head = ['var(--viz-red)', 'Temperature this low is a sharpening knife with no handle.'];
+        body = 'Dividing every score by ' + tau.toFixed(2) + ' multiplies the differences between candidates by ' + (1 / tau).toFixed(0) + '×, and the gradient by the same factor: ' +
+          '<code>∂L/∂s_j = (p_j − y_j)/τ</code>. That is the point of a small τ — stronger gradients around <em>close</em> candidates. ' +
+          'But it applies the same magnification to a <b>mislabeled</b> negative, and a single unlabelled positive sitting at score 2.9 now dominates the update. Optimization can simply stop being stable.';
+      } else if (neg >= 2.4) {
+        head = ['var(--viz-red)', 'A hard negative: the probability mass moves, so the gradient does too.'];
+        body = 'At the worked values <code>[3, 1, 0]</code> with τ = 1, e³ = 20.09 against a denominator of 23.81 gives p+ = 0.844 and a loss of 0.17 — the model is basically already right, so it learns almost nothing. ' +
+          'Swap that 1 for a <b>2.8</b> and e²·⁸ = 16.44 pushes the denominator to 37.53: p+ falls to 0.535 and the loss rises to 0.625. ' +
+          '<br><br>Same query, same positive, same architecture. <b>The only thing that changed is who it was compared against</b> — which is exactly why negative sampling, not the loss formula, is the thing engineers actually tune.';
+      } else if (neg <= 0.6) {
+        head = ['var(--viz-amber)', 'An easy negative contributes almost nothing.'];
+        body = 'The competitor holds p = ' + p[1].toFixed(3) + ' of the probability mass, so its term in the gradient is about that size. A billing query and a cooking passage are already far apart after basic training; ' +
+          'randomly drawn in-batch negatives drift into this state as the model improves, and the batch quietly stops teaching. <b>That drift is what hard-negative mining exists to reverse</b> — visual 3.';
+      } else {
+        head = ['var(--viz-accent)', 'Cross-entropy over candidates, nothing more exotic.'];
+        body = 'The loss is the negative log of exp(score(q,d+)/τ) divided by the sum of exp(score(q,dj)/τ) over <em>all</em> candidates, so it is scored entirely in relative terms. ' +
+          'Push the competitor up and p+ falls even though the positive\'s own score never moved. <b>The objective shapes relative geometry, not an absolute semantic truth.</b>';
+      }
+      why.innerHTML = '<b style="color:' + head[0] + '">' + head[1] + '</b>' + body;
+    }
+    sN.addEventListener('input', render);
+    sT.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Batch Is The Negatives</h2>
+  <p class="vz-lede">One matrix multiplication of B queries against B documents scores every pair at once: the
+    diagonal is the positives and everything else is a free negative. Grow the batch, mine harder, or let a
+    duplicate intent slip in. <b>Like a speed-dating night: everyone in the room is automatically
+    "not your match" — until two people in the room wanted the same thing.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v3-lab" for="v3-b">Batch size B = <span id="v3-bl">8</span></label>
+    <input type="range" id="v3-b" min="0" max="5" value="1" step="1" aria-label="Batch size">
+    <div class="vz-seg" role="group" aria-label="Negative sampling" style="margin:13px 0 0">
+      <button id="v3-mine" aria-pressed="false">+ mined hard negative</button>
+      <button id="v3-false" aria-pressed="false">+ duplicate intent in batch</button>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-stats" id="v3-stats"></div>
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Hardness is not automatically quality. The very hardest mined candidates are
+    disproportionately <b>mislabeled relevant</b> passages, so mix easy and hard negatives, filter known
+    positives, refresh the mined set as the model improves, and read the top examples yourself. One honest
+    signal: <b>training loss rising while validation retrieval improves</b> means the harder task is doing
+    real work.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-stats{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-bars{display:flex;flex-direction:column;gap:5px}
+    .v3-r{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v3-lbl{flex:0 0 96px;color:var(--viz-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .v3-track{flex:1;height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-mk{flex:0 0 auto;width:74px;text-align:right;font-size:9.5px;font-weight:800;letter-spacing:.02em}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SIZES = [4, 8, 16, 32, 64, 128];
+    var mine = false, dup = false;
+    var s = document.getElementById('v3-b'), lab = document.getElementById('v3-bl');
+    var bMine = document.getElementById('v3-mine'), bDup = document.getElementById('v3-false');
+    var stats = document.getElementById('v3-stats'), bars = document.getElementById('v3-bars'), why = document.getElementById('v3-why');
+
+    // deterministic "already easy" in-batch negatives: 0.05 … 0.60
+    function easy(i){ return 0.05 + 0.55 * (((i * 37) % 17) / 16); }
+
+    function render(){
+      var B = SIZES[Number(s.value)];
+      lab.textContent = B;
+      bMine.setAttribute('aria-pressed', mine ? 'true' : 'false');
+      bDup.setAttribute('aria-pressed', dup ? 'true' : 'false');
+
+      var C = [{ n:'d+ positive', s:3.0, kind:'pos' }];
+      for (var i = 0; i < B - 1; i++) C.push({ n:'in-batch #' + (i + 1), s:easy(i), kind:'easy' });
+      if (mine && C.length > 1) C[1] = { n:'mined hard neg', s:2.8, kind:'hard' };
+      if (dup && C.length > 2) C[2] = { n:'other query\'s d+', s:2.9, kind:'false' };
+
+      var m = 3.0;
+      var ex = C.map(function(c){ return Math.exp(c.s - m); });
+      var Z = ex.reduce(function(a, b){ return a + b; }, 0);
+      if (!(Z > 0) || !isFinite(Z)) Z = 1;
+      var p = ex.map(function(e){ return e / Z; });
+      var pPlus = Math.min(1, Math.max(1e-12, p[0]));
+      var loss = -Math.log(pPlus);
+      var negMass = Math.max(1e-12, 1 - pPlus);
+      var topNeg = 0, topIdx = 1;
+      for (var j = 1; j < p.length; j++) { if (p[j] > topNeg) { topNeg = p[j]; topIdx = j; } }
+      var share = Math.round((topNeg / negMass) * 100);
+
+      var pairs = B * (B - 1);
+      stats.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + (B - 1) + ' negatives per query</span>' +
+        '<span class="v3-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + pairs.toLocaleString() + ' negative pairs · 1 matmul</span>' +
+        '<span class="v3-pill" style="color:var(--viz-green);border-color:var(--viz-green)">p+ = ' + pPlus.toFixed(3) + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">loss = ' + loss.toFixed(3) + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">hardest negative holds ' + share + '% of the negative mass</span>';
+
+      var shown = C.map(function(c, i){ return { c:c, p:p[i], i:i }; })
+        .sort(function(a, b){ return b.p - a.p; }).slice(0, 7);
+      bars.innerHTML = shown.map(function(r){
+        var col = r.c.kind === 'pos' ? 'var(--viz-green)'
+          : r.c.kind === 'false' ? 'var(--viz-red)'
+          : r.c.kind === 'hard' ? 'var(--viz-amber)' : 'var(--viz-accent)';
+        var mk = r.c.kind === 'pos' ? 'POSITIVE'
+          : r.c.kind === 'false' ? 'FALSE NEG'
+          : r.c.kind === 'hard' ? 'HARD' : 'easy';
+        return '<div class="v3-r"><span class="v3-lbl">' + r.c.n + '</span>' +
+          '<span class="v3-track"><i style="width:' + Math.max(1, r.p * 100).toFixed(1) + '%;background:' + col + '"></i></span>' +
+          '<span class="v3-mk" style="color:' + col + '">' + mk + ' ' + r.p.toFixed(3) + '</span></div>';
+      }).join('') + (C.length > 7 ? '<div class="v3-r"><span class="v3-lbl">…</span><span style="font-size:10.5px;color:var(--viz-muted)">' + (C.length - 7) + ' more in-batch negatives, all below</span></div>' : '');
+
+      var head, body;
+      if (dup) {
+        head = ['var(--viz-red)', 'A valid passage is being pushed away, and nothing reports it.'];
+        body = 'In-batch negatives assume another query\'s positive is irrelevant to <em>this</em> query. That fails the moment a batch holds duplicate intents or a question with several valid answers: the loss now spends ' +
+          Math.round((p[2] / negMass) * 100) + '% of its negative mass separating two documents that both deserve to be near the query. ' +
+          '<br><br>The fixes are all upstream of the loss: <b>deduplicate the examples, group known positives into the same slot, or mask false-negative pairs out of the loss entirely.</b>';
+      } else if (mine) {
+        head = ['var(--viz-amber)', 'One mined negative outweighs all ' + (B - 2) + ' random ones.'];
+        body = 'A passage about <em>changing a subscription plan</em> is a useful negative for <code>cancel my subscription</code> because it shares the vocabulary and the topic while failing the requested action. ' +
+          'At score 2.8 it takes <b>' + share + '%</b> of the negative probability mass, so the gradient is almost entirely about that one distinction. ' +
+          '<br><br>Mine with a lexical retriever, the current dense model, or a stronger teacher — then <b>filter out known positives</b>, because the top of any mined list is where unlabelled positives live.';
+      } else {
+        head = ['var(--viz-green)', 'B pairs in, ' + pairs.toLocaleString() + ' negative comparisons out — for one matmul.'];
+        body = 'Scoring the B query vectors against the B document vectors gives the whole B×B matrix; the diagonal is the positives and every off-diagonal entry is a negative. That is why bigger batches are attractive: more comparisons, and accelerators used well. ' +
+          '<br><br>But look at the bars. Every negative here sits below 0.6 while the positive sits at 3.0, so the model is already right and <b>the update is nearly zero</b>. Random in-batch negatives become too easy as training proceeds — that is the problem mining solves.';
+      }
+      why.innerHTML = '<b style="color:' + head[0] + '">' + head[1] + '</b>' + body;
+    }
+    s.addEventListener('input', render);
+    bMine.addEventListener('click', function(){ mine = !mine; render(); });
+    bDup.addEventListener('click', function(){ dup = !dup; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Fine-Tune Or Shortlist</h2>
+  <p class="vz-lede">Two ways to get a better embedder — train your own, or pick someone else's — and one way
+    to break either of them. Move the traffic mix, then the quality floor, then drop the instruction prefix.
+    <b>Like hiring: the average score on the CV never decides it, the one skill your job actually needs
+    does.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which decision">
+    <button id="v4-m1" aria-pressed="true">fine-tune scorecard</button>
+    <button id="v4-m2" aria-pressed="false">model shortlist</button>
+    <button id="v4-m3" aria-pressed="false">instruction prefix</button>
+  </div>
+
+  <div id="v4-a">
+    <div class="vz-card" style="margin-bottom:11px">
+      <label class="v4-lab" for="v4-mix">Share of traffic that is multilingual: <span id="v4-mixl">10%</span></label>
+      <input type="range" id="v4-mix" min="0" max="60" value="10" step="1" aria-label="Multilingual share of traffic">
+    </div>
+    <div class="vz-card">
+      <div class="v4-rows" id="v4-rows"></div>
+      <div class="v4-why" id="v4-awhy"></div>
+    </div>
+  </div>
+
+  <div id="v4-b" class="v4-off">
+    <div class="vz-card" style="margin-bottom:11px">
+      <label class="v4-lab" for="v4-floor">Segment quality floor: recall@20 ≥ <span id="v4-floorl">0.85</span></label>
+      <input type="range" id="v4-floor" min="80" max="90" value="85" step="1" aria-label="Quality floor">
+    </div>
+    <div class="vz-card">
+      <div class="v4-rows" id="v4-cards"></div>
+      <div class="v4-why" id="v4-bwhy"></div>
+    </div>
+  </div>
+
+  <div id="v4-c" class="v4-off">
+    <div class="vz-seg" role="group" aria-label="Prefix handling">
+      <button id="v4-pon" aria-pressed="true">follow the model card</button>
+      <button id="v4-poff" aria-pressed="false">omit the query instruction</button>
+    </div>
+    <div class="vz-card">
+      <div id="v4-geo"></div>
+      <div class="v4-why" id="v4-cwhy"></div>
+    </div>
+  </div>
+
+  <p class="vz-note">Whichever route you take, a new or fine-tuned model is a <b>new vector space</b>: every
+    document is re-embedded and the index is migrated. Version the training data, model, instructions,
+    tokenizer, pooling, normalization and maximum lengths; ship behind shadow evaluation, dual writes and a
+    rollback artifact. And change <em>one</em> thing at a time — move the model and the reranker together and
+    attribution is gone.</p>
+
+  <style>
+    .v4-off{display:none}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-rows{display:flex;flex-direction:column;gap:6px}
+    .v4-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      flex-wrap:wrap}
+    .v4-r b{font-size:11px}
+    .v4-nm{flex:1 1 108px}
+    .v4-mk{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var m1 = document.getElementById('v4-m1'), m2 = document.getElementById('v4-m2'), m3 = document.getElementById('v4-m3');
+    var pA = document.getElementById('v4-a'), pB = document.getElementById('v4-b'), pC = document.getElementById('v4-c');
+    var mix = document.getElementById('v4-mix'), mixl = document.getElementById('v4-mixl');
+    var rows = document.getElementById('v4-rows'), aWhy = document.getElementById('v4-awhy');
+    var floor = document.getElementById('v4-floor'), floorl = document.getElementById('v4-floorl');
+    var cards = document.getElementById('v4-cards'), bWhy = document.getElementById('v4-bwhy');
+    var pon = document.getElementById('v4-pon'), poff = document.getElementById('v4-poff');
+    var geo = document.getElementById('v4-geo'), cWhy = document.getElementById('v4-cwhy');
+    var prefixOn = true;
+
+    function row(name, a, b, mark, col){
+      return '<div class="v4-r"><span class="v4-nm">' + name + '</span>' +
+        '<span style="color:var(--viz-muted)">' + a + '</span><span style="color:var(--viz-muted)">→</span>' +
+        '<b style="color:' + col + '">' + b + '</b>' +
+        '<span class="v4-mk" style="color:' + col + '">' + mark + '</span></div>';
+    }
+
+    function renderA(){
+      var m = Number(mix.value) / 100;
+      mixl.textContent = Math.round(m * 100) + '%';
+      var base = 0.78 * (1 - m) + 0.74 * m;
+      var tuned = 0.80 * (1 - m) + 0.58 * m;
+      var d = tuned - base;
+      var col = d >= 0 ? 'var(--viz-green)' : 'var(--viz-red)';
+      rows.innerHTML =
+        row('overall recall@20', '0.78', '0.80', 'BETTER +0.02', 'var(--viz-green)') +
+        row('internal acronyms', '0.61', '0.75', 'BETTER +0.14', 'var(--viz-green)') +
+        row('multilingual', '0.74', '0.58', 'WORSE −0.16', 'var(--viz-red)') +
+        row('blended at ' + Math.round(m * 100) + '% multilingual', base.toFixed(3), tuned.toFixed(3),
+          (d >= 0 ? 'SHIP  ' : 'DO NOT SHIP  ') + (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(3), col);
+
+      aWhy.innerHTML = '<b style="color:' + col + '">' +
+        (d >= 0 ? 'At this traffic mix the fine-tune wins.' : 'At this traffic mix the fine-tune is a net loss.') + '</b>' +
+        'Blend the overall figure with the multilingual segment and the arithmetic is exact: base = 0.78 − 0.04m, tuned = 0.80 − 0.22m, so tuned wins only while <b>0.02 &gt; 0.18m</b> — under about <b>11%</b> multilingual traffic. ' +
+        '<br><br>The headline gain was two points and it decided nothing. <b>The deployment decision depends on traffic and requirements</b>, and the segment that collapsed is invisible in the average. ' +
+        'Before any of this, measure the base model, a lexical baseline and the production hybrid system: the goal is an incremental <em>system</em> gain, not a lower training loss. Keep a frozen general benchmark if broad capability matters, and split by document family, customer or time so shared language cannot leak.';
+    }
+
+    function renderB(){
+      var f = Number(floor.value) / 100;
+      floorl.textContent = f.toFixed(2);
+      var MODELS = [
+        { n:'model A', r:0.86, d:768, gb:30.72 },
+        { n:'model B', r:0.85, d:384, gb:15.36 }
+      ];
+      cards.innerHTML = MODELS.map(function(md){
+        var ok = md.r >= f - 1e-9;
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v4-r"><span class="v4-nm">' + md.n + '</span>' +
+          '<span style="color:var(--viz-muted)">recall@20 ' + md.r.toFixed(2) + '</span>' +
+          '<span style="color:var(--viz-muted)">' + md.d + ' dims</span>' +
+          '<b style="color:var(--viz-violet)">' + md.gb.toFixed(2) + ' GB / 10M</b>' +
+          '<span class="v4-mk" style="color:' + col + '">' + (ok ? 'MEETS FLOOR' : 'BELOW FLOOR') + '</span></div>';
+      }).join('');
+      var bothOk = f <= 0.85 + 1e-9, onlyA = f > 0.85 + 1e-9 && f <= 0.86 + 1e-9;
+      bWhy.innerHTML = bothOk
+        ? '<b style="color:var(--viz-green)">Both clear the floor, so B wins — on half the memory.</b>' +
+          'Model A leads by 0.01 recall and costs <b>twice the index memory</b>, 30.72 GB against 15.36 GB for ten million vectors. Once every segment floor is met, the extra 0.01 buys nothing a user can feel and pays for it in RAM, replicas and bandwidth. ' +
+          '<br><br>Compare on the whole vector: relevance metrics, encoding throughput, p95 query latency, dimensions, maximum-input behaviour, language segments and total serving cost.'
+        : onlyA
+          ? '<b style="color:var(--viz-amber)">Only A clears the floor — now the memory is worth paying.</b>' +
+            'The same 0.01 that was noise a moment ago is decisive here, because the floor moved, not the models. This is why <b>an aggregate leaderboard score is not a production requirement</b>: MTEB shortlists candidates, your own held-out queries through the complete chunking and retrieval pipeline decide.'
+          : '<b style="color:var(--viz-red)">Neither model meets this floor.</b>' +
+            'Shortlist again. Select the MTEB slices that resemble your language, domain, input length and task — a model leading on classification may not lead on passage retrieval — and weigh contamination, hardware cost, licensing, context limits and model size alongside the score.';
+    }
+
+    function renderC(){
+      pon.setAttribute('aria-pressed', prefixOn ? 'true' : 'false');
+      poff.setAttribute('aria-pressed', prefixOn ? 'false' : 'true');
+      var q = [], i;
+      for (i = 0; i < 6; i++) {
+        var ang = i * 1.05;
+        q.push(prefixOn
+          ? [96 + 34 * Math.cos(ang), 52 + 22 * Math.sin(ang)]
+          : [232 + 22 * Math.cos(ang), 96 + 16 * Math.sin(ang)]);
+      }
+      var docs = '';
+      for (i = 0; i < 14; i++) {
+        var a = i * 0.9;
+        docs += '<circle cx="' + (96 + 40 * Math.cos(a) + (i % 3) * 5) + '" cy="' + (52 + 26 * Math.sin(a)) + '" r="4" fill="var(--viz-accent)" opacity="0.75"></circle>';
+      }
+      geo.innerHTML =
+        '<svg viewBox="0 0 300 140" width="100%" height="150" role="img" aria-label="Query and passage vectors in the embedding space">' +
+        '<rect x="1" y="1" width="298" height="138" rx="10" fill="none" stroke="var(--viz-line)" stroke-width="1.5"></rect>' +
+        docs +
+        q.map(function(pt){ return '<rect x="' + (pt[0] - 4) + '" y="' + (pt[1] - 4) + '" width="8" height="8" rx="2" fill="var(--viz-violet)"></rect>'; }).join('') +
+        '<text x="12" y="128" font-size="10" fill="var(--viz-muted)" font-family="ui-monospace,monospace">● passage: … vectors</text>' +
+        '<text x="168" y="128" font-size="10" fill="var(--viz-muted)" font-family="ui-monospace,monospace">■ query vectors</text>' +
+        '</svg>';
+      cWhy.innerHTML = prefixOn
+        ? '<b style="color:var(--viz-green)">Prefixes present: queries and passages share one geometry.</b>' +
+          'Instruction-tuned embedding models accept a task or role prefix — <code>query: find a support procedure</code> and <code>passage: ...</code> — which lets one model organize different tasks and the asymmetric roles inside retrieval. Squares land among circles, and nearest-neighbour search means what you think it means.'
+        : '<b style="color:var(--viz-red)">Prefix omitted: the queries land somewhere the passages are not.</b>' +
+          'Follow the model card <em>exactly</em>. Omitting a required query instruction places queries in a geometry incompatible with the indexed documents — and <b>nothing errors</b>. The index still returns its k nearest vectors, the latency is unchanged, the dashboards are green, and the results are quietly meaningless. ' +
+          '<br><br>The matching failure: inventing a prefix because it sounds descriptive. If it is not on the card and not validated, it is a guess about someone else\'s training distribution.';
+    }
+
+    function show(n){
+      m1.setAttribute('aria-pressed', n === 1 ? 'true' : 'false');
+      m2.setAttribute('aria-pressed', n === 2 ? 'true' : 'false');
+      m3.setAttribute('aria-pressed', n === 3 ? 'true' : 'false');
+      pA.className = n === 1 ? '' : 'v4-off';
+      pB.className = n === 2 ? '' : 'v4-off';
+      pC.className = n === 3 ? '' : 'v4-off';
+    }
+    m1.addEventListener('click', function(){ show(1); });
+    m2.addEventListener('click', function(){ show(2); });
+    m3.addEventListener('click', function(){ show(3); });
+    mix.addEventListener('input', renderA);
+    floor.addEventListener('input', renderB);
+    pon.addEventListener('click', function(){ prefixOn = true; renderC(); });
+    poff.addEventListener('click', function(){ prefixOn = false; renderC(); });
+    renderA(); renderB(); renderC(); show(1);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Cheaper Vectors</h2>
+  <p class="vz-lede">Two independent ways to shrink an index — drop trailing dimensions, or spend fewer bits
+    on the ones you keep. Pick a combination and watch the memory fall and the evidence run out.
+    <b>Like shrinking a photo: fewer pixels and fewer colours per pixel are different economies, and only one
+    of them was designed in.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v5-lab" for="v5-dim">Matryoshka prefix: <span id="v5-diml">768</span> dimensions</label>
+    <input type="range" id="v5-dim" min="0" max="3" value="0" step="1" aria-label="Embedding dimensions">
+    <div class="vz-seg" role="group" aria-label="Numeric precision" style="margin:13px 0 0">
+      <button id="v5-p32" aria-pressed="true">float32</button>
+      <button id="v5-p8" aria-pressed="false">int8 scalar</button>
+      <button id="v5-pb" aria-pressed="false">binary (1 bit)</button>
+    </div>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v5-stats" id="v5-stats"></div>
+    <div class="v5-bar" id="v5-bar"></div>
+  </div>
+
+  <div class="vz-card v5-off" id="v5-valwrap">
+    <label class="v5-lab" for="v5-val">Coordinate value <span id="v5-vall">0.503</span> mapped over [−1, 1] into 256 levels</label>
+    <input type="range" id="v5-val" min="-1" max="1" value="0.503" step="0.001" aria-label="Coordinate value to quantize">
+    <div class="v5-q" id="v5-valout"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Recall per dollar is a whole-system number: RAM, storage, network, replicas, encoding,
+    index construction <em>and</em> reranking. Measure relevance, ANN recall, latency and total infrastructure
+    at the chosen candidate width, then take the cheapest configuration that meets the quality floors — and
+    recheck the arithmetic as corpus size, traffic mix, hardware pricing and reliability requirements change
+    over the system's lifetime.</p>
+
+  <style>
+    .v5-off{display:none}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-stats{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-bar{display:flex;flex-direction:column;gap:8px}
+    .v5-r h6{margin:0 0 4px;font-size:11px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-r h6 b{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v5-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+    .v5-q{margin-top:11px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DIMS = [768, 384, 256, 128];
+    var prec = 'f32';
+    var sD = document.getElementById('v5-dim'), lD = document.getElementById('v5-diml');
+    var b32 = document.getElementById('v5-p32'), b8 = document.getElementById('v5-p8'), bB = document.getElementById('v5-pb');
+    var stats = document.getElementById('v5-stats'), bar = document.getElementById('v5-bar');
+    var wrap = document.getElementById('v5-valwrap'), sV = document.getElementById('v5-val');
+    var lV = document.getElementById('v5-vall'), outV = document.getElementById('v5-valout');
+    var why = document.getElementById('v5-why');
+
+    // Only the configurations doc.md actually measured. Everything else is honestly unknown.
+    var MEASURED = { 'f32-768':0.88, 'f32-384':0.872, 'f32-128':0.84, 'i8-768':0.877, 'bin-768':0.79 };
+    var FLOOR = 0.86;
+    var BYTES = { f32:4, i8:1, bin:0.125 };
+
+    function quant(){
+      var v = Number(sV.value);
+      var bw = 2 / 255;
+      var idx = Math.round((v + 1) / bw);
+      idx = Math.min(255, Math.max(0, idx));
+      var rec = idx * bw - 1;
+      lV.textContent = v.toFixed(3);
+      outV.innerHTML =
+        'bin width  = 2 / 255 = ' + bw.toFixed(5) + '<br>' +
+        'bin index  = round((' + v.toFixed(3) + ' + 1) / ' + bw.toFixed(5) + ') = ' + idx + '<br>' +
+        'reconstruct = ' + idx + ' × ' + bw.toFixed(5) + ' − 1 = <b style="color:var(--viz-accent)">' + rec.toFixed(3) + '</b><br>' +
+        'error       = <b style="color:var(--viz-amber)">' + Math.abs(rec - v).toFixed(4) + '</b>' +
+        '<div style="font-family:inherit;font-size:11.5px;color:var(--viz-muted);margin-top:7px">' +
+        'Outliers widen the range and waste resolution across every other value, so calibration data and clipping policy decide how good this is.</div>';
+    }
+
+    function render(){
+      var d = DIMS[Number(sD.value)];
+      lD.textContent = d;
+      b32.setAttribute('aria-pressed', prec === 'f32' ? 'true' : 'false');
+      b8.setAttribute('aria-pressed', prec === 'i8' ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', prec === 'bin' ? 'true' : 'false');
+      wrap.className = 'vz-card' + (prec === 'i8' ? '' : ' v5-off');
+
+      var bytes = d * BYTES[prec];
+      var gb = bytes * 1e7 / 1e9;
+      var full = 768 * 4;
+      var factor = bytes > 0 ? full / bytes : 1;
+      var key = prec + '-' + d;
+      var rec = Object.prototype.hasOwnProperty.call(MEASURED, key) ? MEASURED[key] : null;
+
+      var recCol = rec === null ? 'var(--viz-violet)' : (rec >= FLOOR ? 'var(--viz-green)' : 'var(--viz-red)');
+      var recTxt = rec === null ? 'recall NOT MEASURED — benchmark it' :
+        'recall@20 ' + rec.toFixed(3) + (rec >= FLOOR ? ' · MEETS 0.86 floor' : ' · BELOW 0.86 floor');
+      stats.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + bytes.toFixed(0) + ' bytes / vector</span>' +
+        '<span class="v5-pill" style="color:var(--viz-green);border-color:var(--viz-green)">' + gb.toFixed(2) + ' GB for 10M</span>' +
+        '<span class="v5-pill" style="color:var(--viz-green);border-color:var(--viz-green)">' + factor.toFixed(factor < 10 ? 1 : 0) + '× smaller than 768d float32</span>' +
+        '<span class="v5-pill" style="color:' + recCol + ';border-color:' + recCol + '">' + recTxt + '</span>';
+
+      function line(t, val, max, col, sub){
+        return '<div class="v5-r"><h6><span>' + t + '</span><b style="color:' + col + '">' + sub + '</b></h6>' +
+          '<div class="v5-track"><i style="width:' + Math.max(1.5, (val / Math.max(max, 1e-9)) * 100).toFixed(1) + '%;background:' + col + '"></i></div></div>';
+      }
+      bar.innerHTML =
+        line('768d float32 baseline', 30.72, 30.72, 'var(--viz-muted)', '30.72 GB') +
+        line('this configuration', gb, 30.72, 'var(--viz-accent)', gb.toFixed(2) + ' GB') +
+        (rec === null
+          ? line('measured recall@20', 0, 1, 'var(--viz-violet)', 'no measurement exists')
+          : line('measured recall@20 (floor 0.86)', rec, 1, recCol, rec.toFixed(3)));
+
+      var head, body;
+      if (prec === 'bin') {
+        head = ['var(--viz-amber)', 'One bit per dimension: 3,072 bytes becomes 96, a 32-fold cut.'];
+        body = 'Binary quantization keeps only the sign of each coordinate, so comparison collapses to Hamming distance and bit operations — extremely fast. But <b>magnitude information is gone</b>, and in the worked case recall@20 falls from 0.88 to <b>0.79</b> while reranking work roughly doubles. ' +
+          '<br><br>That is why binary is normally a <em>candidate generator</em>: search the bits, then rerank the survivors with scalar or full-precision vectors. If the doubled reranker eats the memory saving, the apparent saving has disappeared.';
+      } else if (prec === 'i8') {
+        head = ['var(--viz-green)', 'int8: about four times smaller, for 0.003 of recall.'];
+        body = 'A scale and offset translate each float coordinate into one of 256 discrete bins. Quantization error perturbs similarities, but well-behaved embeddings mostly preserve neighbour <em>ordering</em>, which is all a ranking needs. ' +
+          'Worked at 768 dimensions: recall@20 slips 0.88 → <b>0.877</b> while memory drops 30.72 GB → 7.68 GB. That fourfold cut buys more replicas or a bigger corpus, and 0.003 is invisible to a user. <b>This is what recall per dollar looks like when it works.</b>';
+      } else if (d === 768) {
+        head = ['var(--viz-accent)', 'The uncompressed baseline: 30.72 GB of raw vectors.'];
+        body = 'Ten million 768-dimensional float32 vectors, before IDs, graph edges, posting lists, metadata and replicas. Everything else on this panel is measured against this line. ' +
+          '<br><br>Truncation and quantization are <b>different economies</b>: truncation removes trailing dimensions from a model trained to support that prefix, quantization reduces precision within the dimensions you keep.';
+      } else if (rec === null) {
+        head = ['var(--viz-violet)', 'No measurement exists for this prefix — and that is the point.'];
+        body = 'The evidence in hand covers 768 (0.88), 384 (0.872) and 128 (0.84) at float32. A ' + d + '-dimensional prefix costs ' + gb.toFixed(2) + ' GB, which is easy arithmetic — its recall is not, and interpolating between measured points is a guess about a nonlinear thing. ' +
+          '<br><br><b>Rebuild and benchmark the actual ANN index</b>, because lower dimensions change graph behaviour and system latency too, not just the memory line. Store the chosen dimension as part of the index version: query and document prefixes must match, and Matryoshka does not make mixed dimensions comparable inside one ordinary index.';
+      } else if (rec >= FLOOR) {
+        head = ['var(--viz-green)', d + ' dimensions clears the 0.86 floor at ' + rec.toFixed(3) + '.'];
+        body = 'Matryoshka training applies the objective at several prefix lengths, nesting coarse useful structure inside the larger representation — which is why the first ' + d + ' coordinates are still a usable embedding. <b>An ordinary model guarantees nothing of the kind.</b> ' +
+          '<br><br>Truncate, normalize at the documented point, and you keep ' + (30.72 / Math.max(gb, 1e-9)).toFixed(1) + '× less memory for 0.008 of recall.';
+      } else {
+        head = ['var(--viz-red)', d + ' dimensions falls to ' + rec.toFixed(3) + ' — below the 0.86 floor.'];
+        body = 'Truncation is not free. The memory line looks wonderful at ' + gb.toFixed(2) + ' GB and the service target is simply not met, so this configuration is out however cheap it is. ' +
+          '<br><br>Note the shape of the curve: 768 → 384 costs 0.008, 384 → 128 costs another 0.032. Savings are linear in dimensions; quality is not.';
+      }
+      why.innerHTML = '<b style="color:' + head[0] + '">' + head[1] + '</b>' + body +
+        '<br><br><span style="color:var(--viz-muted)">Combining truncation with quantization is allowed and the <b>errors compound</b> — evaluate each configuration rather than multiplying theoretical savings and assuming the quality survives.</span>';
+      quant();
+    }
+    sD.addEventListener('input', render);
+    sV.addEventListener('input', quant);
+    b32.addEventListener('click', function(){ prec = 'f32'; render(); });
+    b8.addEventListener('click', function(){ prec = 'i8'; render(); });
+    bB.addEventListener('click', function(){ prec = 'bin'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

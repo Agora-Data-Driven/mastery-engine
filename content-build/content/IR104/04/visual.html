@@ -1,0 +1,777 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+input[type=range]{width:100%;min-height:34px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Metric To Decision</button>
+  <button class="viz-tab" data-viz-tab="2">2. Where Each Lies</button>
+  <button class="viz-tab" data-viz-tab="3">3. Same Mean, Different Risk</button>
+  <button class="viz-tab" data-viz-tab="4">4. Bootstrap And Permutation</button>
+  <button class="viz-tab" data-viz-tab="5">5. Slice The Regression</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Metric To Decision</h2>
+  <p class="vz-lede">You already build the query set, judge it by pooling, and read nDCG@10. Here that
+    reading is the <em>start</em> of the argument, not the end. Switch each instrument on and watch which
+    shipping questions it can actually answer. <b>Like a thermometer: it tells you the temperature, never
+    whether to go outside.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side">
+      <h5>what IR 104 gave you</h5>
+      <div class="v1-i">Golden query set, judged by pooling</div>
+      <div class="v1-i">P@k · R@k · AP/MAP · MRR</div>
+      <div class="v1-i">nDCG@10: <b>0.55 &rarr; 0.58</b></div>
+    </div>
+    <div class="v1-arrow" aria-hidden="true">&rarr;</div>
+    <div class="v1-side">
+      <h5>what this lesson adds</h5>
+      <div class="v1-i">Is it noise? (interval)</div>
+      <div class="v1-i">Do users agree? (A/B)</div>
+      <div class="v1-i">Who is hurt? (class slices)</div>
+    </div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Evidence you have collected" id="v1-seg"></div>
+
+  <div class="vz-card">
+    <div class="v1-qs" id="v1-qs"></div>
+    <div class="vz-why" id="v1-verdict"></div>
+  </div>
+  <p class="vz-note">Offline is the cheap gate, online is the verdict, and neither is authoritative alone.
+    The loop matters as much as the order: after an online outcome, go back to the offline set and find
+    which queries <b>predicted</b> it and which <b>contradicted</b> it. That is what improves the
+    evaluation model, instead of leaving you with two unrelated leaderboards.</p>
+
+  <style>
+    .v1-bridge{display:flex;align-items:center;gap:8px;margin-bottom:13px;flex-wrap:wrap}
+    .v1-side{flex:1 1 150px}
+    .v1-side h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-i{border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 9px;margin-bottom:5px;
+      font-size:11.5px;background:var(--viz-surface);line-height:1.35}
+    .v1-arrow{flex:0 0 auto;font-size:17px;color:var(--viz-accent);font-weight:800}
+    .v1-qs{display:flex;flex-direction:column;gap:5px}
+    .v1-q{display:flex;gap:9px;align-items:flex-start;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:12px;line-height:1.4}
+    .v1-q.is-on{border-color:var(--viz-green)}
+    .v1-mk{flex:0 0 auto;font-weight:800;font-size:10px;letter-spacing:.03em;width:74px;
+      font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var EVID = [
+      { k:'offline', t:'offline metric' },
+      { k:'stats',   t:'paired interval' },
+      { k:'online',  t:'online A/B' },
+      { k:'slices',  t:'class slices' }
+    ];
+    var QS = [
+      { q:'Did the ranking improve <em>under the labels you wrote</em>?', need:['offline'] },
+      { q:'Is +0.03 larger than sampling noise across queries?', need:['stats'] },
+      { q:'Do users behave better — do they finish the task?', need:['online'] },
+      { q:'Which queries got worse while the mean rose?', need:['slices'] },
+      { q:'Is it safe to ship: latency, errors, harmful results?', need:['online','slices'] }
+    ];
+    var on = { offline:true, stats:false, online:false, slices:false };
+    var seg = document.getElementById('v1-seg');
+    var qs = document.getElementById('v1-qs');
+    var verdict = document.getElementById('v1-verdict');
+
+    function render(){
+      [].slice.call(seg.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', on[EVID[i].k] ? 'true' : 'false');
+      });
+      var answered = 0;
+      qs.innerHTML = QS.map(function(row){
+        var ok = row.need.every(function(k){ return on[k]; });
+        if (ok) answered += 1;
+        return '<div class="v1-q ' + (ok ? 'is-on' : '') + '">' +
+          '<span class="v1-mk" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (ok ? '✓ ANSWERED' : '— OPEN') + '</span><span>' + row.q + '</span></div>';
+      }).join('');
+
+      var head, body;
+      if (answered === 5) {
+        head = '<b style="color:var(--viz-green)">All five answerable — now it is a tradeoff, not a score.</b>';
+        body = 'A ship decision is explicit: which users improve, which risks remain, what monitoring and ' +
+          'rollback thresholds apply. That is far more durable than declaring victory because one mean ' +
+          'crossed a significance threshold.';
+      } else if (on.offline && !on.stats && !on.online && !on.slices) {
+        head = '<b style="color:var(--viz-amber)">One instrument, one question. You have a number, not a decision.</b>';
+        body = 'nDCG@10 rising 0.55 &rarr; 0.58 is real <em>under those labels and that gain mapping</em>. ' +
+          'On a support site the promoted documents were long authoritative manuals, users wanted concise ' +
+          'steps, and they abandoned. Offline evaluation can be <b>internally correct and externally wrong</b>.';
+      } else if (!on.offline) {
+        head = '<b style="color:var(--viz-red)">No offline gate — you are testing on users.</b>';
+        body = 'Offline is the cheap, safe, repeatable filter: dozens of configurations compared without ' +
+          'exposing anyone. Skipping it means every clearly inferior or unsafe candidate reaches real ' +
+          'traffic, and every online test is slower and more expensive than the question deserved.';
+      } else {
+        head = '<b style="color:var(--viz-accent)">' + answered + ' of 5 answered.</b>';
+        body = 'Each instrument answers its own question and is silent on the others. An interval says ' +
+          'how big and how sure; it never says whether users are better off. An A/B says users behaved ' +
+          'differently; it never says which queries paid for it.';
+      }
+      verdict.innerHTML = head + body;
+    }
+
+    EVID.forEach(function(e, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = e.t;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ on[e.k] = !on[e.k]; render(); });
+      seg.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Where Each Lies</h2>
+  <p class="vz-lede">Drag the two readings against each other. The interesting cell is never "both agree" —
+    a <em>disagreement</em> is the most informative result an experiment can give you, and each corner has
+    its own list of suspects. <b>Like two witnesses to the same crash: it is where their stories differ
+    that you learn something.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-off">Offline &Delta; nDCG@10: <span id="v2-offv">+0.030</span></label>
+    <input type="range" id="v2-off" min="-50" max="50" step="5" value="30" aria-label="Offline delta nDCG at 10">
+    <label class="vz-lab" for="v2-on" style="margin-top:10px">Online &Delta; task success: <span id="v2-onv">-0.8 pp</span></label>
+    <input type="range" id="v2-on" min="-20" max="20" step="1" value="-8" aria-label="Online delta task success in percentage points">
+
+    <div class="v2-plot">
+      <div class="v2-ax v2-ax-h"></div>
+      <div class="v2-ax v2-ax-v"></div>
+      <span class="v2-cap v2-cap-t">online up</span>
+      <span class="v2-cap v2-cap-b">online down</span>
+      <span class="v2-cap v2-cap-l">offline down</span>
+      <span class="v2-cap v2-cap-r">offline up</span>
+      <i class="v2-dot" id="v2-dot"></i>
+    </div>
+
+    <div style="margin-top:12px"><span class="vz-pill" id="v2-tag"></span></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Before you read any corner, prove the experiment happened: assignment integrity,
+    exposure, event schemas, sample ratios, missing data. Interference alone can fake a whole result —
+    caches mix treatment behaviour, returning users cross devices, and a logging difference between
+    variants <b>manufactures</b> a metric change out of nothing.</p>
+
+  <style>
+    .v2-plot{position:relative;height:180px;margin-top:16px;border:1.5px solid var(--viz-line);
+      border-radius:10px;background:var(--viz-bg);overflow:hidden}
+    .v2-ax{position:absolute;background:var(--viz-line)}
+    .v2-ax-h{left:0;right:0;top:50%;height:1.5px}
+    .v2-ax-v{top:0;bottom:0;left:50%;width:1.5px}
+    .v2-cap{position:absolute;font-size:9.5px;letter-spacing:.04em;text-transform:uppercase;
+      color:var(--viz-muted);font-weight:700}
+    .v2-cap-t{top:5px;left:50%;margin-left:6px}
+    .v2-cap-b{bottom:5px;left:50%;margin-left:6px}
+    .v2-cap-l{left:5px;top:50%;margin-top:6px}
+    .v2-cap-r{right:5px;top:50%;margin-top:6px}
+    .v2-dot{position:absolute;width:16px;height:16px;border-radius:50%;margin:-8px 0 0 -8px;
+      border:2px solid var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var so = document.getElementById('v2-off'), sn = document.getElementById('v2-on');
+    var lo = document.getElementById('v2-offv'), ln = document.getElementById('v2-onv');
+    var dot = document.getElementById('v2-dot'), tag = document.getElementById('v2-tag');
+    var why = document.getElementById('v2-why');
+
+    function fmt(v, d, unit){ var s = v >= 0 ? '+' : '−'; return s + Math.abs(v).toFixed(d) + unit; }
+
+    function render(){
+      var off = Number(so.value) / 1000;          // -0.050 .. +0.050 nDCG
+      var onl = Number(sn.value) / 10;            // -2.0 .. +2.0 percentage points
+      if (!isFinite(off)) off = 0;
+      if (!isFinite(onl)) onl = 0;
+      lo.textContent = fmt(off, 3, '');
+      ln.textContent = fmt(onl, 1, ' pp');
+
+      var x = 50 + (off / 0.05) * 44;
+      var y = 50 - (onl / 2) * 44;
+      var offUp = off > 0.004, offDn = off < -0.004;
+      var onUp = onl > 0.2, onDn = onl < -0.2;
+      var flat = (!offUp && !offDn) || (!onUp && !onDn);
+      var col = flat ? 'var(--viz-muted)'
+              : (offUp && onUp) ? 'var(--viz-green)'
+              : (offDn && onDn) ? 'var(--viz-red)'
+              : 'var(--viz-amber)';
+      dot.style.left = x + '%';
+      dot.style.top = y + '%';
+      dot.style.background = col;
+
+      var name, head, body;
+      if (flat) {
+        name = 'FLAT ON ONE INSTRUMENT';
+        head = '<b>Nothing measurable — which is not the same as nothing happening.</b>';
+        body = 'A reading this small is either a genuinely tiny effect or an underpowered test. Both are ' +
+          'answered the same way: compare the estimate and its interval against the <b>minimum practically ' +
+          'important effect you defined before running</b>. With a very large query set a mean nDCG gain ' +
+          'of 0.0002 is statistically clear and operationally irrelevant.';
+      } else if (offUp && onDn) {
+        name = 'OFFLINE UP / ONLINE DOWN';
+        head = '<b style="color:var(--viz-amber)">The classic disagreement, and the one this lesson opens with.</b>';
+        body = 'Suspects, in order: <b>label mismatch</b> (nDCG@10 rose 0.55 &rarr; 0.58 by promoting long ' +
+          'authoritative manuals; support users wanted concise steps and abandoned), <b>latency cost</b>, ' +
+          '<b>presentation effects</b>, and <b>metric gaming</b>. The measurement model valued authority ' +
+          'above successful resolution. The remedy is not to ignore the offline result — it is to revise ' +
+          'the labels or add task-oriented signals, then confirm online again.';
+      } else if (offDn && onUp) {
+        name = 'OFFLINE DOWN / ONLINE UP';
+        head = '<b style="color:var(--viz-amber)">Your judgments may be the thing that is wrong.</b>';
+        body = 'Suspects: <b>incomplete judgments</b> (pooling never saw the documents this system finds, ' +
+          'so genuine wins score zero), <b>better diversity</b> that flat relevance labels cannot express, ' +
+          'or an <b>online proxy that is itself misleading</b> — position bias, a flashy result, dwell that ' +
+          'means confusion rather than care. Repair the pool before you conclude the offline set was right.';
+      } else if (offUp && onUp) {
+        name = 'BOTH UP';
+        head = '<b style="color:var(--viz-green)">The funnel agrees — now check what neither number covers.</b>';
+        body = 'Guardrails first: latency, errors, harmful results. Then time: novelty and learning effects ' +
+          'inflate early engagement, so run long enough to cover weekly cycles and read the time series ' +
+          'rather than a pooled mean. Then slices — an aggregate rise can still hide a class that fell.';
+      } else {
+        name = 'BOTH DOWN';
+        head = '<b style="color:var(--viz-red)">The cheap gate did its job.</b>';
+        body = 'This is exactly the candidate the offline stage exists to reject before it ever reaches ' +
+          'traffic. Worth one check, though: the offline set is fixed, so it can be <em>consistently</em> ' +
+          'wrong. If a family of changes keeps failing offline and quietly helping online, the query ' +
+          'sample or the judgments — not the ranker — are what need work.';
+      }
+      tag.textContent = name;
+      tag.style.color = col;
+      tag.style.borderColor = col;
+      why.innerHTML = head + body;
+    }
+    so.addEventListener('input', render);
+    sn.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Same Mean, Different Risk</h2>
+  <p class="vz-lede">System B is fixed at nDCG <code>[0.6, 0.6, 0.4, 0.4]</code>. Spread system A apart and
+    its mean never moves off 0.500 — but the product does. Then turn on the paired view and watch pairing
+    pay for itself. <b>Like an average water depth of one metre: perfectly safe, right up until you meet
+    the deep end.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-s">System A spread: 0.5 &plusmn; <span id="v3-sv">0.40</span></label>
+    <input type="range" id="v3-s" min="0" max="40" step="5" value="40" aria-label="System A spread">
+    <label class="vz-lab" for="v3-t" style="margin-top:10px">"Acceptable" nDCG for a query: <span id="v3-tv">0.50</span></label>
+    <input type="range" id="v3-t" min="0" max="90" step="5" value="50" aria-label="Acceptability threshold">
+
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-stats" id="v3-stats"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Paired view" style="margin-top:12px">
+    <button id="v3-pair" aria-pressed="false" type="button">show the paired delta</button>
+  </div>
+
+  <div class="vz-card"><div class="vz-why" id="v3-why" style="margin-top:0;padding-top:0;border-top:none"></div></div>
+  <p class="vz-note">Report the median and the quantiles beside the mean, plus how many queries improved,
+    tied and regressed. And remember the metric contributes variance of its own: <b>Reciprocal Rank jumps
+    sharply</b> when the first relevant result moves a single position, while nDCG over several graded
+    documents moves smoothly.</p>
+
+  <style>
+    .v3-bars{margin-top:16px;display:flex;gap:14px;flex-wrap:wrap}
+    .v3-sys{flex:1 1 148px}
+    .v3-sys h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v3-row{display:flex;align-items:center;gap:7px;margin-bottom:4px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v3-track{flex:1;height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-val{flex:0 0 30px;text-align:right}
+    .v3-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var ss = document.getElementById('v3-s'), sv = document.getElementById('v3-sv');
+    var st = document.getElementById('v3-t'), tv = document.getElementById('v3-tv');
+    var bars = document.getElementById('v3-bars'), stats = document.getElementById('v3-stats');
+    var why = document.getElementById('v3-why'), pairBtn = document.getElementById('v3-pair');
+    var paired = false;
+
+    function sysBlock(name, vals, thr){
+      var h = '<div class="v3-sys"><h5>' + name + '</h5>';
+      vals.forEach(function(v, i){
+        var ok = v >= thr - 1e-9;
+        h += '<div class="v3-row"><span>q' + (i + 1) + '</span>' +
+          '<span class="v3-track"><i style="width:' + Math.max(2, v * 100) + '%;background:' +
+          (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '"></i></span>' +
+          '<span class="v3-val" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          v.toFixed(2) + '</span></div>';
+      });
+      var bad = vals.filter(function(v){ return v < thr - 1e-9; }).length;
+      h += '<div style="font-size:11px;color:var(--viz-muted);margin-top:5px">' + bad + ' of 4 below ' +
+        thr.toFixed(2) + '</div></div>';
+      return h;
+    }
+
+    function render(){
+      var s = Number(ss.value) / 100;
+      var thr = Number(st.value) / 100;
+      if (!isFinite(s)) s = 0;
+      if (!isFinite(thr)) thr = 0;
+      sv.textContent = s.toFixed(2);
+      tv.textContent = thr.toFixed(2);
+
+      var A = [0.5 + s, 0.5 + s, 0.5 - s, 0.5 - s];
+      var B = [0.6, 0.6, 0.4, 0.4];
+      bars.innerHTML = sysBlock('system A', A, thr) + sysBlock('system B (fixed)', B, thr);
+
+      // Population moments. Both systems are symmetric about 0.5, so both means are exactly 0.500.
+      var varA = s * s, varB = 0.01, cov = s * 0.1;      // deviations line up sign-for-sign
+      var varD = varA + varB - 2 * cov;                  // = (s - 0.1)^2
+      var sdPaired = Math.sqrt(Math.max(varD, 0));
+      var sdUnpaired = Math.sqrt(varA + varB);
+      var badA = A.filter(function(v){ return v < thr - 1e-9; }).length;
+      var badB = B.filter(function(v){ return v < thr - 1e-9; }).length;
+
+      stats.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">mean A = 0.500 = mean B</span>' +
+        '<span class="vz-pill" style="color:' + (badA > badB ? 'var(--viz-red)' : 'var(--viz-muted)') +
+          ';border-color:' + (badA > badB ? 'var(--viz-red)' : 'var(--viz-line)') + '">A fails ' + badA + ' queries</span>' +
+        '<span class="vz-pill" style="color:' + (badB > badA ? 'var(--viz-red)' : 'var(--viz-muted)') +
+          ';border-color:' + (badB > badA ? 'var(--viz-red)' : 'var(--viz-line)') + '">B fails ' + badB + ' queries</span>';
+
+      if (!paired) {
+        why.innerHTML = (s >= 0.395
+          ? '<b style="color:var(--viz-amber)">A = [0.9, 0.9, 0.1, 0.1], B = [0.6, 0.6, 0.4, 0.4]. Both average 0.5.</b>'
+          : '<b>Spread ' + s.toFixed(2) + ' — the mean is still exactly 0.500.</b>') +
+          'A is excellent for half the queries and poor for half; B is consistent. A single mean cannot ' +
+          'distinguish them, and the product risk is entirely in that distinction: which pattern you have, ' +
+          'and <em>which</em> queries sit in the bad half. If the failing half is your highest-traffic ' +
+          'intent, the identical average is a much worse system.' +
+          '<br><br>At this threshold A fails <b>' + badA + '</b> of 4 and B fails <b>' + badB + '</b>. ' +
+          'Move it and the ranking of the two systems flips more than once — that threshold is a product ' +
+          'decision, and it is invisible in the mean.';
+      } else {
+        var deltas = B.map(function(b, i){ return b - A[i]; });
+        var ratio = sdPaired > 1e-9 ? (sdUnpaired / sdPaired) : 0;
+        why.innerHTML = '<b>Paired deltas B − A: [' +
+          deltas.map(function(d){ return (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(2); }).join(', ') +
+          ']  —  mean 0.00</b>' +
+          'Both rankers ran the <em>same</em> queries, so compare per query. Why that helps is exactly the ' +
+          'variance identity:<br>' +
+          '<span class="vz-mono">Var(B−A) = Var(A) + Var(B) − 2·Cov(A,B)<br>' +
+          '&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;= ' + varA.toFixed(4) + ' + ' +
+          varB.toFixed(4) + ' − 2(' + cov.toFixed(4) + ') = ' + varD.toFixed(4) + '</span><br>' +
+          'Paired sd <b>' + sdPaired.toFixed(3) + '</b> against unpaired sd <b>' + sdUnpaired.toFixed(3) +
+          '</b>' + (ratio > 1.001 ? ' — ' + ratio.toFixed(2) + '× less noise to overcome, for free.' : '.') +
+          (sdPaired < 1e-9
+            ? '<br><br><b style="color:var(--viz-amber)">At spread 0.10 the two systems are identical query for query</b>, so every ' +
+              'delta is 0 and the paired sd collapses to zero — while the unpaired view still sees ' +
+              sdUnpaired.toFixed(3) + ' of spread that has nothing to do with the comparison.'
+            : '<br><br>Query difficulty is shared by both systems, so it cancels in the difference. An ' +
+              'unpaired analysis throws that structure away and usually has less power to detect the same ' +
+              'real effect.');
+      }
+    }
+    ss.addEventListener('input', render);
+    st.addEventListener('input', render);
+    pairBtn.addEventListener('click', function(){
+      paired = !paired;
+      pairBtn.setAttribute('aria-pressed', paired ? 'true' : 'false');
+      pairBtn.textContent = paired ? 'hide the paired delta' : 'show the paired delta';
+      render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Bootstrap And Permutation</h2>
+  <p class="vz-lede">One query set of paired deltas — 30% wins near +0.09, 20% losses near &minus;0.08, the
+    rest ties. Resample it live and watch the interval tighten as queries are added, then set the effect
+    you would actually care about. <b>Like polling: asking more people narrows the margin of error, and
+    never tells you the result matters.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-n">Queries in the set: <span id="v4-nv">400</span></label>
+    <input type="range" id="v4-n" min="0" max="6" step="1" value="4" aria-label="Number of queries">
+    <label class="vz-lab" for="v4-m" style="margin-top:10px">Minimum practically important effect: <span id="v4-mv">0.005</span></label>
+    <input type="range" id="v4-m" min="0" max="20" step="1" value="5" aria-label="Minimum practically important effect">
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Method" id="v4-mode" style="margin-top:12px"></div>
+
+  <div class="vz-card">
+    <div class="v4-hist" id="v4-hist"></div>
+    <div class="v4-stats" id="v4-stats"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Two things no resampling fixes. <b>Dependence</b>: near-duplicate queries or many
+    queries from one session are not independent evidence, so resample by user, session or intent group.
+    And <b>a buggy metric</b>: validate the implementation against hand-calculated cases first, because a
+    confidence interval around the wrong quantity is merely precise misinformation.</p>
+
+  <style>
+    .v4-hist{height:96px;display:flex;align-items:flex-end;gap:1px;border-bottom:1.5px solid var(--viz-line);
+      padding-bottom:2px}
+    .v4-b{flex:1;border-radius:2px 2px 0 0;min-height:1px}
+    .v4-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:3px;height:96px;align-content:center}
+    .v4-cell{height:100%;border-radius:3px;border:1.5px solid var(--viz-line);background:var(--viz-bg)}
+    .v4-cell.is-hit{border-color:var(--viz-red);background:var(--viz-red)}
+    .v4-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var NS = [25, 50, 100, 200, 400, 800, 1600];
+    var RES = 600;
+    var sn = document.getElementById('v4-n'), nv = document.getElementById('v4-nv');
+    var sm = document.getElementById('v4-m'), mv = document.getElementById('v4-mv');
+    var modeBox = document.getElementById('v4-mode');
+    var hist = document.getElementById('v4-hist'), stats = document.getElementById('v4-stats');
+    var why = document.getElementById('v4-why');
+    var MODES = ['paired bootstrap', 'permutation test', '100 configurations'];
+    var mode = 0;
+
+    // Seeded so the panel is reproducible: a "significance" readout that changes
+    // every render would teach the opposite of what this lesson is about.
+    function rng(seed){
+      return function(){
+        seed = seed + 0x6D2B79F5 | 0;
+        var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+        t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+      };
+    }
+    function build(n){
+      var r = rng(20260810), d = [];
+      for (var i = 0; i < n; i++) {
+        var u = r();
+        var base = u < 0.30 ? 0.09 : (u < 0.50 ? -0.08 : 0);
+        var jitter = (r() - 0.5) * 0.04;          // ties stay exactly 0 — a tie is a tie
+        d.push(base === 0 ? 0 : base + jitter);
+      }
+      return d;
+    }
+    function mean(a){ return a.length ? a.reduce(function(x, y){ return x + y; }, 0) / a.length : 0; }
+    function pct(sorted, p){
+      if (!sorted.length) return 0;
+      var i = Math.min(sorted.length - 1, Math.max(0, Math.round(p * (sorted.length - 1))));
+      return sorted[i];
+    }
+    function drawHist(vals, obs, loHi){
+      var n = vals.length;
+      if (!n) { hist.innerHTML = ''; return; }
+      var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+      var span = hi - lo;
+      if (!(span > 0)) span = 1e-6;
+      var B = 30, counts = new Array(B).fill(0);
+      vals.forEach(function(v){
+        var k = Math.floor((v - lo) / span * B);
+        if (k >= B) k = B - 1;
+        if (k < 0) k = 0;
+        counts[k] += 1;
+      });
+      var mx = Math.max.apply(null, counts) || 1;
+      hist.className = 'v4-hist';
+      hist.innerHTML = counts.map(function(c, k){
+        var x = lo + (k + 0.5) / B * span;
+        var inside = loHi ? (x >= loHi[0] && x <= loHi[1]) : (Math.abs(x) >= Math.abs(obs));
+        var col = inside ? (loHi ? 'var(--viz-accent)' : 'var(--viz-red)') : 'var(--viz-line)';
+        return '<span class="v4-b" style="height:' + Math.max(1, c / mx * 100) + '%;background:' + col + '"></span>';
+      }).join('');
+    }
+
+    function render(){
+      var n = NS[Number(sn.value)] || NS[4];
+      var mpie = Number(sm.value) / 1000;
+      if (!isFinite(mpie)) mpie = 0;
+      nv.textContent = String(n);
+      mv.textContent = mpie.toFixed(3);
+      [].slice.call(modeBox.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', i === mode ? 'true' : 'false');
+      });
+
+      var d = build(n);
+      var obs = mean(d);
+      var wins = d.filter(function(v){ return v > 0.001; }).length;
+      var losses = d.filter(function(v){ return v < -0.001; }).length;
+      var ties = n - wins - losses;
+
+      var r = rng(777), bmeans = [], pmeans = [], i, b, s;
+      for (b = 0; b < RES; b++) {
+        s = 0;
+        for (i = 0; i < n; i++) s += d[(r() * n) | 0];
+        bmeans.push(s / n);
+      }
+      for (b = 0; b < RES; b++) {
+        s = 0;
+        for (i = 0; i < n; i++) s += (r() < 0.5 ? -d[i] : d[i]);
+        pmeans.push(s / n);
+      }
+      var sortedB = bmeans.slice().sort(function(x, y){ return x - y; });
+      var loCI = pct(sortedB, 0.025), hiCI = pct(sortedB, 0.975);
+      var extreme = pmeans.filter(function(v){ return Math.abs(v) >= Math.abs(obs) - 1e-12; }).length;
+      var pval = (extreme + 1) / (RES + 1);
+
+      var excludesZero = loCI > 0 || hiCI < 0;
+      var excludesMpie = loCI > mpie;
+
+      if (mode === 2) {
+        var r2 = rng(4242), cells = '';
+        var hits = 0;
+        for (i = 0; i < 100; i++) {
+          var hit = r2() < 0.05;
+          if (hit) hits += 1;
+          cells += '<span class="v4-cell' + (hit ? ' is-hit' : '') + '"></span>';
+        }
+        hist.className = 'v4-grid';
+        hist.innerHTML = cells;
+        stats.innerHTML =
+          '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">' + hits +
+            ' of 100 "significant" under a TRUE null</span>' +
+          '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">P(at least one) = 1 − 0.95^100 = 0.994</span>';
+        why.innerHTML = '<b style="color:var(--viz-red)">Every filled square is a system that changed nothing.</b>' +
+          'Run 100 configurations against a null where none of them helps, test each at 5 percent, and ' +
+          'roughly five come back "significant" by chance alone. Report the smallest p-value of the ' +
+          'hundred and chance looks exactly like progress.' +
+          '<br><br>The fixes are procedural, not statistical: separate exploration from confirmation, keep ' +
+          'a final untouched test set, limit the declared primary metrics, or apply a multiplicity ' +
+          'correction. And the experiment log should contain the failed variants, not just the winner — ' +
+          'the same rule that forbids inventing query classes after seeing which ones won.';
+        return;
+      }
+
+      if (mode === 0) {
+        drawHist(bmeans, obs, [loCI, hiCI]);
+        stats.innerHTML =
+          '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">mean Δ = ' +
+            obs.toFixed(4) + '</span>' +
+          '<span class="vz-pill" style="color:' + (excludesZero ? 'var(--viz-green)' : 'var(--viz-amber)') +
+            ';border-color:' + (excludesZero ? 'var(--viz-green)' : 'var(--viz-amber)') + '">95% CI ' +
+            loCI.toFixed(4) + ' to ' + hiCI.toFixed(4) + '</span>' +
+          '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + wins +
+            ' win / ' + ties + ' tie / ' + losses + ' loss</span>';
+        why.innerHTML = '<b>' + (excludesZero
+            ? 'Zero is outside the interval.'
+            : 'Zero is inside the interval — more data, not a verdict.') + '</b>' +
+          'Resample the queries <em>with replacement</em> ' + RES + ' times, take the mean paired delta of ' +
+          'each resample, and read the 2.5th and 97.5th percentiles of those means. ' +
+          (excludesZero
+            ? 'The observed change is unlikely to be sampling noise under the method’s assumptions.'
+            : 'The evidence is compatible with no change at all.') +
+          '<br><br>Drag the query count: the interval narrows as 1/&radic;n in the number of <b>queries</b>, ' +
+          'not the number of resamples — 10,000 resamples of 25 queries is still 25 queries. The lesson’s ' +
+          'worked example, a central 95 percent interval of <span class="vz-mono">0.004 to 0.018</span>, ' +
+          'is this shape of result on a set of this size.' +
+          '<br><br>' + (excludesMpie
+            ? '<b style="color:var(--viz-green)">The whole interval also clears your minimum practically ' +
+              'important effect of ' + mpie.toFixed(3) + '</b> — significant <em>and</em> worth shipping.'
+            : '<b style="color:var(--viz-amber)">But the interval does not clear your minimum important ' +
+              'effect of ' + mpie.toFixed(3) + '.</b> Statistical significance is not practical ' +
+              'significance: on a big enough set a mean gain of 0.0002 is statistically clear and ' +
+              'operationally irrelevant.');
+      } else {
+        drawHist(pmeans, obs, null);
+        stats.innerHTML =
+          '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">observed ' +
+            obs.toFixed(4) + '</span>' +
+          '<span class="vz-pill" style="color:' + (pval < 0.05 ? 'var(--viz-green)' : 'var(--viz-amber)') +
+            ';border-color:' + (pval < 0.05 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">p = ' +
+            pval.toFixed(3) + '</span>' +
+          '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + extreme +
+            ' of ' + RES + ' at least as extreme</span>';
+        why.innerHTML = '<b>The null says the two system labels are exchangeable, query by query.</b>' +
+          'So swap A and B at random <em>within each pair</em>, recompute the mean difference, and repeat. ' +
+          'The red bars are the randomized differences at least as extreme as the one you saw; their ' +
+          'fraction is the p-value.' +
+          '<br><br>Read it for exactly what it is: <b>evidence against a null</b>. It is not the size of ' +
+          'the effect, not its business importance, and not the probability that the new system is good. ' +
+          'That is why the interval and the minimum important effect do the shipping decision and the ' +
+          'p-value does not.';
+      }
+    }
+
+    MODES.forEach(function(t, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = t;
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.addEventListener('click', function(){ mode = i; render(); });
+      modeBox.appendChild(b);
+    });
+    sn.addEventListener('input', render);
+    sm.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Slice The Regression</h2>
+  <p class="vz-lede">A hybrid retriever's mean nDCG rose 0.015 across 400 queries. Slice it by class, set
+    how many queries you demand before you will call a slice a finding, and tap any row for the root cause.
+    <b>Like a company reporting record profit while one division quietly burns.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div id="v5-head" class="v5-head"></div>
+    <label class="vz-lab" for="v5-min" style="margin-top:12px">Confirmatory only above <span id="v5-minv">30</span> queries</label>
+    <input type="range" id="v5-min" min="1" max="60" step="1" value="30" aria-label="Minimum class size for a confirmatory claim">
+  </div>
+
+  <div class="v5-rows" id="v5-rows"></div>
+  <div class="vz-card"><div class="vz-why" id="v5-why" style="margin-top:0;padding-top:0;border-top:none"></div></div>
+  <p class="vz-note">Weight by what the business carries, not by query count alone: a class of 500 queries
+    losing 0.02 demands attention even while the overall number rises, and a rare compliance failure can
+    outrank a larger average gain. Keep a <b>preregistered</b> taxonomy — classes invented after seeing the
+    outcome are hypotheses for the next evaluation, not findings in this one.</p>
+
+  <style>
+    .v5-head{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7}
+    .v5-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v5-r{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:8px 10px;font:inherit;
+      font-size:11.5px;display:flex;align-items:center;gap:8px;line-height:1.35;flex-wrap:wrap}
+    .v5-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-nm{flex:1 1 120px;font-weight:700}
+    .v5-num{font-family:ui-monospace,Consolas,monospace;font-size:11px;flex:0 0 auto}
+    .v5-badge{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    // Counts and deltas chosen so the weighted mean is the lesson's +0.015.
+    var CLASSES = [
+      { n:170, d: 0.040, name:'broad natural language',
+        why:['Where the hybrid retriever earns its keep.',
+          'Semantic candidates supply documents that share no query term, and graded judgments reward ' +
+          'them. This is the slice the headline number is made of: 170 of 400 queries carrying +0.04.' +
+          '<br><br>Note what it does <em>not</em> license — "hybrid retrieval works" is a claim about ' +
+          'this class, not about the system.'] },
+      { n:90,  d: 0.012, name:'navigational',
+        why:['Small, positive, and mostly already solved.',
+          'These queries have one right answer at rank 1, so the ceiling is low and the metric is coarse. ' +
+          'Reciprocal Rank on a class like this jumps a long way when the target moves one position, ' +
+          'which is exactly the kind of discreteness that inflates variance and hides a real change.'] },
+      { n:60,  d: 0.020, name:'entity lookup',
+        why:['A gain you would want to believe, and cannot yet.',
+          'Sixty queries carrying +0.020 still leaves a ± wider than the estimate, so the honest report ' +
+          'is "consistent with anything from a small loss to a solid gain". Worth sampling more of this ' +
+          'intent into the golden set rather than writing it up as a win.'] },
+      { n:40,  d:-0.120, name:'exact error code',
+        why:['The regression the mean is hiding — and the whole reason to slice.',
+          'Inspection shows <b>semantic candidates consuming the limited reranking pool</b>, so exact ' +
+          'lexical matches never reach the reranker at all. Walk the counterfactual ladder and the loss ' +
+          'localises to one stage:' +
+          '<br><span class="vz-mono">in corpus ✓ → indexed ✓ → in lexical candidates ✓ ' +
+          '→ survives fusion ✗ → reranked — → top-k ✗</span><br>' +
+          'The actionable fix is <b>protected exact-match candidates</b> or query-dependent fusion — ' +
+          'not reverting hybrid retrieval, which would give back the +0.04 on 170 queries to rescue 40.'] },
+      { n:25,  d: 0.030, name:'multi-hop',
+        why:['Promising, and under-powered at this size.',
+          'A quarter of the evidence of the broad class for a similar effect. The honest report is the ' +
+          'estimate <em>with</em> its interval, plus a plan to sample more of this intent into the golden ' +
+          'set before the next run.'] },
+      { n:12,  d: 0.015, name:'freshness sensitive',
+        why:['Twelve queries says almost nothing either way.',
+          'The interval here spans both a meaningful gain and a meaningful loss. Reporting it as "no ' +
+          'change" would be as wrong as reporting it as a win — it is an absence of evidence.'] },
+      { n:3,   d: 0.200, name:'no-answer queries',
+        why:['A lead, not proof — and the most tempting number on the page.',
+          'Three queries with a 0.20 gain is the single most quotable row here and the least trustworthy. ' +
+          'This is precisely how post-hoc slicing manufactures impressive segments: keep looking and some ' +
+          'tiny class will always look spectacular.'] }
+    ];
+    var SD = 0.18;   // assumed per-query spread, used only for the ± half-width
+    var cur = 3;
+    var rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+    var head = document.getElementById('v5-head'), sm = document.getElementById('v5-min');
+    var mv = document.getElementById('v5-minv');
+
+    var totalN = CLASSES.reduce(function(a, c){ return a + c.n; }, 0);
+    var totalW = CLASSES.reduce(function(a, c){ return a + c.n * c.d; }, 0);
+    var overall = totalN > 0 ? totalW / totalN : 0;
+    var exN = totalN - CLASSES[3].n;
+    var exMean = exN > 0 ? (totalW - CLASSES[3].n * CLASSES[3].d) / exN : 0;
+
+    function hw(n){ return n > 0 ? 1.96 * SD / Math.sqrt(n) : 0; }
+
+    function render(){
+      var minN = Number(sm.value) || 1;
+      mv.textContent = String(minN);
+      head.innerHTML =
+        '<span style="color:var(--viz-green);font-weight:800">overall mean ΔnDCG = +' +
+          overall.toFixed(3) + '</span> over ' + totalN + ' queries<br>' +
+        '<span style="color:var(--viz-muted)">drop the one class that regressed and the same experiment ' +
+        'reads +' + exMean.toFixed(3) + '</span>';
+
+      rows.innerHTML = CLASSES.map(function(c, i){
+        var h = hw(c.n);
+        var confirmed = c.n >= minN && Math.abs(c.d) > h;
+        var col = !confirmed ? 'var(--viz-amber)' : (c.d < 0 ? 'var(--viz-red)' : 'var(--viz-green)');
+        var badge = c.n < minN ? 'LEAD ONLY'
+          : (Math.abs(c.d) > h ? (c.d < 0 ? 'CONFIRMED LOSS' : 'CONFIRMED GAIN') : 'NO CLEAR EFFECT');
+        return '<button class="v5-r" type="button" aria-pressed="' + (i === cur ? 'true' : 'false') + '">' +
+          '<span class="v5-nm">' + c.name + '</span>' +
+          '<span class="v5-num" style="color:var(--viz-muted)">n=' + c.n + '</span>' +
+          '<span class="v5-num" style="color:' + (c.d < 0 ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+            (c.d >= 0 ? '+' : '−') + Math.abs(c.d).toFixed(3) + ' ±' + h.toFixed(3) + '</span>' +
+          '<span class="v5-badge" style="color:' + col + '">' + badge + '</span></button>';
+      }).join('');
+
+      [].slice.call(rows.children).forEach(function(b, i){
+        b.addEventListener('click', function(){ cur = i; render(); });
+      });
+
+      var c = CLASSES[cur], h2 = hw(c.n);
+      var status = c.n < minN
+        ? '<span style="color:var(--viz-amber)">Below your threshold of ' + minN + ' queries: treat as a lead.</span>'
+        : (Math.abs(c.d) > h2
+          ? '<span style="color:' + (c.d < 0 ? 'var(--viz-red)' : 'var(--viz-green)') + '">Interval clears zero at n=' + c.n + '.</span>'
+          : '<span style="color:var(--viz-muted)">Interval spans zero: no clear effect.</span>');
+      why.innerHTML = '<b>' + c.name + ' — ' + c.why[0] + '</b>' + status +
+        '<br><br>' + c.why[1] +
+        '<br><br><span style="color:var(--viz-muted)">The ± shown is 1.96·' + SD +
+        '/√n, i.e. what a per-query spread of ' + SD + ' would give — uncertainty shrinks as ' +
+        '1/√n, which is why a three-query class can never be confirmatory however large its delta.</span>';
+    }
+    sm.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

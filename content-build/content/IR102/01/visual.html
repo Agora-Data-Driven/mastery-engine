@@ -1,0 +1,808 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 118px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+.vz-lab span{color:var(--viz-accent)}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Postings To Fetches</button>
+  <button class="viz-tab" data-viz-tab="2">2. Front And Back Queues</button>
+  <button class="viz-tab" data-viz-tab="3">3. The robots.txt Rulebook</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Politeness Dial</button>
+  <button class="viz-tab" data-viz-tab="5">5. Traps And Canonical Form</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Postings To Fetches</h2>
+  <p class="vz-lede">IR 101 built the <b>dictionary and postings</b> over a collection somebody handed you.
+    This course asks where that collection came from. Step the crawl loop and watch the frontier — the list
+    of URLs discovered but not yet fetched — grow faster than you can drain it.
+    <b>Like a restaurant kitchen: the menu can only offer what the morning delivery brought.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side"><h5>IR 101 · you had this</h5>
+      <div class="v1-mono">term → postings list<br>index built over N docs</div>
+      <p>Every lesson took the collection as <em>given</em>.</p></div>
+    <div class="v1-arrow" aria-hidden="true">◀ upstream</div>
+    <div class="v1-side"><h5>IR 102 · this decides N</h5>
+      <div class="v1-mono">frontier → fetch → parse<br>→ canonicalize → seen test</div>
+      <p>BM25 statistics, embeddings and reranker signal are all downstream of this loop.</p></div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-stages" id="v1-stages"></div>
+    <div class="v1-ctrls">
+      <button class="v1-btn" id="v1-step">Step the loop ▸</button>
+      <button class="v1-btn" id="v1-hundred">Fetch 100 pages</button>
+      <button class="v1-btn" id="v1-reset">Reset</button>
+    </div>
+    <div class="v1-stagewhy" id="v1-stagewhy"></div>
+
+    <label class="vz-lab" for="v1-links">Outlinks on a typical page: <span id="v1-linksl">60</span></label>
+    <input type="range" id="v1-links" min="10" max="100" value="60" step="5" aria-label="Outlinks per page">
+    <label class="vz-lab" for="v1-seen">Share of those already seen: <span id="v1-seenl">70%</span></label>
+    <input type="range" id="v1-seen" min="0" max="95" value="70" step="5" aria-label="Percent of links already seen">
+
+    <div class="v1-bar"><i id="v1-fill"></i></div>
+    <div class="v1-stats" id="v1-stats"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Note which step is the hot path. The <b>URL-seen test</b> runs once per extracted link, so
+    hundreds of millions of canonical-URL hashes a day — typically an in-memory hash of recent URLs in front of
+    a disk-backed store. And note the order: canonicalization happens <em>before</em> the seen test, because
+    two spellings of one URL are only "seen" if they were normalized to the same string first.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:8px;align-items:stretch;margin-bottom:12px;flex-wrap:wrap}
+    .v1-side{flex:1 1 150px;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px;background:var(--viz-surface)}
+    .v1-side h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-side p{margin:7px 0 0;font-size:11.5px;line-height:1.5;color:var(--viz-muted)}
+    .v1-mono{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.6;color:var(--viz-accent)}
+    .v1-arrow{flex:0 0 auto;align-self:center;font-size:11px;font-weight:800;color:var(--viz-violet)}
+    .v1-stages{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}
+    .v1-st{flex:1 1 74px;border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 5px;text-align:center;
+      font-size:10.5px;font-weight:700;color:var(--viz-muted);background:var(--viz-bg);min-height:44px;
+      display:flex;align-items:center;justify-content:center;line-height:1.3}
+    .v1-st.is-on{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v1-ctrls{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+    .v1-btn{flex:1 1 106px;min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-surface);
+      color:var(--viz-accent);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v1-stagewhy{font-size:12px;line-height:1.55;margin-bottom:14px;color:var(--viz-ink)}
+    .v1-bar{height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden;margin-top:14px}
+    .v1-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v1-stats{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      ['pop', 'Take the URL the politeness layer allows right now — not simply the oldest one. The frontier is a scheduler, not a queue.'],
+      ['fetch', 'One HTTP GET. This is the only step that touches somebody else’s server, and it is the step visuals 3 and 4 govern.'],
+      ['parse', 'Read the HTML and pull the outlinks. A typical page carries 50–100 of them.'],
+      ['canonicalize', 'Normalize each outlink to one canonical form (visual 5). Skip this and the next step cannot recognise an alias.'],
+      ['seen test', 'Has this canonical URL ever been enqueued? At 2,000,000 fetches a day with 60 links a page that is 120,000,000 lookups a day.'],
+      ['push', 'Survivors go back into the frontier. Net growth per fetch is links × (1 − seen) − 1 — the one you just spent.']
+    ];
+    var SEED = 1000, CAP = 200000;
+    var stage = 0, fetched = 0;
+
+    var stagesEl = document.getElementById('v1-stages');
+    var stageWhy = document.getElementById('v1-stagewhy');
+    var links = document.getElementById('v1-links'), linksL = document.getElementById('v1-linksl');
+    var seen = document.getElementById('v1-seen'), seenL = document.getElementById('v1-seenl');
+    var fill = document.getElementById('v1-fill'), stats = document.getElementById('v1-stats');
+    var why = document.getElementById('v1-why');
+
+    STAGES.forEach(function(s, i){
+      var d = document.createElement('div');
+      d.className = 'v1-st';
+      d.textContent = (i + 1) + '. ' + s[0];
+      stagesEl.appendChild(d);
+    });
+
+    function net(){
+      var L = Number(links.value), sPct = Number(seen.value);
+      var fresh = L * (1 - sPct / 100);
+      return { L: L, fresh: fresh, net: fresh - 1 };
+    }
+    function render(){
+      var n = net();
+      linksL.textContent = n.L;
+      seenL.textContent = seen.value + '%';
+      [].slice.call(stagesEl.children).forEach(function(el, i){
+        el.className = 'v1-st' + (i === stage ? ' is-on' : '');
+      });
+      stageWhy.innerHTML = '<b style="color:var(--viz-accent)">' + (stage + 1) + '. ' + STAGES[stage][0] + '</b> — ' + STAGES[stage][1];
+
+      var size = Math.max(0, SEED + fetched * n.net);
+      var pct = Math.min(100, size / CAP * 100);
+      fill.style.width = Math.max(1, pct) + '%';
+
+      var seenTests = 2000000 * n.L;
+      var growing = n.net > 0;
+      var pill = function(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; };
+      stats.innerHTML =
+        pill(fetched.toLocaleString() + ' fetched', 'var(--viz-muted)') +
+        pill('frontier ' + Math.round(size).toLocaleString() + ' URLs', growing ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill((n.net >= 0 ? '+' : '') + n.net.toFixed(1) + ' URLs per fetch', growing ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(seenTests.toLocaleString() + ' seen-tests/day', 'var(--viz-violet)');
+
+      if (growing) {
+        var drainNever = 'never at this rate';
+        why.innerHTML = '<b style="color:var(--viz-red)">The frontier grows faster than you drain it — ' + drainNever + '.</b>' +
+          'Each fetch spends one URL and discovers ' + n.fresh.toFixed(1) + ' new ones, so the list of things you have <em>not</em> done ' +
+          'runs away from you. A serious crawl holds hundreds of millions of frontier URLs, which is why the frontier is disk-backed with ' +
+          'batched reads and writes rather than an in-memory queue.' +
+          '<br><br>And plain FIFO order makes it worse in a second way: most links on a page point at the <b>same host</b>, so consecutive ' +
+          'pops cluster onto a handful of hosts. Under a politeness delay your workers then either hammer one server or sit idle — which is ' +
+          'exactly the problem visual 2 solves.';
+      } else {
+        var drain = n.net < 0 ? Math.ceil(SEED / (-n.net)) : null;
+        why.innerHTML = '<b style="color:var(--viz-green)">Saturated: almost every link is one you already have.</b>' +
+          'At ' + seen.value + '% already seen, each fetch discovers only ' + n.fresh.toFixed(1) + ' new URLs and consumes one, so the frontier ' +
+          (drain ? 'drains to empty after about ' + drain.toLocaleString() + ' more fetches' : 'holds steady') + '. ' +
+          'This is what the end of a scoped crawl looks like — and note that the seen test is doing <b>more</b> work than ever ' +
+          '(' + seenTests.toLocaleString() + ' lookups a day), because it is what proves the links are duplicates.' +
+          '<br><br>Breadth-first is a surprisingly strong baseline early on: high-indegree, high-quality pages tend to be shallow, so BFS ' +
+          'finds them first with no scoring at all. It is the <em>steady state</em> that needs the machinery.';
+      }
+    }
+    document.getElementById('v1-step').addEventListener('click', function(){
+      stage = (stage + 1) % STAGES.length;
+      if (stage === 0) fetched += 1;
+      render();
+    });
+    document.getElementById('v1-hundred').addEventListener('click', function(){ fetched += 100; render(); });
+    document.getElementById('v1-reset').addEventListener('click', function(){ fetched = 0; stage = 0; render(); });
+    links.addEventListener('input', render);
+    seen.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Front And Back Queues</h2>
+  <p class="vz-lede">One FIFO list answers "what is next?" with whatever arrived first — and politeness then
+    idles your workers. Mercator splits the question in two: front queues decide <em>what is worth fetching</em>,
+    back queues decide <em>what may be fetched right now</em>. Switch the design and add workers.
+    <b>Like a bank with one queue for one teller versus a ticket system feeding eight windows.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Frontier design">
+    <button id="v2-fifo" aria-pressed="false">one FIFO frontier</button>
+    <button id="v2-merc" aria-pressed="true">front + back queues</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-workers">Fetcher workers: <span id="v2-workersl">4</span></label>
+    <input type="range" id="v2-workers" min="1" max="8" value="4" step="1" aria-label="Number of workers">
+    <label class="vz-lab" for="v2-delay">Politeness delay per host: <span id="v2-delayl">5 s</span></label>
+    <input type="range" id="v2-delay" min="1" max="30" value="5" step="1" aria-label="Politeness delay in seconds">
+
+    <div class="v2-diagram" id="v2-diagram"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two judgment calls live on top of this machine. <b>Never pop strictly by max priority</b> —
+    a mid-tier site discovered early would wait behind an endless supply of higher-scored URLs, so production
+    frontiers <em>sample</em> across the priority queues weighted by priority. And know when not to build it at
+    all: for a scoped research corpus over thousands of vetted hosts, per-host FIFO queues under a simple host
+    scheduler are usually right. Most of this complexity exists to survive the open web.</p>
+
+  <style>
+    .v2-diagram{margin-top:16px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-col{flex:1 1 150px}
+    .v2-col h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v2-row{display:flex;align-items:center;gap:7px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;
+      border:1.5px solid var(--viz-line);border-radius:8px;padding:6px 8px;margin-bottom:4px;background:var(--viz-bg)}
+    .v2-row.is-next{border-color:var(--viz-accent)}
+    .v2-row.is-idle{opacity:.45;border-style:dashed}
+    .v2-track{flex:1;height:9px;border-radius:3px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{display:block;height:100%;background:var(--viz-accent)}
+    .v2-tag{margin-left:auto;font-size:9.5px;font-weight:800;font-family:inherit}
+    .v2-stats{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var HOSTS = ['A','B','C','D','E','F','G','H'];
+    var WINDOW_S = 60, SITE_PAGES = 500000;
+    var mercator = true;
+    var bF = document.getElementById('v2-fifo'), bM = document.getElementById('v2-merc');
+    var w = document.getElementById('v2-workers'), wl = document.getElementById('v2-workersl');
+    var d = document.getElementById('v2-delay'), dl = document.getElementById('v2-delayl');
+    var diagram = document.getElementById('v2-diagram'), stats = document.getElementById('v2-stats');
+    var why = document.getElementById('v2-why');
+
+    function render(){
+      var W = Number(w.value), D = Math.max(1, Number(d.value));
+      wl.textContent = W;
+      dl.textContent = D + ' s';
+      bF.setAttribute('aria-pressed', mercator ? 'false' : 'true');
+      bM.setAttribute('aria-pressed', mercator ? 'true' : 'false');
+
+      var perHost = Math.floor(WINDOW_S / D);           // fetches one host allows in the window
+      var hostsUsed = mercator ? Math.min(HOSTS.length, Math.max(1, W)) : 1;
+      var fetches = Math.min(hostsUsed * perHost, W * WINDOW_S);
+      var counts = HOSTS.map(function(_, i){ return i < hostsUsed ? Math.round(fetches / hostsUsed) : 0; });
+      var maxC = Math.max(1, Math.max.apply(null, counts));
+
+      var front = '<div class="v2-col"><h5>front queues · priority</h5>' +
+        [['P1 high', 12], ['P2', 9], ['P3 low', 6]].map(function(q, i){
+          return '<div class="v2-row"><span>' + q[0] + '</span><span class="v2-track"><i style="width:' +
+            Math.round(q[1] / 12 * 100) + '%"></i></span><span class="v2-tag" style="color:var(--viz-muted)">' +
+            (mercator ? q[1] + ' URLs' : 'not used') + '</span></div>';
+        }).join('') +
+        '<p style="font-size:11px;line-height:1.5;color:var(--viz-muted);margin:6px 0 0">' +
+        (mercator
+          ? 'Scored by link indegree and source importance. An empty back queue refills from here, biased high.'
+          : 'A FIFO frontier has no priority tier at all — arrival order is the only order.') + '</p></div>';
+
+      var back = '<div class="v2-col"><h5>' + (mercator ? 'back queues · one per host' : 'one queue · arrival order') + '</h5>' +
+        HOSTS.map(function(h, i){
+          var active = counts[i] > 0;
+          var nextIn = mercator ? (i * D / Math.max(1, hostsUsed)).toFixed(1) : (i === 0 ? '0.0' : '—');
+          return '<div class="v2-row ' + (i === 0 ? 'is-next' : (active ? '' : 'is-idle')) + '">' +
+            '<span>host ' + h + '</span>' +
+            '<span class="v2-track"><i style="width:' + Math.round(counts[i] / maxC * 100) + '%"></i></span>' +
+            '<span class="v2-tag" style="color:' + (active ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' +
+            counts[i] + ' fetched · next ' + nextIn + 's</span></div>';
+        }).join('') + '</div>';
+
+      diagram.innerHTML = front + back;
+
+      var idle = Math.max(0, W * WINDOW_S - fetches);
+      var ceiling = Math.floor(86400 / D);
+      var days = Math.ceil(SITE_PAGES / Math.max(1, ceiling));
+      var good = mercator && fetches >= W * 10;
+      var pill = function(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; };
+      stats.innerHTML =
+        pill(fetches + ' fetches in 60 s', good ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill(idle + ' idle worker-seconds', idle > fetches ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        pill('ceiling ' + ceiling.toLocaleString() + '/day/host', 'var(--viz-violet)') +
+        pill('500,000-page site: ' + days.toLocaleString() + ' days', 'var(--viz-amber)');
+
+      why.innerHTML = mercator
+        ? '<b style="color:var(--viz-green)">Two tiers, two questions.</b>' +
+          'Front queues answer <b>what is worth fetching</b>; back queues answer <b>what may be fetched right now</b>. A min-heap keyed ' +
+          'on each host’s earliest next allowed fetch time picks the back queue a free worker draws from, so ' + hostsUsed +
+          ' hosts are in flight at once and ' + fetches + ' fetches land in the window. ' +
+          'Politeness rules the short horizon — the heap decides the next fetch — while priority rules the long horizon, deciding ' +
+          'which URLs get frontier slots at all.' +
+          '<br><br><b>The ceiling is arithmetic, and workers do not move it:</b> 86,400 / ' + D + ' = ' + ceiling.toLocaleString() +
+          ' fetches per day per host, so a 500,000-page site needs at least <b>' + days.toLocaleString() + ' days</b> however many workers ' +
+          'you add. Only more <em>hosts</em> raise throughput. With 50,000 active hosts this heap is trivial work — the hot path is still ' +
+          'the URL-seen test from visual 1.'
+        : '<b style="color:var(--viz-red)">One queue, one host, ' + (W - 1) + ' idle worker' + (W === 2 ? '' : 's') + '.</b>' +
+          'Most links on a page point within the same host, so a FIFO frontier hands out long runs of URLs from host A. Politeness allows one ' +
+          'fetch every ' + D + ' s there, so only ' + fetches + ' fetches happen in 60 seconds and ' + idle + ' worker-seconds are burned waiting. ' +
+          'Adding workers changes nothing — they queue behind the same host’s clock.' +
+          '<br><br>The failure is not politeness and it is not FIFO on its own; it is that <b>one structure is being asked two different ' +
+          'questions</b>. Switch to front + back queues and the same delay, the same workers and the same URLs produce ' +
+          Math.min(HOSTS.length, Math.max(1, W)) * Math.floor(WINDOW_S / D) + ' fetches instead.';
+    }
+    bF.addEventListener('click', function(){ mercator = false; render(); });
+    bM.addEventListener('click', function(){ mercator = true; render(); });
+    w.addEventListener('input', render);
+    d.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The robots.txt Rulebook</h2>
+  <p class="vz-lede">The declarative half of politeness, at exactly one address per origin and standardized as
+    RFC 9309 (2022). Tap a path to see which rules matched, how long each match was, and who wins — then change
+    the file's HTTP status and watch every verdict flip.
+    <b>Like a house rule pinned to the door: the most specific sign wins, and a missing sign is not a locked door.</b></p>
+
+  <div class="vz-card vz-mono" id="v3-file" style="margin-bottom:11px"></div>
+
+  <div class="vz-seg" role="group" aria-label="robots.txt fetch status">
+    <button id="v3-ok" aria-pressed="true">200 OK</button>
+    <button id="v3-404" aria-pressed="false">404 (4xx)</button>
+    <button id="v3-503" aria-pressed="false">503 (5xx)</button>
+    <button id="v3-dead" aria-pressed="false">unreachable</button>
+  </div>
+
+  <div class="v3-banner" id="v3-banner"></div>
+  <div class="v3-paths" id="v3-paths"></div>
+  <div class="vz-card"><div class="vz-why" style="margin-top:0;padding-top:0;border-top:0" id="v3-why"></div></div>
+  <p class="vz-note">Cache the file — 24 hours is the conventional ceiling — rather than refetching it per URL.
+    And note the one directive here that is <b>not</b> in RFC 9309: <code>Crawl-delay</code> is de facto only
+    (Bing honoured it historically, Google ignores it). Honour it anyway; it is the operator stating their
+    capacity in plain text, and visual 4 is what you do when it is absent.</p>
+
+  <style>
+    .v3-banner{font-size:12px;font-weight:700;line-height:1.5;border-radius:10px;padding:9px 11px;margin-bottom:10px;
+      border:1.5px solid var(--viz-line);background:var(--viz-surface)}
+    .v3-paths{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-p{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;display:flex;align-items:center;gap:9px;line-height:1.4;flex-wrap:wrap}
+    .v3-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-v{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var FILE = [
+      'User-agent: *',
+      'Disallow: /search',
+      'Allow: /search/about',
+      'Disallow: /*.pdf$',
+      'Crawl-delay: 10',
+      'Sitemap: https://example.com/sitemap.xml'
+    ];
+    document.getElementById('v3-file').textContent = FILE.join('\n');
+
+    // Rules in file order. `len` is the matched-prefix length used by the longest-match rule.
+    var RULES = [
+      { kind:'Disallow', pat:'/search',    test:function(p){ return p.indexOf('/search') === 0; },  len:7 },
+      { kind:'Allow',    pat:'/search/about', test:function(p){ return p.indexOf('/search/about') === 0; }, len:13 },
+      { kind:'Disallow', pat:'/*.pdf$',    test:function(p){ return /^\/.*\.pdf$/.test(p); },       len:7 }
+    ];
+    var PATHS = [
+      { p:'/search/results?q=x', why:'Matches <code>/search</code> and nothing else, so the 7-character <b>Disallow</b> stands. This is the plain case.' },
+      { p:'/search/about', why:'Both rules match. <b>Allow</b> matched 13 characters, <b>Disallow</b> matched 7, and <b>longer wins</b> — so a narrow Allow carves an opening out of a broad Disallow.' },
+      { p:'/search/about/team', why:'Same contest, one level deeper: the 13-character Allow still matches as a prefix and still beats the 7-character Disallow. Rules cover subtrees.' },
+      { p:'/search-tips', why:'A rule is a <b>path prefix, not a directory</b>. <code>/search</code> matches the first 7 characters of this path too, so a page that has nothing to do with the search feature is disallowed. Operators write this bug constantly — and you must honour it anyway.' },
+      { p:'/docs/guide', why:'No rule matches at all, so it is allowed. Absence of a rule is permission; robots.txt is a deny-list with carve-outs, not an allow-list.' },
+      { p:'/papers/report.pdf', why:'Matched by the wildcard rule <code>/*.pdf$</code>: <code>*</code> stands for any run of characters and <code>$</code> anchors the end.' },
+      { p:'/papers/report.pdf?v=2', why:'The <b>same file</b>, and it is allowed — because <code>$</code> anchors the END, and this path does not end in <code>.pdf</code>. That is not a loophole to exploit; it is a reason to read the anchor carefully before you claim a rule covers something.' }
+    ];
+    var STATUSES = {
+      ok:   { label:'200 OK', mode:'rules' },
+      p404: { label:'404 (4xx)', mode:'allow' },
+      p503: { label:'503 (5xx)', mode:'deny' },
+      dead: { label:'unreachable', mode:'deny' }
+    };
+    var status = 'ok', cur = 1;
+    var btns = { ok: document.getElementById('v3-ok'), p404: document.getElementById('v3-404'),
+                 p503: document.getElementById('v3-503'), dead: document.getElementById('v3-dead') };
+    var banner = document.getElementById('v3-banner'), list = document.getElementById('v3-paths');
+    var why = document.getElementById('v3-why');
+
+    function decide(path){
+      var hits = RULES.filter(function(r){ return r.test(path); });
+      if (!hits.length) return { allowed:true, winner:null, hits:hits };
+      var best = hits[0];
+      hits.forEach(function(r){
+        if (r.len > best.len || (r.len === best.len && r.kind === 'Allow')) best = r;
+      });
+      return { allowed: best.kind === 'Allow', winner: best, hits: hits };
+    }
+    function render(){
+      Object.keys(btns).forEach(function(k){ btns[k].setAttribute('aria-pressed', k === status ? 'true' : 'false'); });
+      var mode = STATUSES[status].mode;
+
+      banner.style.borderColor = mode === 'rules' ? 'var(--viz-line)' : (mode === 'allow' ? 'var(--viz-green)' : 'var(--viz-red)');
+      banner.innerHTML = mode === 'rules'
+        ? '<span style="color:var(--viz-accent)">200 · rules apply.</span> The file was read; every path below is judged by longest match.'
+        : mode === 'allow'
+          ? '<span style="color:var(--viz-green)">4xx · no restrictions — crawl freely.</span> A 404 robots.txt means the site published no policy, so every rule below is ignored.'
+          : '<span style="color:var(--viz-red)">5xx or unreachable · complete disallow, temporarily.</span> The site is in trouble and you cannot know its policy, so you fetch nothing here until it answers.';
+
+      list.innerHTML = '';
+      PATHS.forEach(function(row, i){
+        var v = decide(row.p);
+        var allowed = mode === 'rules' ? v.allowed : (mode === 'allow');
+        var b = document.createElement('button');
+        b.className = 'v3-p';
+        b.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+        b.innerHTML = '<span>' + row.p.replace(/</g, '&lt;') + '</span>' +
+          '<span class="v3-v" style="color:' + (allowed ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (allowed ? 'ALLOWED ✓' : 'DISALLOWED ✕') + '</span>';
+        b.addEventListener('click', function(){ cur = i; render(); });
+        list.appendChild(b);
+      });
+
+      var row = PATHS[cur], v = decide(row.p);
+      var table = v.hits.length
+        ? v.hits.map(function(r){
+            var winner = v.winner === r;
+            return '<div style="font-family:ui-monospace,Consolas,monospace;font-size:11px;margin-top:3px;color:' +
+              (winner ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' + (winner ? '▸ ' : '· ') +
+              r.kind + ': ' + r.pat + '  — matched ' + r.len + ' chars' + (winner ? '  ← WINS' : '') + '</div>';
+          }).join('')
+        : '<div style="font-family:ui-monospace,Consolas,monospace;font-size:11px;margin-top:3px;color:var(--viz-muted)">· no rule matches this path</div>';
+
+      var overridden = STATUSES[status].mode !== 'rules';
+      why.innerHTML = '<b>' + row.p.replace(/</g, '&lt;') + '</b>' + table +
+        '<div style="margin-top:9px">' + row.why + '</div>' +
+        (overridden
+          ? '<div style="margin-top:9px;color:var(--viz-amber)"><b style="display:inline">Overridden by the status code.</b> ' +
+            'At ' + STATUSES[status].label + ' the rules above are never consulted — and note the asymmetry, which is a favourite exam trap: ' +
+            '4xx opens everything, 5xx closes everything.</div>'
+          : '<div style="margin-top:9px;color:var(--viz-muted)">The winner is chosen by <b>longest matched prefix</b>, with <b>Allow</b> taking ties — not by file order, and not by shortest match.</div>');
+    }
+    Object.keys(btns).forEach(function(k){ btns[k].addEventListener('click', function(){ status = k; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Politeness Dial</h2>
+  <p class="vz-lede">When robots.txt says nothing about rate, you set it — and the professional default is not a
+    constant but a delay proportional to how slowly the server is answering you. Drag the server's response time
+    and the multiplier k, then hand the site a <code>Crawl-delay</code> and watch the calendar move.
+    <b>Like backing off in conversation when someone is struggling to keep up.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="What robots.txt says">
+    <button id="v4-silent" aria-pressed="true">robots.txt silent</button>
+    <button id="v4-cd10" aria-pressed="false">Crawl-delay: 10</button>
+    <button id="v4-cd60" aria-pressed="false">Crawl-delay: 60</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-t">Server response time: <span id="v4-tl">200 ms</span></label>
+    <input type="range" id="v4-t" min="50" max="3000" value="200" step="50" aria-label="Server response time in milliseconds">
+    <label class="vz-lab" for="v4-k">Multiplier k: <span id="v4-kl">10</span></label>
+    <input type="range" id="v4-k" min="3" max="10" value="10" step="1" aria-label="Delay multiplier k">
+
+    <button class="v4-check" id="v4-shared" aria-pressed="false">
+      <span class="v4-box" aria-hidden="true"></span>
+      <span>Shared hosting: 12 hostnames on this one IP</span>
+    </button>
+
+    <div class="v4-out" id="v4-out"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Three rules travel with this dial. <b>One open connection per host.</b> On <b>429 or 503,
+    honour <code>Retry-After</code></b> exactly if it is present and back off exponentially if it is not. And
+    identify yourself with a descriptive <code>User-Agent</code> and a contact address — because the cost of
+    getting this wrong is not a slow crawl, it is an IP ban, and a source lost for good can be worse for a
+    research corpus than one never crawled.</p>
+
+  <style>
+    .v4-check{display:flex;align-items:center;gap:10px;width:100%;min-height:44px;margin-top:12px;
+      border:1.5px solid var(--viz-line);background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;
+      padding:8px 11px;font:inherit;font-size:12px;text-align:left;line-height:1.35}
+    .v4-check[aria-pressed="true"]{border-color:var(--viz-amber)}
+    .v4-box{flex:0 0 auto;width:17px;height:17px;border-radius:5px;border:2px solid var(--viz-line)}
+    .v4-check[aria-pressed="true"] .v4-box{background:var(--viz-amber);border-color:var(--viz-amber)}
+    .v4-out{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+    .v4-r{display:flex;align-items:baseline;gap:8px;font-size:12px;border-bottom:1px dashed var(--viz-line);padding-bottom:6px}
+    .v4-r b{margin-left:auto;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    var MODES = { silent:{ cd:null }, cd10:{ cd:10 }, cd60:{ cd:60 } };
+    var mode = 'silent', shared = false;
+    var btns = { silent: document.getElementById('v4-silent'), cd10: document.getElementById('v4-cd10'), cd60: document.getElementById('v4-cd60') };
+    var t = document.getElementById('v4-t'), tl = document.getElementById('v4-tl');
+    var k = document.getElementById('v4-k'), kl = document.getElementById('v4-kl');
+    var chk = document.getElementById('v4-shared');
+    var out = document.getElementById('v4-out'), why = document.getElementById('v4-why');
+
+    function render(){
+      Object.keys(btns).forEach(function(m){ btns[m].setAttribute('aria-pressed', m === mode ? 'true' : 'false'); });
+      chk.setAttribute('aria-pressed', shared ? 'true' : 'false');
+      var tSec = Number(t.value) / 1000, K = Number(k.value);
+      tl.textContent = Number(t.value) + ' ms';
+      kl.textContent = K;
+
+      var adaptive = Math.max(1, K * tSec);
+      var cd = MODES[mode].cd;
+      var delay = cd === null ? adaptive : cd;          // never zero, so no division by zero below
+      var perDay = Math.floor(86400 / delay);
+      var onMachine = shared ? perDay * 12 : perDay;
+      var days = 2000000 * delay / 86400;
+      var span = days > 365 ? (days / 365).toFixed(1) + ' years' : Math.ceil(days).toLocaleString() + ' days';
+      var hot = days > 365;
+
+      function row(label, value, col){
+        return '<div class="v4-r"><span style="color:var(--viz-muted)">' + label + '</span><b style="color:' + col + '">' + value + '</b></div>';
+      }
+      out.innerHTML =
+        row('delay you use', delay.toFixed(1) + ' s', 'var(--viz-accent)') +
+        row('fetches / day / host', perDay.toLocaleString(), perDay < 3000 ? 'var(--viz-red)' : 'var(--viz-green)') +
+        row('requests / day hitting the machine', onMachine.toLocaleString(), shared ? 'var(--viz-amber)' : 'var(--viz-muted)') +
+        row('to fetch 2,000,000 pages', span, hot ? 'var(--viz-red)' : 'var(--viz-muted)');
+
+      var body;
+      if (cd === null) {
+        body = '<b style="color:var(--viz-accent)">Adaptive: delay ≈ k × response time, floor 1 s.</b>' +
+          'k × t = ' + K + ' × ' + tSec.toFixed(2) + ' s = ' + (K * tSec).toFixed(2) + ' s' +
+          (K * tSec < 1 ? ', raised to the <b>1 s floor</b>' : '') + ', so ' + perDay.toLocaleString() + ' fetches a day from this host. ' +
+          'Drag the response time up: a struggling server that answers in 3 s automatically gets one request per ' + (3 * K).toFixed(0) +
+          ' s without you writing a rule. That self-correction is the entire argument against a fixed sleep — a constant is polite ' +
+          'to a fast server and lethal to a slow one.';
+      } else if (cd === 10) {
+        body = '<b style="color:var(--viz-amber)">The operator answered, so your dial is overruled.</b>' +
+          '<code>Crawl-delay: 10</code> is not part of RFC 9309 — it is de facto, honoured by some crawlers and ignored by Google — ' +
+          'and you honour it anyway: it is capacity stated in plain text. Note that it holds whatever the response time is, so the adaptive ' +
+          'calculation above becomes irrelevant. 2,000,000 pages now takes ' + span + '.';
+      } else {
+        body = '<b style="color:var(--viz-red)">' + span + ' for 2,000,000 pages. This is no longer an engineering problem.</b>' +
+          '2,000,000 × 60 s = 120,000,000 seconds. The answer is <b>not</b> a technical workaround like rotating IPs — that converts ' +
+          '"this is slow" into "the owner said no, and we did it anyway". Go and find a <b>sanctioned bulk channel</b>: an official API, a ' +
+          'published dump, a sitemap-guided partial crawl of only what you need, or an email to the operator. ' +
+          '<br><br>Distinguishing the two is the judgment this panel exists for.';
+      }
+      if (shared) {
+        body += '<br><br><span style="color:var(--viz-amber)"><b style="display:inline">Per host is not per server.</b></span> ' +
+          '12 hostnames share this IP, so your perfectly polite ' + perDay.toLocaleString() + ' requests per host arrive as <b>' +
+          onMachine.toLocaleString() + ' requests a day</b> at one physical machine. Shared hosting and small providers are full of this, ' +
+          'which is why production crawlers cluster their limits <b>per IP</b> as well as per hostname.';
+      }
+      why.innerHTML = body;
+    }
+    Object.keys(btns).forEach(function(m){ btns[m].addEventListener('click', function(){ mode = m; render(); }); });
+    chk.addEventListener('click', function(){ shared = !shared; render(); });
+    t.addEventListener('input', render);
+    k.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Traps And Canonical Form</h2>
+  <p class="vz-lede">Two halves of one problem: URL space is bigger than content space. A trap mints unbounded
+    URLs over almost no content; aliasing mints several URLs for one page. Widen the facets, then switch tabs
+    and toggle normalization rules on eight real URLs.
+    <b>Like a hotel where every door opens on the same room — and a corridor that never ends.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which half">
+    <button id="v5-trap" aria-pressed="true">faceted trap</button>
+    <button id="v5-canon" aria-pressed="false">canonicalizer</button>
+  </div>
+
+  <div class="vz-card">
+    <div id="v5-trapbody">
+      <div class="v5-sliders" id="v5-sliders"></div>
+      <div class="v5-stats" id="v5-trapstats"></div>
+    </div>
+    <div id="v5-canonbody">
+      <div class="v5-toggles" id="v5-toggles"></div>
+      <div class="v5-urls" id="v5-urls"></div>
+      <div class="v5-stats" id="v5-canonstats"></div>
+    </div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The last word belongs to a site's own <code>rel="canonical"</code> — a <code>&lt;link&gt;</code>
+    tag or HTTP <code>Link</code> header naming the URL a page considers its true self. Treat it as a <b>hint, not a
+    directive</b>: it is frequently wrong or abused, so weigh it against your own content-equality evidence, and keep
+    <b>per-site parameter rules</b> learned by fetching variants and comparing what comes back.</p>
+
+  <style>
+    .v5-sliders{display:flex;flex-direction:column;gap:9px}
+    .v5-s{display:flex;align-items:center;gap:9px}
+    .v5-s label{flex:0 0 84px;font-size:11.5px;font-weight:700}
+    .v5-s label b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-s input{flex:1}
+    .v5-toggles{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+    .v5-t{min-height:44px;flex:1 1 132px;border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-muted);
+      border-radius:9px;font:inherit;font-size:11px;font-weight:700;padding:6px 8px;text-align:left;line-height:1.3}
+    .v5-t[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-t.is-risky[aria-pressed="true"]{border-color:var(--viz-red);color:var(--viz-red)}
+    .v5-urls{display:flex;flex-direction:column;gap:4px}
+    .v5-u{border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 9px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:10px;line-height:1.5;word-break:break-all}
+    .v5-u i{font-style:normal;color:var(--viz-muted)}
+    .v5-u b{font-weight:700}
+    .v5-grp{float:right;font-size:9.5px;font-weight:800;margin-left:6px}
+    .v5-stats{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var trapMode = true;
+    var bT = document.getElementById('v5-trap'), bC = document.getElementById('v5-canon');
+    var trapBody = document.getElementById('v5-trapbody'), canonBody = document.getElementById('v5-canonbody');
+    var slidersEl = document.getElementById('v5-sliders'), trapStats = document.getElementById('v5-trapstats');
+    var togglesEl = document.getElementById('v5-toggles'), urlsEl = document.getElementById('v5-urls');
+    var canonStats = document.getElementById('v5-canonstats'), why = document.getElementById('v5-why');
+
+    // ---------------- half A: the faceted trap ----------------
+    var FACETS = [
+      { key:'colour', min:1, max:20, val:12 },
+      { key:'size',   min:1, max:10, val:8 },
+      { key:'brand',  min:1, max:30, val:20 },
+      { key:'sort',   min:1, max:8,  val:6 },
+      { key:'page',   min:1, max:50, val:25 }
+    ];
+    var PRODUCTS = 3000, BUDGET = 50000;
+    FACETS.forEach(function(f, i){
+      var wrap = document.createElement('div');
+      wrap.className = 'v5-s';
+      var lab = document.createElement('label');
+      lab.innerHTML = f.key + ' <b>' + f.val + '</b>';
+      var inp = document.createElement('input');
+      inp.type = 'range'; inp.min = f.min; inp.max = f.max; inp.value = f.val; inp.step = 1;
+      inp.setAttribute('aria-label', f.key + ' values');
+      inp.addEventListener('input', function(){ f.val = Number(inp.value); lab.innerHTML = f.key + ' <b>' + f.val + '</b>'; render(); });
+      wrap.appendChild(lab); wrap.appendChild(inp);
+      slidersEl.appendChild(wrap);
+    });
+
+    // ---------------- half B: the canonicalizer ----------------
+    var UNRESERVED = /[A-Za-z0-9\-._~]/;
+    function parse(u){
+      var m = /^([A-Za-z]+):\/\/([^\/?#]+)([^?#]*)(\?[^#]*)?(#.*)?$/.exec(u);
+      if (!m) return null;
+      return { scheme:m[1], host:m[2], path:m[3] || '/', query:m[4] ? m[4].slice(1) : '', frag:m[5] || '' };
+    }
+    function dots(p){
+      var out = [];
+      p.split('/').forEach(function(seg){
+        if (seg === '..') out.pop();
+        else if (seg !== '.') out.push(seg);
+      });
+      return out.join('/') || '/';
+    }
+    function pct(str){
+      return str.replace(/%([0-9A-Fa-f]{2})/g, function(all, hex){
+        var ch = String.fromCharCode(parseInt(hex, 16));
+        return UNRESERVED.test(ch) ? ch : '%' + hex.toUpperCase();
+      });
+    }
+    var RULES = [
+      { id:'host',  label:'lowercase scheme + host', tier:'safe' },
+      { id:'port',  label:'drop default port', tier:'safe' },
+      { id:'dots',  label:'resolve dot-segments', tier:'safe' },
+      { id:'pct',   label:'normalize %-encoding', tier:'safe' },
+      { id:'frag',  label:'drop the #fragment', tier:'safe' },
+      { id:'track', label:'strip utm_* / gclid', tier:'heuristic' },
+      { id:'sortq', label:'sort query parameters', tier:'heuristic' },
+      { id:'lower', label:'lowercase the path ⚠', tier:'risky' },
+      { id:'strip', label:'strip every parameter ⚠', tier:'risky' }
+    ];
+    var on = { host:true, port:true, dots:true, pct:true, frag:true, track:true, sortq:true, lower:false, strip:false };
+    var URLS = [
+      { u:'HTTPS://Example.COM:443/a/../docs/?utm_source=news#top', g:'A' },
+      { u:'https://example.com/%64ocs/', g:'A' },
+      { u:'https://example.com/docs/?utm_source=partner', g:'A' },
+      { u:'https://example.com/docs/', g:'A' },
+      { u:'https://example.com/Docs/', g:'B' },
+      { u:'https://example.com/forum/thread?id=42&page=2', g:'C' },
+      { u:'https://example.com/forum/thread?page=2&id=42', g:'C' },
+      { u:'https://example.com/forum/thread?id=42&page=1', g:'D' }
+    ];
+    function canon(raw){
+      var p = parse(raw);
+      if (!p) return raw;
+      var scheme = p.scheme, host = p.host, path = p.path, query = p.query, frag = p.frag;
+      if (on.host) { scheme = scheme.toLowerCase(); host = host.toLowerCase(); }
+      if (on.port) host = host.replace(/:443$/, '').replace(/:80$/, '');
+      if (on.dots) path = dots(path);
+      if (on.pct) path = pct(path);
+      if (on.lower) path = path.toLowerCase();
+      if (on.frag) frag = '';
+      var parts = query ? query.split('&').filter(Boolean) : [];
+      if (on.strip) parts = [];
+      else if (on.track) parts = parts.filter(function(kv){ return !/^(utm_|gclid=|fbclid=)/.test(kv); });
+      if (on.sortq) parts = parts.slice().sort();
+      return scheme + '://' + host + path + (parts.length ? '?' + parts.join('&') : '') + frag;
+    }
+
+    function render(){
+      bT.setAttribute('aria-pressed', trapMode ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', trapMode ? 'false' : 'true');
+      trapBody.hidden = !trapMode;
+      canonBody.hidden = trapMode;
+      var pill = function(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; };
+
+      if (trapMode) {
+        var urls = FACETS.reduce(function(a, f){ return a * f.val; }, 1);
+        var listings = Math.max(1, FACETS[4].val);
+        var content = PRODUCTS + listings;                       // never zero, so the ratio is safe
+        // capped at 1: distinct content can never exceed the URLs that carry it
+        var ratio = Math.min(1, content / Math.max(1, urls));
+        var burned = Math.min(100, urls / BUDGET * 100);
+        var realPages = Math.min(content, BUDGET);
+        trapStats.innerHTML =
+          pill(Math.round(urls).toLocaleString() + ' unique URLs', urls > BUDGET ? 'var(--viz-red)' : 'var(--viz-green)') +
+          pill(content.toLocaleString() + ' distinct pages of content', 'var(--viz-muted)') +
+          pill('unique content per URL: ' + (ratio * 100).toFixed(1) + '%', ratio < 0.1 ? 'var(--viz-red)' : 'var(--viz-green)') +
+          pill('host budget 50,000 — ' + burned.toFixed(0) + '% burned', burned >= 100 ? 'var(--viz-red)' : 'var(--viz-amber)');
+
+        why.innerHTML = urls > BUDGET
+          ? '<b style="color:var(--viz-red)">A trap: ' + Math.round(urls).toLocaleString() + ' URLs over ' + content.toLocaleString() + ' pages of content.</b>' +
+            'colour × size × brand × sort × page combine <b>multiplicatively</b>, which is why faceted navigation runs into the millions ' +
+            'over a few thousand products. Nobody built this on purpose — the same shape appears as a calendar whose "next month" link exists ' +
+            'forever, as session IDs minting a fresh URL universe per visit, as a relative-link bug generating <code>/a/b/a/b/a/b/</code>, and as ' +
+            '<b>soft-404s</b> that answer HTTP 200 with a "not found" body so error space looks like content space.' +
+            '<br><br><b>Defences are budget- and shape-based.</b> A per-host page budget caps the damage at one host’s allocation (here the ' +
+            'budget dies after 50,000 fetches and you keep ' + realPages.toLocaleString() + ' real pages); add caps on URL length, path depth and ' +
+            'query-parameter count. The <em>diagnostic</em> is the ratio above: when URLs fetched keeps climbing while distinct content flattens, ' +
+            'tighten that host automatically.'
+          : '<b style="color:var(--viz-green)">Bounded: ' + Math.round(urls).toLocaleString() + ' URLs fits inside the 50,000 host budget.</b>' +
+            'Narrow the facets and the same site is simply a site. Nothing here is adversarial — what makes a trap is unbounded <em>URL</em> ' +
+            'space over bounded <em>content</em>, so widen any one slider and watch the ratio collapse. ' +
+            '<br><br>That is also why the ratio, not the URL count, is the alarm worth wiring up: a big site and a trap look identical until you ' +
+            'compare URLs fetched against distinct content seen.';
+      } else {
+        togglesEl.innerHTML = '';
+        RULES.forEach(function(r){
+          var b = document.createElement('button');
+          b.className = 'v5-t' + (r.tier === 'risky' ? ' is-risky' : '');
+          b.setAttribute('aria-pressed', on[r.id] ? 'true' : 'false');
+          b.textContent = (on[r.id] ? '✓ ' : '· ') + r.label;
+          b.addEventListener('click', function(){ on[r.id] = !on[r.id]; render(); });
+          togglesEl.appendChild(b);
+        });
+
+        var forms = {}, byGroup = {};
+        URLS.forEach(function(row){
+          var c = canon(row.u);
+          (forms[c] = forms[c] || []).push(row);
+          (byGroup[row.g] = byGroup[row.g] || {})[c] = true;
+        });
+        var collapsed = 0;
+        Object.keys(forms).forEach(function(c){
+          var gs = {};
+          forms[c].forEach(function(r){ gs[r.g] = true; });
+          collapsed += Object.keys(gs).length - 1;
+        });
+        var missed = 0;
+        Object.keys(byGroup).forEach(function(g){ missed += Object.keys(byGroup[g]).length - 1; });
+
+        urlsEl.innerHTML = URLS.map(function(row){
+          var c = canon(row.u);
+          var shares = forms[c];
+          var wrong = shares.some(function(r){ return r.g !== row.g; });
+          var col = wrong ? 'var(--viz-red)' : (shares.length > 1 ? 'var(--viz-green)' : 'var(--viz-muted)');
+          return '<div class="v5-u"><span class="v5-grp" style="color:' + col + '">page ' + row.g + '</span>' +
+            '<i>' + row.u.replace(/&/g, '&amp;') + '</i><br>→ <b style="color:' + col + '">' + c.replace(/&/g, '&amp;') + '</b></div>';
+        }).join('');
+
+        canonStats.innerHTML =
+          pill(Object.keys(forms).length + ' canonical forms from 8 URLs', 'var(--viz-violet)') +
+          pill(missed + ' alias' + (missed === 1 ? '' : 'es') + ' missed — duplicate fetches', missed ? 'var(--viz-amber)' : 'var(--viz-green)') +
+          pill(collapsed + ' real page' + (collapsed === 1 ? '' : 's') + ' lost — coverage hole', collapsed ? 'var(--viz-red)' : 'var(--viz-green)');
+
+        var head = collapsed
+          ? '<b style="color:var(--viz-red)">Failing CLOSED: ' + collapsed + ' distinct page' + (collapsed === 1 ? '' : 's') + ' declared "seen" and never fetched.</b>'
+          : missed
+            ? '<b style="color:var(--viz-amber)">Failing OPEN: ' + missed + ' alias' + (missed === 1 ? '' : 'es') + ' will be fetched again as if new.</b>'
+            : '<b style="color:var(--viz-green)">Exactly four identities — one per real page.</b>';
+        why.innerHTML = head +
+          'The safe five are RFC 3986 transformations: they <b>cannot change what the server returns</b>. Lowercasing scheme and host, dropping ' +
+          '<code>:443</code>/<code>:80</code>, resolving <code>/a/../docs/</code> to <code>/docs/</code>, decoding unreserved percent-escapes ' +
+          '(<code>%64</code> is the letter <code>d</code>, <code>%7E</code> is <code>~</code>) and dropping the fragment, which never reaches the ' +
+          'server at all. The next two are heuristics that usually help: stripping tracking parameters and sorting the query.' +
+          '<br><br><b>The two marked ⚠ are the ones that lie.</b> Paths are case-sensitive on most servers, so lowercasing collapses ' +
+          '<code>/Docs/</code> onto <code>/docs/</code> — a different resource. And <code>?page=</code> and <code>?id=</code> select content, not ' +
+          'tracking, so stripping every parameter files a forum’s every thread page as page 1. ' +
+          '<br><br>Note which failure is worse. Missing an alias burns <em>money</em>: you fetch a page you already have, and downstream dedup ' +
+          'cleans up. Collapsing two pages costs <em>coverage</em>, silently, with nothing in any log to say so — and for a research corpus that ' +
+          'is the more dangerous defect by a distance.';
+      }
+    }
+    bT.addEventListener('click', function(){ trapMode = true; render(); });
+    bC.addEventListener('click', function(){ trapMode = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

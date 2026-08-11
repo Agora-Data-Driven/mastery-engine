@@ -1,0 +1,764 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Chunks To Prompt</button>
+  <button class="viz-tab" data-viz-tab="2">2. Select And Order</button>
+  <button class="viz-tab" data-viz-tab="3">3. Verify The Quote</button>
+  <button class="viz-tab" data-viz-tab="4">4. Pre-Filter Or Post</button>
+  <button class="viz-tab" data-viz-tab="5">5. Density Over Volume</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Chunks To Prompt</h2>
+  <p class="vz-lede"><b>Chunk Size and Overlap</b> ended the moment a chunk entered the index. Here is the
+    bill for that overlap, arriving at the other end: adjacent chunks score alike, so the ranked list hands
+    you the same paragraph three times. Drag the overlap you chose, then deduplicate.
+    <b>Like packing a suitcase from a shopping list where four lines are the same jumper.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v1-lab" for="v1-ov">Overlap chosen at index time:
+      <span id="v1-ovl">100</span> of 500 tokens</label>
+    <input type="range" id="v1-ov" min="0" max="250" step="25" value="100" aria-label="Overlap in tokens">
+    <div class="v1-pills" id="v1-pills"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Assembly step">
+    <button id="v1-raw" aria-pressed="true">top-8 as retrieved</button>
+    <button id="v1-dd" aria-pressed="false">after deduplication</button>
+  </div>
+
+  <div class="v1-rows" id="v1-rows"></div>
+
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Detection has three usable signals and they catch different things: <b>adjacent chunk
+    IDs</b> from one document (cheap, exact, and the only one that fires at zero overlap), <b>high pairwise
+    cosine</b> between chunk embeddings (catches the same passage syndicated across different documents),
+    and <b>shingled text overlap</b> (catches near-verbatim boilerplate). Keeping one representative is the
+    minimum; merging the neighbours back into one contiguous span is better, because it also recovers the
+    tokens the overlap spent.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-pills{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v1-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-rows{display:flex;flex-direction:column;gap:4px;margin-bottom:12px}
+    .v1-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.35}
+    .v1-r.is-dup{border-style:dashed;opacity:.55}
+    .v1-r.is-new{border-color:var(--viz-green)}
+    .v1-id{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-weight:800;width:52px}
+    .v1-doc{flex:1 1 auto;min-width:0}
+    .v1-tag{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;text-align:right;width:88px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SIZE = 500;
+    // The reranked top-8. Four chunks are consecutive slices of one contract and two are
+    // consecutive slices of one policy page — the ordinary shape after a sliding-window split.
+    var TOP = [
+      { id:'A5', doc:'Acme MSA 2025 > 9. Termination', s:0.92, cl:'A' },
+      { id:'A6', doc:'Acme MSA 2025 > 9. Termination', s:0.91, cl:'A' },
+      { id:'B2', doc:'Refund policy (retail)',        s:0.89, cl:'B' },
+      { id:'A7', doc:'Acme MSA 2025 > 9. Termination', s:0.88, cl:'A' },
+      { id:'C1', doc:'Onboarding quote, Jan 2025',    s:0.86, cl:'C' },
+      { id:'B3', doc:'Refund policy (retail)',        s:0.84, cl:'B' },
+      { id:'D9', doc:'Support SLA',                   s:0.83, cl:'D' },
+      { id:'A8', doc:'Acme MSA 2025 > 9. Termination', s:0.82, cl:'A' }
+    ];
+    var WAIT = [
+      { id:'E1', doc:'Refund policy (WHOLESALE)',     s:0.81 },
+      { id:'F4', doc:'Termination clause, Initech',   s:0.79 },
+      { id:'G2', doc:'Pricing schedule 2025',         s:0.77 },
+      { id:'H1', doc:'Onboarding runbook',            s:0.75 }
+    ];
+    var deduped = false;
+    var sl = document.getElementById('v1-ov'), ovl = document.getElementById('v1-ovl');
+    var pills = document.getElementById('v1-pills'), rows = document.getElementById('v1-rows');
+    var why = document.getElementById('v1-why');
+    var bRaw = document.getElementById('v1-raw'), bDd = document.getElementById('v1-dd');
+
+    function row(id, doc, tag, cls, col){
+      return '<div class="v1-r ' + cls + '"><span class="v1-id">' + id + '</span>' +
+        '<span class="v1-doc">' + doc + '</span>' +
+        '<span class="v1-tag" style="color:' + col + '">' + tag + '</span></div>';
+    }
+
+    function render(){
+      var ov = Number(sl.value);
+      if (!isFinite(ov) || ov < 0) ov = 0;
+      ovl.textContent = ov;
+      var stride = Math.max(1, SIZE - ov);
+      var infl = SIZE / stride;
+      var sharedPct = Math.round(ov / SIZE * 100);
+      // 3 A-neighbour joins + 1 B-neighbour join = 4 repeated windows in the prompt
+      var repeated = 4 * ov;
+
+      bRaw.setAttribute('aria-pressed', deduped ? 'false' : 'true');
+      bDd.setAttribute('aria-pressed', deduped ? 'true' : 'false');
+
+      var distinct = deduped ? 8 : 4;
+      var repNow = deduped ? 0 : repeated;
+      function pill(txt, col){
+        return '<span class="v1-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+      }
+      pills.innerHTML =
+        pill('stride ' + stride + ' tok', 'var(--viz-muted)') +
+        pill('index x' + (Math.round(infl * 100) / 100).toFixed(2), 'var(--viz-muted)') +
+        pill(sharedPct + '% shared text', sharedPct >= 20 ? 'var(--viz-amber)' : 'var(--viz-muted)') +
+        pill(repNow + ' tok repeated verbatim', repNow > 0 ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(distinct + '/8 distinct sources', distinct >= 8 ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      var html = '';
+      if (!deduped) {
+        TOP.forEach(function(c, i){
+          var dup = (c.cl === 'A' && c.id !== 'A5') || (c.cl === 'B' && c.id !== 'B2');
+          html += row(c.id, c.doc + ' · ' + c.s.toFixed(2),
+            dup ? 'near-duplicate' : 'slot ' + (i + 1),
+            dup ? 'is-dup' : '',
+            dup ? 'var(--viz-red)' : 'var(--viz-ink)');
+        });
+      } else {
+        var mergedA = 4 * SIZE - 3 * ov, mergedB = 2 * SIZE - ov;
+        html += row('A5–A8', 'Acme MSA 2025 > 9. Termination · merged span, ' + mergedA + ' tok',
+          'merged', '', 'var(--viz-violet)');
+        html += row('B2–B3', 'Refund policy (retail) · merged span, ' + mergedB + ' tok',
+          'merged', '', 'var(--viz-violet)');
+        html += row('C1', 'Onboarding quote, Jan 2025 · 0.86', 'kept', '', 'var(--viz-ink)');
+        html += row('D9', 'Support SLA · 0.83', 'kept', '', 'var(--viz-ink)');
+        WAIT.forEach(function(c, i){
+          html += row(c.id, c.doc + ' · ' + c.s.toFixed(2), '↑ promoted #' + (9 + i), 'is-new', 'var(--viz-green)');
+        });
+      }
+      rows.innerHTML = html;
+
+      why.innerHTML = deduped
+        ? '<b style="color:var(--viz-green)">Same eight slots, twice the evidence.</b>' +
+          'Collapsing the two neighbour clusters freed four slots, and the candidates at ranks 9 to 12 walked in — ' +
+          'including <b>E1, the wholesale refund policy</b>, which was the second-best <em>source</em> in the corpus and was ' +
+          'losing every slot to redundant copies of the best one. Merging rather than dropping also recovers tokens: the four ' +
+          'A-chunks are ' + (4 * SIZE) + ' tokens apart but ' + (4 * SIZE - 3 * ov) + ' tokens joined, because the overlap is written once.' +
+          '<br><br>Note what did <em>not</em> change: the retriever, the reranker, the scores. Dedupe is assembly-side code, and ' +
+          'no amount of retrieval tuning substitutes for it — the duplicates are genuinely the most similar chunks in the index.'
+        : '<b style="color:var(--viz-red)">Four documents wearing eight slots.</b>' +
+          'A6, A7 and A8 are consecutive windows over the same clause and B3 is the neighbour of B2, so five of your eight ' +
+          'slots carry two passages. At ' + sharedPct + '% overlap, <b>' + repeated + ' tokens of the prompt are literally the same text twice</b> ' +
+          '— you are paying the index inflation factor of ' + (Math.round(infl * 100) / 100).toFixed(2) + 'x a second time, in the context window.' +
+          '<br><br>The real cost is not the tokens, it is the <b>omission</b>: with the slots spent, the second-best source never appears, ' +
+          'and the model answers a comparison question from one side of the comparison. Flip the toggle.';
+    }
+    sl.addEventListener('input', render);
+    bRaw.addEventListener('click', function(){ deduped = false; render(); });
+    bDd.addEventListener('click', function(){ deduped = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Select And Order</h2>
+  <p class="vz-lede">Two decisions, in this order. <b>Selecting</b> runs maximal marginal relevance — drag
+    lambda and watch the second pick jump facets. <b>Ordering</b> then decides where the winners sit, and
+    attention across a long prompt is U-shaped. <b>Like seating guests: who gets invited, then who sits next
+    to the host — and a long table has a dead middle.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v2-lab" for="v2-lam">MMR lambda = <span id="v2-laml">0.70</span>
+      &nbsp;·&nbsp; query: "compare our refund policies for retail and wholesale"</label>
+    <input type="range" id="v2-lam" min="0" max="100" step="5" value="70" aria-label="MMR lambda">
+    <div class="v2-rounds" id="v2-rounds"></div>
+    <div class="v2-cands" id="v2-cands"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Ordering strategy">
+    <button id="v2-ordA" aria-pressed="true">strongest first</button>
+    <button id="v2-ordB" aria-pressed="false">1st first, 2nd last</button>
+    <button id="v2-ordC" aria-pressed="false">grouped by document</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-n">Context holds <span id="v2-nl">12</span> chunks</label>
+    <input type="range" id="v2-n" min="3" max="20" step="1" value="12" aria-label="Chunks in the context">
+    <div class="v2-strip" id="v2-strip"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Grouping by document is not a mistake — it keeps a source's chunks readable in their
+    original order and makes citation labeling cleaner. It becomes one <em>only</em> when the group ordering
+    is arbitrary and drops the strongest evidence into the dead zone. The reconciling move is to group by
+    document <b>and</b> order the groups by their best member's score.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.4}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-rounds{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+    .v2-rd{border-left:2.5px solid var(--viz-line);padding-left:9px;font-family:ui-monospace,Consolas,monospace;
+      font-size:10.5px;line-height:1.55}
+    .v2-rd b{font-family:inherit}
+    .v2-cands{margin-top:13px;display:flex;flex-direction:column;gap:3px}
+    .v2-c{display:flex;align-items:center;gap:8px;font-size:11px;border:1.5px solid var(--viz-line);
+      border-radius:8px;padding:6px 9px;background:var(--viz-bg);line-height:1.3}
+    .v2-c.is-pick{border-color:var(--viz-accent)}
+    .v2-badge{flex:0 0 auto;width:18px;font-weight:800;font-size:11px}
+    .v2-facet{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;width:74px;text-align:right}
+    .v2-strip{margin-top:14px;display:flex;gap:2px;align-items:flex-end;height:88px}
+    .v2-sl{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;gap:2px}
+    .v2-bar{border-radius:2px 2px 0 0;background:var(--viz-line)}
+    .v2-bar.is-pick{background:var(--viz-accent)}
+    .v2-num{font-size:9px;font-weight:800;text-align:center;height:11px;line-height:11px}
+    .v2-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var C = [
+      { id:'R1', t:'retail refund window: 30 days',  f:'retail',    s:0.92 },
+      { id:'R2', t:'retail refund exceptions',       f:'retail',    s:0.88 },
+      { id:'R3', t:'retail return shipping',         f:'retail',    s:0.85 },
+      { id:'W1', t:'wholesale refund window: 60 days', f:'wholesale', s:0.81 },
+      { id:'W2', t:'wholesale restocking fee',       f:'wholesale', s:0.78 },
+      { id:'R4', t:'retail refund FAQ',              f:'retail',    s:0.76 }
+    ];
+    function pair(a, b){ return a.f === b.f ? 0.86 : 0.31; }
+
+    var lamS = document.getElementById('v2-lam'), lamL = document.getElementById('v2-laml');
+    var rounds = document.getElementById('v2-rounds'), cands = document.getElementById('v2-cands');
+    var nS = document.getElementById('v2-n'), nL = document.getElementById('v2-nl');
+    var strip = document.getElementById('v2-strip'), why = document.getElementById('v2-why');
+    var bA = document.getElementById('v2-ordA'), bB = document.getElementById('v2-ordB'), bC = document.getElementById('v2-ordC');
+    var ord = 'first';
+
+    function select(l){
+      var S = [], rest = C.slice(), log = [];
+      for (var step = 0; step < 3; step++){
+        var scored = rest.map(function(d){
+          var pen = 0;
+          S.forEach(function(s){ pen = Math.max(pen, pair(d, s)); });
+          return { d:d, pen:pen, sc:(l * d.s) - ((1 - l) * pen) };
+        });
+        scored.sort(function(a, b){ return b.sc - a.sc; });
+        if (!scored.length) break;
+        log.push({ win:scored[0], up:scored[1] || null });
+        S.push(scored[0].d);
+        rest = rest.filter(function(d){ return d !== scored[0].d; });
+      }
+      return { picks:S, log:log };
+    }
+
+    function weight(pos, n){
+      if (n <= 1) return 1;
+      var dip = 0.9 * Math.min(1, Math.max(0, (n - 4) / 14));
+      var t = pos / (n - 1);
+      return 1 - dip * (0.5 - 0.5 * Math.cos(2 * Math.PI * t));
+    }
+    function clamp(x, n){ return Math.max(0, Math.min(n - 1, x)); }
+    function slots(n){
+      if (ord === 'first') return [0, clamp(1, n), clamp(2, n)];
+      if (ord === 'edges') return [0, n - 1, clamp(1, n)];
+      var mid = Math.floor((n - 1) / 2);
+      return [mid, clamp(mid + 1, n), clamp(mid - 1, n)];
+    }
+
+    function render(){
+      var l = Number(lamS.value) / 100;
+      if (!isFinite(l)) l = 0.7;
+      lamL.textContent = l.toFixed(2);
+      var out = select(l), picks = out.picks;
+
+      rounds.innerHTML = out.log.map(function(r, i){
+        function line(x, mark){
+          if (!x) return '';
+          return mark + ' ' + x.d.id + ':  ' + l.toFixed(2) + '&times;' + x.d.s.toFixed(2) +
+            ' &minus; ' + (1 - l).toFixed(2) + '&times;' + x.pen.toFixed(2) + ' = <b>' + x.sc.toFixed(3) + '</b>';
+        }
+        return '<div class="v2-rd"><span style="color:var(--viz-muted)">round ' + (i + 1) + '</span><br>' +
+          '<span style="color:var(--viz-accent)">' + line(r.win, 'PICK') + '</span><br>' +
+          '<span style="color:var(--viz-muted)">' + line(r.up, '    ') + '</span></div>';
+      }).join('');
+
+      cands.innerHTML = C.map(function(d){
+        var k = picks.indexOf(d);
+        return '<div class="v2-c' + (k >= 0 ? ' is-pick' : '') + '">' +
+          '<span class="v2-badge" style="color:' + (k >= 0 ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' +
+          (k >= 0 ? (k + 1) : '·') + '</span>' +
+          '<span style="flex:1 1 auto;min-width:0">' + d.id + ' ' + d.t + '</span>' +
+          '<span class="v2-facet" style="color:' + (d.f === 'retail' ? 'var(--viz-violet)' : 'var(--viz-green)') + '">' +
+          d.f.toUpperCase() + '</span></div>';
+      }).join('');
+
+      var facets = {};
+      picks.forEach(function(d){ facets[d.f] = 1; });
+      var nFacets = Object.keys(facets).length;
+
+      var n = Number(nS.value);
+      if (!isFinite(n) || n < 3) n = 3;
+      nL.textContent = n;
+      bA.setAttribute('aria-pressed', ord === 'first' ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', ord === 'edges' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', ord === 'group' ? 'true' : 'false');
+
+      var pos = slots(n), at = {};
+      pos.forEach(function(p, i){ if (at[p] === undefined) at[p] = i; });
+
+      var num = 0, den = 0;
+      picks.forEach(function(d, i){ num += weight(pos[i], n) * d.s; den += d.s; });
+      var reach = den > 0 ? (num / den) * 100 : 0;
+
+      var cells = '';
+      for (var p = 0; p < n; p++){
+        var w = weight(p, n);
+        var isPick = at[p] !== undefined;
+        var h = Math.max(3, Math.round(w * 62));
+        cells += '<div class="v2-sl">' +
+          '<div class="v2-num" style="color:' + (isPick ? 'var(--viz-accent)' : 'var(--viz-line)') + '">' +
+          (isPick ? (at[p] + 1) : '') + '</div>' +
+          '<div class="v2-bar' + (isPick ? ' is-pick' : '') + '" style="height:' + h + 'px"></div></div>';
+      }
+      strip.innerHTML = cells;
+
+      var mid = weight(Math.floor((n - 1) / 2), n);
+      why.innerHTML =
+        '<b>Bars are attention weight by position; numbered bars are your MMR picks.</b>' +
+        '<span style="color:var(--viz-muted)">' + nFacets + ' of 2 facets selected &nbsp;·&nbsp; middle position holds ' +
+        Math.round(mid * 100) + '% of edge attention &nbsp;·&nbsp; evidence reaching the model: <b>' +
+        reach.toFixed(0) + '%</b></span><br><br>' +
+        (l > 0.88
+          ? 'At lambda ' + l.toFixed(2) + ' the penalty term is too weak to overcome the 0.07 score gap between R2 and W1, so both picks come from the <b>retail</b> policy and the comparison is answered from one side. Pure relevance ranking is lambda = 1: the second term vanishes entirely.'
+          : l < 0.25
+            ? 'At lambda ' + l.toFixed(2) + ' the diversity term dominates relevance, so selection starts chasing whatever is <em>unlike</em> the set rather than what answers the query — the failure at the other end. 0.5 to 0.7 is the working range.'
+            : 'At lambda ' + l.toFixed(2) + ' the second pick flips to <b>W1</b>: R2 scores higher on the query (0.88 vs 0.81) but sits at 0.86 similarity to R1, while W1 sits at 0.31. The crossover is at lambda &asymp; 0.89, where 0.07 &times; lambda equals 0.55 &times; (1 &minus; lambda).') +
+        '<br><br>' +
+        (n <= 5
+          ? '<b style="color:var(--viz-green)">At ' + n + ' chunks the curve is nearly flat — ordering barely matters.</b>Every layout scores about the same, so a stable, deterministic order is worth more than a micro-optimised one.'
+          : ord === 'group'
+            ? '<b style="color:var(--viz-red)">Grouped by document, the strongest evidence landed mid-context.</b>Liu et al. (2023) found accuracy on the answer-bearing document drops substantially in the middle of a long prompt, recovering at both ends — the U-shape these bars trace. Only ' + reach.toFixed(0) + '% of your evidence weight survives the position.'
+            : '<b style="color:var(--viz-green)">Edge placement, ' + reach.toFixed(0) + '% of evidence weight surviving.</b>The strongest chunk sits where attention is highest. Splitting strongest-first and second-strongest-last covers both ends of the U at once, which is why that layout exists at all.');
+    }
+    lamS.addEventListener('input', render);
+    nS.addEventListener('input', render);
+    bA.addEventListener('click', function(){ ord = 'first'; render(); });
+    bB.addEventListener('click', function(){ ord = 'edges'; render(); });
+    bC.addEventListener('click', function(){ ord = 'group'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Verify The Quote</h2>
+  <p class="vz-lede">The model returns six sentences with markers and quoted spans. Switch the verifier and
+    watch which sentences survive — a marker is a claim about a claim, a quote is a string your code can
+    check. Tap any row for the detail. <b>Like a receipt: "I spent it on supplies" versus the line item you
+    can hold up against the statement.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Verification mode">
+    <button id="v3-mA" aria-pressed="false">markers only</button>
+    <button id="v3-mB" aria-pressed="true">exact string match</button>
+    <button id="v3-mC" aria-pressed="false">normalized match</button>
+  </div>
+
+  <div class="v3-stats" id="v3-stats"></div>
+  <div class="v3-list" id="v3-list"></div>
+
+  <div class="vz-card">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Sentence-level is the useful granularity. An answer-level footer ("sources: 3, 7, 12")
+    is <b>unfalsifiable decoration</b> — no mechanical check can be written against it — and word-level
+    attribution is noise. And note the one behaviour that looks like a failure and is not: a model that
+    refuses because the assembled sources genuinely lack the fact is <b>correct</b>, and your prompt has to
+    permit it or you have instructed it to fabricate.</p>
+
+  <style>
+    .v3-stats{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:11px}
+    .v3-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-list{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v3-c{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:8px 10px;font:inherit;
+      font-size:11.5px;line-height:1.4;display:flex;flex-direction:column;gap:3px}
+    .v3-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-top{display:flex;align-items:center;gap:8px}
+    .v3-mk{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-weight:800;width:38px}
+    .v3-vd{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;flex:0 0 auto}
+    .v3-q{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--viz-muted);
+      padding-left:46px;word-break:break-word}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // truth: what a verifier would actually find when it looks in the CITED chunk.
+    var CLAIMS = [
+      { c:'Retail refunds are accepted within 30 days of delivery.', mk:'[12]',
+        q:'accepted within 30 days of delivery', truth:'exact',
+        why:'Marker <code>[12]</code>, and the span is byte-for-byte inside chunk 12. This is the case every verifier agrees on, and it is the one you want to be boring.' },
+      { c:'Wholesale orders carry a 60-day refund window.', mk:'[3]',
+        q:'a 60-day refund window applies to wholesale orders', truth:'wrong',
+        why:'The sentence is <b>true</b> and the quote is <b>real</b> — it just lives in chunk <b>7</b>, not the cited chunk 3. This is the plausible-but-wrong label, and it is invisible to any syntactic check: the marker is well-formed, the citation resolves to a real assembled source, and the rendered answer links somewhere that does not say this. Only matching the span <em>against the chunk it names</em> catches it.' },
+      { c:'A 15 percent restocking fee applies to wholesale returns.', mk:'[12]',
+        q:'restocking fees are 15%', truth:'norm',
+        why:'The span is in chunk 12, but the model wrote <code>15%</code> where the source has <code>15 %</code> and dropped the capital. Exact match <b>rejects a correct citation</b> — a false rejection, which costs you a regeneration and eventually your patience. Normalizing whitespace, case and punctuation before comparing absorbs the drift without weakening the test in any way that matters.' },
+      { c:'Refunds are processed within 2 business days.', mk:'[9]',
+        q:'refunds are processed within 2 business days', truth:'none',
+        why:'The span appears in <b>no</b> assembled chunk. This is a fabricated quote, and it is exactly what mechanical verification exists to kill: cheap, deterministic, no model in the loop. Reject the claim or send it back for regeneration — never render it.' },
+      { c:'Wholesale customers may return items after 60 days at management discretion.', mk:'[12]',
+        q:'management discretion', truth:'exact',
+        why:'The span matches. The claim still does not follow from it — chunk 12 uses that phrase about <em>shipping exceptions</em>. A matched quote proves the text <b>exists in the source</b>, not that it <b>supports the sentence</b>. Entailment checking is faithfulness, an evaluation concern in lesson 04, and no string matcher will ever do it for you.' },
+      { c:'The two policies differ mainly in timing.', mk:'—', q:'(no span emitted)', truth:'uncited',
+        why:'Connective prose that synthesises two cited sentences. Some policies allow it, some require every sentence to carry a marker. Decide deliberately and encode the decision in the prompt — the failure is having no policy, so uncited sentences arrive mixed with the cited ones and nobody notices which is which.' }
+    ];
+    var MODES = {
+      markers: { label:'markers only', ok:function(t){ return t !== 'uncited'; } },
+      exact:   { label:'exact string match', ok:function(t){ return t === 'exact'; } },
+      norm:    { label:'normalized match', ok:function(t){ return t === 'exact' || t === 'norm'; } }
+    };
+    var mode = 'exact', cur = 0;
+    var stats = document.getElementById('v3-stats'), list = document.getElementById('v3-list');
+    var why = document.getElementById('v3-why');
+    var bA = document.getElementById('v3-mA'), bB = document.getElementById('v3-mB'), bC = document.getElementById('v3-mC');
+
+    function render(){
+      bA.setAttribute('aria-pressed', mode === 'markers' ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', mode === 'exact' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', mode === 'norm' ? 'true' : 'false');
+      var m = MODES[mode];
+      var pass = 0, fail = 0, unc = 0, wrongThrough = 0, falseRej = 0;
+
+      list.innerHTML = CLAIMS.map(function(cl, i){
+        var accepted = m.ok(cl.truth);
+        if (cl.truth === 'uncited') unc += 1; else if (accepted) pass += 1; else fail += 1;
+        if (cl.truth === 'wrong' && accepted) wrongThrough += 1;
+        if (cl.truth === 'norm' && !accepted) falseRej += 1;
+        var verdict = cl.truth === 'uncited' ? 'UNCITED' : (accepted ? 'ACCEPTED' : 'REJECTED');
+        var col = cl.truth === 'uncited' ? 'var(--viz-amber)'
+          : (accepted ? (cl.truth === 'wrong' ? 'var(--viz-red)' : 'var(--viz-green)') : 'var(--viz-muted)');
+        return '<button class="v3-c" aria-pressed="' + (i === cur ? 'true' : 'false') + '" data-i="' + i + '">' +
+          '<span class="v3-top"><span class="v3-mk">' + cl.mk + '</span>' +
+          '<span style="flex:1 1 auto;min-width:0">' + cl.c + '</span>' +
+          '<span class="v3-vd" style="color:' + col + '">' + verdict + '</span></span>' +
+          '<span class="v3-q">&ldquo;' + cl.q + '&rdquo;</span></button>';
+      }).join('');
+
+      [].slice.call(list.children).forEach(function(b){
+        b.addEventListener('click', function(){ cur = Number(b.getAttribute('data-i')) || 0; render(); });
+      });
+
+      function pill(t, c){ return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      stats.innerHTML =
+        pill(pass + ' accepted', 'var(--viz-green)') +
+        pill(fail + ' rejected', 'var(--viz-muted)') +
+        pill(unc + ' uncited', 'var(--viz-amber)') +
+        pill(wrongThrough + ' wrong label shipped', wrongThrough > 0 ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(falseRej + ' false rejection', falseRej > 0 ? 'var(--viz-amber)' : 'var(--viz-green)');
+
+      var head = mode === 'markers'
+        ? '<b style="color:var(--viz-red)">Markers alone verify nothing.</b>Every sentence with a marker is accepted, including the one citing chunk 3 for a span that lives in chunk 7 and the one quoting text that exists nowhere. The baseline mechanism — <code>source_id: 12</code> in the assembled block, "append [12] to each claim" in the system prompt — is what makes attribution <em>possible</em>; it is not what makes it <em>true</em>.'
+        : mode === 'exact'
+          ? '<b style="color:var(--viz-amber)">Strictest, and it over-rejects.</b>Every fabricated and mis-labeled span is caught, and so is a perfectly good citation whose punctuation drifted. That is the tradeoff the normalized mode exists to move.'
+          : '<b style="color:var(--viz-green)">The production setting.</b>Whitespace, case and punctuation are normalized away; fabricated and mis-attributed spans still fail. Cheap, deterministic, and no model in the loop.';
+      why.innerHTML = head + '<br><br>' + CLAIMS[cur].why;
+    }
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Pre-Filter Or Post</h2>
+  <p class="vz-lede">Metadata filters assert what similarity never can — this tenant, this year, this status.
+    <em>Where</em> the filter runs decides whether you get k chunks or two. Drag the pass rate, then walk the
+    relaxation ladder. <b>Like a bouncer at the door versus one inside: same guest list, very different room
+    at the end of the night.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Filter placement">
+    <button id="v4-pre" aria-pressed="false">pre-filter (in the index)</button>
+    <button id="v4-post" aria-pressed="true">post-filter (after top-k)</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v4-lab" for="v4-p">Filter pass rate p = <span id="v4-pl">20</span>%
+      &nbsp;·&nbsp; you want k = 10 chunks</label>
+    <input type="range" id="v4-p" min="5" max="100" step="5" value="20" aria-label="Filter pass rate">
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="v4-rungs" id="v4-rungs"></div>
+  <div class="vz-card">
+    <div class="v4-ladder" id="v4-ladder"></div>
+  </div>
+  <p class="vz-note">Filters multiply precision when the metadata is trustworthy and <b>complete</b>. A filter
+    over a sparsely populated field silently excludes every unlabeled document — the query looks like it
+    found nothing when it in fact refused to look. Audit coverage on a field before you enforce it, and note
+    that the filter's <em>origin</em> is what licenses relaxation: inferred constraints may be dropped,
+    system defaults such as tenant, ACL and status may never be.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.4}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-rungs{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v4-rg{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:8px 10px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:10.5px;display:flex;align-items:center;gap:8px;line-height:1.4}
+    .v4-rg[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-hit{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;flex:0 0 auto}
+    .v4-ladder{font-size:12.5px;line-height:1.6}
+    .v4-ladder b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var K = 10, pre = false, rung = 0;
+    var sl = document.getElementById('v4-p'), pl = document.getElementById('v4-pl');
+    var bars = document.getElementById('v4-bars'), why = document.getElementById('v4-why');
+    var bPre = document.getElementById('v4-pre'), bPost = document.getElementById('v4-post');
+    var rungs = document.getElementById('v4-rungs'), ladder = document.getElementById('v4-ladder');
+
+    var RUNGS = [
+      { f:'client=initech AND type=quote AND year=2024', hits:0, tag:'0 hits',
+        why:['All filters on. The user reads this as "we have no such documents".',
+          'The query was "What did we quote Initech for onboarding in 2024?" and an extractor turned it into three constraints. Two are right. <b>The year is a hallucinated constraint</b> — the quote is dated <b>January 2025</b>, because that is when it was sent. A filtered search that returns nothing is indistinguishable, from the outside, from a corpus that does not contain the document.'] },
+      { f:'client=initech AND type=quote', hits:1, tag:'1 hit',
+        why:['Drop the INFERRED constraint first, retry, and say so.',
+          'The year came from the model, not from the user’s facets, so it is the first rung down. One hit, and the answer should <b>surface the relaxation</b>: "the only Initech onboarding quote is dated January 2025". That sentence is the whole product of the ladder — it turns a silent false negative into a useful answer with a caveat.'] },
+      { f:'client=initech', hits:4, tag:'4 hits',
+        why:['Further down: precision falls, and now you are guessing.',
+          'Dropping the document type widens to invoices and contracts. Sometimes right, often noise — this is why a ladder has rungs in a fixed order rather than a single "retry without filters" fallback. Empty <em>or sparse</em> triggers the next rung; the answer names every constraint that was relaxed.'] },
+      { f:'tenant=<caller> AND status=published', hits:0, tag:'LOCKED', locked:true,
+        why:['System defaults are not rungs. Ever.',
+          'The caller’s tenant and the published status are applied unconditionally on every request, server-side, and never trusted to a prompt. Relaxing them to rescue a thin result set is not a fallback — it is a cross-tenant leak, and it is the subject of lesson 05. The ladder stops above this line.'] }
+    ];
+
+    function render(){
+      var p = Number(sl.value);
+      if (!isFinite(p) || p < 5) p = 5;
+      pl.textContent = p;
+      var frac = p / 100;
+      bPre.setAttribute('aria-pressed', pre ? 'true' : 'false');
+      bPost.setAttribute('aria-pressed', pre ? 'false' : 'true');
+
+      var survivors = pre ? K : Math.round(K * frac);
+      var need = Math.ceil(K / Math.max(frac, 0.01));
+      var maxScale = Math.max(need, K, 1);
+
+      function bar(t, v, c, sub){
+        var pct = Math.max(2, Math.round(v / maxScale * 100));
+        return '<div class="v4-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + v + '</b></h6>' +
+          '<div class="v4-track"><i style="width:' + pct + '%;background:' + c + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+      }
+
+      if (pre) {
+        bars.innerHTML =
+          bar('candidates scored', K, 'var(--viz-accent)', 'The filter is a condition of the search itself, so every hit already satisfies it.') +
+          bar('chunks assembled', K, 'var(--viz-green)', 'k in, k out — independent of the pass rate. Drag it to 5% and nothing moves.');
+        why.innerHTML = '<b style="color:var(--viz-green)">Pre-filtering: the top-k you receive already satisfies the filter.</b>' +
+          'The constraint is pushed into the index search, so selectivity costs you nothing in context. How a vector index executes a filtered search efficiently is a data-engineering problem solved elsewhere; from assembly’s side the property you care about is simply that <b>k survivors are guaranteed</b>.' +
+          '<br><br>At p = ' + p + '% the post-filter path would hand you ' + Math.round(K * frac) + '. Flip the toggle.';
+      } else {
+        var starved = survivors < 4;
+        bars.innerHTML =
+          bar('naive: fetch k, then filter', K, 'var(--viz-muted)', 'Top-10 on similarity alone, filter applied afterwards.') +
+          bar('chunks that survive', survivors, starved ? 'var(--viz-red)' : 'var(--viz-green)',
+            starved ? 'Context starvation: the model answers a real question from ' + survivors + ' chunk' + (survivors === 1 ? '' : 's') + '.' : 'Enough to assemble a context, but you paid nothing to guarantee it.') +
+          bar('overfetch k/p to land k', need, 'var(--viz-accent)', 'Score and transfer ' + need + ' candidates so that about ' + K + ' survive.');
+        why.innerHTML = '<b style="color:' + (starved ? 'var(--viz-red)' : 'var(--viz-amber)') + '">Post-filtering: similarity first, filter second.</b>' +
+          'Retrieve top-' + K + ' on similarity alone, discard the non-matching hits, and you assemble from whatever is left — <b>' + survivors + ' of ' + K + '</b> at a ' + p + '% pass rate. ' +
+          (starved ? 'That is not a retrieval-quality problem however it reads in the logs; it is <b>starvation</b>, and more reranking will not fix it.' : 'Workable here, but the count is a function of the data, not of your design.') +
+          '<br><br><b style="display:inline;font-size:12.5px">The arithmetic:</b> expected survivors from k′ candidates are k′p, so setting k′p = k gives <b>k′ = k/p</b> = ' + K + ' / ' + frac.toFixed(2) + ' &asymp; <b>' + need + '</b>. You pay to embed-score and transfer ' + (need - K) + ' extra candidates. That cost is the price of not pre-filtering.';
+      }
+
+      rungs.innerHTML = RUNGS.map(function(r, i){
+        var col = r.locked ? 'var(--viz-red)' : (r.hits === 0 ? 'var(--viz-amber)' : 'var(--viz-green)');
+        return '<button class="v4-rg" aria-pressed="' + (i === rung ? 'true' : 'false') + '" data-i="' + i + '">' +
+          '<span style="color:var(--viz-muted);font-weight:800">' + (r.locked ? 'SYS' : 'rung ' + i) + '</span>' +
+          '<span style="flex:1 1 auto;min-width:0">' + r.f + '</span>' +
+          '<span class="v4-hit" style="color:' + col + '">' + r.tag + '</span></button>';
+      }).join('');
+      [].slice.call(rungs.children).forEach(function(b){
+        b.addEventListener('click', function(){ rung = Number(b.getAttribute('data-i')) || 0; render(); });
+      });
+      ladder.innerHTML = '<b>' + RUNGS[rung].why[0] + '</b>' + RUNGS[rung].why[1];
+    }
+    sl.addEventListener('input', render);
+    bPre.addEventListener('click', function(){ pre = true; render(); });
+    bPost.addEventListener('click', function(){ pre = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Density Over Volume</h2>
+  <p class="vz-lede">The window is a budget and the ceiling is not a target. Drag the number of chunks you
+    admit and watch three things move in different directions: relevance density, answer quality, and cost.
+    <b>Like a suitcase with a weight limit — the last five things you cram in are why you cannot find your
+    passport.</b></p>
+
+  <div class="vz-card vz-mono" id="v5-budget" style="margin-bottom:11px"></div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v5-lab" for="v5-k">Chunks admitted: k = <span id="v5-kl">13</span>
+      &nbsp;·&nbsp; 400 tokens each</label>
+    <input type="range" id="v5-k" min="1" max="20" step="1" value="13" aria-label="Chunks admitted">
+    <div class="v5-pills" id="v5-pills"></div>
+    <div class="v5-curve" id="v5-curve"></div>
+    <div class="v5-axis" id="v5-axis"></div>
+  </div>
+
+  <div class="v5-scores" id="v5-scores"></div>
+  <div class="vz-card">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">When strong candidates genuinely exceed the budget, raise <b>density</b> rather than
+    volume: deduplicate and merge overlapping spans (visual 1 recovered those tokens), strip enrichment
+    breadcrumbs already repeated across sibling chunks, or compress long chunks extractively down to the
+    sentences that address the query. Budget generously for multi-document synthesis, where breadth is the
+    point, and stingily for factoid lookups, where one dense chunk beats ten.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.4}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-pills{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v5-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-curve{margin-top:15px;display:flex;gap:2px;align-items:flex-end;height:76px}
+    .v5-col{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:flex-end;gap:1px;height:100%}
+    .v5-q{border-radius:2px 2px 0 0;background:var(--viz-green)}
+    .v5-cst{border-radius:0 0 2px 2px;background:var(--viz-amber);opacity:.75}
+    .v5-col.is-now .v5-q{background:var(--viz-accent)}
+    .v5-axis{display:flex;gap:2px;margin-top:4px;font-size:8.5px;color:var(--viz-muted)}
+    .v5-ax{flex:1 1 0;min-width:0;text-align:center}
+    .v5-scores{display:flex;gap:3px;flex-wrap:wrap;margin-bottom:12px}
+    .v5-s{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;font-weight:800;border:1.5px solid var(--viz-line);
+      border-radius:7px;padding:5px 7px;background:var(--viz-bg)}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var WIN = 8000, SYS = 600, HIST = 400, Q = 100, RES = 1500, TOK = 400;
+    var ALLOC = WIN - SYS - HIST - Q - RES;              // 5400
+    var CEIL = Math.floor(ALLOC / TOK);                   // 13
+    var USEFUL = 500;                                     // tokens that actually bear on the answer
+    var BAR = 0.60;                                       // the reranker-score relevance bar
+    var SCORES = [0.92, 0.88, 0.85, 0.41, 0.39, 0.36, 0.33, 0.31, 0.29, 0.27,
+                  0.25, 0.23, 0.21, 0.19, 0.18, 0.16, 0.15, 0.14, 0.13, 0.12];
+    var DYN = SCORES.filter(function(s){ return s >= BAR; }).length;   // 3
+
+    document.getElementById('v5-budget').innerHTML =
+      'window            8,000\n' +
+      '  system prompt    -600\n' +
+      '  history          -400\n' +
+      '  question         -100\n' +
+      '  answer reserve -1,500\n' +
+      '  ───────────────────────\n' +
+      '  CONTEXT ALLOCATION 5,400 tok  =  ' + CEIL + ' chunks @ 400\n' +
+      '                                   (a ceiling, not a target)';
+
+    var sl = document.getElementById('v5-k'), kl = document.getElementById('v5-kl');
+    var pills = document.getElementById('v5-pills'), curve = document.getElementById('v5-curve');
+    var axis = document.getElementById('v5-axis'), scores = document.getElementById('v5-scores');
+    var why = document.getElementById('v5-why');
+
+    function quality(k){
+      var q = 0.55 + 0.30 * (1 - Math.exp(-k / 1.5)) - 0.02 * Math.max(0, k - 4);
+      return Math.max(0, Math.min(1, q)) * 100;
+    }
+    function usefulAt(k){ return k >= 3 ? USEFUL : Math.round(USEFUL * k / 3); }
+
+    function render(){
+      var k = Number(sl.value);
+      if (!isFinite(k) || k < 1) k = 1;
+      kl.textContent = k;
+      var ctx = k * TOK;
+      var use = usefulAt(k);
+      var dens = ctx > 0 ? (use / ctx) * 100 : 0;
+      var qNow = quality(k);
+      var over = ctx > ALLOC;
+
+      function pill(t, c){ return '<span class="v5-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      pills.innerHTML =
+        pill(ctx.toLocaleString() + ' / ' + ALLOC.toLocaleString() + ' tok', over ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        pill('density ' + dens.toFixed(0) + '%', dens >= 30 ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill('useful ' + use + ' tok', 'var(--viz-muted)') +
+        pill('quality ' + qNow.toFixed(0), qNow >= 80 ? 'var(--viz-green)' : 'var(--viz-amber)') +
+        pill(k > DYN ? (k - DYN) + ' distractor' + (k - DYN === 1 ? '' : 's') : 'no distractors',
+          k > DYN ? 'var(--viz-red)' : 'var(--viz-green)');
+
+      var maxCost = 20 * TOK, cols = '', ax = '';
+      for (var i = 1; i <= 20; i++){
+        var qh = Math.round(quality(i) / 100 * 46);
+        var ch = Math.max(1, Math.round((i * TOK) / maxCost * 22));
+        cols += '<div class="v5-col' + (i === k ? ' is-now' : '') + '">' +
+          '<div class="v5-q" style="height:' + qh + 'px"></div>' +
+          '<div class="v5-cst" style="height:' + ch + 'px"></div></div>';
+        ax += '<div class="v5-ax">' + (i === 1 || i === DYN || i === CEIL || i === 20 ? i : '') + '</div>';
+      }
+      curve.innerHTML = cols;
+      axis.innerHTML = ax;
+
+      scores.innerHTML = SCORES.slice(0, Math.max(k, DYN + 2)).map(function(s, i){
+        var admitted = i < k, keep = s >= BAR;
+        var col = !admitted ? 'var(--viz-muted)' : (keep ? 'var(--viz-green)' : 'var(--viz-red)');
+        var mark = !admitted ? '' : (keep ? ' ✓' : ' ✗');
+        return '<span class="v5-s" style="color:' + col + ';border-color:' + col + '">' + s.toFixed(2) + mark + '</span>';
+      }).join('');
+
+      why.innerHTML =
+        '<b>Upper bars: answer quality. Lower bars: input cost. Green tick = clears the ' + BAR.toFixed(2) + ' relevance bar.</b>' +
+        (k <= DYN
+          ? '<span style="color:var(--viz-green)">Dynamic k: rank the candidates, admit while they clear the bar, stop when the scores collapse.</span> The reranker scores run 0.92, 0.88, 0.85, then fall off a cliff to 0.41 — so you admit <b>' + DYN + '</b>. Reranker scores support a real threshold because they carry <em>magnitude</em>; raw RRF rank positions do not, which is why you cannot threshold a fused rank.'
+          : '<span style="color:var(--viz-red)">Padding to a fixed k is exactly how the 0.41 distractor gets into the prompt.</span> Beyond chunk ' + DYN + ' every addition is off-topic material you have <b>presented to the model as relevant</b> — so it may quote it or blend it into the answer. Density has fallen to ' + dens.toFixed(0) + '%: the same ' + use + ' useful tokens, now buried under ' + (ctx - use).toLocaleString() + ' tokens of distraction.') +
+        '<br><br>' +
+        (over
+          ? '<b style="color:var(--viz-red)">Over the allocation.</b>' + ctx.toLocaleString() + ' tokens against ' + ALLOC.toLocaleString() + ' — something gets truncated, and it will be the history or the answer reserve.'
+          : '<b>Quality rises, plateaus, then declines. Cost rises linearly, forever.</b>') +
+        'That is the whole shape of the argument: a ' + ctx.toLocaleString() + '-token context in which ' + use + ' tokens matter is not more evidence than a ' + (usefulAt(3) + 400).toLocaleString() + '-token one in which the same ' + use + ' matter. It is the same evidence plus ' + (ctx - use).toLocaleString() + ' tokens of distraction, cost and latency.' +
+        '<br><br>When quality problems show up, <b>check density before you check k</b>. The common failure is not too little context, it is too much of the wrong kind.';
+    }
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,581 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Frontier Meets Freshness</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Change Curve</button>
+  <button class="viz-tab" data-viz-tab="3">3. Counting From History</button>
+  <button class="viz-tab" data-viz-tab="4">4. Priority Per Fetch</button>
+  <button class="viz-tab" data-viz-tab="5">5. Recency Meets Relevance</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Frontier Meets Freshness</h2>
+  <p class="vz-lede"><b>The Crawl Frontier</b> gave you a queue that must be ordered and <b>Politeness</b> gave
+    you the budget it spends. What was missing is the number that orders it. Choose a policy and a budget, and
+    watch where the fetches go. <b>Like a night nurse with time for three rooms: check the quietest patients,
+    or the ones most likely to have changed?</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Ordering policy">
+    <button id="v1-old" aria-pressed="true">order by age — plain frontier</button>
+    <button id="v1-val" aria-pressed="false">order by expected value ÷ cost</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-b">Fetch budget this cycle: <span id="v1-bl">3</span> of 5 pages</label>
+    <input type="range" id="v1-b" min="1" max="5" value="3" step="1" aria-label="Fetch budget">
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-stats" id="v1-stats"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Neither policy escapes politeness: a two-level scheduler still picks an <b>eligible
+    host</b> first — each host carrying a next-allowed time from its crawl rate, robots policy and error
+    history — and only then that host’s best URL. And whichever policy wins, every page needs a
+    <b>maximum audit interval</b>, or the policy PDF at the bottom of the value ranking is never fetched again.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-rows{margin-top:14px;display:flex;flex-direction:column;gap:4px}
+    .v1-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      flex-wrap:wrap}
+    .v1-r.is-skip{opacity:.45;border-style:dashed}
+    .v1-r.is-go{border-color:var(--viz-green)}
+    .v1-nm{flex:1 1 108px;font-family:inherit;font-weight:700}
+    .v1-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v1-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Five pages of the classes doc.md names. Fast pages are young because they get
+    // crawled often — which is exactly why age alone is a misleading ordering.
+    var PAGES = [
+      { n:'release notes',    lam:0.5,   age:1,  w:5, c:1 },
+      { n:'homepage',         lam:0.3,   age:2,  w:4, c:1 },
+      { n:'API reference',    lam:0.15,  age:4,  w:3, c:1 },
+      { n:'historical paper', lam:0.01,  age:40, w:2, c:1 },
+      { n:'policy PDF',       lam:1/365, age:90, w:1, c:1 }
+    ];
+    var byValue = false;
+    var bOld = document.getElementById('v1-old'), bVal = document.getElementById('v1-val');
+    var s = document.getElementById('v1-b'), bl = document.getElementById('v1-bl');
+    var rows = document.getElementById('v1-rows'), stats = document.getElementById('v1-stats');
+    var why = document.getElementById('v1-why');
+
+    function p(g){ return 1 - Math.exp(-g.lam * g.age); }
+    function val(g){ return g.w * p(g) / Math.max(g.c, 0.0001); }
+    function pick(useValue, k){
+      var o = PAGES.slice().sort(function(a, b){
+        return useValue ? val(b) - val(a) : b.age - a.age;
+      });
+      return o.slice(0, k);
+    }
+    function sum(list, f){ var t = 0; for (var i = 0; i < list.length; i++) t += f(list[i]); return t; }
+
+    function render(){
+      var k = Number(s.value) || 1;
+      bl.textContent = k;
+      bOld.setAttribute('aria-pressed', byValue ? 'false' : 'true');
+      bVal.setAttribute('aria-pressed', byValue ? 'true' : 'false');
+
+      var chosen = pick(byValue, k);
+      var order = PAGES.slice().sort(function(a, b){ return byValue ? val(b) - val(a) : b.age - a.age; });
+      rows.innerHTML = order.map(function(g, i){
+        var go = i < k;
+        return '<div class="v1-r ' + (go ? 'is-go' : 'is-skip') + '">' +
+          '<span class="v1-nm">' + (go ? '▶ ' : '· ') + g.n + '</span>' +
+          '<span>rate ' + g.lam.toFixed(3) + '/day · age ' + g.age + 'd</span>' +
+          '<span>P(changed) ' + p(g).toFixed(3) + ' · value ' + val(g).toFixed(2) + '</span>' +
+          '<span class="v1-tag" style="color:' + (go ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (go ? 'FETCHED' : 'skipped') + '</span></div>';
+      }).join('');
+
+      var mine = sum(chosen, p), other = sum(pick(!byValue, k), p);
+      var mineV = sum(chosen, val), otherV = sum(pick(!byValue, k), val);
+      var ratio = mineV / Math.max(otherV, 0.0001);
+      stats.innerHTML =
+        '<span class="v1-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">expected changes found: ' + mine.toFixed(2) + ' of ' + k + '</span>' +
+        '<span class="v1-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">expected wasted fetches: ' + Math.max(0, k - mine).toFixed(2) + '</span>' +
+        '<span class="v1-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">importance-weighted value: ' + mineV.toFixed(2) + '</span>';
+
+      why.innerHTML = byValue
+        ? '<b style="color:var(--viz-green)">Expected value per unit of cost: ' + mineV.toFixed(2) + ' against ' + otherV.toFixed(2) + ' for age-ordering — ' + ratio.toFixed(1) + '×.</b>' +
+          'The score is <b>w(1 − e^(−λa)) / c</b>: importance times the probability something changed, divided by what the fetch costs. ' +
+          'Notice it is the <em>young</em> pages that win. A page checked yesterday with λ = 0.5 already carries a 0.393 chance of having moved, while a policy PDF untouched for 90 days at λ = 1/365 carries only 0.219. ' +
+          '<br><br>Age is not staleness risk. It is one term inside it, and the exponential is what converts it.'
+        : '<b style="color:var(--viz-red)">Oldest-first spends the budget on archives.</b>' +
+          'The plain frontier orders by how long something has waited, so it fetches the policy PDF and the historical paper first — the two pages least likely to have changed and least costly if they had. ' +
+          'Expected changes discovered: ' + mine.toFixed(2) + ' against ' + other.toFixed(2) + ' for the value ordering. ' +
+          '<br><br>This is the whole gap this lesson closes: the queue machinery was already right, the <em>key</em> it sorted on was not.';
+    }
+    bOld.addEventListener('click', function(){ byValue = false; render(); });
+    bVal.addEventListener('click', function(){ byValue = true; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Change Curve</h2>
+  <p class="vz-lede">Model meaningful changes as a Poisson process at rate <b>λ</b> per day. Zero changes in
+    <b>t</b> days has probability e^(−λt), so P(changed) = 1 − e^(−λt). Pick a page class, drag the days, read
+    the probability. <b>Like a kettle you cannot see: the longer you wait, the more sure you are it boiled —
+    but never certain.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Page class">
+    <button id="v2-c0" aria-pressed="true">release notes</button>
+    <button id="v2-c1" aria-pressed="false">homepage</button>
+    <button id="v2-c2" aria-pressed="false">API reference</button>
+    <button id="v2-c3" aria-pressed="false">historical paper</button>
+    <button id="v2-c4" aria-pressed="false">policy PDF</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-t">Days since last verified: <span id="v2-tl">1</span></label>
+    <input type="range" id="v2-t" min="1" max="30" value="1" step="1" aria-label="Days since last verified">
+    <svg id="v2-svg" class="v2-svg" viewBox="0 0 330 168" role="img" aria-label="Change probability curve"></svg>
+    <div class="v2-read" id="v2-read"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The Poisson assumption is a <b>tractable baseline, not a belief</b>: it claims independent
+    changes at a stable average rate, and real pages break both halves — news bursts, annual reports move
+    seasonally, documentation changes right after a release, a deleted product page stops changing altogether.
+    And the event being counted must be a <b>meaningful content change</b>: normalise and extract before
+    hashing, or an hourly rotating timestamp gives you a huge rate and zero research value.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-svg{width:100%;height:auto;margin-top:12px;display:block}
+    .v2-read{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CLASSES = [
+      { id:'v2-c0', n:'release notes',    lam:0.5,   note:'changes on average once every two days' },
+      { id:'v2-c1', n:'homepage',         lam:0.3,   note:'frequent template edits, content region hashed' },
+      { id:'v2-c2', n:'API reference',    lam:0.15,  note:'weekly clusters after releases' },
+      { id:'v2-c3', n:'historical paper', lam:0.01,  note:'rarely changes at all' },
+      { id:'v2-c4', n:'policy PDF',       lam:1/365, note:'revised about once a year' }
+    ];
+    var cur = 0;
+    var t = document.getElementById('v2-t'), tl = document.getElementById('v2-tl');
+    var svg = document.getElementById('v2-svg'), read = document.getElementById('v2-read');
+    var why = document.getElementById('v2-why');
+    var X0 = 30, X1 = 320, Y0 = 140, Y1 = 14, TMAX = 30;
+
+    function px(d){ return X0 + (d / TMAX) * (X1 - X0); }
+    function py(p){ return Y0 - p * (Y0 - Y1); }
+    function P(lam, d){ return 1 - Math.exp(-lam * d); }
+
+    function draw(){
+      var lam = CLASSES[cur].lam, d = Number(t.value) || 1;
+      var pts = [];
+      for (var i = 0; i <= 120; i++) {
+        var dd = (i / 120) * TMAX;
+        pts.push(px(dd).toFixed(1) + ',' + py(P(lam, dd)).toFixed(1));
+      }
+      var g = '';
+      [0, 0.25, 0.5, 0.75, 1].forEach(function(v){
+        g += '<line x1="' + X0 + '" y1="' + py(v) + '" x2="' + X1 + '" y2="' + py(v) +
+             '" stroke="var(--viz-line)" stroke-width="1"></line>' +
+             '<text x="' + (X0 - 5) + '" y="' + (py(v) + 3.5) + '" text-anchor="end" font-size="8.5" fill="var(--viz-muted)">' + v.toFixed(2) + '</text>';
+      });
+      [0, 10, 20, 30].forEach(function(v){
+        g += '<text x="' + px(v) + '" y="' + (Y0 + 14) + '" text-anchor="middle" font-size="8.5" fill="var(--viz-muted)">' + v + 'd</text>';
+      });
+      var cp = P(lam, d);
+      g += '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.2"></polyline>';
+      g += '<line x1="' + px(d) + '" y1="' + Y1 + '" x2="' + px(d) + '" y2="' + Y0 + '" stroke="var(--viz-violet)" stroke-width="1.4" stroke-dasharray="3 3"></line>';
+      g += '<circle cx="' + px(d) + '" cy="' + py(cp) + '" r="4.5" fill="var(--viz-violet)"></circle>';
+      g += '<text x="' + X0 + '" y="' + (Y1 - 3) + '" font-size="9" fill="var(--viz-muted)">P(changed by t) = 1 − e^(−λt)</text>';
+      svg.innerHTML = g;
+
+      tl.textContent = d;
+      read.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">λ = ' + lam.toFixed(4) + ' /day</span>' +
+        '<span class="v2-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">● P at ' + d + 'd = ' + cp.toFixed(3) + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">mean gap ' + (lam > 0 ? (1 / lam).toFixed(1) : '∞') + ' days</span>';
+
+      var half = lam > 0 ? Math.log(2) / lam : Infinity;
+      why.innerHTML = '<b>' + CLASSES[cur].n + ' — ' + CLASSES[cur].note + '.</b>' +
+        'At λ = ' + lam.toFixed(4) + ', ' + d + ' day' + (d === 1 ? '' : 's') + ' of waiting buys a <b>' + (cp * 100).toFixed(1) + '%</b> chance that something moved. ' +
+        'The curve is concave: it rises fastest at the start and flattens, so the coin-flip point — P = 0.5 — lands at ln2/λ = ' +
+        (isFinite(half) ? half.toFixed(1) + ' days' : 'never') + ', and waiting far beyond it adds almost nothing. ' +
+        '<br><br><b style="display:inline;font-size:12.5px">The two anchors worth memorising:</b> release notes at λ = 0.5 reach 1 − e^(−0.5) ≈ 0.393 after one day and 1 − e^(−2) ≈ 0.865 after four. A policy PDF at λ ≈ 1/365 reaches only 1 − e^(−7/365) ≈ 1.9% in a whole week. ' +
+        'Recrawl both on the same weekly schedule and you are wrong in both directions at once.';
+    }
+    CLASSES.forEach(function(c, i){
+      document.getElementById(c.id).addEventListener('click', function(){
+        cur = i;
+        CLASSES.forEach(function(o, j){ document.getElementById(o.id).setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        draw();
+      });
+    });
+    t.addEventListener('input', draw);
+    draw();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Counting From History</h2>
+  <p class="vz-lede">You never observe λ. You observe <b>c</b> meaningful changes over <b>T</b> days of
+    watching, and then you have to decide how much to believe it. Step the counts, switch the prior, and slow
+    the polling down. <b>Like judging a restaurant from three visits: the average is real, the confidence is
+    not.</b></p>
+
+  <div class="v3-steps">
+    <div class="v3-st"><span class="v3-k">changes observed, c</span>
+      <button id="v3-cm" aria-label="Fewer changes">−</button>
+      <b id="v3-cv">3</b>
+      <button id="v3-cp" aria-label="More changes">+</button></div>
+    <div class="v3-st"><span class="v3-k">days observed, T</span>
+      <button id="v3-tm" aria-label="Fewer days">−</button>
+      <b id="v3-tv">30</b>
+      <button id="v3-tp" aria-label="More days">+</button></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Prior by page class">
+    <button id="v3-p0" aria-pressed="true">release-notes prior (α=1, β=20)</button>
+    <button id="v3-p1" aria-pressed="false">archive prior (α=1, β=200)</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v3-out" id="v3-out"></div>
+    <label class="v3-lab" for="v3-k">Censoring: you only poll every <span id="v3-kl">7</span> days</label>
+    <input type="range" id="v3-k" min="1" max="21" value="7" step="1" aria-label="Polling interval in days">
+    <div class="v3-cens" id="v3-cens"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">A rate estimate is uncertain, so <b>record the sample count and the confidence beside
+    it</b>. Freezing a page after two unchanged fetches creates invisible staleness — nothing in the system
+    reports it, because nothing is looking. Segment models by source and type, detect regime shifts, and keep a
+    maximum audit interval even for pages you believe are static.</p>
+
+  <style>
+    .v3-steps{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-st{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:5px 10px;background:var(--viz-surface);min-height:44px}
+    .v3-k{flex:1;font-size:12px;font-weight:700}
+    .v3-st b{font-family:ui-monospace,Consolas,monospace;font-size:14px;min-width:34px;text-align:center;color:var(--viz-accent)}
+    .v3-st button{min-width:44px;min-height:36px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:9px;font:inherit;font-weight:800;font-size:15px}
+    .v3-out{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+    .v3-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;flex-wrap:wrap}
+    .v3-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-cens{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var c = 3, T = 30, prior = 0;
+    var PRIORS = [ { a:1, b:20, n:'release-notes prior' }, { a:1, b:200, n:'archive prior' } ];
+    var LAM_TRUE = 0.5;   // release notes, from the worked class in the lesson
+    var cv = document.getElementById('v3-cv'), tv = document.getElementById('v3-tv');
+    var out = document.getElementById('v3-out'), cens = document.getElementById('v3-cens');
+    var why = document.getElementById('v3-why');
+    var k = document.getElementById('v3-k'), kl = document.getElementById('v3-kl');
+    var p0 = document.getElementById('v3-p0'), p1 = document.getElementById('v3-p1');
+
+    function row(label, val, extra, tag, col){
+      return '<div class="v3-row"><span>' + label + '</span><span style="color:' + col + '">' + val + '</span>' +
+        '<span style="color:var(--viz-muted)">' + extra + '</span>' +
+        '<span class="v3-tag" style="color:' + col + '">' + tag + '</span></div>';
+    }
+    function render(){
+      cv.textContent = c; tv.textContent = T; kl.textContent = k.value;
+      p0.setAttribute('aria-pressed', prior === 0 ? 'true' : 'false');
+      p1.setAttribute('aria-pressed', prior === 1 ? 'true' : 'false');
+      var pr = PRIORS[prior];
+      var raw = c / Math.max(T, 1);
+      var post = (pr.a + c) / (pr.b + Math.max(T, 1));
+      var priorMean = pr.a / pr.b;
+      out.innerHTML =
+        row('raw&nbsp; c/T', raw.toFixed(4) + '/day', '= ' + c + '/' + T, 'UNSMOOTHED', 'var(--viz-amber)') +
+        row('prior&nbsp; α/β', priorMean.toFixed(4) + '/day', pr.n, 'BELIEF', 'var(--viz-muted)') +
+        row('posterior', post.toFixed(4) + '/day', '= (' + pr.a + '+' + c + ')/(' + pr.b + '+' + T + ')', 'USE THIS', 'var(--viz-green)') +
+        row('7-day P(change)', (1 - Math.exp(-post * 7)).toFixed(3), 'from the posterior rate', 'DECISION', 'var(--viz-accent)');
+
+      var kk = Number(k.value) || 1;
+      var seen = (1 - Math.exp(-LAM_TRUE * kk)) / kk;   // at most ONE change is visible per poll
+      var pct = (seen / LAM_TRUE) * 100;
+      cens.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">true rate 0.500/day</span>' +
+        '<span class="v3-pill" style="color:var(--viz-red);border-color:var(--viz-red)">▼ you would estimate ' + seen.toFixed(3) + '/day</span>' +
+        '<span class="v3-pill" style="color:' + (pct > 80 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (pct > 80 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + pct.toFixed(0) + '% of the truth recovered</span>';
+
+      var pull = post < raw ? 'down' : (post > raw ? 'up' : 'nowhere');
+      why.innerHTML = '<b>The prior pulls the estimate ' + pull + ', and it should.</b>' +
+        'A Gamma prior on a Poisson rate is conjugate, so the posterior mean is simply <b>(α + c)/(β + T)</b> — the prior behaves like α pseudo-changes already seen over β pseudo-days. With c = ' + c + ' over T = ' + T +
+        ' days that is ' + post.toFixed(4) + '/day against a raw ' + raw.toFixed(4) + '. ' +
+        (T <= 10 ? 'At this little evidence the prior dominates, which is the point: one unchanged fetch on a new page must not classify it permanent. ' : 'As T grows the data swamps the prior, exactly as it should. ') +
+        '<br><br><b style="display:inline;font-size:12.5px">Now the harder problem.</b> Polling every ' + kk + ' day' + (kk === 1 ? '' : 's') +
+        ' <em>censors</em> the observation: if three changes happen between two checks you see one difference, not three. Your estimator converges to (1 − e^(−λk))/k, so at k = ' + kk + ' a truly 0.500/day page reads as ' + seen.toFixed(3) +
+        ' — ' + pct.toFixed(0) + '% of the truth. Counting detected changes therefore <b>systematically undercounts fast pages</b>, and the faster the page the worse it gets. ' +
+        '<br><br>Publisher versions, feeds or changelogs fix it properly. Otherwise model the probability of <em>at least one</em> change per interval rather than pretending a changed fetch was one event — and let that uncertainty widen your audit coverage, not narrow your interval.';
+    }
+    document.getElementById('v3-cm').addEventListener('click', function(){ c = Math.max(0, c - 1); render(); });
+    document.getElementById('v3-cp').addEventListener('click', function(){ c = Math.min(30, c + 1); render(); });
+    document.getElementById('v3-tm').addEventListener('click', function(){ T = Math.max(5, T - 5); render(); });
+    document.getElementById('v3-tp').addEventListener('click', function(){ T = Math.min(180, T + 5); render(); });
+    p0.addEventListener('click', function(){ prior = 0; render(); });
+    p1.addEventListener('click', function(){ prior = 1; render(); });
+    k.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Priority Per Fetch</h2>
+  <p class="vz-lede">priority(u) = w·(1 − e^(−λa)) / c. Importance times the chance of finding a change,
+    divided by what the fetch costs. Tune page A against a fixed page B and watch the ordering flip.
+    <b>Like deciding which errand to run: how much it matters, how likely it has changed, and how far away
+    it is.</b></p>
+
+  <div class="vz-card">
+    <div class="v4-ctl">
+      <label for="v4-w">importance w = <span id="v4-wl">5</span></label>
+      <input type="range" id="v4-w" min="1" max="10" value="5" step="1" aria-label="Importance of page A">
+      <label for="v4-lam">change rate λ = <span id="v4-laml">0.20</span>/day</label>
+      <input type="range" id="v4-lam" min="1" max="100" value="20" step="1" aria-label="Change rate of page A">
+      <label for="v4-a">age since verified a = <span id="v4-al">3</span> days</label>
+      <input type="range" id="v4-a" min="0" max="30" value="3" step="1" aria-label="Age of page A">
+      <label for="v4-c">fetch cost c = <span id="v4-cl">1</span> unit</label>
+      <input type="range" id="v4-c" min="1" max="12" value="1" step="1" aria-label="Fetch cost of page A">
+    </div>
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Optimise <b>expected stale-content harm avoided per constrained fetch</b>, not crawl
+    volume — and cap popularity feedback so head pages do not starve long-tail coverage. Remember too that
+    this score only moves <em>detection</em> lag. Freshness is publisher change → detection → extraction →
+    indexing → serving; a page fetched in a minute and parked in a six-hour embedding queue is not fresh.</p>
+
+  <style>
+    .v4-ctl label{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+    .v4-ctl label:first-child{margin-top:0}
+    .v4-ctl label span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-ctl input{width:100%}
+    .v4-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var B = { w:1, lam:0.05, a:10, c:1 };     // the fixed comparison page from the lesson
+    var w = document.getElementById('v4-w'), lam = document.getElementById('v4-lam');
+    var a = document.getElementById('v4-a'), c = document.getElementById('v4-c');
+    var wl = document.getElementById('v4-wl'), laml = document.getElementById('v4-laml');
+    var al = document.getElementById('v4-al'), cl = document.getElementById('v4-cl');
+    var bars = document.getElementById('v4-bars'), why = document.getElementById('v4-why');
+
+    function score(p){ return p.w * (1 - Math.exp(-p.lam * p.a)) / Math.max(p.c, 0.0001); }
+    function bar(name, p, s, col, best){
+      var pct = Math.max(1, Math.min(100, (s / 3) * 100));
+      return '<div class="v4-b"><h6><span>' + name + (best ? ' ★ fetched first' : '') + '</span>' +
+        '<b style="color:' + col + '">priority ' + s.toFixed(3) + '</b></h6>' +
+        '<div class="v4-track"><i style="width:' + pct.toFixed(1) + '%;background:' + col + '"></i></div>' +
+        '<div class="v4-sub">' + p.w + ' × (1 − e^(−' + p.lam.toFixed(2) + '×' + p.a + ')) / ' + p.c +
+        '&nbsp; · &nbsp;P(changed) = ' + (1 - Math.exp(-p.lam * p.a)).toFixed(3) + '</div></div>';
+    }
+    function render(){
+      var A = { w:Number(w.value), lam:Number(lam.value) / 100, a:Number(a.value), c:Number(c.value) };
+      wl.textContent = A.w; laml.textContent = A.lam.toFixed(2); al.textContent = A.a; cl.textContent = A.c;
+      var sa = score(A), sb = score(B);
+      bars.innerHTML =
+        bar('page A (you tune this)', A, sa, sa >= sb ? 'var(--viz-green)' : 'var(--viz-red)', sa >= sb) +
+        bar('page B (fixed: w=1, λ=0.05, a=10, c=1)', B, sb, sb > sa ? 'var(--viz-green)' : 'var(--viz-muted)', sb > sa);
+
+      var sat = 1 - Math.exp(-A.lam * A.a);
+      var head = sa >= sb
+        ? '<b style="color:var(--viz-green)">A wins at ' + sa.toFixed(3) + ' against ' + sb.toFixed(3) + '.</b>'
+        : '<b style="color:var(--viz-red)">B wins at ' + sb.toFixed(3) + ' against ' + sa.toFixed(3) + ' — despite A being younger.</b>';
+      var body;
+      if (A.c >= 8) {
+        body = 'Cost is a divisor, not a tiebreak. Rendering JavaScript or pulling a 500 MB PDF at c = ' + A.c +
+          ' divides the whole expected value by ' + A.c + ', and the lesson’s own worked case is exactly this: A at w=5, λ=0.2, a=3 scores 2.26 at cost 1 and <b>0.226 at cost 10</b>, which loses to B’s 0.39. ' +
+          '<br><br>The other direction is just as real: a reliable validator answering <b>304 Not Modified</b> transfers almost nothing, so it lowers c and buys you more frequent checking of the same page.';
+      } else if (sat > 0.95) {
+        body = 'Look at the numerator: P(changed) is ' + sat.toFixed(3) + ', so it has <b>saturated</b>. Beyond about 3/λ days the exponential is flat and more waiting adds essentially no expected value — only importance and cost can separate two saturated pages. ' +
+          '<br><br>That is also why a low-rate page can sit near zero priority forever, and why an <b>audit deadline</b> is mandatory: without a maximum interval, "eventually" never arrives.';
+      } else if (A.w >= 8) {
+        body = 'Importance w is the cost of serving stale content, and it comes from source trust, query demand and business consequence — not from popularity alone, which has to be capped or the head of the corpus starves the tail. ' +
+          '<br><br>Note that w scales the whole expected value linearly, while age enters through a saturating exponential. High importance therefore beats high age almost always.';
+      } else {
+        body = 'The numerator is the <b>expected value of discovering a change</b> and the denominator is what looking costs, so the score is value per unit of fetch. Change any one of the four terms and the ordering can flip — which is why exam distractors move exactly one and leave the old answer sitting there. ' +
+          '<br><br>Baseline for reference: A at w=5, λ=0.2, a=3, c=1 scores 5(1 − e^(−0.6)) ≈ <b>2.26</b>; B scores 1(1 − e^(−0.5)) ≈ <b>0.39</b>. A wins despite B being more than three times older.';
+      }
+      why.innerHTML = head + body;
+    }
+    [w, lam, a, c].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Recency Meets Relevance</h2>
+  <p class="vz-lede">Recrawling decides which version exists; ranking decides whether age should matter for
+    <em>this</em> query. Fuse it: S = S_rel + α(q)·r(a), with r(a) = e^(−γa) and γ = ln2/h. Pick an intent,
+    move the half-life, then switch which date you decay. <b>Like milk in a fridge: the date on the carton is
+    the point, not the day you happened to buy it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Query intent">
+    <button id="v5-i0" aria-pressed="false">"PageRank original paper" α=0</button>
+    <button id="v5-i1" aria-pressed="true">neutral query α=0.1</button>
+    <button id="v5-i2" aria-pressed="false">"latest Vertex AI quotas" α=0.4</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-h">Half-life h = <span id="v5-hl">30</span> days &nbsp;·&nbsp; γ = ln2/h</label>
+    <input type="range" id="v5-h" min="7" max="365" value="30" step="1" aria-label="Recency half-life in days">
+    <div class="vz-seg" role="group" aria-label="Which timestamp decays" style="margin:12px 0 10px">
+      <button id="v5-d0" aria-pressed="true">decay the content date</button>
+      <button id="v5-d1" aria-pressed="false">decay crawl time</button>
+    </div>
+    <div class="v5-docs" id="v5-docs"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Recency also amplifies low-quality churn: a site publishing frequent superficial updates
+    dominates unless source quality and relevance stay primary. And <b>validity is not decay</b> — a 2024
+    policy is <em>correct</em> for a question about 2024, so temporal query understanding should select the
+    effective period before ranking. Evaluate on slices (current events, mutable docs, evergreen reference,
+    historical lookup); a single global metric hides the damage done to evergreen queries.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-docs{display:flex;flex-direction:column;gap:11px}
+    .v5-d h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-d h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v5-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden;position:relative}
+    .v5-track i{display:block;height:100%;position:absolute;top:0;left:0}
+    .v5-track u{display:block;height:100%;position:absolute;top:0;text-decoration:none}
+    .v5-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Ages chosen so that at h = 30 the recency scores are exactly the lesson's 0.1 and 0.9.
+    var DOCS = [
+      { n:'Old — canonical reference', rel:0.95, age:99.66, crawl:0.5 },
+      { n:'New — recent write-up',     rel:0.80, age:4.56,  crawl:2.0 }
+    ];
+    var ALPHAS = [0, 0.1, 0.4];
+    var ai = 1, useCrawl = false;
+    var h = document.getElementById('v5-h'), hl = document.getElementById('v5-hl');
+    var docs = document.getElementById('v5-docs'), why = document.getElementById('v5-why');
+    var i0 = document.getElementById('v5-i0'), i1 = document.getElementById('v5-i1'), i2 = document.getElementById('v5-i2');
+    var d0 = document.getElementById('v5-d0'), d1 = document.getElementById('v5-d1');
+
+    function render(){
+      var H = Math.max(1, Number(h.value) || 30);
+      var alpha = ALPHAS[ai];
+      hl.textContent = H;
+      [i0, i1, i2].forEach(function(b, j){ b.setAttribute('aria-pressed', ai === j ? 'true' : 'false'); });
+      d0.setAttribute('aria-pressed', useCrawl ? 'false' : 'true');
+      d1.setAttribute('aria-pressed', useCrawl ? 'true' : 'false');
+
+      var rows = DOCS.map(function(d){
+        var age = useCrawl ? d.crawl : d.age;
+        var r = Math.pow(2, -age / H);
+        return { d:d, age:age, r:r, s:d.rel + alpha * r };
+      });
+      var top = rows[0].s >= rows[1].s ? 0 : 1;
+      docs.innerHTML = rows.map(function(x, i){
+        var col = i === top ? 'var(--viz-green)' : 'var(--viz-muted)';
+        var relW = Math.min(100, (x.d.rel / 1.6) * 100);
+        var totW = Math.min(100, (x.s / 1.6) * 100);
+        return '<div class="v5-d"><h6><span>' + (i === top ? '★ ' : '   ') + x.d.n + '</span>' +
+          '<b style="color:' + col + '">S = ' + x.s.toFixed(3) + '</b></h6>' +
+          '<div class="v5-track">' +
+          '<u style="left:0;width:' + totW.toFixed(1) + '%;background:var(--viz-violet);opacity:.55"></u>' +
+          '<i style="width:' + relW.toFixed(1) + '%;background:' + col + '"></i></div>' +
+          '<div class="v5-sub">relevance ' + x.d.rel.toFixed(2) + ' + ' + alpha.toFixed(2) + ' × recency ' + x.r.toFixed(3) +
+          '&nbsp; · &nbsp;age ' + x.age.toFixed(1) + 'd</div></div>';
+      }).join('');
+
+      var gap = Math.abs(rows[0].s - rows[1].s);
+      var head, body;
+      if (useCrawl) {
+        head = '<b style="color:var(--viz-red)">Decaying crawl time makes the ancient document look new.</b>';
+        body = 'Crawl time records when <em>you</em> looked, not when the content became current. Recrawl the 100-day-old reference this morning and its "age" is ' + rows[0].age.toFixed(1) +
+          ' days, so its recency jumps to ' + rows[0].r.toFixed(3) + ' and it wins on a freshness query it has no business winning. ' +
+          '<br><br>Four different dates get confused here: publication date, last meaningful content update, event effective date, and crawl time. Prefer trusted content timestamps, keep provenance, cap implausible future dates — and never let a <b>template edit</b> reset semantic freshness when the main content is unchanged.';
+      } else if (alpha === 0) {
+        head = '<b style="color:var(--viz-accent)">α = 0: recency is switched off, and that is the right answer here.</b>';
+        body = 'A query like <code>PageRank original paper</code> does not get a better answer because a blog repost is newer. Pure relevance ranks Old first by 0.15 and nothing can move it. ' +
+          '<br><br>α(q) is the whole judgment: large for freshness intent (explicit words like <em>latest</em>, <em>current</em>, <em>this week</em>, or a version name), near zero for timeless ones. A conservative system boosts only when evidence supports temporal intent.';
+      } else if (top === 1) {
+        head = '<b style="color:var(--viz-green)">New leads by ' + gap.toFixed(3) + ' — recency closed a 0.15 relevance gap.</b>';
+        body = 'At α = ' + alpha.toFixed(2) + ' the recency term is worth up to ' + alpha.toFixed(2) + ' points, and the gap in recency between these two documents is ' +
+          Math.abs(rows[0].r - rows[1].r).toFixed(2) + '. Multiply and it clears 0.15. The lesson’s worked case: α = 0.4 gives 0.99 against <b>1.16</b>. ' +
+          '<br><br>Note the scales had to be made compatible first. Raw BM25 and cosine scores are not comparable with a 0-to-1 decay — normalise, learn the combination, or use rank-based fusion.';
+      } else {
+        head = '<b style="color:var(--viz-accent)">Old still leads by ' + gap.toFixed(3) + ': fusion, not replacement.</b>';
+        body = 'At α = ' + alpha.toFixed(2) + ' with h = ' + H + ' days, scores are ' + rows[0].s.toFixed(3) + ' and ' + rows[1].s.toFixed(3) +
+          ' — the lesson’s 0.96 against 0.89 at the default settings. Recency moved both documents and changed nothing, because the weight was too small to overcome a 0.15 relevance gap. ' +
+          '<br><br>Push the half-life down and the older document decays faster; push α up and freshness starts to dominate. <b>Recency flips a result only when the query policy values it enough</b>, which is exactly the behaviour you want on evergreen queries.';
+      }
+      why.innerHTML = head + body;
+    }
+    [i0, i1, i2].forEach(function(b, j){ b.addEventListener('click', function(){ ai = j; render(); }); });
+    d0.addEventListener('click', function(){ useCrawl = false; render(); });
+    d1.addEventListener('click', function(){ useCrawl = true; render(); });
+    h.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

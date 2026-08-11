@@ -1,0 +1,564 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 108px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Sorting By Probability</button>
+  <button class="viz-tab" data-viz-tab="2">2. Rank Or Threshold</button>
+  <button class="viz-tab" data-viz-tab="3">3. Deriving The RSV</button>
+  <button class="viz-tab" data-viz-tab="4">4. The RSJ Weight</button>
+  <button class="viz-tab" data-viz-tab="5">5. Where idf Comes From</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Sorting By Probability</h2>
+  <p class="vz-lede">IR 104 gave you the rulers — <b>precision@k</b>, <b>recall@k</b>, <b>MAP</b> — for scoring a
+    ranking after the fact. The Probability Ranking Principle says which ranking to hand them: sort by
+    P(R=1 | d, q). Reorder these four candidates and watch expected precision@k move at every cutoff at once.
+    <b>Like packing a bag heaviest-first: one order is best no matter where you stop.</b></p>
+
+  <div class="v1-docs" id="v1-docs"></div>
+
+  <div class="vz-card">
+    <div class="v1-ks" id="v1-ks"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The proof needs no independence between documents: expectation is <b>linear</b>, so
+    E[relevant in top k] is just the sum of the k probabilities you placed there, however those relevance
+    events are correlated. What PRP does assume is that each document's usefulness is independent of what
+    else is on the page — which is why ten near-duplicates all score high, and why Maximal Marginal
+    Relevance and dedup-before-RAG break PRP on purpose.</p>
+
+  <style>
+    .v1-docs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-row{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:6px 8px;background:var(--viz-surface);min-height:44px}
+    .v1-nm{font-weight:800;font-size:12.5px;flex:0 0 74px}
+    .v1-p{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--viz-accent);flex:0 0 auto}
+    .v1-bar{flex:1;height:12px;border-radius:4px;background:var(--viz-line);overflow:hidden;min-width:40px}
+    .v1-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v1-mv{flex:0 0 auto;min-width:44px;min-height:44px;border:1.5px solid var(--viz-line);border-radius:9px;
+      background:var(--viz-bg);color:var(--viz-ink);font:inherit;font-size:15px;font-weight:800}
+    .v1-mv[disabled]{opacity:.3}
+    .v1-ks{display:flex;gap:6px;flex-wrap:wrap}
+    .v1-k{flex:1 1 74px;border:1.5px solid var(--viz-line);border-radius:10px;padding:7px 8px;text-align:center}
+    .v1-k b{display:block;font-size:15px;font-family:ui-monospace,Consolas,monospace}
+    .v1-k span{display:block;font-size:10px;color:var(--viz-muted);letter-spacing:.03em;text-transform:uppercase}
+    .v1-k em{display:block;font-size:10.5px;font-style:normal;margin-top:3px;font-weight:800}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var P = [0.9, 0.7, 0.4, 0.2];                 // the four candidates from the lesson
+    var NAMES = ['doc A', 'doc B', 'doc C', 'doc D'];
+    var order = [0, 1, 2, 3];                     // current ranking, as indices into P
+    var docs = document.getElementById('v1-docs');
+    var ks = document.getElementById('v1-ks');
+    var why = document.getElementById('v1-why');
+
+    function prefix(list, k){                     // expected relevant docs in the top k
+      var s = 0;
+      for (var i = 0; i < k && i < list.length; i++) s += P[list[i]];
+      return s;
+    }
+    function best(k){
+      var sorted = [0, 1, 2, 3].slice().sort(function(a, b){ return P[b] - P[a]; });
+      return prefix(sorted, k);
+    }
+    function move(i, d){
+      var j = i + d;
+      if (j < 0 || j >= order.length) return;
+      var t = order[i]; order[i] = order[j]; order[j] = t;
+      render();
+    }
+
+    function render(){
+      docs.innerHTML = '';
+      order.forEach(function(idx, pos){
+        var row = document.createElement('div');
+        row.className = 'v1-row';
+        row.innerHTML =
+          '<span class="v1-nm">' + (pos + 1) + '. ' + NAMES[idx] + '</span>' +
+          '<span class="v1-p">' + P[idx].toFixed(2) + '</span>' +
+          '<span class="v1-bar"><i style="width:' + (P[idx] * 100) + '%"></i></span>';
+        var up = document.createElement('button');
+        up.className = 'v1-mv'; up.textContent = '▲';
+        up.setAttribute('aria-label', 'move ' + NAMES[idx] + ' up');
+        if (pos === 0) up.setAttribute('disabled', 'disabled');
+        up.addEventListener('click', function(){ move(pos, -1); });
+        var dn = document.createElement('button');
+        dn.className = 'v1-mv'; dn.textContent = '▼';
+        dn.setAttribute('aria-label', 'move ' + NAMES[idx] + ' down');
+        if (pos === order.length - 1) dn.setAttribute('disabled', 'disabled');
+        dn.addEventListener('click', function(){ move(pos, 1); });
+        row.appendChild(up); row.appendChild(dn);
+        docs.appendChild(row);
+      });
+
+      var loss = 0, cells = '';
+      for (var k = 1; k <= 4; k++) {
+        var got = prefix(order, k) / k;           // k >= 1, so never a divide by zero
+        var top = best(k) / k;
+        var gap = top - got;
+        if (gap > loss) loss = gap;
+        var ok = gap < 1e-9;
+        var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+        cells += '<div class="v1-k" style="border-color:' + col + '">' +
+          '<span>E[prec@' + k + ']</span><b style="color:' + col + '">' + got.toFixed(2) + '</b>' +
+          '<em style="color:' + col + '">' + (ok ? '✓ best' : '−' + gap.toFixed(2) + ' vs best') + '</em></div>';
+      }
+      ks.innerHTML = cells;
+
+      why.innerHTML = loss < 1e-9
+        ? '<b style="color:var(--viz-green)">✓ This is the PRP order — optimal at every cutoff simultaneously.</b>' +
+          'Fix any k. E[relevant in top k] is the <b>sum</b> of the k probabilities you put there, and a sum of k numbers is largest when you pick the k largest. ' +
+          'Because "the k largest" for every k are nested, <b>one descending sort satisfies all four cutoffs at once</b> — you never have to choose which k to optimise for. ' +
+          'That single ordering therefore maximises expected precision@k and expected recall@k together.' +
+          '<br><br>Now try swapping two rows and watch which cutoffs break.'
+        : '<b style="color:var(--viz-red)">Not PRP order — you gave away ' + loss.toFixed(2) + ' expected precision at the worst cutoff.</b>' +
+          'Swapping the 0.70 and the 0.40 drops E[prec@2] from (0.9 + 0.7)/2 = <b>0.80</b> to (0.9 + 0.4)/2 = <b>0.65</b>. ' +
+          'Nothing about the documents changed and no probability was re-estimated: the loss is pure ordering. ' +
+          '<br><br>Note what is <em>not</em> claimed. PRP is optimal <b>given correct probabilities</b>. A badly estimated model ranked "optimally" is still bad — PRP tells you what to compute, not how to compute it well.';
+    }
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Rank Or Threshold</h2>
+  <p class="vz-lede">Ranking needs only the right <em>order</em>. Deciding which chunks are worth
+    context-window budget needs the right <em>number</em>. Move the two costs, then flip the score to
+    log-odds and watch the order survive while the cutoff stops meaning anything.
+    <b>Like a thermometer relabelled in Fahrenheit: the hot days are still the hot days, but "above 30"
+    is now nonsense.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Score scale">
+    <button id="v2-raw" aria-pressed="true">score = P(R=1)</button>
+    <button id="v2-log" aria-pressed="false">score = log-odds</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-cfp">Cost of showing a non-relevant doc, C_fp = <span id="v2-cfpl">1</span></label>
+    <input type="range" id="v2-cfp" min="1" max="10" value="1" step="1" aria-label="Cost of a false positive">
+    <label class="v2-lab" for="v2-cfn">Cost of missing a relevant doc, C_fn = <span id="v2-cfnl">4</span></label>
+    <input type="range" id="v2-cfn" min="1" max="10" value="4" step="1" aria-label="Cost of a false negative">
+    <div class="v2-thr" id="v2-thr"></div>
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">This is the whole licence the rest of the lesson runs on. Odds, logs and dropping a
+    document-independent factor are all legal <b>because only the order is being defended</b>. The moment you
+    threshold, filter, or spend a budget on a score, you have quietly assumed calibration that the derivation
+    never promised.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v2-lab:first-child{margin-top:0}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-thr{margin-top:14px;font-family:ui-monospace,Consolas,monospace;font-size:12px;
+      border:1.5px solid var(--viz-violet);color:var(--viz-violet);border-radius:9px;padding:8px 10px;text-align:center;font-weight:800}
+    .v2-rows{margin-top:11px;display:flex;flex-direction:column;gap:4px}
+    .v2-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-r.is-out{opacity:.45;border-style:dashed}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var P = [0.9, 0.7, 0.4, 0.2];
+    var NAMES = ['doc A', 'doc B', 'doc C', 'doc D'];
+    var logScale = false;
+    var cfp = document.getElementById('v2-cfp'), cfn = document.getElementById('v2-cfn');
+    var cfpl = document.getElementById('v2-cfpl'), cfnl = document.getElementById('v2-cfnl');
+    var thr = document.getElementById('v2-thr'), rows = document.getElementById('v2-rows');
+    var why = document.getElementById('v2-why');
+    var bRaw = document.getElementById('v2-raw'), bLog = document.getElementById('v2-log');
+
+    function odds(p){ return Math.log(p / Math.max(1 - p, 1e-9)); }   // p < 1 here, but guard anyway
+
+    function render(){
+      var a = Number(cfp.value), b = Number(cfn.value);
+      var denom = a + b;
+      var t = denom > 0 ? a / denom : 0.5;                            // denom >= 2 by the slider ranges
+      cfpl.textContent = a; cfnl.textContent = b;
+      bRaw.setAttribute('aria-pressed', logScale ? 'false' : 'true');
+      bLog.setAttribute('aria-pressed', logScale ? 'true' : 'false');
+
+      var tShown = logScale ? odds(t) : t;
+      thr.innerHTML = 'retrieve when score &gt; ' + a + ' / (' + a + ' + ' + b + ') = <b>' + t.toFixed(3) + '</b>' +
+        (logScale ? '<br>on the log-odds scale that cutoff is <b>' + tShown.toFixed(2) + '</b>, not ' + t.toFixed(3) : '');
+
+      var kept = 0, html = '';
+      for (var i = 0; i < P.length; i++) {
+        var raw = P[i];
+        var shown = logScale ? odds(raw) : raw;
+        var inSet = raw > t;                                          // the DECISION always uses the probability
+        if (inSet) kept += 1;
+        html += '<div class="v2-r ' + (inSet ? '' : 'is-out') + '">' +
+          '<span>' + NAMES[i] + '</span><span>score ' + shown.toFixed(2) + '</span>' +
+          '<span class="v2-tag" style="color:' + (inSet ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (inSet ? 'RETRIEVE' : 'drop') + '</span></div>';
+      }
+      rows.innerHTML = html;
+
+      why.innerHTML = logScale
+        ? '<b style="color:var(--viz-amber)">Same order. Different numbers. The cutoff broke.</b>' +
+          'log-odds is strictly monotone, so doc A is still first and doc D still last — <b>every ranking metric is unchanged</b>. ' +
+          'But the scores now run from ' + odds(0.2).toFixed(2) + ' to ' + odds(0.9).toFixed(2) + ', and comparing them to ' + t.toFixed(3) + ' would retrieve ' +
+          (P.filter(function(p){ return odds(p) > t; }).length) + ' of 4 documents instead of ' + kept + '. ' +
+          '<br><br>That is the asymmetry to carry into the next visuals: the derivation is about to take odds, take logs, and throw away a whole factor — all legal for <b>ranking</b>, all fatal to a raw threshold.'
+        : '<b style="color:var(--viz-green)">Bayes-optimal cutoff = C_fp / (C_fp + C_fn) = ' + t.toFixed(3) + '.</b>' +
+          'With C_fp = 1 and C_fn = 4 — missing an answer is four times worse than showing noise — the threshold is <b>0.2</b> and ' + kept + ' of 4 documents make the cut. ' +
+          'Raise C_fp and the bar rises: showing junk now costs more than missing gold. ' +
+          '<br><br>Deciding which retrieved chunks deserve context-window budget in a RAG pipeline <em>is</em> this rule, and it only works if the scores behave like <b>calibrated probabilities</b>. Flip to log-odds to see what "only" is doing in that sentence.';
+    }
+    cfp.addEventListener('input', render);
+    cfn.addEventListener('input', render);
+    bRaw.addEventListener('click', function(){ logScale = false; render(); });
+    bLog.addEventListener('click', function(){ logScale = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Deriving The RSV</h2>
+  <p class="vz-lede">Six moves take an intractable posterior to a sum over the query terms a document
+    contains. Tap each one: the expression on top is what you are ranking by, the note below says which
+    assumption bought the step. <b>Like cancelling a fraction — the thing you are left with looks nothing
+    like the thing you started with, and it is the same number.</b></p>
+
+  <div class="vz-card vz-mono" id="v3-expr" style="margin-bottom:11px;min-height:66px"></div>
+
+  <div class="v3-steps" id="v3-steps"></div>
+  <div class="vz-card">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Look at what the last line <em>is</em>: a sum, over query terms present in the document,
+    of a per-term weight. That is exactly the computation an inverted index makes cheap — walk the postings
+    of the query terms, accumulate per document, never touch the rest of the collection. BIM's assumptions
+    are false in detail; this <b>shape</b> is the part that survived into BM25.</p>
+
+  <style>
+    .v3-steps{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [
+      { t: 'Start from the posterior',
+        expr: 'rank by   P(R=1 | x, q)',
+        head: 'The Probability Ranking Principle, written down.',
+        body: 'x is the incidence vector: x_t = 1 if term t occurs in the document, 0 otherwise. Term frequency is already gone — that is the <b>Binary</b> in Binary Independence Model, and BM25 spends its next lesson putting it back. Nothing here is computable yet; the next five moves are what make it so.' },
+      { t: 'Switch to odds, then apply Bayes',
+        expr: 'O(R | x, q) = P(R=1|x,q) / P(R=0|x,q)\n            = [ P(R=1|q) / P(R=0|q) ]\n              x [ P(x|R=1,q) / P(x|R=0,q) ]',
+        head: 'Monotone transform — the order is untouched.',
+        body: 'O = P/(1-P) is strictly increasing in P, so ranking by odds is <b>rank-equivalent</b> to ranking by probability (visual 2 is the licence for this). The reason to bother: writing both sides with Bayes makes the evidence term <code>P(x | q)</code> appear in numerator and denominator, where it <b>cancels exactly</b>. The intractable normaliser is gone in one move.' },
+      { t: 'Drop the prior odds',
+        expr: 'O(R | x, q)  ~  P(x|R=1,q) / P(x|R=0,q)',
+        head: 'Same number for every document, so it cannot change the order.',
+        body: 'P(R=1|q)/P(R=0|q) is the prior odds that a document — <em>any</em> document — is relevant to this query. It multiplies every candidate identically, so discarding it is free for ranking. It is <b>not</b> free for thresholding: this is the first place the absolute score stops being a probability.' },
+      { t: 'Factor by conditional independence',
+        expr: 'PROD over x_t=1 of  p_t / u_t\nPROD over x_t=0 of  (1-p_t) / (1-u_t)\n\np_t = P(x_t=1 | R=1, q)\nu_t = P(x_t=1 | R=0, q)',
+        head: 'The naive Bayes move, and the model’s only two parameters per term.',
+        body: 'Assume term occurrences are conditionally independent <em>given the relevance class</em>. False in detail — in <code>new york</code> the two terms are wildly dependent — but it turns one joint distribution over the whole vocabulary into a product of per-term ratios, which is the difference between impossible and an inverted-index walk.' },
+      { t: 'Kill non-query terms, then multiply and divide',
+        expr: 'for t not in q:  p_t = u_t  =>  factor = 1\n\nPROD over t in q&d of\n    p_t(1-u_t) / [ u_t(1-p_t) ]\n  x  PROD over t in q of (1-p_t)/(1-u_t)   <- drop',
+        head: 'The one piece of algebra worth memorising.',
+        body: 'A term the user did not ask about is assumed equally likely in both classes, so every non-query factor becomes 1 and both products now run over query terms only. One problem is left: the second product ranges over query terms <b>absent</b> from the document, so it changes per document. Fix: for each query term <em>present</em>, multiply by (1-p_t)/(1-u_t) and divide it back out. The multiplied copies complete that product over <b>all</b> query terms — document-independent, hence droppable — and the divided copies join the first.' },
+      { t: 'Take the log',
+        expr: 'RSV(d) = SUM over t in q&d of\n           log[ p_t(1-u_t) / (u_t(1-p_t)) ]\n\ngke  p=0.60 u=0.02 -> ln 73.5 = 4.30\nauto p=0.40 u=0.01 -> ln 66.0 = 4.19\nboth 8.49   gke only 4.30   neither 0',
+        head: 'Retrieval Status Value: a sum of per-term weights.',
+        body: 'One last monotone step turns the product into a sum, which is numerically safer and, more importantly, additive over postings. With the lesson’s numbers for <code>gke autoscaler</code>, a document holding both terms scores <b>8.49</b>, one holding only <code>gke</code> scores <b>4.30</b>, one holding neither scores <b>0</b>. Each log term is the RSJ weight — visual 4.' }
+    ];
+    var steps = document.getElementById('v3-steps');
+    var expr = document.getElementById('v3-expr');
+    var why = document.getElementById('v3-why');
+
+    function show(i){
+      [].slice.call(steps.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      expr.textContent = STEPS[i].expr;
+      why.innerHTML = '<b>' + STEPS[i].head + '</b>' + STEPS[i].body;
+    }
+    STEPS.forEach(function(st, i){
+      var b = document.createElement('button');
+      b.className = 'v3-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-n">' + (i + 1) + '</span><span>' + st.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      steps.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The RSJ Weight</h2>
+  <p class="vz-lede">Each log term in the RSV is the Robertson–Spärck Jones weight, and estimating it is a
+    2&times;2 counting problem. Drag the counts and watch the weight; drag the judgments to zero and watch it
+    become idf. <b>Like a drug trial: what matters is not how many patients improved, but how differently
+    the treated and untreated groups behaved.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Presets">
+    <button id="v4-ex" aria-pressed="false">worked example</button>
+    <button id="v4-none" aria-pressed="false">no judgments (R = 0)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-nt">n_t &mdash; documents containing the term: <span id="v4-ntl">2,000</span> of N = 100,000</label>
+    <input type="range" id="v4-nt" min="0" max="100" value="58" step="1" aria-label="Documents containing the term">
+    <label class="v4-lab" for="v4-rr">R &mdash; documents judged relevant: <span id="v4-rrl">20</span></label>
+    <input type="range" id="v4-rr" min="0" max="40" value="20" step="1" aria-label="Documents judged relevant">
+    <label class="v4-lab" for="v4-rt">r_t &mdash; of those, containing the term: <span id="v4-rtl">15</span></label>
+    <input type="range" id="v4-rt" min="0" max="40" value="15" step="1" aria-label="Relevant documents containing the term">
+
+    <div class="v4-tbl" id="v4-tbl"></div>
+    <div class="v4-out" id="v4-out"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Modern systems have relevance judgments lying around: <b>clicks</b>. Treat clicked results
+    as judged-relevant and you can estimate r_t and R per query. The caveats are real — clicks are biased
+    toward whatever already ranked high, and with R in single digits the 0.5 corrections dominate a very
+    noisy estimate. That is the machinery this course's final lesson returns to as relevance feedback.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v4-lab:first-child{margin-top:0}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-tbl{margin-top:15px;display:grid;grid-template-columns:1.15fr 1fr 1fr;gap:3px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v4-c{border:1.5px solid var(--viz-line);border-radius:7px;padding:7px 6px;text-align:center;background:var(--viz-bg)}
+    .v4-c.is-hd{border-color:transparent;background:none;color:var(--viz-muted);font-weight:800;
+      display:flex;align-items:center;justify-content:center;text-align:center}
+    .v4-c b{display:block;font-size:12.5px}
+    .v4-c i{display:block;font-style:normal;font-size:9.5px;color:var(--viz-muted);margin-top:2px}
+    .v4-out{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 100000, NT_MAX = 95000;
+    // A preset PINS an exact n_t. The slider is log-scaled, so its nearest step lands on
+    // 2,028 rather than 2,000 — close enough to drag, wrong enough that the printed weight
+    // would read 4.92 while the lesson (and the note below) says 4.94.
+    var forced = 2000;
+    var sN = document.getElementById('v4-nt'), sR = document.getElementById('v4-rr'), sr = document.getElementById('v4-rt');
+    var lN = document.getElementById('v4-ntl'), lR = document.getElementById('v4-rrl'), lr = document.getElementById('v4-rtl');
+    var tbl = document.getElementById('v4-tbl'), out = document.getElementById('v4-out'), why = document.getElementById('v4-why');
+    var bEx = document.getElementById('v4-ex'), bNo = document.getElementById('v4-none');
+
+    // slider position 0..100 -> n_t on a log scale from 10 to 95,000
+    var LO = Math.log10(10), HI = Math.log10(NT_MAX);
+    function ntFrom(v){ return Math.max(1, Math.round(Math.pow(10, LO + (v / 100) * (HI - LO)))); }
+    function posFor(n){ return Math.round((Math.log10(n) - LO) / (HI - LO) * 100); }
+    function fmt(n){ return n.toLocaleString('en-US'); }
+    function safe(x){ return (isFinite(x) ? x : 0); }
+
+    function render(){
+      var nt = (forced !== null) ? forced : ntFrom(Number(sN.value));
+      var R = Number(sR.value);
+      sr.max = String(Math.max(0, R));                 // r_t can never exceed R
+      var rt = Math.min(Number(sr.value), R, nt);
+      if (Number(sr.value) !== rt) sr.value = String(rt);
+
+      lN.textContent = fmt(nt); lR.textContent = R; lr.textContent = rt;
+
+      // every cell gets +0.5, so no denominator is ever zero
+      var a = rt + 0.5;                                // relevant, has term
+      var b = R - rt + 0.5;                            // relevant, lacks term
+      var c = nt - rt + 0.5;                           // non-relevant, has term
+      var d = Math.max(N - nt - R + rt + 0.5, 0.5);    // non-relevant, lacks term (floored)
+      var relOdds = a / b;
+      var nonInv = d / c;
+      var ct = safe(Math.log(Math.max(relOdds * nonInv, 1e-12)));
+
+      function cell(v, sub){ return '<div class="v4-c"><b>' + v + '</b><i>' + sub + '</i></div>'; }
+      tbl.innerHTML =
+        '<div class="v4-c is-hd"></div><div class="v4-c is-hd">relevant</div><div class="v4-c is-hd">non-relevant</div>' +
+        '<div class="v4-c is-hd">contains t</div>' + cell(fmt(rt), '+0.5 = ' + a.toFixed(1)) + cell(fmt(nt - rt), '+0.5 = ' + c.toFixed(1)) +
+        '<div class="v4-c is-hd">lacks t</div>' + cell(fmt(R - rt), '+0.5 = ' + b.toFixed(1)) + cell(fmt(Math.max(N - nt - R + rt, 0)), '+0.5 = ' + d.toFixed(1));
+
+      var strong = ct >= 4.5, neg = ct < 0;
+      var col = neg ? 'var(--viz-red)' : (strong ? 'var(--viz-green)' : 'var(--viz-accent)');
+      out.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">relevant-side odds ' + relOdds.toFixed(2) + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">non-relevant inverted ' + nonInv.toFixed(1) + '</span>' +
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">c_t = ln(' + (relOdds * nonInv).toFixed(1) + ') = ' + ct.toFixed(2) + (neg ? '  NEGATIVE' : '') + '</span>';
+
+      why.innerHTML = R === 0
+        ? '<b style="color:var(--viz-violet)">R = 0: the relevant side collapses and what is left is idf.</b>' +
+          'With no judgments a = b = 0.5, so the relevant-side odds are exactly <b>1</b> — equivalently, assume p_t = 0.5, a maximum-ignorance prior that cancels out of the weight. ' +
+          'What survives is c_t = log[ (N &minus; n_t + 0.5) / (n_t + 0.5) ] = <b>' + ct.toFixed(2) + '</b> for n_t = ' + fmt(nt) + '. ' +
+          '<br><br>That is <em>verbatim</em> the idf inside BM25, and it was never assumed — it is the zero-knowledge limit of a relevance weight. Visual 5 walks the whole curve.'
+        : '<b>Two log-odds, subtracted: ln(' + relOdds.toFixed(2) + ') &minus; ln(' + (1 / nonInv).toFixed(4) + ') = ' + ct.toFixed(2) + '.</b>' +
+          'The first half says how strongly <b>relevant</b> documents attract the term; the second how strongly non-relevant ones do. A term is worth points only for the difference. ' +
+          'The lesson’s worked example — n_t = 2,000, R = 20, r_t = 15 — gives 15.5/5.5 = 2.82 against an inverted 97,995.5/1,985.5 = 49.4, so c_t = ln 139.1 = <b>4.94</b>, against 3.89 with no feedback at all. ' +
+          '<br><br><b>Why every cell carries +0.5:</b> set r_t = R and the raw estimate is p_t = 1, whose log-odds is infinite. The correction (a continuity fix in the spirit of a Jeffreys prior) is not cosmetic — without it one lucky judgment produces an unbounded weight. Try it: push r_t up to R.';
+    }
+    sN.addEventListener('input', function(){ forced = null; render(); });
+    sR.addEventListener('input', render);
+    sr.addEventListener('input', render);
+    bEx.addEventListener('click', function(){
+      forced = 2000; sN.value = String(posFor(2000)); sR.value = '20'; sr.max = '40'; sr.value = '15';
+      bEx.setAttribute('aria-pressed', 'true'); bNo.setAttribute('aria-pressed', 'false'); render();
+    });
+    bNo.addEventListener('click', function(){
+      forced = 2000; sN.value = String(posFor(2000)); sR.value = '0'; sr.value = '0';
+      bNo.setAttribute('aria-pressed', 'true'); bEx.setAttribute('aria-pressed', 'false'); render();
+    });
+    bEx.setAttribute('aria-pressed', 'true');
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Where idf Comes From</h2>
+  <p class="vz-lede">Spärck Jones proposed log(N / n_t) in 1972 as pure empiricism. The RSJ derivation says it
+    is the no-knowledge limit of a principled weight — and the two curves agree exactly where retrieval cares.
+    Drag the document frequency across five orders of magnitude. <b>Like a surname: "Zhukovsky" identifies
+    someone in a room, "Smith" barely narrows it down, and past half the room a name tells you nothing at
+    all.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-nt">n_t = <span id="v5-ntl">1,000</span> of N = 100,000 documents</label>
+    <input type="range" id="v5-nt" min="0" max="100" value="60" step="1" aria-label="Document frequency of the term">
+    <div class="v5-plot" id="v5-plot"></div>
+    <div class="v5-out" id="v5-out"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The negative tail is theoretically coherent and operationally awkward: under the model,
+    presence of a near-ubiquitous term is mild evidence <em>against</em> relevance, so a document can be
+    <b>penalised</b> for containing a common query word. Practical systems floor or reformulate the weight —
+    you will meet Lucene's specific fix when tuning BM25.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-plot{margin-top:14px}
+    .v5-plot svg{width:100%;height:auto;display:block}
+    .v5-out{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 100000;
+    var W = 320, H = 190, L = 30, Rm = 8, T = 8, B = 22;   // svg box + margins
+    var YMIN = -3.5, YMAX = 10;
+    var s = document.getElementById('v5-nt'), lab = document.getElementById('v5-ntl');
+    var plot = document.getElementById('v5-plot'), out = document.getElementById('v5-out'), why = document.getElementById('v5-why');
+
+    // Five decades, 1 .. 100,000, CLAMPED at 99,000. The clamp matters: at n_t = N the
+    // numerator is the bare 0.5 correction and the weight dives past -12, which is
+    // arithmetically true and teaches nothing. The decade mapping is left intact so the
+    // slider still lands exactly on 10, 1,000 and the other round markers in the prose.
+    function ntFrom(v){ return Math.min(99000, Math.max(1, Math.round(Math.pow(10, (v / 100) * 5)))); }
+    function rsj(n){ return Math.log((N - n + 0.5) / (n + 0.5)); }
+    function classic(n){ return Math.log(N / Math.max(n, 1)); }
+    function fmt(n){ return n.toLocaleString('en-US'); }
+    function X(n){ return L + (Math.log10(Math.max(n, 1)) / 5) * (W - L - Rm); }
+    function Y(v){
+      var c = Math.min(Math.max(v, YMIN), YMAX);
+      return T + (YMAX - c) / (YMAX - YMIN) * (H - T - B);
+    }
+
+    function poly(f){
+      var pts = [];
+      for (var i = 0; i <= 100; i++) {
+        var n = ntFrom(i);
+        if (n >= N) break;
+        pts.push(X(n).toFixed(1) + ',' + Y(f(n)).toFixed(1));
+      }
+      return pts.join(' ');
+    }
+
+    function render(){
+      var n = ntFrom(Number(s.value));
+      var a = rsj(n), b = classic(n);
+      lab.textContent = fmt(n);
+
+      var y0 = Y(0), xHalf = X(N / 2);
+      plot.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="RSJ weight and classic idf against document frequency">' +
+        '<rect x="' + xHalf + '" y="' + T + '" width="' + (W - Rm - xHalf) + '" height="' + (H - T - B) + '" fill="var(--viz-red)" opacity="0.10"></rect>' +
+        '<line x1="' + L + '" y1="' + y0 + '" x2="' + (W - Rm) + '" y2="' + y0 + '" stroke="var(--viz-ink)" stroke-width="1"></line>' +
+        '<line x1="' + L + '" y1="' + T + '" x2="' + L + '" y2="' + (H - B) + '" stroke="var(--viz-line)" stroke-width="1"></line>' +
+        '<text x="2" y="' + (y0 + 3) + '" fill="var(--viz-muted)" font-size="8">0</text>' +
+        '<text x="2" y="' + (Y(9) + 3) + '" fill="var(--viz-muted)" font-size="8">9</text>' +
+        '<text x="2" y="' + (Y(4.5) + 3) + '" fill="var(--viz-muted)" font-size="8">4.5</text>' +
+        '<polyline points="' + poly(classic) + '" fill="none" stroke="var(--viz-muted)" stroke-width="1.6" stroke-dasharray="4 3"></polyline>' +
+        '<polyline points="' + poly(rsj) + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.2"></polyline>' +
+        '<line x1="' + X(n) + '" y1="' + T + '" x2="' + X(n) + '" y2="' + (H - B) + '" stroke="var(--viz-violet)" stroke-width="1.4" stroke-dasharray="3 3"></line>' +
+        '<circle cx="' + X(n) + '" cy="' + Y(a) + '" r="4" fill="' + (a < 0 ? 'var(--viz-red)' : 'var(--viz-green)') + '"></circle>' +
+        '<text x="' + L + '" y="' + (H - 6) + '" fill="var(--viz-muted)" font-size="8">n_t = 1</text>' +
+        '<text x="' + (X(1000) - 12) + '" y="' + (H - 6) + '" fill="var(--viz-muted)" font-size="8">1,000</text>' +
+        '<text x="' + (W - Rm - 34) + '" y="' + (H - 6) + '" fill="var(--viz-muted)" font-size="8">100,000</text>' +
+        '<text x="' + (xHalf + 4) + '" y="' + (T + 10) + '" fill="var(--viz-red)" font-size="8">n_t &gt; N/2: weight negative</text>' +
+        '</svg>';
+
+      var col = a < 0 ? 'var(--viz-red)' : 'var(--viz-green)';
+      var gap = Math.abs(a - b);
+      out.innerHTML =
+        '<span class="v5-pill" style="color:' + col + ';border-color:' + col + '">RSJ limit  ln((N&minus;n+0.5)/(n+0.5)) = ' + a.toFixed(2) + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">classic  ln(N/n) = ' + b.toFixed(2) + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">gap ' + gap.toFixed(2) + '</span>';
+
+      why.innerHTML = a < 0
+        ? '<b style="color:var(--viz-red)">Negative: this term is evidence AGAINST relevance.</b>' +
+          'At n_t = ' + fmt(n) + ' the term is in more than half the collection, so (N &minus; n_t) &lt; n_t and the log turns negative — ' + a.toFixed(2) + ' here, and &minus;2.20 at the lesson’s n_t = 90,000. ' +
+          'Under the model that is <em>correct</em>: with p_t pinned at 0.5, a term that appears in 90% of non-relevant documents is more expected there than in the relevant class. ' +
+          '<br><br>Note the classic form never does this — ln(N/n) stays positive for every n &lt; N. The two variants that agreed to two decimals for rare terms disagree in <b>sign</b> here, which is exactly where implementations differ.'
+        : '<b style="color:var(--viz-green)">Rare terms discriminate; the two formulas agree where it matters.</b>' +
+          'At n_t = ' + fmt(n) + ': the RSJ zero-knowledge weight is <b>' + a.toFixed(2) + '</b> and the classic ln(N/n_t) is <b>' + b.toFixed(2) + '</b> — a gap of ' + gap.toFixed(2) + '. ' +
+          'The lesson’s markers: n_t = 10 gives 9.16 against 9.21, and n_t = 1,000 gives 4.59. For rare terms the +0.5 corrections and the N &minus; n_t numerator barely register. ' +
+          '<br><br>The point is not the arithmetic, it is the <b>provenance</b>. Set R = r_t = 0 in visual 4 and this curve is what the RSJ weight becomes. idf was never a separate idea bolted on — it is what a relevance weight says when it has no relevance information, and the smoothed form is verbatim the idf inside BM25.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,804 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Who Makes The Keys</button>
+  <button class="viz-tab" data-viz-tab="2">2. Stemming's Two Errors</button>
+  <button class="viz-tab" data-viz-tab="3">3. Stop Words And Positions</button>
+  <button class="viz-tab" data-viz-tab="4">4. Folding Into Classes</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Analyzer Contract</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Who Makes The Keys</h2>
+  <p class="vz-lede"><b>The Inverted Index: Dictionary and Postings</b> and <b>Boolean Query Processing by
+    Intersecting Postings</b> assumed the keys already existed. They do not. Toggle the analyzer and watch
+    the dictionary — and therefore the intersection — change under a fixed query.
+    <b>Like filing three spellings of one name: the search only ever finds what the filing clerk wrote on
+    the tab.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Index-time analyzer">
+    <button id="v1-lower" aria-pressed="false">lowercase</button>
+    <button id="v1-punct" aria-pressed="false">split on punctuation</button>
+    <button id="v1-sub" aria-pressed="false">emit subtokens</button>
+  </div>
+
+  <div class="v1-docs" id="v1-docs"></div>
+
+  <div class="vz-card">
+    <div class="v1-qrow">
+      <span class="v1-qlab">query</span>
+      <span class="v1-qtext">Cloud Run</span>
+    </div>
+    <div class="vz-seg" role="group" aria-label="Query-time analyzer" style="margin-top:10px">
+      <button id="v1-qsame" aria-pressed="true">query analyzer = index analyzer</button>
+      <button id="v1-qraw" aria-pressed="false">query analyzer left raw</button>
+    </div>
+    <div class="v1-post" id="v1-post"></div>
+    <div class="v1-res" id="v1-res"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Positions and character offsets come out of this same step, and they are outputs, not
+    incidental metadata: positions are what phrase queries will spend in the next lesson, and offsets must
+    still point into the <b>original</b> character sequence so a match can be highlighted after all this
+    folding. A tokenizer that emits subtokens has to place them deliberately or it invents phrases nobody
+    wrote.</p>
+
+  <style>
+    .v1-docs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-surface);
+      font-size:12px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-height:44px}
+    .v1-d.is-hit{border-color:var(--viz-green)}
+    .v1-id{font-family:ui-monospace,Consolas,monospace;font-weight:800;color:var(--viz-muted);flex:0 0 22px}
+    .v1-src{font-family:ui-monospace,Consolas,monospace;flex:0 0 76px;color:var(--viz-ink)}
+    .v1-tok{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;border:1px solid var(--viz-line);
+      border-radius:999px;padding:2px 8px;color:var(--viz-muted)}
+    .v1-tok.is-key{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:700}
+    .v1-mk{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v1-qrow{display:flex;align-items:center;gap:10px}
+    .v1-qlab{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);font-weight:800}
+    .v1-qtext{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:700}
+    .v1-post{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;margin-top:4px}
+    .v1-res{margin-top:10px;font-size:12.5px;font-weight:700}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DOCS = [
+      { id:'d1', text:'CloudRun' },
+      { id:'d2', text:'Cloud Run' },
+      { id:'d3', text:'cloud-run' }
+    ];
+    var opt = { lower:false, punct:false, sub:false }, qsame = true;
+    var bL = document.getElementById('v1-lower'), bP = document.getElementById('v1-punct'),
+        bS = document.getElementById('v1-sub'), bQ = document.getElementById('v1-qsame'),
+        bR = document.getElementById('v1-qraw');
+    var docsEl = document.getElementById('v1-docs'), postEl = document.getElementById('v1-post'),
+        resEl = document.getElementById('v1-res'), whyEl = document.getElementById('v1-why');
+
+    function analyze(text, o){
+      var out = [];
+      text.split(/\s+/).forEach(function(w){
+        if (!w) return;
+        var parts = w.split(/[^A-Za-z0-9]+/).filter(Boolean);
+        var forms = o.punct ? parts.slice() : [w];
+        if (o.sub) {
+          forms = forms.concat(parts);
+          parts.forEach(function(p){
+            var camel = p.match(/[A-Z]?[a-z0-9]+/g) || [];
+            if (camel.length > 1) forms = forms.concat(camel);
+          });
+        }
+        out = out.concat(forms);
+      });
+      if (o.lower) out = out.map(function(t){ return t.toLowerCase(); });
+      var seen = {}, uniq = [];
+      out.forEach(function(t){ if (t && !seen[t]) { seen[t] = 1; uniq.push(t); } });
+      return uniq;
+    }
+
+    function render(){
+      bL.setAttribute('aria-pressed', opt.lower ? 'true' : 'false');
+      bP.setAttribute('aria-pressed', opt.punct ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', opt.sub ? 'true' : 'false');
+      bQ.setAttribute('aria-pressed', qsame ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', qsame ? 'false' : 'true');
+
+      var qTok = analyze('Cloud Run', qsame ? opt : { lower:false, punct:false, sub:false });
+      var toks = DOCS.map(function(d){ return analyze(d.text, opt); });
+      var hits = DOCS.map(function(d, i){
+        return qTok.every(function(q){ return toks[i].indexOf(q) !== -1; });
+      });
+
+      docsEl.innerHTML = DOCS.map(function(d, i){
+        var chips = toks[i].map(function(t){
+          var key = qTok.indexOf(t) !== -1;
+          return '<span class="v1-tok' + (key ? ' is-key' : '') + '">' + t + '</span>';
+        }).join('');
+        return '<div class="v1-d' + (hits[i] ? ' is-hit' : '') + '"><span class="v1-id">' + d.id + '</span>' +
+          '<span class="v1-src">' + d.text + '</span>' + chips +
+          '<span class="v1-mk" style="color:' + (hits[i] ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (hits[i] ? '✓ retrieved' : '✗ missed') + '</span></div>';
+      }).join('');
+
+      postEl.innerHTML = qTok.map(function(q){
+        var list = DOCS.filter(function(d, i){ return toks[i].indexOf(q) !== -1; })
+                       .map(function(d){ return d.id; });
+        return '<span style="color:var(--viz-accent)">' + q + '</span> → [' +
+          (list.length ? list.join(', ') : '<span style="color:var(--viz-red)">empty postings list</span>') + ']';
+      }).join('<br>');
+
+      var n = hits.filter(Boolean).length;
+      var col = n === 0 ? 'var(--viz-red)' : (n === 3 ? 'var(--viz-green)' : 'var(--viz-amber)');
+      resEl.innerHTML = '<span style="color:' + col + '">intersection of those postings lists → ' +
+        n + ' of 3 documents retrieved</span>';
+
+      var mismatch = !qsame && (opt.lower || opt.punct || opt.sub);
+      whyEl.innerHTML = mismatch
+        ? '<b style="color:var(--viz-red)">The two halves of the lookup no longer meet.</b>' +
+          'The index holds keys the query analyzer never produces, so the intersection runs perfectly against ' +
+          'terms that do not exist in this dictionary. Nothing errors; the postings list is simply empty. ' +
+          '<br><br>This is why analysis is a <b>contract</b>: whatever transformation runs at index time must run ' +
+          'at query time too. "We turned stemming on" as a query-side option is the same bug wearing a different hat.'
+        : n === 0
+          ? '<b style="color:var(--viz-red)">Three surface forms, three incompatible keys.</b>' +
+            'Case alone separates <code>Cloud</code> from <code>cloud</code>, so the query matches nothing at all. ' +
+            'An inverted index can only retrieve the keys its analyzer created — no amount of ranking work downstream ' +
+            'can recover a term that was never emitted.'
+          : n === 1
+            ? '<b style="color:var(--viz-amber)">One of three. The other two are unreachable.</b>' +
+              (opt.lower
+                ? 'After lowercasing, <code>CloudRun</code>, <code>cloud</code>+<code>run</code> and <code>cloud-run</code> are three incompatible forms, and only the whitespace-separated one matches. '
+                : 'Raw tokens are exact byte sequences, so the query matches d2 and nothing else — and only because it happens to be capitalised the same way. ') +
+              'Splitting on punctuation rescues <code>cloud-run</code>; only subtokens reach <code>CloudRun</code>.'
+            : n === 2
+              ? '<b style="color:var(--viz-amber)">Two of three — the compound is still hidden.</b>' +
+                'Punctuation splitting reaches <code>cloud-run</code>, but <code>CloudRun</code> has no boundary to split on. ' +
+                'It needs an analyzer with a domain rule: keep the original identifier <em>and</em> emit <code>cloud</code> and ' +
+                '<code>run</code>. Note the same rule is what saves <code>getUserProfile</code> and destroys <code>node.js</code> ' +
+                'if applied without care.'
+              : '<b style="color:var(--viz-green)">All three, and the bill is now due.</b>' +
+                'Preserving the originals while emitting normalized subtokens reaches every form — and increases postings and ' +
+                'vocabulary, and makes a generic <code>run</code> query noisier. Extra tokens are a purchase, never a free win. ' +
+                '<br><br>The same knob applied to <code>C++ guide for node.js</code> is where it hurts: punctuation splitting ' +
+                'improves matches for <code>Pacific</code> and destroys the exact identifiers <code>C++</code> and <code>node.js</code>. ' +
+                'Neither output is inherently correct; the query workload decides.';
+    }
+    bL.addEventListener('click', function(){ opt.lower = !opt.lower; render(); });
+    bP.addEventListener('click', function(){ opt.punct = !opt.punct; render(); });
+    bS.addEventListener('click', function(){ opt.sub = !opt.sub; render(); });
+    bQ.addEventListener('click', function(){ qsame = true; render(); });
+    bR.addEventListener('click', function(){ qsame = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Stemming's Two Errors</h2>
+  <p class="vz-lede">One three-document corpus, one query, three stemmers — and the right answer flips when
+    the <em>collection</em> changes rather than the algorithm. Watch precision and recall trade against each
+    other. <b>Like rounding prices to the nearest dollar: more things match, and some things that matched
+    should not have.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Stemmer">
+    <button id="v2-none" aria-pressed="true">no stemming</button>
+    <button id="v2-porter" aria-pressed="false">Porter-style</button>
+    <button id="v2-broad" aria-pressed="false">broad connect*</button>
+  </div>
+  <div class="vz-seg" role="group" aria-label="Collection">
+    <button id="v2-net" aria-pressed="true">networking docs</button>
+    <button id="v2-bio" aria-pressed="false">biomedical corpus</button>
+  </div>
+
+  <div class="v2-docs" id="v2-docs"></div>
+
+  <div class="vz-card">
+    <div class="v2-q">query: <b>client connection</b> <span id="v2-qk"></span></div>
+    <div class="v2-pills" id="v2-pills"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note"><b>Lemmatization</b> maps inflected words to dictionary lemmas instead — <code>was</code>
+    to <code>be</code>, <code>mice</code> to <code>mouse</code> — which avoids some crude suffix errors at
+    higher cost and with a dependence on language and part of speech. Neither technique makes <code>car</code>
+    match <code>automobile</code>; that is synonymy, and it needs expansion or semantic retrieval. The
+    practical answer to this whole panel is two fields: exact for precision, stemmed for recall, scored
+    separately.</p>
+
+  <style>
+    .v2-docs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-surface);
+      font-size:12px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-height:44px}
+    .v2-d.is-good{border-color:var(--viz-green)}
+    .v2-d.is-bad{border-color:var(--viz-red)}
+    .v2-id{font-family:ui-monospace,Consolas,monospace;font-weight:800;color:var(--viz-muted);flex:0 0 22px}
+    .v2-txt{font-family:ui-monospace,Consolas,monospace;flex:0 0 118px}
+    .v2-st{font-family:ui-monospace,Consolas,monospace;font-size:10.5px;border:1px solid var(--viz-line);
+      border-radius:999px;padding:2px 8px;color:var(--viz-muted)}
+    .v2-st.is-key{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:700}
+    .v2-mk{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right}
+    .v2-q{font-size:12.5px;margin-bottom:10px}
+    .v2-q span{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted)}
+    .v2-pills{display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DOCS = [
+      { id:'d1', text:'connection timeout', words:['connection','timeout'] },
+      { id:'d2', text:'connected clients',  words:['connected','clients'] },
+      { id:'d3', text:'connective tissue',  words:['connective','tissue'] }
+    ];
+    var STEM = {
+      none:   {},
+      porter: { connection:'connect', connected:'connect', connecting:'connect', clients:'client' },
+      broad:  { connection:'connect', connected:'connect', connecting:'connect', clients:'client', connective:'connect' }
+    };
+    var mode = 'none', corpus = 'net';
+    var REL = { net:['d1','d2'], bio:['d1'] };
+
+    var bN = document.getElementById('v2-none'), bP = document.getElementById('v2-porter'),
+        bB = document.getElementById('v2-broad'), bNet = document.getElementById('v2-net'),
+        bBio = document.getElementById('v2-bio');
+    var docsEl = document.getElementById('v2-docs'), qkEl = document.getElementById('v2-qk'),
+        pillsEl = document.getElementById('v2-pills'), whyEl = document.getElementById('v2-why');
+
+    function stem(w){ var m = STEM[mode]; return m[w] || w; }
+    function fmt(x){ return (Math.round(x * 100) / 100).toFixed(2); }
+
+    function render(){
+      bN.setAttribute('aria-pressed', mode === 'none' ? 'true' : 'false');
+      bP.setAttribute('aria-pressed', mode === 'porter' ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', mode === 'broad' ? 'true' : 'false');
+      bNet.setAttribute('aria-pressed', corpus === 'net' ? 'true' : 'false');
+      bBio.setAttribute('aria-pressed', corpus === 'bio' ? 'true' : 'false');
+
+      var qk = ['client','connection'].map(stem);
+      qkEl.textContent = '→ keys [' + qk.join(', ') + ']';
+      var rel = REL[corpus];
+
+      var retrieved = [];
+      docsEl.innerHTML = DOCS.map(function(d){
+        var keys = d.words.map(stem);
+        var hit = keys.some(function(k){ return qk.indexOf(k) !== -1; });
+        if (hit) retrieved.push(d.id);
+        var isRel = rel.indexOf(d.id) !== -1;
+        var cls = hit ? (isRel ? ' is-good' : ' is-bad') : (isRel ? ' is-bad' : '');
+        var mark = hit
+          ? (isRel ? '✓ retrieved · relevant' : '✗ retrieved · NOT relevant')
+          : (isRel ? '✗ missed · was relevant' : '✓ not retrieved · not relevant');
+        var col = hit ? (isRel ? 'var(--viz-green)' : 'var(--viz-red)') : (isRel ? 'var(--viz-red)' : 'var(--viz-muted)');
+        return '<div class="v2-d' + cls + '"><span class="v2-id">' + d.id + '</span>' +
+          '<span class="v2-txt">' + d.text + '</span>' +
+          keys.map(function(k){
+            return '<span class="v2-st' + (qk.indexOf(k) !== -1 ? ' is-key' : '') + '">' + k + '</span>';
+          }).join('') +
+          '<span class="v2-mk" style="color:' + col + '">' + mark + '</span></div>';
+      }).join('');
+
+      var tp = retrieved.filter(function(id){ return rel.indexOf(id) !== -1; }).length;
+      var prec = retrieved.length ? tp / retrieved.length : 0;
+      var rec  = rel.length ? tp / rel.length : 0;
+      var f1   = (prec + rec) > 0 ? 2 * prec * rec / (prec + rec) : 0;
+
+      // df of the query's connect-key across the 3 documents, and its idf
+      var key = stem('connection');
+      var df = DOCS.filter(function(d){ return d.words.map(stem).indexOf(key) !== -1; }).length;
+      var idf = df > 0 ? Math.log(3 / df) / Math.LN10 : null;
+
+      var pc = prec >= 0.9 ? 'var(--viz-green)' : (prec >= 0.6 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      var rc = rec >= 0.9 ? 'var(--viz-green)' : 'var(--viz-amber)';
+      pillsEl.innerHTML =
+        '<span class="v2-pill" style="color:' + pc + ';border-color:' + pc + '">precision ' + fmt(prec) + '</span>' +
+        '<span class="v2-pill" style="color:' + rc + ';border-color:' + rc + '">recall ' + fmt(rec) + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">F1 ' + fmt(f1) + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">df(' + key + ') = ' + df +
+        ' · idf = ' + (idf === null ? '—' : fmt(idf)) + '</span>';
+
+      var head, body;
+      if (mode === 'none') {
+        head = ['var(--viz-amber)', 'Understemming: the variants never meet.'];
+        body = '<code>clients</code> is not <code>client</code> and <code>connected</code> is not ' +
+          '<code>connection</code>, so d2 is invisible to this query however it is ranked. Recall ' + fmt(rec) +
+          '. The same failure in its pure form is irregular morphology — <code>go</code> and <code>went</code> — ' +
+          'which no suffix rule will ever join.';
+      } else if (mode === 'porter') {
+        head = corpus === 'net' ? ['var(--viz-green)', 'The case stemming exists for.'] : ['var(--viz-amber)', 'Recall bought, precision spent.'];
+        body = 'A Porter-style stemmer maps <code>connect</code>, <code>connected</code>, <code>connecting</code> and ' +
+          '<code>connection</code> toward <code>connect</code> — the stem need not be a real word, it is an ' +
+          '<b>equivalence key</b>. Morphological variants now share one postings list, so d2 becomes reachable. ' +
+          (corpus === 'net'
+            ? 'In networking documentation that is exactly right: precision and recall both ' + fmt(prec) + '.'
+            : 'In a biomedical corpus where only d1 answers the question, the same merge has already cost precision (' +
+              fmt(prec) + '). Nothing about the algorithm changed — the <em>collection</em> did.');
+      } else {
+        head = ['var(--viz-red)', 'Overstemming: distinct concepts, one key.'];
+        body = 'A broad merge of every <code>connect*</code> form pulls <code>connective</code> in, so d3 is retrieved ' +
+          'by a query about network clients. Recall is ' + fmt(rec) + ' and precision ' + fmt(prec) + '. ' +
+          'Domain terms, organization names and technical identifiers are where this bites hardest.';
+      }
+
+      whyEl.innerHTML = '<b style="color:' + head[0] + '">' + head[1] + '</b>' + body +
+        '<br><br><b style="display:inline">Watch the idf pill.</b> Merging forms raises document frequency: ' +
+        'df goes 1 → 2 → 3 across the three settings, so idf = log₁₀(3/df) falls 0.48 → 0.18 → <b>0</b>. ' +
+        'At df = 3 the term appears in every document and has stopped discriminating between them altogether. ' +
+        'That is why scores from a stemmed and an unstemmed index are not comparable, and why an analyzer migration ' +
+        'means a reindex and a re-evaluation — never a query-side toggle.';
+    }
+    bN.addEventListener('click', function(){ mode = 'none'; render(); });
+    bP.addEventListener('click', function(){ mode = 'porter'; render(); });
+    bB.addEventListener('click', function(){ mode = 'broad'; render(); });
+    bNet.addEventListener('click', function(){ corpus = 'net'; render(); });
+    bBio.addEventListener('click', function(){ corpus = 'bio'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Stop Words And Positions</h2>
+  <p class="vz-lede">Dropping <code>the</code> and <code>of</code> is a storage decision that quietly becomes
+    a <em>correctness</em> decision at the phrase query. Choose what happens to the positions, and drag how
+    common the stop word actually is. <b>Like tearing the filler words out of a sentence and then being asked
+    to prove what it originally said.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Stop word handling">
+    <button id="v3-keep" aria-pressed="true">keep stop words</button>
+    <button id="v3-renum" aria-pressed="false">remove, renumber</button>
+    <button id="v3-gaps" aria-pressed="false">remove, keep gaps</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <div class="v3-lab">indexed text: <b>state of the art</b></div>
+    <div class="v3-strip" id="v3-strip"></div>
+    <div class="v3-ph" id="v3-ph"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-df">documents containing <code>the</code>:
+      <span id="v3-dfl">80,000,000</span> of 100,000,000</label>
+    <input type="range" id="v3-df" min="1" max="100" value="80" step="1" aria-label="Document frequency of the stop word, in millions">
+    <div class="v3-pills" id="v3-pills"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">A stop list is language- and domain-specific, and it is applied <em>after</em>
+    normalization, which is where it gets dangerous: <code>US</code> has already become <code>us</code> and is
+    about to be deleted as a pronoun. <code>can</code> is a container noun as well as grammar; in a corpus
+    about operating systems, <code>os</code> is not noise. Stop words are low <b>average</b> signal, not zero
+    <b>conditional</b> signal.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-strip{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:12px}
+    .v3-t{border:1.5px solid var(--viz-line);border-radius:9px;padding:6px 10px;min-width:60px;text-align:center;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;background:var(--viz-bg)}
+    .v3-t.is-drop{border-style:dashed;opacity:.45}
+    .v3-t b{display:block;font-size:13px;margin-bottom:2px}
+    .v3-t i{display:block;font-style:normal;font-size:9.5px;letter-spacing:.03em;color:var(--viz-muted)}
+    .v3-ph{display:flex;flex-direction:column;gap:5px}
+    .v3-p{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v3-p span:last-child{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v3-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var WORDS = [
+      { w:'state', stop:false, pos:1 },
+      { w:'of',    stop:true,  pos:2 },
+      { w:'the',   stop:true,  pos:3 },
+      { w:'art',   stop:false, pos:4 }
+    ];
+    var mode = 'keep';
+    var bK = document.getElementById('v3-keep'), bR = document.getElementById('v3-renum'),
+        bG = document.getElementById('v3-gaps');
+    var strip = document.getElementById('v3-strip'), ph = document.getElementById('v3-ph'),
+        dfEl = document.getElementById('v3-df'), dfl = document.getElementById('v3-dfl'),
+        pills = document.getElementById('v3-pills'), why = document.getElementById('v3-why');
+
+    function fmt(n){ return n.toLocaleString('en-US'); }
+
+    function render(){
+      bK.setAttribute('aria-pressed', mode === 'keep' ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', mode === 'renum' ? 'true' : 'false');
+      bG.setAttribute('aria-pressed', mode === 'gaps' ? 'true' : 'false');
+
+      var next = 1;
+      strip.innerHTML = WORDS.map(function(t){
+        var dropped = mode !== 'keep' && t.stop;
+        var p = dropped ? null : (mode === 'renum' ? next++ : t.pos);
+        return '<div class="v3-t' + (dropped ? ' is-drop' : '') + '"><b>' + t.w + '</b><i>' +
+          (dropped ? 'not indexed' : 'pos ' + p) + '</i></div>';
+      }).join('');
+
+      // "state art" matches at slop 0 only when the two retained positions are adjacent
+      var statePos = 1, artPos = mode === 'renum' ? 2 : 4;
+      var falsePhrase = (artPos - statePos) === 1;
+      var rows = [
+        { q:'"state art"', ok:falsePhrase,
+          good:!falsePhrase, note: falsePhrase ? 'MATCHES — a phrase nobody wrote' : 'no match at slop 0 — correct' },
+        { q:'"state of the art"', ok:mode === 'keep',
+          good:mode === 'keep', note: mode === 'keep' ? 'verifiable from positions' : 'UNVERIFIABLE — postings gone' },
+        { q:'"to be or not to be"', ok:mode === 'keep',
+          good:mode === 'keep', note: mode === 'keep' ? 'verifiable from positions' : 'UNVERIFIABLE — 5 of 6 terms dropped' }
+      ];
+      ph.innerHTML = rows.map(function(r){
+        var col = r.good ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v3-p" style="border-color:' + (r.good ? 'var(--viz-line)' : col) + '">' +
+          '<span>' + r.q + '</span><span style="color:' + col + '">' +
+          (r.good ? '✓ ' : '✗ ') + r.note + '</span></div>';
+      }).join('');
+
+      var dfM = Number(dfEl.value);
+      var df = dfM * 1000000, N = 100000000;
+      dfl.textContent = fmt(df);
+      var idf = df > 0 ? Math.log(N / df) / Math.LN10 : null;
+      var saved = mode === 'keep' ? 0 : df;
+      var ic = (idf !== null && idf < 0.5) ? 'var(--viz-red)' : 'var(--viz-green)';
+      pills.innerHTML =
+        '<span class="v3-pill" style="color:' + ic + ';border-color:' + ic + '">idf = log₁₀(100M/' + dfM + 'M) = ' +
+          (idf === null ? '—' : idf.toFixed(3)) + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' +
+          fmt(saved) + ' postings removed</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">a term in 1,000 docs: idf = 5.000</span>';
+
+      var head, body;
+      if (mode === 'keep') {
+        head = ['var(--viz-green)', 'Everything is still verifiable.'];
+        body = 'The postings exist, so every phrase above can be checked against real positions, and the term’s ' +
+          'own low idf already makes it a weak ranking signal without any list to maintain. That is the modern default: ' +
+          '<b>keep them and let the statistics do the demoting</b>. Dense postings compress cheaply per document and ' +
+          'query engines can skip low-impact common terms anyway.';
+      } else if (mode === 'renum') {
+        head = ['var(--viz-red)', 'Compressed positions invent a phrase.'];
+        body = 'With <code>of</code> and <code>the</code> deleted and the survivors renumbered <code>state:1, art:2</code>, ' +
+          'the index now asserts that <code>"state art"</code> is an exact phrase in this document. It is not. The removal ' +
+          'destroyed information; the renumbering turned that loss into a <b>false positive</b>, which is strictly worse ' +
+          'than a miss because nothing downstream can detect it.';
+      } else {
+        head = ['var(--viz-amber)', 'Correct increments limit the damage — they do not undo it.'];
+        body = 'Preserving the gap gives <code>state:1, art:4</code>, so <code>"state art"</code> correctly fails at slop 0. ' +
+          'But the removed terms still have no postings, so <code>"state of the art"</code> and ' +
+          '<code>"to be or not to be"</code> can never be verified: removal is <b>irreversible</b> for anything that ' +
+          'depends on those terms — <code>The Who</code>, <code>The Hague</code>, code symbols, legal phrases.';
+      }
+      why.innerHTML = '<b style="color:' + head[0] + '">' + head[1] + '</b>' + body +
+        '<br><br>Drag the slider to see the actual size of the prize: at df = ' + dfM + 'M the term’s idf is ' +
+        (idf === null ? '—' : idf.toFixed(3)) + ', against 5.000 for a term in a thousand documents. ' +
+        (dfM >= 60
+          ? 'It is nearly worthless as a topical signal — and still decisive inside quotes.'
+          : 'At this frequency it is no longer a stop word at all: deleting it would be deleting content.') +
+        ' The middle path is to omit them from a general body field while keeping an <b>exact phrase field</b> that ' +
+        'retains everything.';
+    }
+    bK.addEventListener('click', function(){ mode = 'keep'; render(); });
+    bR.addEventListener('click', function(){ mode = 'renum'; render(); });
+    bG.addEventListener('click', function(){ mode = 'gaps'; render(); });
+    dfEl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Folding Into Classes</h2>
+  <p class="vz-lede">Normalization maps surface strings into equivalence classes before dictionary lookup.
+    Switch the steps on in any order and watch nine surface forms collapse — sometimes usefully, sometimes
+    destructively, and once by accident. <b>Like a shop that files every spelling of a name under one card:
+    quicker to find, until two different people share the card.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Normalization steps">
+    <button id="v4-nfc" aria-pressed="false">Unicode NFC</button>
+    <button id="v4-fold" aria-pressed="false">case fold</button>
+    <button id="v4-accent" aria-pressed="false">accent fold</button>
+    <button id="v4-nfkc" aria-pressed="false">NFKC</button>
+  </div>
+
+  <div class="v4-classes" id="v4-classes"></div>
+
+  <div class="vz-card">
+    <div class="v4-count" id="v4-count"></div>
+    <div class="v4-flags" id="v4-flags"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Judgment separates <b>display</b> from <b>retrieval</b>: preserve the original text for
+    rendering, citations and offsets — normalized terms are lookup keys, not replacements for source content.
+    Each transformation should be idempotent, applying it twice yielding the same token, and the governing
+    question never changes: which distinctions may safely disappear for this field and this user population?</p>
+
+  <style>
+    .v4-classes{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-c{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-surface);
+      display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-height:44px}
+    .v4-key{font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:800;color:var(--viz-accent);
+      flex:0 0 auto;min-width:78px}
+    .v4-m{font-size:11px;border:1px solid var(--viz-line);border-radius:999px;padding:2px 9px;color:var(--viz-muted)}
+    .v4-c.is-merged{border-color:var(--viz-violet)}
+    .v4-n{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;color:var(--viz-muted)}
+    .v4-count{font-size:13px;font-weight:700;margin-bottom:10px}
+    .v4-flags{display:flex;flex-direction:column;gap:5px}
+    .v4-f{font-size:11.5px;line-height:1.45;border-left:3px solid;padding:4px 0 4px 9px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Two of these render identically and are NOT the same string: one composed
+    // e-acute, one plain e followed by a combining acute accent (U+0301).
+    var COMPOSED = 'Résumé', DECOMP = 'Résumé';
+    var WIDE = 'ＲＥＳＵＭＥ', CAFE = 'café';
+    var FORMS = [
+      { s:'Résumé', label:'Résumé (composed)' },
+      { s:'Résumé', label:'Résumé (combining marks)' },
+      { s:'resume', label:'resume' },
+      { s:'RESUME', label:'RESUME' },
+      { s:WIDE,     label:'ＲＥＳＵＭＥ (full-width)' },
+      { s:CAFE,     label:'café' },
+      { s:'cafe', label:'cafe' },
+      { s:'US', label:'US (the country)' },
+      { s:'us', label:'us (the pronoun)' }
+    ];
+    var ACC = { 'é':'e', 'É':'E', 'è':'e', 'à':'a', 'á':'a', 'í':'i',
+                'ó':'o', 'ú':'u', 'ñ':'n', 'ü':'u', 'ç':'c' };
+    var on = { nfc:false, fold:false, accent:false, nfkc:false };
+    var b = {
+      nfc: document.getElementById('v4-nfc'), fold: document.getElementById('v4-fold'),
+      accent: document.getElementById('v4-accent'), nfkc: document.getElementById('v4-nfkc')
+    };
+    var classesEl = document.getElementById('v4-classes'), countEl = document.getElementById('v4-count'),
+        flagsEl = document.getElementById('v4-flags'), whyEl = document.getElementById('v4-why');
+
+    function key(s){
+      var t = s;
+      if (on.nfc) { try { t = t.normalize('NFC'); } catch (e) {} }
+      if (on.nfkc) { try { t = t.normalize('NFKC'); } catch (e) {} }
+      if (on.fold) t = t.toLowerCase();
+      // Deliberately a naive replacement table, exactly the "ad hoc byte replacement"
+      // the lesson warns about: it cannot see a decomposed accent.
+      if (on.accent) t = t.replace(/[éÉèàáíóúñüç]/g,
+        function(c){ return ACC[c] || c; });
+      return t;
+    }
+
+    function render(){
+      Object.keys(on).forEach(function(k){ b[k].setAttribute('aria-pressed', on[k] ? 'true' : 'false'); });
+
+      var order = [], groups = {};
+      FORMS.forEach(function(f){
+        var k = key(f.s);
+        if (!groups[k]) { groups[k] = []; order.push(k); }
+        groups[k].push(f.label);
+      });
+
+      classesEl.innerHTML = order.map(function(k){
+        var members = groups[k];
+        return '<div class="v4-c' + (members.length > 1 ? ' is-merged' : '') + '">' +
+          '<span class="v4-key">' + k + '</span>' +
+          members.map(function(m){ return '<span class="v4-m">' + m + '</span>'; }).join('') +
+          '<span class="v4-n" style="color:' + (members.length > 1 ? 'var(--viz-violet)' : 'var(--viz-muted)') + '">' +
+          members.length + ' form' + (members.length === 1 ? '' : 's') + '</span></div>';
+      }).join('');
+
+      countEl.innerHTML = FORMS.length + ' surface forms → <span style="color:var(--viz-accent)">' +
+        order.length + ' lookup key' + (order.length === 1 ? '' : 's') + '</span>';
+
+      var flags = [];
+      if (key('US') === key('us')) flags.push(['var(--viz-red)',
+        '<b>Meaning lost:</b> <code>US</code> (the country) and <code>us</code> (the pronoun) are now one term. Case can carry meaning — <code>Apple</code> versus <code>apple</code>, identifiers in case-sensitive code.']);
+      if (key(COMPOSED) === key('resume')) flags.push(['var(--viz-amber)',
+        '<b>Merged:</b> the French noun résumé and the English verb resume share a key. Maximum recall; precision falls if both are common in this collection.']);
+      if (key(CAFE) === key('cafe')) flags.push(['var(--viz-green)',
+        '<b>Recall gained:</b> <code>café</code> folds to <code>cafe</code>, so users who omit diacritics still match.']);
+      if (key(COMPOSED) !== key(DECOMP)) flags.push(['var(--viz-red)',
+        '<b>Accidental split:</b> two strings that render <em>identically</em> are different terms — one composed <code>é</code>, one <code>e</code> plus a combining acute. Nobody typed anything wrong, and no query will ever find both.']);
+      if (key(WIDE) === key('resume')) flags.push(['var(--viz-violet)',
+        '<b>Compatibility folded:</b> NFKC unified full-width Latin with ASCII. Useful here; it also erases distinctions that matter in mathematical and technical text.']);
+      flagsEl.innerHTML = flags.length
+        ? flags.map(function(f){ return '<div class="v4-f" style="border-color:' + f[0] + '">' + f[1] + '</div>'; }).join('')
+        : '<div class="v4-f" style="border-color:var(--viz-line);color:var(--viz-muted)">No folding applied: every surface form is its own term, so a query must reproduce the exact bytes a document used.</div>';
+
+      var accidental = key(COMPOSED) !== key(DECOMP);
+      whyEl.innerHTML = on.accent && accidental
+        ? '<b style="color:var(--viz-red)">Order matters, and this is why.</b>' +
+          'Accent folding here is a naive replacement table — the ad hoc byte replacement the lesson warns about — ' +
+          'so it never sees the decomposed form. Turn <b>Unicode NFC on first</b> and the same table suddenly works on both. ' +
+          'Unicode normalization before case and accent handling is far easier to reason about than patching bytes.'
+        : order.length === FORMS.length
+          ? '<b>Nine forms, nine keys.</b>' +
+            'Nothing has been merged, so precision is maximal and recall is at the mercy of how the user typed. ' +
+            'Normalization is valuable <em>precisely because it discards distinctions</em> — which is also its principal ' +
+            'failure mode, so start by naming which distinctions may safely disappear.'
+          : '<b style="color:var(--viz-green)">' + (FORMS.length - order.length) + ' distinction' +
+            ((FORMS.length - order.length) === 1 ? '' : 's') + ' discarded — permanently, at index time.</b>' +
+            'The safe pattern when a merge is doing both good and harm is not to pick one: index the original normalized token ' +
+            '<b>and</b> a folded variant, or keep a folded field for recall beside an exact field for precision, and let query ' +
+            'intent set the weights. Then an exact-accent match can outrank a folded one instead of being unreachable. ' +
+            '<br><br>Whatever you choose, it must be <b>identical at index and query time</b> and versioned with the index: ' +
+            'searching old and new segments under one unversioned query analyzer produces systematic, silent misses. ' +
+            'Analyze per segment version, or rebuild and cut over atomically.';
+    }
+    Object.keys(on).forEach(function(k){
+      b[k].addEventListener('click', function(){ on[k] = !on[k]; render(); });
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Analyzer Contract</h2>
+  <p class="vz-lede">Every earlier panel was one knob. Here they stack into a single global aggressiveness
+    setting, judged against seven real query classes at once — and then against the escape hatch the whole
+    lesson keeps pointing at. <b>Like one thermostat for a whole building: someone is always too cold.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v5-lab" for="v5-lvl">analyzer: <span id="v5-lvll">+ case folding</span></label>
+    <input type="range" id="v5-lvl" min="0" max="4" value="1" step="1" aria-label="Analyzer aggressiveness">
+    <div class="v5-scale" id="v5-scale"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Field design">
+    <button id="v5-one" aria-pressed="true">one analyzed field</button>
+    <button id="v5-two" aria-pressed="false">+ exact unfolded field</button>
+  </div>
+
+  <div class="v5-rows" id="v5-rows"></div>
+
+  <div class="vz-card">
+    <div class="v5-pills" id="v5-pills"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Judgment starts from product capabilities, not from a default configuration. If exact
+    phrases, names, citations or highlighting matter, retain enough information to support them; if storage is
+    severely constrained and queries are broad topical bags of words, aggressive folding is rational. Evaluate
+    each query class <b>separately</b> — a mean metric hides a total failure on acronyms and proper nouns.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-scale{display:flex;justify-content:space-between;margin-top:6px;font-size:9.5px;color:var(--viz-muted);
+      font-family:ui-monospace,Consolas,monospace;gap:4px}
+    .v5-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-surface);
+      display:flex;align-items:center;gap:9px;flex-wrap:wrap;min-height:44px;font-size:11.5px}
+    .v5-q{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;flex:1 1 150px}
+    .v5-mk{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right;flex:0 0 auto}
+    .v5-r.is-ok{border-color:var(--viz-green)}
+    .v5-r.is-bad{border-color:var(--viz-red)}
+    .v5-r.is-saved{border-color:var(--viz-violet)}
+    .v5-pills{display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LEVELS = ['raw tokens', '+ case folding', '+ accent folding', '+ stop-word removal', '+ stemming'];
+    var BASELINE = 1;   // what is currently deployed; anything else means a reindex
+    var ROWS = [
+      { q:'cloud run → finds "Cloud Run"', need:1,
+        miss:'case never folds, so the query key never matches' },
+      { q:'US (country) stays apart from us', breaks:1,
+        harm:'case folding merged the country with the pronoun' },
+      { q:'résumé (noun) apart from resume (verb)', breaks:2,
+        harm:'accent folding merged two different words' },
+      { q:'"to be or not to be" exact phrase', breaks:3,
+        harm:'5 of 6 terms have no postings left to verify' },
+      { q:'The Hague as a name', breaks:3,
+        harm:'the leading article was deleted as noise' },
+      { q:'policy → finds "policies"', need:4,
+        miss:'no stem, so the two forms are unrelated terms' },
+      { q:'connective tissue apart from connect', breaks:4,
+        harm:'overstemming merged a domain term into connect*' }
+    ];
+    var lvl = 1, twoFields = false;
+    var s = document.getElementById('v5-lvl'), lab = document.getElementById('v5-lvll'),
+        scale = document.getElementById('v5-scale'), bOne = document.getElementById('v5-one'),
+        bTwo = document.getElementById('v5-two'), rowsEl = document.getElementById('v5-rows'),
+        pills = document.getElementById('v5-pills'), why = document.getElementById('v5-why');
+
+    scale.innerHTML = ['raw', 'case', 'accent', 'stop', 'stem']
+      .map(function(l){ return '<span>' + l + '</span>'; }).join('');
+
+    function render(){
+      lvl = Number(s.value);
+      lab.textContent = LEVELS[lvl];
+      bOne.setAttribute('aria-pressed', twoFields ? 'false' : 'true');
+      bTwo.setAttribute('aria-pressed', twoFields ? 'true' : 'false');
+
+      var served = 0, saved = 0;
+      rowsEl.innerHTML = ROWS.map(function(r){
+        var cls, mark, col, note;
+        if (r.need !== undefined && lvl < r.need) {
+          cls = 'is-bad'; col = 'var(--viz-red)'; mark = '✗ misses'; note = r.miss;
+        } else if (r.breaks !== undefined && lvl >= r.breaks) {
+          if (twoFields) { cls = 'is-saved'; col = 'var(--viz-violet)'; mark = '✓ saved by the exact field'; note = r.harm; saved += 1; served += 1; }
+          else { cls = 'is-bad'; col = 'var(--viz-red)'; mark = '✗ broken'; note = r.harm; }
+        } else {
+          cls = 'is-ok'; col = 'var(--viz-green)'; mark = '✓ served'; note = ''; served += 1;
+        }
+        return '<div class="v5-r ' + cls + '"><span class="v5-q">' + r.q + '</span>' +
+          (note ? '<span style="color:var(--viz-muted);flex:1 1 100%">' + note + '</span>' : '') +
+          '<span class="v5-mk" style="color:' + col + '">' + mark + '</span></div>';
+      }).join('');
+
+      var pc = Math.round(served / ROWS.length * 100);
+      var sc = served === ROWS.length ? 'var(--viz-green)' : (served >= 5 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      var reindex = lvl !== BASELINE;
+      pills.innerHTML =
+        '<span class="v5-pill" style="color:' + sc + ';border-color:' + sc + '">' + served + ' of ' + ROWS.length +
+          ' query classes served (' + pc + '%)</span>' +
+        '<span class="v5-pill" style="color:' + (reindex ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' +
+          (reindex ? 'var(--viz-red)' : 'var(--viz-line)') + '">' +
+          (reindex ? 'FULL REINDEX required' : 'matches the deployed analyzer') + '</span>' +
+        '<span class="v5-pill" style="color:' + (twoFields ? 'var(--viz-violet)' : 'var(--viz-muted)') + ';border-color:' +
+          (twoFields ? 'var(--viz-violet)' : 'var(--viz-line)') + '">' +
+          (twoFields ? 'two postings sets per token' : 'one postings set per token') + '</span>';
+
+      why.innerHTML = twoFields
+        ? '<b style="color:var(--viz-violet)">' + saved + ' precision failure' + (saved === 1 ? '' : 's') +
+          ' recovered — and none of them for free.</b>' +
+          'A second, unanalyzed field stores the exact tokens beside the folded ones, so the distinction is <em>kept somewhere</em> ' +
+          'and queries can search both with separate scoring weights: an exact-form match outranks a folded one instead of being ' +
+          'unreachable. That costs a second postings set per token, a second analyzer to keep in step, and a ranking decision about ' +
+          'how to combine the two. ' +
+          '<br><br>Note what it does <b>not</b> fix: a recall failure. If the analyzed field never emitted a stem, no exact field ' +
+          'will invent one — the red rows above are still red.'
+        : '<b style="color:' + (served === ROWS.length ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' +
+          'One global rule, ' + served + ' of ' + ROWS.length + ' classes served.</b>' +
+          'Each step up buys recall by merging keys and spends precision by merging concepts; each step down does the reverse. ' +
+          'There is no setting here that serves all seven, which is the point of the panel — the conflict is not a tuning ' +
+          'problem, it is a <b>field design</b> problem. Try the second field. ' +
+          (reindex
+            ? '<br><br>And note the red pill: changing boundaries or equivalence changes term IDs, frequencies, positions and scores, ' +
+              'so a <b>full reindex</b> is normally required. Run the old and new analyzers over representative text and measure both ' +
+              'vocabulary growth and retrieval metrics before migrating — per query class, never on the mean.'
+            : '<br><br>This is the deployed setting, so nothing needs rebuilding — which is exactly why it is so tempting to leave ' +
+              'a known-wrong analyzer in place. Hybrid lexical-dense retrieval reduces the pressure to make one aggressive lexical ' +
+              'equivalence solve every vocabulary mismatch.');
+    }
+    s.addEventListener('input', render);
+    bOne.addEventListener('click', function(){ twoFields = false; render(); });
+    bTwo.addEventListener('click', function(){ twoFields = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

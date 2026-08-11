@@ -43,7 +43,12 @@ const {
   visualGuideLooksComplete, splitVisualPanels, visualPanelIndex, canSwapVisualPanel,
 } = await import('../lib/gemini.js');
 
-const PROGRAM = 'ai_engineering';
+// The program a spec publishes into. `ai_engineering` was the only one when this
+// script was written, so it stays the default and every existing spec is unchanged;
+// a spec may now declare its own (`data_science` for Mathematics / Machine Learning).
+// The scope tuple must match the live `topics` rows EXACTLY or the artifact is banked
+// under an id no button can reach — see the orphaned transcript scope-keys in AGENTS.md §7.
+const DEFAULT_PROGRAM = 'ai_engineering';
 const SOURCE = 'claude-authored';
 // Mirrors server.js `GUIDE_KIND`. One guide per section since the Review/Lesson
 // merge; a different value here would bank artifacts no button can ever reach.
@@ -126,7 +131,11 @@ let units = 0, wroteGuides = 0, wroteVisuals = 0, skipped = 0;
 
 for (const file of specs) {
   const spec = JSON.parse(fs.readFileSync(path.join(SPECS, file), 'utf8'));
-  const code = spec.course.split(':')[0].replace(/\s+/g, '');
+  // `code` is the content-dir name and the --course= filter. Derived from the course
+  // title for the original specs; declared explicitly where that would produce an
+  // awkward directory ("Model Evaluation & Tuning" -> "ModelEvaluation&Tuning").
+  const code = spec.code || spec.course.split(':')[0].replace(/\s+/g, '');
+  const program = spec.program || DEFAULT_PROGRAM;
   if (only && code !== only) continue;
 
   for (const sl of spec.lessons) {
@@ -140,7 +149,7 @@ for (const file of specs) {
     // The scope tuple a progress node carries. `topic: ''` = lesson grain, which
     // is the grain doc.md is authored at and where the Learn menu's buttons sit.
     const scope = {
-      program: PROGRAM, kind: GUIDE_KIND,
+      program, kind: GUIDE_KIND,
       track: spec.track, course: spec.course, lesson: sl.lesson, topic: '',
     };
     const gid = studyGuideId(scope), vid = visualGuideId(scope);

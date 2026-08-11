@@ -1,0 +1,551 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Cost To Structure</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Load Factor Dial</button>
+  <button class="viz-tab" data-viz-tab="3">3. Chained Or Probed</button>
+  <button class="viz-tab" data-viz-tab="4">4. Nodes Or Bytes</button>
+  <button class="viz-tab" data-viz-tab="5">5. Order As Contract</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Cost To Structure</h2>
+  <p class="vz-lede"><b>Time Complexity of Linear Scan vs Binary Search vs Hash Probe</b> priced three ways
+    to find one term. Drag the dictionary size and watch those prices separate — then read what this lesson
+    spends them on. <b>Like knowing the price of a taxi, a bus and a bike: the numbers only decide anything
+    once you say where you are going.</b></p>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Dictionary: <span id="v1-nl">1,000,000</span> terms</label>
+    <input type="range" id="v1-n" min="0" max="4" value="3" step="1" aria-label="Number of terms in the dictionary">
+    <div class="v1-rows" id="v1-rows"></div>
+  </div>
+
+  <div class="v1-bridge">
+    <div class="v1-side">
+      <h5>lesson 01 — the cost model</h5>
+      <ul>
+        <li>linear scan <b>O(n)</b>, binary search <b>O(log n)</b>, hash probe <b>expected O(1)</b></li>
+        <li>two sorted postings lists intersect in <b>O(m+n)</b> with two cursors</li>
+        <li>sequential access streams; scattered access stalls on one miss at a time</li>
+      </ul>
+    </div>
+    <div class="v1-side">
+      <h5>lesson 02 — the structures</h5>
+      <ul>
+        <li>the <b>dictionary</b>: a hash table, and whether its "O(1)" survives its load factor</li>
+        <li>the <b>postings</b>: linked nodes (cheap append) or a packed array (cheap everything else)</li>
+        <li>and when <b>order itself</b> is part of the query, not decoration</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="vz-card"><div class="v1-why" id="v1-why"></div></div>
+  <p class="vz-note">An inverted index needs <b>both</b> answers at once, and they are different questions. The
+    dictionary is asked "where is term <code>retrieval</code>" millions of times; a postings list is asked to
+    grow cheaply and then be walked forward at bandwidth. One structure that is fair at both loses to two that
+    are each excellent at one.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-rows{margin-top:14px;display:flex;flex-direction:column;gap:11px}
+    .v1-r h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-r h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:nowrap}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}
+    .v1-side{flex:1 1 168px;border:1.5px solid var(--viz-line);border-radius:11px;padding:11px 12px;background:var(--viz-bg)}
+    .v1-side h5{margin:0 0 7px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-side ul{margin:0;padding-left:16px;font-size:12px;line-height:1.55}
+    .v1-side li{margin-bottom:5px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SIZES = [1000, 10000, 100000, 1000000, 10000000];
+    var ALPHA = 0.75;                       // 750,000 terms in 1,000,000 buckets
+    var s = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var rows = document.getElementById('v1-rows'), why = document.getElementById('v1-why');
+
+    function fmt(x){ return Math.round(x).toLocaleString(); }
+    function logw(v, n){                     // log-scaled bar: 1 comparison is not 1 pixel of n
+      var top = Math.log10(Math.max(n, 10));
+      var got = Math.log10(Math.max(v, 1));
+      return Math.max(2, Math.min(100, Math.round(got / Math.max(top, 0.001) * 100)));
+    }
+    function row(t, v, unit, col, sub){
+      return '<div class="v1-r"><h6><span>' + t + '</span><b style="color:' + col + '">' + v + ' ' + unit + '</b></h6>' +
+        '<div class="v1-track"><i style="width:' + logw(Number(String(v).replace(/,/g, '')) || 1, SIZES[Number(s.value)]) + '%;background:' + col + '"></i></div>' +
+        '<div class="v1-sub">' + sub + '</div></div>';
+    }
+
+    function render(){
+      var n = SIZES[Number(s.value)];
+      nl.textContent = n.toLocaleString();
+      var bin = Math.ceil(Math.log(n) / Math.LN2);
+      var probe = 1 + ALPHA;
+
+      rows.innerHTML =
+        row('linear scan (unsorted)', fmt(n), 'comparisons', 'var(--viz-red)',
+            'Worst case and every unsuccessful search. No structure required at all — which is exactly why it costs the most.') +
+        row('binary search (sorted array)', String(bin), 'comparisons', 'var(--viz-accent)',
+            'Each comparison halves the candidates: after k steps at most n/2^k remain, so k &ge; log2 n. Needs sorted, random-access storage.') +
+        row('hash probe (&alpha; = 0.75)', probe.toFixed(2), 'entries', 'var(--viz-green)',
+            'One hash, then about &alpha; entries in the bucket — <b>expected</b> O(1+&alpha;), not guaranteed O(1).');
+
+      why.innerHTML = '<b>' + fmt(n) + ' terms: ' + fmt(n) + ' comparisons, ' + bin + ', or about ' + probe.toFixed(2) + '.</b>' +
+        'The gap between the scan and the other two widens without limit, and that is why every real index pays construction cost up front: one index serves many queries. ' +
+        'But look at what the bottom two are <em>assuming</em>. Binary search assumes sorted, contiguous storage — visual 4 is about what that costs to maintain. ' +
+        'The hash probe assumes a load factor someone is controlling — <b>visual 2 is that dial</b>, and it turns the same line of code into 1.75 entries or 75. ' +
+        '<br><br>And the third lesson-01 result is hiding underneath both: ' + bin + ' comparisons that jump around memory can lose to a sequential pass that does more work, ' +
+        'which is the whole argument between a postings <em>array</em> and a postings <em>linked list</em>.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Load Factor Dial</h2>
+  <p class="vz-lede">Hold the dictionary at 750,000 terms and move the bucket array underneath it. The code
+    never changes; the cost of "a hash lookup" changes by a factor of forty. <b>Like a coat check with a fixed
+    number of hooks: the same ticket takes a second or a minute depending on how many coats share a hook.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-m">Buckets M = <span id="v2-ml">1,000,000</span> &nbsp;·&nbsp; n = 750,000 terms</label>
+    <input type="range" id="v2-m" min="0" max="9" value="7" step="1" aria-label="Number of buckets">
+    <div class="v2-buckets" id="v2-buckets"></div>
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">This is why tables <b>resize</b>: crossing a threshold reallocates and reinserts under a new
+    modulus, O(n) at that moment. Double the capacity each time and the total rehash work over n inserts is
+    1 + 2 + 4 + … &lt; 2n — a geometric series bounded by twice the final size — so insertion is
+    <b>amortized O(1)</b> even though one insert can be the expensive one. Grow by a fixed amount instead and
+    you rehash n/c times at O(n) each, which is quadratic.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-buckets{margin-top:16px;display:flex;gap:4px;align-items:flex-end;min-height:78px;
+      border-bottom:1.5px solid var(--viz-line);padding-bottom:4px;overflow:hidden}
+    .v2-b{flex:1 1 0;display:flex;flex-direction:column-reverse;gap:2px;align-items:stretch}
+    .v2-e{height:7px;border-radius:2px;background:var(--viz-accent)}
+    .v2-more{font-size:9.5px;font-weight:800;text-align:center;color:var(--viz-red);font-family:ui-monospace,Consolas,monospace}
+    .v2-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MS = [10000, 25000, 50000, 100000, 250000, 500000, 750000, 1000000, 2000000, 4000000];
+    var N = 750000, SHOWN = 14;
+    var s = document.getElementById('v2-m'), lab = document.getElementById('v2-ml');
+    var box = document.getElementById('v2-buckets'), stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+
+    function render(){
+      var M = MS[Number(s.value)] || 1;               // never 0: the divide below is safe
+      lab.textContent = M.toLocaleString();
+      var a = N / M;
+      var expected = 1 + a;
+
+      // A deterministic stand-in for a uniform spread: floor(a) everywhere, plus the
+      // fractional part scattered over the buckets that "won" the remainder.
+      var base = Math.floor(a), frac = a - base, cap = 9, html = '';
+      for (var i = 0; i < SHOWN; i++) {
+        var extra = ((i * 5 + 3) % 10) / 10 < frac ? 1 : 0;
+        var k = base + extra, drawn = Math.min(k, cap), cells = '';
+        for (var j = 0; j < drawn; j++) cells += '<div class="v2-e"></div>';
+        html += '<div class="v2-b">' + cells + (k > cap ? '<div class="v2-more">+' + (k - cap) + '</div>' : '') + '</div>';
+      }
+      box.innerHTML = html;
+
+      var hot = a >= 4, cold = a < 0.35;
+      var c = hot ? 'var(--viz-red)' : (cold ? 'var(--viz-amber)' : 'var(--viz-green)');
+      var mem = Math.round(M * 8 / 1048576 * 10) / 10;
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">&alpha; = n/M = ' + (a >= 10 ? a.toFixed(0) : a.toFixed(2)) + '</span>' +
+        '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">lookup examines ~' + (expected >= 10 ? expected.toFixed(0) : expected.toFixed(2)) + ' entries</span>' +
+        '<span class="v2-pill" style="color:' + (cold ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' + (cold ? 'var(--viz-amber)' : 'var(--viz-line)') + '">bucket array ~' + mem + ' MB</span>';
+
+      why.innerHTML = hot
+        ? '<b style="color:var(--viz-red)">Overloaded — the "hash lookup" is now a scan.</b>' +
+          'With chaining, an unsuccessful lookup examines roughly &alpha; entries after reaching its bucket, so expected work is <b>O(1 + &alpha;)</b>. ' +
+          'At M = 10,000 that is &alpha; = 75: one hash and then dozens of comparisons, for the identical line of code that was constant time a moment ago. ' +
+          '<br><br>Open addressing cannot even get here — it needs &alpha; &lt; 1 by definition, and degrades sharply well before that, because the <em>empty slot that terminates a probe</em> becomes rare.'
+        : cold
+          ? '<b style="color:var(--viz-amber)">Correct, and paying for it in memory.</b>' +
+            'Chains are almost all length 0 or 1, so lookup is as fast as it gets — but ' + M.toLocaleString() + ' buckets is ~' + mem + ' MB of pointers for ' + N.toLocaleString() + ' terms, most of them empty. ' +
+            'Hash tables trade memory for speed: spare buckets, stored hashes, pointers and alignment can exceed the key payload itself. ' +
+            '<br><br>The dial is not free in either direction — that is the point of having a threshold rather than a constant.'
+          : '<b style="color:var(--viz-green)">The working band.</b>' +
+            'M = ' + M.toLocaleString() + ' gives &alpha; = ' + a.toFixed(2) + ', so most chains are short and a lookup is one hash plus about ' + expected.toFixed(2) + ' entries. ' +
+            'This is the regime in which calling a probe "O(1)" is honest — and note it is <b>expected</b>, never worst case: a flawed or attacker-chosen key distribution can pile every key into one bucket and make lookup O(n). ' +
+            '<br><br>Runtimes randomise string hashes to resist exactly that. A stable on-disk index cannot — it needs the same key to land in the same place next month — so it must pick a strong function and actually validate its load.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Chained Or Probed</h2>
+  <p class="vz-lede">Three keys, one bucket, two ways to survive it. Insert them one at a time and switch the
+    strategy underneath. <b>Like three parcels for the same pigeonhole: hang a bag off that hole, or push each
+    parcel into the next free hole along.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Collision strategy">
+    <button id="v3-chain" aria-pressed="true">separate chaining</button>
+    <button id="v3-probe" aria-pressed="false">linear probing</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v3-hash" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <div class="v3-slots" id="v3-slots"></div>
+    <div class="v3-ctl">
+      <button id="v3-step">insert next key</button>
+      <button id="v3-reset">reset</button>
+    </div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Neither strategy is a repair for a bad hash — a collision is the <b>normal</b> case, because
+    the key space is larger than M. What separates them is physical: linear probing walks consecutive slots and
+    is cache-friendly, exactly what lesson 01 rewarded, but its occupied clusters grow and every later probe
+    walks them. Double hashing spreads probes better and jumps around memory — it pays cache misses to buy
+    shorter probe sequences.</p>
+
+  <style>
+    .v3-slots{display:flex;flex-direction:column;gap:4px}
+    .v3-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;min-height:34px}
+    .v3-row.is-hot{border-color:var(--viz-accent)}
+    .v3-row.is-empty{opacity:.55;border-style:dashed}
+    .v3-i{flex:0 0 62px;color:var(--viz-muted)}
+    .v3-v{flex:1}
+    .v3-mk{font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v3-ctl{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+    .v3-ctl button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var KEYS = [42, 18, 50], M = 8, HOME = 2;      // 42 = 5·8+2, 18 = 2·8+2, 50 = 6·8+2
+    var placed = 0, chaining = true;
+    var bChain = document.getElementById('v3-chain'), bProbe = document.getElementById('v3-probe');
+    var slots = document.getElementById('v3-slots'), why = document.getElementById('v3-why');
+    var step = document.getElementById('v3-step'), reset = document.getElementById('v3-reset');
+
+    document.getElementById('v3-hash').textContent =
+      'h(k) mod 8      42 mod 8 = 2      18 mod 8 = 2      50 mod 8 = 2\n' +
+      'all three keys are addressed to bucket 2 — this is a collision, not an error';
+
+    function render(){
+      bChain.setAttribute('aria-pressed', chaining ? 'true' : 'false');
+      bProbe.setAttribute('aria-pressed', chaining ? 'false' : 'true');
+      step.textContent = placed >= KEYS.length ? 'all 3 inserted' : 'insert ' + KEYS[placed];
+      step.style.opacity = placed >= KEYS.length ? '0.55' : '1';
+
+      var html = '';
+      for (var i = 0; i < M; i++) {
+        var val = '', tag = '', hot = false;
+        if (chaining) {
+          if (i === HOME && placed > 0) {
+            val = KEYS.slice(0, placed).join(' → ');
+            tag = 'chain of ' + placed;
+            hot = true;
+          }
+        } else if (i >= HOME && i < HOME + placed) {
+          val = String(KEYS[i - HOME]);
+          tag = i === HOME ? 'home slot' : 'probed +' + (i - HOME);
+          hot = true;
+        }
+        html += '<div class="v3-row ' + (hot ? 'is-hot' : 'is-empty') + '">' +
+          '<span class="v3-i">slot ' + i + '</span>' +
+          '<span class="v3-v">' + (val || '·') + '</span>' +
+          '<span class="v3-mk" style="color:' + (hot ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' + (tag || 'empty') + '</span></div>';
+      }
+      slots.innerHTML = html;
+
+      var probes = placed;                          // occupied cells examined before the answer
+      why.innerHTML = chaining
+        ? '<b>Chaining: one bucket, a collection hanging off it.</b>' +
+          'Lookup hashes once, then scans that bucket. A <em>missing</em> key that maps to bucket 2 costs <b>' + probes + ' comparison' + (probes === 1 ? '' : 's') + '</b> right now, and the answer is only "no" after every one of them. ' +
+          'The bucket array itself never fills — &alpha; can exceed 1 and the cost grows linearly with it, which is the O(1 + &alpha;) of visual 2. ' +
+          '<br><br>The price is a pointer per entry and a chain that lives wherever the allocator put it: a short chain is cheap in comparisons and still costs a dependent cache miss.'
+        : '<b>Linear probing: everything in the array itself.</b>' +
+          'On collision the algorithm walks to the next slot until it finds the key or an empty one. The three keys occupy <b>slots 2, 3, 4</b> in insertion order. ' +
+          'A missing key mapping to bucket 2 examines ' + probes + ' occupied slot' + (probes === 1 ? '' : 's') + ' and then stops at slot ' + (HOME + probes) + ', which is empty — <b>the empty slot is the proof of absence</b>. ' +
+          '<br><br>That is also the failure mode: as &alpha; approaches 1 the terminating empty slot becomes rare, and the contiguous cluster you just built lengthens every probe that passes through it. Open addressing requires &alpha; &lt; 1 and degrades sharply before it.';
+    }
+    bChain.addEventListener('click', function(){ chaining = true; render(); });
+    bProbe.addEventListener('click', function(){ chaining = false; render(); });
+    step.addEventListener('click', function(){ if (placed < KEYS.length) placed += 1; render(); });
+    reset.addEventListener('click', function(){ placed = 0; render(); });
+    placed = 3; render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Nodes Or Bytes</h2>
+  <p class="vz-lede">The same postings list, twice: 4 bytes per document ID packed end to end, or 16 bytes per
+    node scattered by the allocator. Pick the operation and drag the list length. <b>Like a shopping list on one
+    sheet of paper versus one word per sticky note taped around the house.</b></p>
+
+  <div class="v4-ops" id="v4-ops"></div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-n">Postings in the list: <span id="v4-nl">1,000,000</span></label>
+    <input type="range" id="v4-n" min="0" max="3" value="3" step="1" aria-label="Number of postings in the list">
+    <div class="v4-mem" id="v4-mem"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">So the real index does neither one purely: <b>accumulate into a mutable dynamic array,
+    freeze it into an immutable contiguous segment, start a new segment for later documents.</b> Append stays
+    amortized O(1), serving reads contiguous bytes, and deletions become a separate bitset applied at the next
+    merge. Forcing one structure to be both the ingester and the server makes it mediocre at both.</p>
+
+  <style>
+    .v4-ops{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v4-o{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v4-o[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-mem{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:nowrap}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NS = [1000, 10000, 100000, 1000000];
+    var cur = 0;
+    var ops = document.getElementById('v4-ops'), s = document.getElementById('v4-n');
+    var nl = document.getElementById('v4-nl'), mem = document.getElementById('v4-mem'), why = document.getElementById('v4-why');
+
+    var OPS = [
+      { t:'append the next document ID', win:'tie',
+        arr:function(n){ return 'amortized O(1)'; }, lst:function(n){ return 'O(1) with a tail pointer'; },
+        why:function(n){ return '<b>A genuine tie — and the only operation that is.</b>' +
+          'The linked list allocates a node, sets the old tail\'s next pointer and moves the tail: nothing already stored moves, which is what incremental ingestion wants. ' +
+          'The dynamic array writes into spare capacity, and when capacity runs out it allocates a geometrically larger block, copies, then appends — one resizing append is O(' + n.toLocaleString() + '), but the same 1 + 2 + 4 + … &lt; 2n series makes it <b>amortized O(1)</b>. ' +
+          '<br><br>The array\'s cost is shaped differently: occasional latency spikes and both buffers alive during the copy. Equal throughput, unequal tail latency.'; } },
+      { t:'read the i-th posting', win:'array',
+        arr:function(n){ return 'O(1) at b + i·4'; }, lst:function(n){ return 'O(i) pointer hops'; },
+        why:function(n){ return '<b>Address arithmetic versus a walk.</b>' +
+          'With base b and width w = 4 bytes, element i is at <b>b + 4i</b> — one multiply, one add, one load. The linked list has no such formula: reaching posting i costs i pointer hops, up to ' + n.toLocaleString() + ' of them. ' +
+          '<br><br>This is the property everything else in this panel is downstream of.'; } },
+      { t:'binary search for one document ID', win:'array',
+        arr:function(n){ return Math.ceil(Math.log(n) / Math.LN2) + ' comparisons'; }, lst:function(n){ return 'not available'; },
+        why:function(n){ return '<b>Binary search fails on addressing, not on comparisons.</b>' +
+          'The sorted array needs about ' + Math.ceil(Math.log(n) / Math.LN2) + ' comparisons at n = ' + n.toLocaleString() + '. On a linked list, <em>finding the midpoint is itself a linear walk</em> — and repeating that at every level destroys exactly the log n you came for. ' +
+          '<br><br>An ordered linked scan is O(n) worst case; it can at least stop early once the current ID exceeds the target, which is a constant-factor win and not an asymptotic one.'; } },
+      { t:'intersect with another postings list', win:'array',
+        arr:function(n){ return 'O(m+n) at bandwidth'; }, lst:function(n){ return 'O(m+n), stalled'; },
+        why:function(n){ return '<b>Same Big-O, different machine.</b>' +
+          'Two cursors, neither moving backwards — 3 → 11 → 19 against 2 → 3 → 19 → 25 emits 3 and 19 either way. But the array streams: a 64-byte cache line delivers <b>16 useful IDs</b>, the prefetcher runs ahead, and decoding can be vectorised over a dense block of gaps. ' +
+          '<br><br>The linked walk must <em>resolve each pointer before it knows the next address</em>, so prefetch cannot help and one cache line may deliver a single 4-byte ID plus pointer and allocator overhead. This is lesson 01\'s memory hierarchy deciding a question that Big-O called a draw.'; } },
+      { t:'insert ID 500 into the middle', win:'neither',
+        arr:function(n){ return '~' + Math.round(n / 2).toLocaleString() + ' shifts'; }, lst:function(n){ return 'O(1) — after an O(n) search'; },
+        why:function(n){ return '<b>The claim everyone repeats, and its hidden assumption.</b>' +
+          'The sorted array shifts roughly half its elements — about ' + Math.round(n / 2).toLocaleString() + ' IDs. The linked list splices in constant time <b>only after the predecessor is known</b>, and finding it is an O(n) walk. "Linked-list insertion is O(1)" silently assumes someone handed you a pointer to the right place. ' +
+          '<br><br>Postings usually arrive in increasing document-ID order, so both just append — and then the array wins every read. Out-of-order updates want a buffer, a side structure or a segment merge, never repeated middle shifts.'; } }
+    ];
+
+    function bytes(b){
+      if (b >= 1048576) return (Math.round(b / 1048576 * 10) / 10) + ' MB';
+      if (b >= 1024) return (Math.round(b / 1024 * 10) / 10) + ' KB';
+      return b + ' B';
+    }
+    function render(){
+      var n = NS[Number(s.value)] || 1;
+      nl.textContent = n.toLocaleString();
+      var op = OPS[cur];
+      [].slice.call(ops.children).forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+
+      var a = 4 * n, l = 16 * n, top = Math.max(a, l, 1);
+      function bar(t, v, c, sub){
+        return '<div class="v4-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + bytes(v) + '</b></h6>' +
+          '<div class="v4-track"><i style="width:' + Math.max(3, Math.round(v / top * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div class="v4-sub">' + sub + '</div></div>';
+      }
+      mem.innerHTML =
+        bar('packed array — ' + op.arr(n), a, 'var(--viz-green)',
+            n.toLocaleString() + ' × 4-byte IDs, contiguous. 16 IDs per 64-byte cache line.') +
+        bar('linked nodes — ' + op.lst(n), l, 'var(--viz-red)',
+            n.toLocaleString() + ' × (32-bit ID + 64-bit pointer) ≈ 16 bytes after alignment, before allocator metadata — four times the payload, scattered.');
+
+      var verdict = op.win === 'array' ? '<span style="color:var(--viz-green)">ARRAY WINS</span>'
+        : op.win === 'tie' ? '<span style="color:var(--viz-accent)">TIE</span>'
+        : '<span style="color:var(--viz-amber)">NEITHER IS CHEAP</span>';
+      why.innerHTML = op.why(n) + '<br><br><b>Verdict for this operation: ' + verdict + '</b>';
+    }
+    OPS.forEach(function(op, i){
+      var b = document.createElement('button');
+      b.className = 'v4-o';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + op.t + '</span><span class="v4-tag" style="color:var(--viz-muted)">' +
+        (op.win === 'array' ? 'array' : op.win === 'tie' ? 'tie' : 'neither') + '</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      ops.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Order As Contract</h2>
+  <p class="vz-lede">One million terms, two dictionaries holding exactly the same pairs — one hashed, one
+    sorted. Tap a query and drag how many terms match. <b>Like a phone book versus a pile of business cards:
+    both find one name; only one answers "everyone whose name starts with Mc".</b></p>
+
+  <div class="v5-qs" id="v5-qs"></div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-k">Matching terms k = <span id="v5-kl">80</span></label>
+    <input type="range" id="v5-k" min="1" max="500" value="80" step="1" aria-label="Number of matching terms">
+    <div class="v5-cmp" id="v5-cmp"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The expert test is to <b>list the required operations before choosing a structure</b>. If the
+    contract is only <code>get(key)</code>, hashing is compelling. If it includes <code>lower_bound</code>,
+    prefix enumeration, range scan, ordered merge or nearest key, order is data and not decoration — and paying
+    O(log n) for exact lookup can be the cheaper system, because it avoids an O(n) scan or a second index
+    maintained for every ordered query.</p>
+
+  <style>
+    .v5-qs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-q{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v5-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-cmp{margin-top:14px;display:flex;gap:9px;flex-wrap:wrap}
+    .v5-c{flex:1 1 148px;border:1.5px solid var(--viz-line);border-radius:11px;padding:11px 12px;background:var(--viz-bg)}
+    .v5-c h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-n{font-family:ui-monospace,Consolas,monospace;font-size:15px;font-weight:800;display:block;margin-bottom:3px}
+    .v5-s{font-size:11px;color:var(--viz-muted);line-height:1.45}
+    .v5-v{font-size:10px;font-weight:800;letter-spacing:.03em;margin-top:7px;display:block}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 1000000, LOGN = 20;                    // 2^20 = 1,048,576 ≈ one million terms
+    var cur = 0;
+    var qs = document.getElementById('v5-qs'), s = document.getElementById('v5-k');
+    var kl = document.getElementById('v5-kl'), cmp = document.getElementById('v5-cmp'), why = document.getElementById('v5-why');
+
+    var QS = [
+      { sql:'get("retrieval")', usesK:false,
+        hash:function(){ return { n:'~1.75 entries', s:'One hash, then about &alpha; entries in the bucket. Expected O(1).', win:true }; },
+        sorted:function(){ return { n:LOGN + ' comparisons', s:'Binary search over the sorted entries: O(log n), and 2^20 &asymp; one million.', win:false }; },
+        why:function(){ return '<b>The one query hashing is unambiguously built for.</b>' +
+          'Exact point lookup, no order needed, and the hash probe is expected constant against 20 comparisons. If the whole contract is <code>get(key)</code> and updates are frequent, stop here — hashing is the right answer. ' +
+          '<br><br>Notice how small the gap actually is, though: 20 predictable comparisons is not a catastrophe, and it is the price of everything in the rows below. That is the trade this visual exists to make visible.'; } },
+      { sql:'lower_bound("vec")', usesK:false,
+        hash:function(){ return { n:'~1,000,000 keys', s:'No iteration order, so "the first key at least vec" means examining every key. O(n).', win:false }; },
+        sorted:function(){ return { n:LOGN + ' comparisons', s:'The boundary IS a binary search — the same O(log n) as an exact lookup.', win:true }; },
+        why:function(){ return '<b>"The next key after x" is a question a hash map cannot be asked.</b>' +
+          'The bucket index is deliberately unrelated to key order, so there is no cheaper answer than looking at all of them. In the sorted structure the same search that answers an exact lookup answers this one — it just returns where the key <em>would</em> be. ' +
+          '<br><br>Every query below is built on this primitive.'; } },
+      { sql:'prefix "retr"  (autocomplete)', usesK:true,
+        hash:function(){ return { n:'~1,000,000 keys', s:'Every key must be examined and tested. O(n) — an index in name only.', win:false }; },
+        sorted:function(k){ return { n:(LOGN + k).toLocaleString() + ' steps', s:LOGN + ' comparisons to the lower bound, then ' + k.toLocaleString() + ' consecutive terms until the prefix stops matching.', win:true }; },
+        why:function(k){ return '<b>' + (LOGN + k).toLocaleString() + ' steps versus a million — and the ratio only improves as k shrinks.</b>' +
+          'Binary-search the lower bound of <code>retr</code>, then walk forward while the prefix holds: cost is <b>O(log n + k)</b>, output-proportional. With ' + k.toLocaleString() + ' matching terms that is ' + LOGN + ' + ' + k.toLocaleString() + '. ' +
+          '<br><br>Drag k to 500 and the sorted structure is still two thousand times cheaper. There is no k at which the hash layout becomes competitive, because its cost does not depend on the answer at all — it depends on the dictionary.'; } },
+      { sql:'range "vector" .. "vertex"', usesK:true,
+        hash:function(){ return { n:'~1,000,000 keys', s:'Same as any ordered question: a full scan, or a second structure maintained alongside.', win:false }; },
+        sorted:function(k){ return { n:(2 * LOGN + k).toLocaleString() + ' steps', s:'Two boundary searches plus ' + k.toLocaleString() + ' outputs: O(log n + k).', win:true }; },
+        why:function(k){ return '<b>Two binary searches bracket the answer; the traversal between them is the output.</b>' +
+          'That is ' + (2 * LOGN) + ' comparisons plus ' + k.toLocaleString() + ' entries — and the k term is not overhead, it is the result you asked for. No structure can beat it, because the answer has to be handled. ' +
+          '<br><br>The honest way to state the hash option is not "slower": it is that a range query needs a <em>different index</em>, which someone has to build, store and keep consistent.'; } },
+      { sql:'merge two dictionaries', usesK:false,
+        hash:function(){ return { n:'probe or rebuild', s:'No ordered output without a later sort, and no sequential pass over either side.', win:false }; },
+        sorted:function(){ return { n:'one linear pass', s:'Two cursors down both key lists, emitting in order and spotting equal terms: O(m+n).', win:true }; },
+        why:function(){ return '<b>This is why immutable index segments are sorted.</b>' +
+          'Merging a new segment into an old one is the two-cursor pass from lesson 01, running as <em>sequential I/O</em> — the access pattern storage is fastest at. A hash table has to probe one side per key or rebuild outright, and emits nothing ordered without sorting afterwards. ' +
+          '<br><br>So order is not only a query feature; it is what makes index <b>construction</b> cheap. Balanced search trees hold the mutable ordered middle at O(log n) per operation, paying pointers and weaker locality — they arrive next in the course.'; } }
+    ];
+
+    function card(title, r){
+      var col = r.win ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v5-c"><h5>' + title + '</h5>' +
+        '<span class="v5-n" style="color:' + col + '">' + r.n + '</span>' +
+        '<span class="v5-s">' + r.s + '</span>' +
+        '<span class="v5-v" style="color:' + col + '">' + (r.win ? '✔ ANSWERS IT CHEAPLY' : '✘ WRONG STRUCTURE HERE') + '</span></div>';
+    }
+    function render(){
+      var k = Math.max(1, Number(s.value) || 1);
+      kl.textContent = k.toLocaleString();
+      var q = QS[cur];
+      s.disabled = !q.usesK;
+      s.style.opacity = q.usesK ? '1' : '0.45';
+      [].slice.call(qs.children).forEach(function(b, j){ b.setAttribute('aria-pressed', cur === j ? 'true' : 'false'); });
+      cmp.innerHTML = card('hash map, ' + N.toLocaleString() + ' terms', q.hash(k)) +
+        card('sorted array, ' + N.toLocaleString() + ' terms', q.sorted(k));
+      why.innerHTML = q.why(k) + (q.usesK ? '' : '<br><br><span style="color:var(--viz-muted)">(k does not enter this query — the slider is inactive here.)</span>');
+    }
+    QS.forEach(function(q, i){
+      var b = document.createElement('button');
+      b.className = 'v5-q';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span style="color:var(--viz-muted);font-weight:800">Q</span><span>' + q.sql + '</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      qs.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

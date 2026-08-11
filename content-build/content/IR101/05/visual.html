@@ -1,0 +1,737 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 108px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 8px;
+  display:flex;align-items:center;justify-content:center;gap:6px;line-height:1.25;text-align:center}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Postings To Gaps</button>
+  <button class="viz-tab" data-viz-tab="2">2. Decoding The Gap Stream</button>
+  <button class="viz-tab" data-viz-tab="3">3. Seven Bits Per Byte</button>
+  <button class="viz-tab" data-viz-tab="4">4. Ratio Versus Latency</button>
+  <button class="viz-tab" data-viz-tab="5">5. Postings Or Parquet</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Postings To Gaps</h2>
+  <p class="vz-lede">You already keep postings in increasing document-ID order — that is what makes
+    <b>Boolean Query Processing by Intersecting Postings</b> a two-cursor walk and what lets
+    <b>Skip Pointers</b> jump. This lesson charges for those bytes and takes the ordering as payment:
+    keep the first ID, store only differences afterwards. Drag the corpus and the term's density.
+    <b>Like giving directions as "third door on the left" instead of a full street address.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side">
+      <h5>already yours &mdash; sorted document IDs</h5>
+      <div class="v1-mono" id="v1-abs"></div>
+    </div>
+    <div class="v1-side">
+      <h5>this lesson &mdash; base, then gaps</h5>
+      <div class="v1-mono" id="v1-gaps"></div>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Corpus size <span id="v1-nl">10^8</span></label>
+    <input type="range" id="v1-n" min="4" max="9" value="8" step="1" aria-label="Corpus size exponent">
+    <label class="v1-lab" for="v1-den">Term occurs in 1 document in <span id="v1-denl">10</span></label>
+    <input type="range" id="v1-den" min="0" max="6" value="2" step="1" aria-label="Postings density">
+    <div class="v1-pills" id="v1-pills"></div>
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Decoding is a prefix sum, so the intersection you already know still sees absolute
+    IDs — nothing above the codec changes. What does change is the invariant: sorted order stopped being a
+    convenience and became <b>part of the format</b>. Break it and a gap goes negative, which most postings
+    codes cannot represent at all.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-side{flex:1 1 150px;border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 10px;background:var(--viz-bg)}
+    .v1-side h5{margin:0 0 6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v1-lab:first-child{margin-top:0}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-pills{margin-top:14px;display:flex;gap:7px;flex-wrap:wrap}
+    .v1-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid var(--viz-line);
+      color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v1-bars{margin-top:13px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DENS = [2, 5, 10, 50, 200, 1000, 5000];
+    var n = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var den = document.getElementById('v1-den'), denl = document.getElementById('v1-denl');
+    var absEl = document.getElementById('v1-abs'), gapEl = document.getElementById('v1-gaps');
+    var pills = document.getElementById('v1-pills'), bars = document.getElementById('v1-bars');
+    var why = document.getElementById('v1-why');
+
+    function bitlen(v){
+      var x = Math.max(0, Math.floor(v));
+      return x < 1 ? 1 : Math.floor(Math.log(x) / Math.LN2) + 1;
+    }
+    function vbBytes(v){ return Math.max(1, Math.ceil(bitlen(v) / 7)); }
+    function human(b){
+      if (!isFinite(b) || b < 0) return '—';
+      if (b < 1024) return Math.round(b) + ' B';
+      if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+      if (b < 1073741824) return (b / 1048576).toFixed(1) + ' MB';
+      return (b / 1073741824).toFixed(2) + ' GB';
+    }
+
+    function render(){
+      var e = Number(n.value), N = Math.pow(10, e), K = DENS[Number(den.value)] || 10;
+      nl.textContent = '10^' + e + ' = ' + N.toLocaleString() + ' documents';
+      denl.textContent = K.toLocaleString();
+
+      var df = Math.max(1, Math.round(N / K));
+      var ids = [1000], gaps = [1000], cur = 1000;
+      for (var i = 0; i < 5; i++) {
+        var step = Math.max(1, Math.round(K * (0.55 + 0.3 * (i % 3))));
+        cur += step; ids.push(cur); gaps.push(step);
+      }
+      absEl.textContent = ids.map(function(d){ return String(d); }).join('\n') + '\n…';
+      gapEl.textContent = gaps.map(function(g, i){
+        return (i === 0 ? 'base ' : '  +  ') + g + '   (' + vbBytes(g) + ' byte' + (vbBytes(g) === 1 ? '' : 's') + ')';
+      }).join('\n') + '\n…';
+
+      var absBits = Math.max(1, bitlen(N));
+      var gapBits = Math.max(1, bitlen(K));
+      var fixedTotal = df * 4;
+      var gapTotal = vbBytes(1000) + (df - 1) * vbBytes(K);
+      var ratio = gapTotal > 0 ? fixedTotal / gapTotal : 0;
+
+      pills.innerHTML =
+        '<span class="v1-pill">df = ' + df.toLocaleString() + ' postings</span>' +
+        '<span class="v1-pill" style="color:var(--viz-red);border-color:var(--viz-red)">whole list, raw: ' +
+          human(fixedTotal) + '</span>' +
+        '<span class="v1-pill" style="color:var(--viz-green);border-color:var(--viz-green)">whole list, gaps: ' +
+          human(gapTotal) + '</span>' +
+        '<span class="v1-pill">' + ratio.toFixed(1) + '× smaller</span>';
+
+      var gapBitsSpent = 8 * vbBytes(K);
+      var scale = Math.max(absBits, gapBitsSpent, 32);
+      function bar(title, val, colour, sub){
+        var pct = scale > 0 ? Math.max(2, Math.round(val / scale * 100)) : 2;
+        return '<div class="v1-b"><h6><span>' + title + '</span><b style="color:' + colour + '">' + val + ' bits</b></h6>' +
+          '<div class="v1-track"><i style="width:' + pct + '%;background:' + colour + '"></i></div>' +
+          '<div class="v1-sub">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('✗ one absolute document ID', absBits, 'var(--viz-red)',
+            'It must address the whole collection: ⌈log₂ N⌉ = ' + absBits + ' bits, so a real index rounds this up to a 32- or 64-bit word.') +
+        bar('✓ one gap under variable-byte', gapBitsSpent, 'var(--viz-green)',
+            'Mean gap ≈ ' + K.toLocaleString() + ' → ' + gapBits + ' bits of magnitude → ' + vbBytes(K) +
+            ' byte' + (vbBytes(K) === 1 ? '' : 's') + ' on the wire.');
+
+      var head, body;
+      if (K <= 10) {
+        head = '<b style="color:var(--viz-green)">Dense term: few bits each, but a great many postings.</b>';
+        body = 'A mean gap of ' + K + ' fits in ' + gapBits + ' bits, so every posting is one variable-byte byte — ' +
+          'yet df is ' + df.toLocaleString() + ', so this is still one of the biggest lists in the index. ';
+      } else if (K >= 1000) {
+        head = '<b style="color:var(--viz-amber)">Rare term: more bits per posting, far fewer postings.</b>';
+        body = 'A mean gap of ' + K.toLocaleString() + ' needs ' + vbBytes(K) + ' bytes per entry — worse ' +
+          '<em>per posting</em> than the frequent term — but df is only ' + df.toLocaleString() + '. ';
+      } else {
+        head = '<b style="color:var(--viz-accent)">Total size is df × bits-per-gap. Both move.</b>';
+        body = 'At this density each gap costs ' + vbBytes(K) + ' byte' + (vbBytes(K) === 1 ? '' : 's') +
+          ' and there are ' + df.toLocaleString() + ' of them. ';
+      }
+      why.innerHTML = head + body +
+        '<b style="display:inline;font-size:12.5px">Never argue from one of the two alone.</b>' +
+        '<br><br>Now drag the corpus slider and watch the two bars. The red one climbs to ' + absBits +
+        ' bits because an absolute ID must address the whole collection; <b>the green one does not move at all</b>. ' +
+        'Gaps sum to at most N over df postings, so the mean gap is at most N/df — the corpus size cancels. ' +
+        '(The pills above still grow with N: that is df growing, not bits per posting.)' +
+        '<br><br>Worked case from the lesson: IDs 1000, 1003, 1007, 1012 are four 32-bit values = <b>128 bits</b>. ' +
+        'As gaps 1000, 3, 4, 5 under variable-byte they are 2+1+1+1 = five bytes = <b>40 bits</b>.';
+    }
+    n.addEventListener('input', render);
+    den.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Decoding The Gap Stream</h2>
+  <p class="vz-lede">One stream carries document gaps, term frequencies and position gaps, and only a
+    running accumulator tells them apart. Step through it — then break it two ways and watch what the
+    damage costs. <b>Like a treasure hunt where each clue gives the next step, not the destination:
+    one wrong clue and everything after it is in the wrong place.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Stream condition">
+    <button id="v2-m0" aria-pressed="true"><span>●</span>clean stream</button>
+    <button id="v2-m1" aria-pressed="false"><span>○</span>one gap corrupted</button>
+    <button id="v2-m2" aria-pressed="false"><span>○</span>IDs out of order</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-stream vz-mono" id="v2-stream"></div>
+    <label class="v2-lab" for="v2-step">Bytes consumed: <span id="v2-stepl">all</span></label>
+    <input type="range" id="v2-step" min="0" max="16" value="16" step="1" aria-label="Decode step">
+    <div class="v2-out" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">This is why blocks carry <b>restart points and checksums</b>: they bound the blast
+    radius of a single bad gap, and they give a decoder a known absolute base to re-enter at. Build tests
+    that check monotonicity and decoded counts catch the other failure before it ever ships.</p>
+
+  <style>
+    .v2-stream{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg);
+      margin-bottom:12px;display:flex;flex-wrap:wrap;gap:5px}
+    .v2-tok{border:1.5px solid var(--viz-line);border-radius:6px;padding:2px 7px;color:var(--viz-muted);font-size:11px}
+    .v2-tok.is-on{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v2-tok.is-bad{border-color:var(--viz-red);color:var(--viz-red)}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-out{margin-top:13px;display:flex;flex-direction:column;gap:5px}
+    .v2-row{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+    .v2-row.is-bad{border-color:var(--viz-red);border-style:dashed}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TRUE_IDS = [1000, 1003, 1007, 1012];
+    var POS = [[2, 10, 20], [5, 9], [40], [0, 3]];
+    var MODES = [
+      { gaps: [1000, 3, 4, 5],
+        why: ['Sorted IDs in, small gaps out, prefix sums back again.',
+          'The document gaps are <code>1000, 3, 4, 5</code> and the decoder rebuilds 1000, 1003, 1007, 1012 by addition. ' +
+          'Inside each posting the positions delta the same way — <code>2, 10, 20</code> becomes <code>2, 8, 10</code> — and then ' +
+          '<b>reset to a fresh base</b> at the next document. Term frequency is what tells the decoder how many position gaps ' +
+          'belong to the current posting; without it these numbers are indistinguishable from more document gaps.'] },
+      { gaps: [1000, 30, 4, 5],
+        why: ['One damaged gap, and every later document ID is wrong.',
+          'Gap 2 arrived as 30 instead of 3. Nothing about it looks invalid — it is a perfectly legal small positive ' +
+          'integer — so decoding continues happily and produces 1030, 1034, 1039. The corruption is not local: a prefix ' +
+          'sum carries it forward for the rest of the list. Positions are untouched, which is exactly what makes this so ' +
+          'quiet, and why the defence is structural (block checksums, restart points) rather than a validity check on the value.'] },
+      { gaps: [1000, 3, -3, 12],
+        why: ['Out-of-order IDs produce a negative gap, and the format stops.',
+          'The third document ID came in as 1000 again after 1003, so <code>1000 − 1003 = −3</code>. Most postings codes ' +
+          'encode non-negative integers only, so this is not merely wrong — it is unrepresentable, and monotone traversal ' +
+          '(the two-cursor intersection, every skip pointer) has nothing to walk. Duplicate IDs are the same fault in ' +
+          'milder dress: they belong in ONE posting with several positions, not in two postings with a zero gap.'] }
+    ];
+    var mode = 0;
+    var btns = [document.getElementById('v2-m0'), document.getElementById('v2-m1'), document.getElementById('v2-m2')];
+    var stream = document.getElementById('v2-stream'), step = document.getElementById('v2-step');
+    var stepl = document.getElementById('v2-stepl'), out = document.getElementById('v2-out');
+    var why = document.getElementById('v2-why');
+
+    function posGaps(p){
+      var o = [p[0]];
+      for (var i = 1; i < p.length; i++) o.push(p[i] - p[i - 1]);
+      return o;
+    }
+    function buildTokens(gaps){
+      var t = [];
+      for (var i = 0; i < gaps.length; i++) {
+        t.push({ k: 'doc', v: gaps[i], i: i });
+        t.push({ k: 'tf', v: POS[i].length, i: i });
+        var pg = posGaps(POS[i]);
+        for (var j = 0; j < pg.length; j++) t.push({ k: 'pos', v: pg[j], i: i });
+      }
+      return t;
+    }
+    function decode(tokens, upto){
+      var rows = [], id = 0, cur = null, at = 0, halted = null;
+      for (var s = 0; s < upto && s < tokens.length; s++) {
+        var t = tokens[s];
+        if (t.k === 'doc') {
+          if (t.v < 0) { halted = t.v; break; }
+          id += t.v; at = 0;
+          cur = { id: id, i: t.i, tf: null, positions: [] };
+          rows.push(cur);
+        } else if (t.k === 'tf') { if (cur) cur.tf = t.v; }
+        else if (t.k === 'pos') { if (cur) { at += t.v; cur.positions.push(at); } }
+      }
+      return { rows: rows, halted: halted };
+    }
+
+    function render(){
+      btns.forEach(function(b, j){
+        b.setAttribute('aria-pressed', j === mode ? 'true' : 'false');
+        b.firstElementChild.textContent = j === mode ? '●' : '○';
+      });
+      var tokens = buildTokens(MODES[mode].gaps);
+      if (Number(step.max) !== tokens.length) { step.max = String(tokens.length); step.value = String(tokens.length); }
+      var upto = Math.min(Number(step.value), tokens.length);
+      stepl.textContent = upto >= tokens.length ? 'all ' + tokens.length : upto + ' of ' + tokens.length;
+
+      stream.innerHTML = tokens.map(function(t, s){
+        var on = s < upto;
+        var bad = t.k === 'doc' && t.v < 0;
+        var lab = t.k === 'doc' ? 'Δdoc ' + t.v : (t.k === 'tf' ? 'tf ' + t.v : 'Δpos ' + t.v);
+        return '<span class="v2-tok ' + (bad ? 'is-bad' : (on ? 'is-on' : '')) + '">' + lab + '</span>';
+      }).join('');
+
+      var d = decode(tokens, upto);
+      if (!d.rows.length && d.halted === null) {
+        out.innerHTML = '<div class="v2-row"><span style="color:var(--viz-muted)">nothing decoded yet — drag the slider</span></div>';
+      } else {
+        out.innerHTML = d.rows.map(function(r){
+          var expect = TRUE_IDS[r.i];
+          var wrong = r.id !== expect;
+          var tag = wrong
+            ? '<span class="v2-tag" style="color:var(--viz-red)">✗ shifted (should be ' + expect + ')</span>'
+            : '<span class="v2-tag" style="color:var(--viz-green)">✓ correct</span>';
+          return '<div class="v2-row ' + (wrong ? 'is-bad' : '') + '"><span>doc ' + r.id + '</span>' +
+            '<span>tf ' + (r.tf === null ? '?' : r.tf) + '</span>' +
+            '<span>positions ' + (r.positions.length ? r.positions.join(', ') : '—') + '</span>' + tag + '</div>';
+        }).join('');
+        if (d.halted !== null) {
+          out.innerHTML += '<div class="v2-row is-bad"><span style="color:var(--viz-red)">HALT · negative gap ' +
+            d.halted + '</span><span class="v2-tag" style="color:var(--viz-red)">stream cannot continue</span></div>';
+        }
+      }
+
+      why.innerHTML = '<b>' + MODES[mode].why[0] + '</b>' + MODES[mode].why[1];
+    }
+    btns.forEach(function(b, j){ b.addEventListener('click', function(){ mode = j; render(); }); });
+    step.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Seven Bits Per Byte</h2>
+  <p class="vz-lede">Variable-byte writes an integer in base 128 and spends one bit of every byte saying
+    "keep going" or "that was the last one". Move the value and watch the byte count step rather than
+    slide. <b>Like paying in whole coins: the price jumps at the coin, never between two of them.</b></p>
+
+  <div class="v3-pre" id="v3-pre"></div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-v">Value to encode: <span id="v3-vl">1000</span></label>
+    <input type="range" id="v3-v" min="0" max="48" value="21" step="1" aria-label="Value to encode">
+    <div class="v3-bytes" id="v3-bytes"></div>
+    <div class="v3-stat" id="v3-stat"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The decode loop is four steps: read a byte, accumulate its seven payload bits, emit if
+    the marker says terminal, and — for postings — add the emitted gap to the previous document ID. Polarity
+    is a <b>choice</b>: a reader expecting terminal-high-bit cannot read continuation-high-bit data, and the
+    bytes decode into plausible garbage rather than failing loudly. Hence version metadata and golden vectors.</p>
+
+  <style>
+    .v3-pre{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v3-pb{min-height:44px;min-width:64px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 10px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-pb[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-bytes{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+    .v3-by{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;gap:9px;align-items:center;flex-wrap:wrap}
+    .v3-mk{font-weight:800}
+    .v3-stat{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid var(--viz-line);
+      color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PRESETS = [5, 127, 128, 130, 1000, 16383, 16384, 2097151];
+    var val = 1000;
+    var s = document.getElementById('v3-v'), lab = document.getElementById('v3-vl');
+    var pre = document.getElementById('v3-pre'), bytesEl = document.getElementById('v3-bytes');
+    var stat = document.getElementById('v3-stat'), why = document.getElementById('v3-why');
+
+    function fromSlider(i){ return Math.max(0, Math.round(Math.pow(1.35, Number(i) || 0))); }
+    function toSlider(v){
+      var best = 0, bd = Infinity;
+      for (var i = 0; i <= 48; i++) {
+        var d = Math.abs(fromSlider(i) - v);
+        if (d < bd) { bd = d; best = i; }
+      }
+      return best;
+    }
+    function bitlen(v){
+      var x = Math.max(0, Math.floor(v));
+      return x < 1 ? 1 : Math.floor(Math.log(x) / Math.LN2) + 1;
+    }
+    function groups(v){
+      var x = Math.max(0, Math.floor(v)), g = [];
+      if (x === 0) return [0];
+      while (x > 0) { g.unshift(x % 128); x = Math.floor(x / 128); }
+      return g;
+    }
+    function bin7(n){ return ('0000000' + (n >>> 0).toString(2)).slice(-7); }
+
+    function render(){
+      var v = Math.max(0, Math.floor(val));
+      lab.textContent = v.toLocaleString();
+      [].slice.call(pre.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', PRESETS[j] === v ? 'true' : 'false');
+      });
+
+      var g = groups(v), nb = g.length, b = bitlen(v);
+      bytesEl.innerHTML = g.map(function(x, i){
+        var last = i === g.length - 1;
+        var colour = last ? 'var(--viz-green)' : 'var(--viz-amber)';
+        return '<div class="v3-by"><span style="color:var(--viz-muted)">byte ' + (i + 1) + '</span>' +
+          '<span class="v3-mk" style="color:' + colour + '">' + (last ? '1' : '0') + '</span>' +
+          '<span>' + bin7(x) + '</span>' +
+          '<span style="color:var(--viz-muted)">payload ' + x + '</span>' +
+          '<span style="margin-left:auto;color:' + colour + ';font-weight:800">' +
+            (last ? 'TERMINAL — emit' : 'CONTINUE — read on') + '</span></div>';
+      }).join('');
+
+      var spent = nb * 8, payloadCap = nb * 7, wasted = Math.max(0, payloadCap - b);
+      var fixedRatio = nb > 0 ? 4 / nb : 0;
+      stat.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + nb +
+          ' byte' + (nb === 1 ? '' : 's') + ' = max(1, ⌈' + b + '/7⌉)</span>' +
+        '<span class="v3-pill">' + b + ' bits of value in ' + spent + ' bits spent</span>' +
+        '<span class="v3-pill">' + nb + ' marker bit' + (nb === 1 ? '' : 's') + ' + ' + wasted + ' padding</span>' +
+        '<span class="v3-pill" style="color:var(--viz-green);border-color:var(--viz-green)">' +
+          fixedRatio.toFixed(2) + '× smaller than a 32-bit word</span>';
+
+      var head, body;
+      if (v <= 127) {
+        head = '<b style="color:var(--viz-green)">One byte — the whole point.</b>';
+        body = 'Everything from 0 to 127 fits in a single seven-bit payload, and typical postings gaps live here. ' +
+          'Push the slider to 128 and the cost jumps to two bytes with nothing in between: <b>storage steps, it does not slide</b>.';
+      } else if (v <= 16383) {
+        head = '<b style="color:var(--viz-accent)">Two bytes, up to 16,383.</b>';
+        body = 'In base 128 this is ' + g[0] + '×128 + ' + g[1] + '. Worked case: 130 = 1×128 + 2, so the groups are 1 and 2, ' +
+          'the first marked continuing and the second terminal. The next boundary is 16,384 — that is a three-byte value ' +
+          'while 16,383 is a two-byte one.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">Three bytes, up to 2²¹ − 1 = 2,097,151.</b>';
+        body = 'An outlier this size costs more bytes, but notice what it does <em>not</em> do: it does not widen its ' +
+          'neighbours. That tolerance of mixed magnitudes is variable-byte’s real advantage — and the thing a fixed-width ' +
+          'block pack gives up (visual 4).';
+      }
+      why.innerHTML = head + body +
+        '<br><br><b style="display:inline;font-size:12.5px">The standing cost:</b> one marker bit in every eight. ' +
+        'A stream of tiny gaps needing three or four bits still spends a whole byte each, which is why block codecs ' +
+        'bit-pack many integers at a shared width and decode them with SIMD. Variable-byte keeps byte alignment, needs ' +
+        'no bit-level seek, and stays simple — it is a strong baseline, not the densest option.' +
+        '<br><br>The lesson’s list: gaps 1000, 3, 4, 5 → 2 + 1 + 1 + 1 = <b>5 bytes</b>, against 16 fixed-width.';
+    }
+    PRESETS.forEach(function(p){
+      var b = document.createElement('button');
+      b.className = 'v3-pb';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = p.toLocaleString();
+      b.addEventListener('click', function(){ val = p; s.value = String(toSlider(p)); render(); });
+      pre.appendChild(b);
+    });
+    s.addEventListener('input', function(){ val = fromSlider(s.value); render(); });
+    s.value = String(toSlider(1000));
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Ratio Versus Latency</h2>
+  <p class="vz-lede">Four codecs over the same block of 128 gaps. Smallest does not mean fastest, and the
+    winner changes with where the bytes live and what you are paying for. <b>Like vacuum-packing a suitcase:
+    brilliant for the airline’s scales, miserable if you need one shirt at every stop.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Read pattern">
+    <button id="v4-c0" aria-pressed="true"><span>●</span>hot term list, cached</button>
+    <button id="v4-c1" aria-pressed="false"><span>○</span>cold read over network</button>
+    <button id="v4-c2" aria-pressed="false"><span>○</span>archive, read monthly</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-o">One gap in the block is an outlier of <span id="v4-ol">1,000</span></label>
+    <input type="range" id="v4-o" min="0" max="5" value="2" step="1" aria-label="Outlier magnitude">
+    <button class="v4-tog" id="v4-exc" aria-pressed="true">block pack: exceptions ON</button>
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The other 127 gaps average 10 — four bits each — throughout. Nothing about the data
+    changes as you drag; only the single outlier and the codec’s reaction to it. That is the whole reason
+    the lesson says to measure the gap distribution <b>per term and per block</b>, not just the average.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-tog{min-height:44px;margin-top:12px;width:100%;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 10px}
+    .v4-tog[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v4-rows{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+    .v4-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg)}
+    .v4-r.is-win{border-color:var(--viz-green)}
+    .v4-hd{display:flex;justify-content:space-between;gap:8px;font-size:11.5px;font-weight:700;margin-bottom:5px;flex-wrap:wrap}
+    .v4-hd b{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:800}
+    .v4-tr{height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v4-tr i{display:block;height:100%}
+    .v4-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var OUT = [8, 64, 1000, 20000, 500000, 5000000];
+    var CTX = [
+      { bw: 12,   metric: 'time',  name: 'hot term list, cached' },
+      { bw: 0.25, metric: 'time',  name: 'cold read over network' },
+      { bw: 0.02, metric: 'bytes', name: 'archive, read monthly' }
+    ];
+    var ctx = 0, exc = true;
+    var cb = [document.getElementById('v4-c0'), document.getElementById('v4-c1'), document.getElementById('v4-c2')];
+    var o = document.getElementById('v4-o'), ol = document.getElementById('v4-ol');
+    var tog = document.getElementById('v4-exc'), rows = document.getElementById('v4-rows');
+    var why = document.getElementById('v4-why');
+
+    function bitlen(v){
+      var x = Math.max(0, Math.floor(v));
+      return x < 1 ? 1 : Math.floor(Math.log(x) / Math.LN2) + 1;
+    }
+    function vbBytes(v){ return Math.max(1, Math.ceil(bitlen(v) / 7)); }
+
+    function render(){
+      cb.forEach(function(b, j){
+        b.setAttribute('aria-pressed', j === ctx ? 'true' : 'false');
+        b.firstElementChild.textContent = j === ctx ? '●' : '○';
+      });
+      tog.setAttribute('aria-pressed', exc ? 'true' : 'false');
+      tog.textContent = 'block pack: exceptions ' + (exc ? 'ON' : 'OFF');
+
+      var O = OUT[Number(o.value)] || 1000;
+      ol.textContent = O.toLocaleString();
+      var c = CTX[ctx], bw = Math.max(0.001, c.bw);
+
+      var wideBits = Math.max(4, bitlen(O));
+      var packed = exc ? (Math.ceil(128 * 4 / 8) + 4 + vbBytes(O)) : Math.ceil(128 * wideBits / 8);
+      var list = [
+        { n: 'raw 32-bit IDs', b: 512, cpu: 0.30, skip: true,
+          s: '128 × 4 bytes, no transform at all.' },
+        { n: 'gaps + variable-byte', b: 127 + vbBytes(O), cpu: 1.20, skip: true,
+          s: '127 one-byte gaps + ' + vbBytes(O) + ' for the outlier. Branchy decode, one marker bit in eight.' },
+        { n: 'gaps + block bit-pack' + (exc ? ' + exceptions' : ''), b: packed, cpu: 0.15, skip: true,
+          s: exc ? '128 values at 4 bits + the outlier stored as an exception. SIMD decode.'
+                 : 'ALL 128 values widened to ' + wideBits + ' bits, because one of them needs that width.' },
+        { n: 'whole-stream Zstd over the block', b: Math.max(8, Math.round(packed * 0.8)), cpu: 2.40, skip: false,
+          s: '20% denser than the block pack — and no restart points, so a skip must expand the stream.' }
+      ];
+      list.forEach(function(r){ r.t = r.b / bw + 128 * r.cpu; });
+
+      var key = c.metric === 'bytes' ? 'b' : 't';
+      var best = list[0][key];
+      list.forEach(function(r){ if (r[key] < best) best = r[key]; });
+      var worst = list[0][key];
+      list.forEach(function(r){ if (r[key] > worst) worst = r[key]; });
+
+      rows.innerHTML = list.map(function(r){
+        var win = r[key] === best;
+        var colour = win ? 'var(--viz-green)' : (r[key] === worst ? 'var(--viz-red)' : 'var(--viz-muted)');
+        var pct = worst > 0 ? Math.max(2, Math.round(r[key] / worst * 100)) : 2;
+        var tag = win ? '✓ best here' : '';
+        return '<div class="v4-r ' + (win ? 'is-win' : '') + '">' +
+          '<div class="v4-hd"><span>' + r.n + '</span>' +
+          '<b style="color:' + colour + '">' + r.b + ' B · ' + Math.round(r.t) + ' ns ' + tag + '</b></div>' +
+          '<div class="v4-tr"><i style="width:' + pct + '%;background:' + colour + '"></i></div>' +
+          '<div class="v4-sub">' + r.s + (r.skip ? '' : ' <b style="color:var(--viz-amber)">cannot skip</b>') + '</div></div>';
+      }).join('');
+
+      var vb = list[1], bp = list[2], zs = list[3];
+      var winner = list[0];
+      list.forEach(function(r){ if (r[key] < winner[key]) winner = r; });
+      var head, body;
+      if (c.metric === 'bytes') {
+        head = '<b style="color:var(--viz-violet)">Archive: the metric stops being time.</b>';
+        body = 'Read once a month, the bill is storage rather than latency, so the smallest representation wins even ' +
+          'though it is nowhere near the fastest to decode. Here that is <b>' + winner.n + ' at ' + winner.b + ' B</b> ' +
+          '(block pack ' + bp.b + ' B, Zstd ' + zs.b + ' B), and one slower decode a month amortizes easily. That is ' +
+          'the honest version of "it depends": the codecs did not change, the objective did.';
+      } else if (ctx === 0) {
+        head = '<b style="color:var(--viz-green)">Hot: decode CPU dominates, so the densest loses.</b>';
+        body = 'Zstd is 20% smaller than the block pack (' + zs.b + ' B vs ' + bp.b + ' B) and still takes ' +
+          Math.round(zs.t) + ' ns against ' + Math.round(bp.t) + ' ns, because the bytes were already in cache and only ' +
+          'the arithmetic was left — the winner here is <b>' + winner.n + '</b>. Variable-byte shows the same shape more ' +
+          'gently: far fewer bytes than raw IDs, yet ' + Math.round(vb.t) + ' ns against ' + Math.round(list[0].t) +
+          ' ns, undone by branchy per-byte decoding.';
+      } else {
+        head = '<b style="color:var(--viz-accent)">Cold: bytes matter more, but not infinitely.</b>';
+        body = 'Moving the bytes now costs real time, so every compressed form beats raw 32-bit IDs by a wide margin ' +
+          'and <b>' + winner.n + '</b> comes out ahead at ' + Math.round(winner.t) + ' ns. Compare Zstd’s ' +
+          Math.round(zs.t) + ' ns with the block pack’s ' + Math.round(bp.t) + ' ns: a 20% ratio win rarely pays for a ' +
+          'decoder several times slower, and it has surrendered skipping entirely.';
+      }
+      why.innerHTML = head + body +
+        '<br><br><b style="display:inline;font-size:12.5px">Now toggle exceptions off</b> and drag the outlier up. ' +
+        'A fixed-width block must pick one width for all 128 values, so a single ' + O.toLocaleString() + ' forces ' +
+        wideBits + ' bits <em>each</em> — ' + Math.ceil(128 * wideBits / 8) + ' bytes for a block whose real content ' +
+        'is 127 four-bit numbers. Exceptions, or a mixed scheme, are how block formats refuse that trade.' +
+        '<br><br>And note what the last row gives up beyond CPU: <b>skip granularity</b>. Blocks earn their restart ' +
+        'points — last document ID, count, compressed length — because that is what lets a query jump without ' +
+        'decoding everything before it.';
+    }
+    cb.forEach(function(b, j){ b.addEventListener('click', function(){ ctx = j; render(); }); });
+    o.addEventListener('input', render);
+    tog.addEventListener('click', function(){ exc = !exc; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Postings Or Parquet</h2>
+  <p class="vz-lede">The same four numbers, the same three transforms, two different systems. Flip the
+    system to see how each line changes, then pick a workload and see which codec the difference actually
+    argues for. <b>Like the same recipe cooked for a restaurant service and for a freezer: identical
+    ingredients, opposite priorities.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="System">
+    <button id="v5-a" aria-pressed="true"><span>●</span>search postings</button>
+    <button id="v5-b" aria-pressed="false"><span>○</span>Parquet column</button>
+  </div>
+
+  <div class="v5-rows" id="v5-rows"></div>
+
+  <div class="vz-seg" role="group" aria-label="Workload">
+    <button id="v5-w0" aria-pressed="true"><span>●</span>hot term list, skipped by block</button>
+    <button id="v5-w1" aria-pressed="false"><span>○</span>cold column, read monthly</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Sortedness is the one lever that pays on both sides at once: document order is
+    <em>required</em> for intersection and happens to create small gaps, while sorting a Parquet column
+    tightens min/max statistics, creates runs and shrinks deltas. One write-time decision, two systems,
+    the same benefit — which is exactly why this topic is a bridge rather than a coincidence.</p>
+
+  <style>
+    .v5-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:14px}
+    .v5-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-surface)}
+    .v5-k{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);margin-bottom:3px}
+    .v5-v{font-size:12.5px;line-height:1.45}
+    .v5-o{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.4}
+    .v5-r.is-same{border-style:dashed}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ROWS = [
+      { k: 'the transform', same: true,
+        a: 'gaps, then variable-byte or block bit packing',
+        b: 'DELTA_BINARY_PACKED, then bit packing' },
+      { k: 'worked example', same: true,
+        a: 'IDs 1000, 1003, 1007, 1012 → 1000, 3, 4, 5',
+        b: 'timestamps 1000, 1003, 1007, 1012 → the same deltas' },
+      { k: 'dictionary encoding', same: true,
+        a: 'terms mapped to compact integer IDs',
+        b: 'a status column of four strings → 2-bit indexes' },
+      { k: 'run-length encoding', same: true,
+        a: 'repeated small codes inside a block',
+        b: 'long runs of one dictionary index' },
+      { k: 'grain', same: false,
+        a: 'one list per term; monotone IDs with optional nested positions',
+        b: 'columns inside row groups; repetition and definition levels for nesting' },
+      { k: 'navigation metadata', same: false,
+        a: 'dictionary + skip metadata: which list, which block',
+        b: 'row-group statistics: prune before any page is decoded' },
+      { k: 'access path', same: false,
+        a: 'interactive query: intersect lists, skip blocks, accumulate scores',
+        b: 'vectorized batch: decode thousands of values, apply predicates and aggregates' },
+      { k: 'general-purpose codec', same: false,
+        a: 'rarely whole-stream — it destroys skip granularity in the scoring loop',
+        b: 'Snappy or Zstd over pages already type-aware encoded' },
+      { k: 'what it optimises for', same: false,
+        a: 'tail latency, cache residency, selective decode of a few lists',
+        b: 'scan throughput and billed bytes over many columns' }
+    ];
+    var sys = 0, work = 0;
+    var ba = document.getElementById('v5-a'), bb = document.getElementById('v5-b');
+    var w0 = document.getElementById('v5-w0'), w1 = document.getElementById('v5-w1');
+    var rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+
+    function render(){
+      ba.setAttribute('aria-pressed', sys === 0 ? 'true' : 'false');
+      bb.setAttribute('aria-pressed', sys === 1 ? 'true' : 'false');
+      ba.firstElementChild.textContent = sys === 0 ? '●' : '○';
+      bb.firstElementChild.textContent = sys === 1 ? '●' : '○';
+      w0.setAttribute('aria-pressed', work === 0 ? 'true' : 'false');
+      w1.setAttribute('aria-pressed', work === 1 ? 'true' : 'false');
+      w0.firstElementChild.textContent = work === 0 ? '●' : '○';
+      w1.firstElementChild.textContent = work === 1 ? '●' : '○';
+
+      var here = sys === 0 ? 'postings' : 'Parquet';
+      var there = sys === 0 ? 'Parquet' : 'postings';
+      rows.innerHTML = ROWS.map(function(r){
+        var mine = sys === 0 ? r.a : r.b;
+        var other = sys === 0 ? r.b : r.a;
+        var mark = r.same
+          ? '<span style="color:var(--viz-green);font-weight:800">= shared</span>'
+          : '<span style="color:var(--viz-amber);font-weight:800">≠ differs</span>';
+        return '<div class="v5-r ' + (r.same ? 'is-same' : '') + '">' +
+          '<div class="v5-k">' + r.k + ' &nbsp;·&nbsp; ' + mark + '</div>' +
+          '<div class="v5-v">' + here + ': ' + mine + '</div>' +
+          '<div class="v5-o">' + there + ': ' + other + '</div></div>';
+      }).join('');
+
+      why.innerHTML = work === 0
+        ? '<b style="color:var(--viz-green)">Hot term list → block integer codec with restart points.</b>' +
+          'Read thousands of times a minute and frequently skipped by block, this list lives or dies on decode ' +
+          'latency and on being able to jump. Choose a block integer codec with restart points and fast SIMD ' +
+          'decoding <b>even if Zstd could make the whole list slightly smaller</b> — a codec that must expand the ' +
+          'stream to reach one posting has disqualified itself, whatever its ratio.' +
+          '<br><br>Look back at the five dashed rows: the transforms really are the same idea. It is the four solid ' +
+          'rows — grain, navigation metadata, access path, objective — that decide the codec.'
+        : '<b style="color:var(--viz-violet)">Cold archival column → stronger Zstd is justified.</b>' +
+          'Read once a month, the storage saving amortizes one slower decode, and nothing about the access pattern ' +
+          'needs to reach a single value inside a page. The warehouse is buying scan throughput and billed bytes; ' +
+          'the search engine was buying tail latency and cache residency.' +
+          '<br><br>Same principle underneath both answers: <b>a cheap reversible transform that exposes low entropy, ' +
+          'then bits spent by residual magnitude or repetition</b>. The correct metric is never ratio in isolation — ' +
+          'it is work avoided per unit of CPU under the read pattern you actually have.';
+    }
+    ba.addEventListener('click', function(){ sys = 0; render(); });
+    bb.addEventListener('click', function(){ sys = 1; render(); });
+    w0.addEventListener('click', function(){ work = 0; render(); });
+    w1.addEventListener('click', function(){ work = 1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

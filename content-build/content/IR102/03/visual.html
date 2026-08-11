@@ -1,0 +1,694 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Bytes To Trusted Text</button>
+  <button class="viz-tab" data-viz-tab="2">2. Boilerplate Or Content</button>
+  <button class="viz-tab" data-viz-tab="3">3. Which Structure Survives</button>
+  <button class="viz-tab" data-viz-tab="4">4. Glyphs Without Order</button>
+  <button class="viz-tab" data-viz-tab="5">5. Accept Or Discard</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Bytes To Trusted Text</h2>
+  <p class="vz-lede">Everything IR 102 has taught so far ends at the same artifact: <b>bytes</b>. Tap each
+    thing you already know and see what it guaranteed — and the one thing none of them touched. Then flip
+    the pipeline switch. <b>Like a courier who gets the crate to your door on time, undamaged, and never
+    once opens it.</b></p>
+
+  <div class="v1-rows" id="v1-rows"></div>
+  <div class="v1-det" id="v1-det"></div>
+
+  <div class="vz-card">
+    <div class="vz-seg" role="group" aria-label="Pipeline stage">
+      <button id="v1-raw" aria-pressed="true">acquisition only</button>
+      <button id="v1-ext" aria-pressed="false">+ extraction</button>
+    </div>
+    <div class="v1-art" id="v1-art"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">A perfect ranker cannot recover meaning erased by a broken PDF extractor, and an LLM
+    will confidently quote a navigation menu if boilerplate dominates its chunks. That is why extraction is
+    a <b>data-quality stage</b> in its own right — typed inputs, versioned parsers, measurable failure
+    signals, and an explicit decision per artifact: accept, retry, quarantine, or discard.</p>
+
+  <style>
+    .v1-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+    .v1-r{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.35;width:100%}
+    .v1-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-tick{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-green);width:14px}
+    .v1-det{border:1px dashed var(--viz-line);border-radius:10px;padding:11px 12px;font-size:12.5px;
+      line-height:1.55;margin-bottom:14px}
+    .v1-det b{display:block;font-size:12.5px;margin-bottom:3px}
+    .v1-art{display:flex;flex-direction:column;gap:9px}
+    .v1-bar{height:20px;border-radius:5px;overflow:hidden;display:flex;border:1px solid var(--viz-line)}
+    .v1-bar i{display:block;height:100%}
+    .v1-pills{display:flex;gap:7px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TOPICS = [
+      { t:'The Crawl Frontier: Prioritization and Queue Management',
+        got:'The most valuable URL was chosen next, and the queue never starved.',
+        no:'A priority score says nothing about what is inside the response body.' },
+      { t:'Politeness: Rate Limits, robots.txt, and Crawl Delay',
+        got:'You fetched only where permitted, at a rate the host tolerates.',
+        no:'A permitted, well-mannered fetch can still return a 30-word application shell.' },
+      { t:'Crawler Traps and URL Canonicalization',
+        got:'One page, one canonical URL — no infinite calendars, no session-id explosions.',
+        no:'Two genuinely distinct URLs can still be 90% identical text once the site template is included. Canonicalization dedupes ADDRESSES; boilerplate removal is what dedupes CONTENT.' },
+      { t:'Sitemaps, Feeds, and Change Notifications',
+        got:'Discovery became cheap and timely, with lastmod hints straight from the publisher.',
+        no:'A feed entry is usually a summary or an escaped HTML fragment. The body still has to be extracted.' },
+      { t:'Search APIs as an Acquisition Channel',
+        got:'High-precision URLs without crawling a whole host.',
+        no:'You are handed a URL and a snippet — never the clean article.' },
+      { t:'Seed Selection and Crawl Scope Policy',
+        got:'Only in-scope hosts ever entered the frontier.',
+        no:'In-scope PDFs, DOCX and XLSX files arrive as bytes with no reading order at all.' }
+    ];
+    var rows = document.getElementById('v1-rows'), det = document.getElementById('v1-det');
+    var bRaw = document.getElementById('v1-raw'), bExt = document.getElementById('v1-ext');
+    var art = document.getElementById('v1-art'), why = document.getElementById('v1-why');
+    var extracted = false;
+
+    function pickTopic(i){
+      [].slice.call(rows.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      det.innerHTML = '<b>Guaranteed: ' + TOPICS[i].got + '</b>' +
+        '<span style="color:var(--viz-muted)">Does not touch: </span>' + TOPICS[i].no;
+    }
+    TOPICS.forEach(function(tp, i){
+      var b = document.createElement('button');
+      b.className = 'v1-r';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-tick">OK</span><span>' + tp.t + '</span>';
+      b.addEventListener('click', function(){ pickTopic(i); });
+      rows.appendChild(b);
+    });
+
+    var ARTICLE = 1200, CHROME = 870;               // 300-link nav ≈ 600 words + 100 footer + 50 banner + 120 related
+    function render(){
+      bRaw.setAttribute('aria-pressed', extracted ? 'false' : 'true');
+      bExt.setAttribute('aria-pressed', extracted ? 'true' : 'false');
+      var chrome = extracted ? 0 : CHROME;
+      var total = Math.max(1, ARTICLE + chrome);
+      var share = Math.round(ARTICLE / total * 100);
+      var tokens = extracted ? 1600 : 3000;
+      art.innerHTML =
+        '<div class="v1-bar">' +
+          '<i style="width:' + (ARTICLE / total * 100) + '%;background:var(--viz-green)"></i>' +
+          '<i style="width:' + (chrome / total * 100) + '%;background:var(--viz-red)"></i>' +
+        '</div>' +
+        '<div class="v1-pills">' +
+          '<span class="v1-pill" style="color:var(--viz-green);border-color:var(--viz-green)">article ' + ARTICLE + ' words (' + share + '%)</span>' +
+          '<span class="v1-pill" style="color:' + (chrome ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (chrome ? 'var(--viz-red)' : 'var(--viz-line)') + '">chrome ' + chrome + ' words</span>' +
+          '<span class="v1-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">~' + tokens.toLocaleString() + ' tokens indexed</span>' +
+        '</div>';
+
+      why.innerHTML = extracted
+        ? '<b style="color:var(--viz-green)">Main-content extraction: the same fetch, 58% smaller and 100% document.</b>' +
+          'The extractor selects the <code>&lt;main&gt;</code> subtree and keeps title, headings, paragraphs, lists and code — roughly the 1,200 useful words. ' +
+          'Nothing about the crawl changed. What changed is that the artifact entering the index is now the thing the learner asked about.' +
+          '<br><br>And note the second, quieter win: those 870 chrome words were <em>identical on every page of the site</em>, so removing them also removes thousands of near-duplicate chunks.'
+        : '<b style="color:var(--viz-red)">document.body.innerText — looks like it works.</b>' +
+          'A documentation page holds 1,200 words of article, a 300-link navigation tree, 100 footer words and a 50-word cookie banner. Naive extraction produces perhaps <b>3,000 tokens</b>, and only ' + share + '% of them are the document. ' +
+          '<br><br>Boilerplate harms twice: it <b>dilutes relevance</b>, because common navigation terms enter every document and inflate document frequency, and it <b>manufactures near-duplicates</b>, because thousands of pages share the same template text.';
+    }
+    bRaw.addEventListener('click', function(){ extracted = false; render(); });
+    bExt.addEventListener('click', function(){ extracted = true; render(); });
+    pickTopic(0); render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Boilerplate Or Content</h2>
+  <p class="vz-lede">Link density separates prose from navigation with one ratio. Drag the cutoff, then turn
+    on the template rule that drops anything repeated site-wide — and watch it take something you needed.
+    <b>Like weeding a flowerbed by pulling everything that grows in every bed: fast, and eventually you
+    pull the hedge.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v2-lab" for="v2-th">Drop a block when link density &ge; <span id="v2-thl">50%</span></label>
+    <input type="range" id="v2-th" min="0" max="100" value="50" step="5" aria-label="Link density cutoff">
+    <div class="vz-seg" role="group" aria-label="Template rule" style="margin:12px 0 0">
+      <button id="v2-t0" aria-pressed="true">template rule OFF</button>
+      <button id="v2-t1" aria-pressed="false">drop blocks on &ge;90% of pages</button>
+    </div>
+  </div>
+
+  <div class="v2-rows" id="v2-rows"></div>
+
+  <div class="vz-card">
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Repetition is a <b>hypothesis</b> of boilerplate, never a proof. A safety warning or a
+    product-version banner repeated site-wide may be essential context, and a unique advertisement evades
+    every repetition rule. Preserve metadata for removed regions, or sample them during quality review, so
+    the rule can be audited instead of trusted.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v2-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      flex-wrap:wrap;line-height:1.4}
+    .v2-r.is-drop{opacity:.5;border-style:dashed}
+    .v2-r.is-keep{border-color:var(--viz-green)}
+    .v2-r.is-loss{border-color:var(--viz-amber);opacity:1;border-style:solid}
+    .v2-nm{flex:0 0 110px;font-weight:800}
+    .v2-ld{flex:1 1 90px;height:10px;border-radius:3px;background:var(--viz-line);overflow:hidden;min-width:70px}
+    .v2-ld i{display:block;height:100%}
+    .v2-tag{flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit;margin-left:auto}
+    .v2-stats{display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // words = block size; anchor = words that sit inside <a>; rep = % of site pages carrying it.
+    var BLOCKS = [
+      { n:'main article',   words:1200, anchor:24,  rep:4,   need:true  },
+      { n:'nav tree',       words:600,  anchor:600, rep:100, need:false },
+      { n:'related links',  words:120,  anchor:114, rep:100, need:false },
+      { n:'footer',         words:100,  anchor:60,  rep:100, need:false },
+      { n:'cookie banner',  words:50,   anchor:6,   rep:100, need:false },
+      { n:'safety warning', words:40,   anchor:0,   rep:98,  need:true  }
+    ];
+    var TOTAL = BLOCKS.reduce(function(a, b){ return a + b.words; }, 0);
+    var s = document.getElementById('v2-th'), lab = document.getElementById('v2-thl');
+    var t0 = document.getElementById('v2-t0'), t1 = document.getElementById('v2-t1');
+    var rows = document.getElementById('v2-rows'), stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+    var tpl = false;
+
+    function render(){
+      var th = Number(s.value); if (!isFinite(th)) th = 50;
+      lab.textContent = th + '%';
+      t0.setAttribute('aria-pressed', tpl ? 'false' : 'true');
+      t1.setAttribute('aria-pressed', tpl ? 'true' : 'false');
+
+      var kept = 0, lostNeeded = [], keptChrome = 0;
+      rows.innerHTML = BLOCKS.map(function(b){
+        var ld = b.words > 0 ? Math.round(b.anchor / b.words * 100) : 0;
+        var drop = ld >= th || (tpl && b.rep >= 90);
+        if (!drop) { kept += b.words; if (!b.need) keptChrome += b.words; }
+        if (drop && b.need) lostNeeded.push(b.n);
+        var cls = drop ? (b.need ? 'is-loss' : 'is-drop') : 'is-keep';
+        var col = drop ? (b.need ? 'var(--viz-amber)' : 'var(--viz-muted)') : 'var(--viz-green)';
+        var tag = drop ? (b.need ? 'DROPPED — was needed' : 'dropped') : 'kept';
+        return '<div class="v2-r ' + cls + '"><span class="v2-nm">' + b.n + '</span>' +
+          '<span>' + b.words + 'w · LD ' + ld + '% · on ' + b.rep + '% of pages</span>' +
+          '<span class="v2-ld"><i style="width:' + Math.max(2, ld) + '%;background:' + (ld >= th ? 'var(--viz-red)' : 'var(--viz-accent)') + '"></i></span>' +
+          '<span class="v2-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var pct = Math.round(kept / Math.max(1, TOTAL) * 100);
+      var clean = kept > 0 && lostNeeded.length === 0 && keptChrome <= 60;
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:' + (clean ? 'var(--viz-green)' : 'var(--viz-amber)') + ';border-color:' + (clean ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' + kept + ' of ' + TOTAL + ' words kept (' + pct + '%)</span>' +
+        '<span class="v2-pill" style="color:' + (keptChrome ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (keptChrome ? 'var(--viz-red)' : 'var(--viz-line)') + '">' + keptChrome + ' words of chrome still indexed</span>' +
+        '<span class="v2-pill" style="color:' + (lostNeeded.length ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' + (lostNeeded.length ? 'var(--viz-amber)' : 'var(--viz-line)') + '">' + lostNeeded.length + ' needed block' + (lostNeeded.length === 1 ? '' : 's') + ' lost</span>';
+
+      var head, body;
+      if (kept === 0) {
+        head = '<b style="color:var(--viz-red)">Cutoff at ' + th + '%: the whole page is gone.</b>';
+        body = 'Every block has some link density, so a cutoff this low classifies the article itself as navigation. The extractor returns an empty string and — this is the important part — <b>an empty string is still a string</b>. Nothing downstream will notice unless a text-yield check is watching.';
+      } else if (lostNeeded.length) {
+        head = '<b style="color:var(--viz-amber)">Repetition is not proof of uselessness.</b>';
+        body = 'The template rule correctly removed the nav, the footer and the cookie banner — and it also removed the <b>' + lostNeeded.join(' and ') + '</b>, which appears on 98% of pages precisely <em>because it matters on every page</em>. ' +
+          'Link density alone could never have caught the cookie banner (LD 12%, it is mostly prose); the template rule catches it and overshoots. ' +
+          '<br><br>The fix is not a better single rule. It is to <b>keep metadata for what you removed</b> and sample it in review, so a rule that overshoots is visible instead of silent.';
+      } else if (keptChrome > 0) {
+        head = '<b style="color:var(--viz-amber)">' + keptChrome + ' words of chrome still get indexed on every page.</b>';
+        body = 'The cookie banner is 50 words of ordinary prose with almost no anchors, so link density will never remove it. Raise the bar and it survives; that is what template learning is <em>for</em>. ' +
+          '<br><br>Multiply those words by every page on the host and you get the two harms at once: inflated document frequency for banner vocabulary, and identical chunks competing for retrieval capacity.';
+      } else {
+        head = '<b style="color:var(--viz-green)">' + pct + '% kept — and it is the article.</b>';
+        body = 'Combining features is what makes this work: link density catches the nav, the related-links rail and the footer; template repetition catches the prose-shaped banner. Semantic elements (<code>&lt;main&gt;</code>, <code>&lt;article&gt;</code>), heading counts and text density all add signal on top. ' +
+          '<br><br>No single feature generalises across sites that share no markup conventions — which is exactly why Readability-style extractors <em>score</em> subtrees rather than matching selectors.';
+      }
+      why.innerHTML = head + body;
+    }
+    s.addEventListener('input', render);
+    t0.addEventListener('click', function(){ tpl = false; render(); });
+    t1.addEventListener('click', function(){ tpl = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Which Structure Survives</h2>
+  <p class="vz-lede">Converting HTML to clean text is a series of decisions about what to keep. Switch each
+    one off and watch the same fragment lose meaning — then pick what the corpus is actually <em>for</em>
+    and see whether it still works. <b>Like transcribing a recipe: drop the line breaks and you still have
+    every word, and nobody can cook from it.</b></p>
+
+  <div class="vz-card vz-mono" id="v3-src" style="margin-bottom:11px"></div>
+
+  <div class="v3-togs" id="v3-togs"></div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <div class="v3-outlab">extracted text</div>
+    <div class="vz-mono" id="v3-out"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Downstream use" id="v3-uses"></div>
+
+  <div class="vz-card">
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">Preserve the minimum structure your declared features need, and err toward a
+    <b>reversible structured representation</b> before lossy flattening — cleaning should remove
+    presentation noise, not semantic organization. Then emit a deterministic content hash and store URL,
+    fetch time, content type, raw hash, extractor version, language and offsets, so a new parser version
+    invalidates chunks deliberately instead of silently.</p>
+
+  <style>
+    .v3-togs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-t{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v3-t[aria-pressed="true"]{border-color:var(--viz-green)}
+    .v3-box{flex:0 0 auto;width:20px;font-weight:800;font-size:12px}
+    .v3-outlab{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);margin-bottom:7px}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    document.getElementById('v3-src').textContent =
+      '<h2>Limits</h2>\n' +
+      '<p>Maximum batch size is <code>100</code>.</p>\n' +
+      '<ul><li>Retry 429 responses.</li>\n' +
+      '    <li>Do not retry 400 responses.</li></ul>\n' +
+      '<table><tr><th>tier</th><th>requests_per_minute</th></tr>\n' +
+      '       <tr><td>standard</td><td>1000</td></tr></table>';
+
+    var TOGS = [
+      { k:'head',  l:'heading hierarchy' },
+      { k:'list',  l:'list boundaries' },
+      { k:'code',  l:'inline code marks' },
+      { k:'table', l:'table headers' }
+    ];
+    var USES = [
+      { l:'bag-of-words search', need:[],
+        why:'Term statistics survive a lot of flattening, so this is the most forgiving consumer on the list. Even here, the chrome you removed in visual 2 matters far more than the layout does.' },
+      { l:'citation-grounded RAG', need:['head', 'list'],
+        why:'A chunk is quoted back to a human, so it has to carry its own context. The heading supplies what the passage is <em>about</em>, and list boundaries stop two peer statements merging into one claim — "Retry 429 responses do not retry 400 responses" is a sentence that says the opposite of the document.' },
+      { l:'text-to-code retrieval', need:['code'],
+        why:'Requires exact code, including whitespace where syntax depends on it. Once <code>100</code> is indistinguishable from the prose around it, an exact-match search for the literal cannot find it and a code-aware chunker cannot see a boundary.' },
+      { l:'table question answering', need:['table'],
+        why:'A cell means nothing without its header. <code>standard 1000</code> answers no question; <code>tier=standard, requests_per_minute=1000</code> answers one. Reading cells row-major detaches values from their units — and complex merged cells may need preserved HTML or structured JSON rather than any flat text at all.' }
+    ];
+    var state = { head:true, list:true, code:true, table:true };
+    var use = 0;
+    var togs = document.getElementById('v3-togs'), uses = document.getElementById('v3-uses');
+    var out = document.getElementById('v3-out'), why = document.getElementById('v3-why');
+
+    function text(){
+      var anyOn = TOGS.some(function(t){ return state[t.k]; });
+      if (!anyOn) {
+        return 'Limits Maximum batch size is 100 Retry 429 responses Do not retry 400 responses standard 1000';
+      }
+      var lines = [];
+      lines.push(state.head ? '[Level-2 heading] Limits' : 'Limits');
+      lines.push('Maximum batch size is ' + (state.code ? '`100`' : '100') + '.');
+      if (state.list) { lines.push('- Retry 429 responses.'); lines.push('- Do not retry 400 responses.'); }
+      else lines.push('Retry 429 responses. Do not retry 400 responses.');
+      lines.push(state.table ? 'tier=standard, requests_per_minute=1000' : 'standard 1000');
+      return lines.join('\n');
+    }
+
+    function render(){
+      [].slice.call(togs.children).forEach(function(b, i){
+        var on = state[TOGS[i].k];
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+        b.querySelector('.v3-box').textContent = on ? '[x]' : '[ ]';
+        b.querySelector('.v3-box').style.color = on ? 'var(--viz-green)' : 'var(--viz-muted)';
+      });
+      [].slice.call(uses.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === use ? 'true' : 'false'); });
+      out.textContent = text();
+
+      var u = USES[use];
+      var missing = u.need.filter(function(k){ return !state[k]; });
+      var labels = missing.map(function(k){
+        var f = TOGS.filter(function(t){ return t.k === k; })[0];
+        return f ? f.l : k;
+      });
+      var head = missing.length
+        ? '<b style="color:var(--viz-red)">Not supported — ' + labels.join(' and ') + ' discarded.</b>'
+        : '<b style="color:var(--viz-green)">Supported by this representation.</b>';
+      var extra = TOGS.every(function(t){ return !state[t.k]; })
+        ? '<br><br><b style="color:var(--viz-amber)">Everything is off, so this is the flattened string.</b>It has every word and none of the relationships: which statements are list peers, that <code>100</code> is a literal, that 1000 belongs to a named column. <b>No downstream model recovers them</b> — the information is gone from the corpus, not merely unmarked.'
+        : '';
+      why.innerHTML = head + u.why + extra +
+        '<br><br><span style="color:var(--viz-muted)">Judgment depends on the declared downstream use, and only on that. There is no universally correct amount of structure to keep.</span>';
+    }
+
+    TOGS.forEach(function(t, i){
+      var b = document.createElement('button');
+      b.className = 'v3-t';
+      b.setAttribute('aria-pressed', 'true');
+      b.innerHTML = '<span class="v3-box">[x]</span><span>preserve ' + t.l + '</span>';
+      b.addEventListener('click', function(){ state[t.k] = !state[t.k]; render(); });
+      togs.appendChild(b);
+    });
+    USES.forEach(function(u, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.textContent = u.l;
+      b.addEventListener('click', function(){ use = i; render(); });
+      uses.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Glyphs Without Order</h2>
+  <p class="vz-lede">A PDF stores glyphs at coordinates — reading order, paragraphs and even spaces may be
+    absent. Office files hide a different problem: the value you can see is not the logic that produced it.
+    Pick a source and drive it. <b>Like a ransom note made of cut-out letters: every character is there,
+    and the arrangement is doing all the work.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Source type">
+    <button id="v4-m0" aria-pressed="true">born-digital · 2 columns</button>
+    <button id="v4-m1" aria-pressed="false">scanned · OCR</button>
+    <button id="v4-m2" aria-pressed="false">XLSX cell B2</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-pane is-on" id="v4-p0">
+      <div class="vz-seg" role="group" aria-label="Ordering strategy" style="margin-bottom:11px">
+        <button id="v4-o0" aria-pressed="true">sort glyphs by y</button>
+        <button id="v4-o1" aria-pressed="false">cluster columns first</button>
+      </div>
+      <div class="vz-mono" id="v4-out"></div>
+    </div>
+
+    <div class="v4-pane" id="v4-p1">
+      <label class="v4-lab" for="v4-conf">OCR confidence: <span id="v4-confl">0.96</span></label>
+      <input type="range" id="v4-conf" min="55" max="99" value="96" step="1" aria-label="OCR confidence">
+      <div class="vz-mono" id="v4-ocr" style="margin-top:11px"></div>
+      <div class="v4-route" id="v4-route"></div>
+    </div>
+
+    <div class="v4-pane" id="v4-p2">
+      <div class="vz-seg" role="group" aria-label="What to store">
+        <button id="v4-c0" aria-pressed="true">store value only</button>
+        <button id="v4-c1" aria-pressed="false">formula only</button>
+        <button id="v4-c2" aria-pressed="false">value + formula</button>
+      </div>
+      <div class="vz-mono" id="v4-cellout"></div>
+    </div>
+
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Security is not a later hardening pass. Documents carry macros, external links,
+    decompression bombs, malformed objects and parser exploits, so parse in <b>isolated workers</b> with
+    CPU, memory, page, file-count and decompressed-size limits; never execute macros or follow external
+    resources; and MIME-sniff the content rather than trusting the filename extension.</p>
+
+  <style>
+    .v4-pane{display:none}
+    .v4-pane.is-on{display:block}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-route{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var L = ['A PDF is a page-description', 'format, not a semantic one.', 'It stores glyphs at (x, y)', 'with no reading order.'];
+    var R = ['Layout-aware parsing clusters', 'text into columns and blocks', 'BEFORE ordering them, so the', 'page reads as it looks.'];
+    var TRUTH = 'Invoice 10058 · lot B1074 · qty 100 · rev l.0';
+    var HEAVY = 'lnvoice 1OO58 · lot Bl074 · qty 1OO · rev 1.O';
+    var LIGHT = 'Invoice 1OO58 · lot B1074 · qty 100 · rev l.0';
+
+    var modes = [document.getElementById('v4-m0'), document.getElementById('v4-m1'), document.getElementById('v4-m2')];
+    var panes = [document.getElementById('v4-p0'), document.getElementById('v4-p1'), document.getElementById('v4-p2')];
+    var o0 = document.getElementById('v4-o0'), o1 = document.getElementById('v4-o1');
+    var out = document.getElementById('v4-out');
+    var conf = document.getElementById('v4-conf'), confl = document.getElementById('v4-confl');
+    var ocr = document.getElementById('v4-ocr'), route = document.getElementById('v4-route');
+    var c0 = document.getElementById('v4-c0'), c1 = document.getElementById('v4-c1'), c2 = document.getElementById('v4-c2');
+    var cellout = document.getElementById('v4-cellout'), why = document.getElementById('v4-why');
+    var mode = 0, layout = false, cell = 0;
+
+    function renderCols(){
+      o0.setAttribute('aria-pressed', layout ? 'false' : 'true');
+      o1.setAttribute('aria-pressed', layout ? 'true' : 'false');
+      var lines = [];
+      if (layout) { lines = L.concat(R); }
+      else { for (var i = 0; i < L.length; i++) { lines.push(L[i]); lines.push(R[i]); } }
+      out.textContent = lines.join('\n');
+    }
+    function renderOcr(){
+      var c = Number(conf.value); if (!isFinite(c)) c = 96;
+      var v = c / 100;
+      confl.textContent = v.toFixed(2);
+      ocr.textContent = 'truth      ' + TRUTH + '\nextracted  ' + (v >= 0.95 ? TRUTH : (v >= 0.85 ? LIGHT : HEAVY));
+      var tag, col;
+      if (v >= 0.95) { tag = 'ACCEPT'; col = 'var(--viz-green)'; }
+      else if (v >= 0.85) { tag = 'ACCEPT · flag low-confidence spans'; col = 'var(--viz-amber)'; }
+      else if (v >= 0.70) { tag = 'RETRY at higher resolution'; col = 'var(--viz-amber)'; }
+      else { tag = 'QUARANTINE — not authoritative'; col = 'var(--viz-red)'; }
+      route.innerHTML =
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' + tag + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">store engine · version · page image ref</span>';
+    }
+    function renderCell(){
+      [c0, c1, c2].forEach(function(b, i){ b.setAttribute('aria-pressed', i === cell ? 'true' : 'false'); });
+      var stored = cell === 0 ? '110' : (cell === 1 ? '=A2*1.1' : '110   (=A2*1.1)');
+      var q1 = cell === 1 ? 'NO  — the value was never stored' : 'yes';
+      var q2 = cell === 0 ? 'NO  — the logic was discarded' : 'yes';
+      cellout.textContent =
+        'sheet Prices · cell B2 · header "Adjusted Price" · A2 = 100\n' +
+        'stored     ' + stored + '\n\n' +
+        '"What is the adjusted price?"        ' + q1 + '\n' +
+        '"How was the adjusted price set?"    ' + q2;
+    }
+    function renderWhy(){
+      if (mode === 0) {
+        why.innerHTML = layout
+          ? '<b style="color:var(--viz-green)">Cluster into columns and blocks, then order.</b>' +
+            'Layout-aware parsing groups glyphs by x-position and gap structure before it reads anything, so the left column is exhausted before the right begins. Headers and footers repeated at similar page coordinates can be dropped at the same time — while <b>page numbers are kept for citation</b>, because a grounded answer has to point somewhere.' +
+            '<br><br>Store reading order and page coordinates and a citation can name a page and a bounding box, not just a document.'
+          : '<b style="color:var(--viz-red)">Sorting by vertical coordinate interleaves the columns.</b>' +
+            'Every line is present and every word is spelled correctly, so length checks, language detection and printable-character ratios all pass. The output is still nonsense. ' +
+            '<br><br>This is the central lesson of extraction quality: <b>a non-empty string is not evidence of success</b>. Only a structural check — or a gold fixture for this layout — catches it.';
+      } else if (mode === 1) {
+        why.innerHTML = '<b>OCR errors land exactly where they hurt.</b>' +
+          '<code>O</code> versus <code>0</code>, <code>l</code> versus <code>1</code>, hyphenated line breaks and low-resolution scans corrupt identifiers, lot numbers and quantities — the tokens a query is most likely to be keyed on. Prose survives; primary keys do not. ' +
+          '<br><br>So store <b>confidence per page or span</b>, plus the engine and version and a reference to the rendered image. A low-confidence page should be retried with better resolution or quarantined, never silently treated as authoritative. Born-digital text extraction is cheaper and usually more accurate than OCR — <b>never call a PDF "empty" before distinguishing a scan from a genuinely blank artifact.</b>';
+      } else {
+        why.innerHTML = '<b>Office formats are ZIP packages of XML, and both halves of a cell are real.</b>' +
+          'Use format-aware parsers, never string extraction from the archive: DOCX carries styles, headers, footnotes, comments and tracked changes; PPTX needs slide order, text boxes and speaker notes, because XML order can differ from visual order; XLSX has typed cells, formulas, displayed values, merged cells and hidden rows. ' +
+          '<br><br>Record sheet, cell coordinates, headers, value <em>and</em> formula. Which one the corpus needs is a judgment about the questions it must answer — and storing both is the only choice that keeps them all answerable.';
+      }
+    }
+    function render(){
+      modes.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      panes.forEach(function(p, i){ p.className = 'v4-pane' + (i === mode ? ' is-on' : ''); });
+      renderCols(); renderOcr(); renderCell(); renderWhy();
+    }
+    modes.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    o0.addEventListener('click', function(){ layout = false; render(); });
+    o1.addEventListener('click', function(){ layout = true; render(); });
+    [c0, c1, c2].forEach(function(b, i){ b.addEventListener('click', function(){ cell = i; render(); }); });
+    conf.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Accept Or Discard</h2>
+  <p class="vz-lede">Quality is multidimensional, so the decision runs off a record, not a glance. Move the
+    four signals — or load the two worked documents — and watch the artifact route itself. Then change what
+    kind of corpus this is. <b>Like triage at a hospital door: the same patient is treated, watched, or sent
+    on depending on what else is in the room.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Worked documents">
+    <button id="v5-a" aria-pressed="false">load doc A</button>
+    <button id="v5-b" aria-pressed="false">load doc B</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v5-lab" for="v5-pages">pages parsed: <span id="v5-pagesl">19</span> of 20</label>
+    <input type="range" id="v5-pages" min="0" max="20" value="19" step="1" aria-label="Pages parsed">
+    <label class="v5-lab" for="v5-words">median words per page: <span id="v5-wordsl">350</span></label>
+    <input type="range" id="v5-words" min="0" max="600" value="350" step="1" aria-label="Median words per page">
+    <label class="v5-lab" for="v5-rep">replacement characters: <span id="v5-repl">0.1%</span></label>
+    <input type="range" id="v5-rep" min="0" max="200" value="1" step="1" aria-label="Replacement character rate, tenths of a percent">
+    <label class="v5-lab" for="v5-conf">OCR confidence: <span id="v5-confl">0.96</span></label>
+    <input type="range" id="v5-conf" min="50" max="100" value="96" step="1" aria-label="OCR confidence">
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Fallbacks">
+    <button id="v5-f0" aria-pressed="true">fallbacks untried</button>
+    <button id="v5-f1" aria-pressed="false">fallbacks exhausted</button>
+  </div>
+  <div class="vz-seg" role="group" aria-label="Corpus risk">
+    <button id="v5-r0" aria-pressed="true">web research corpus</button>
+    <button id="v5-r1" aria-pressed="false">compliance corpus</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-route" id="v5-route"></div>
+    <div class="vz-mono" id="v5-rec" style="margin-top:11px"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Downstream impact supplies the final metric: do the accepted documents answer gold
+    queries, preserve cited spans and avoid corrupted chunks? Track <b>rejection and fallback rates by
+    source and extractor version</b> — a sudden spike is an incident — and sample both accepted and
+    rejected cases, because you cannot estimate false acceptance from rejections alone.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:0 0 6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-route{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .v5-big{font-size:12.5px;font-weight:800;border-radius:999px;padding:7px 14px;border:2px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var pages = document.getElementById('v5-pages'), pagesl = document.getElementById('v5-pagesl');
+    var words = document.getElementById('v5-words'), wordsl = document.getElementById('v5-wordsl');
+    var rep = document.getElementById('v5-rep'), repl = document.getElementById('v5-repl');
+    var conf = document.getElementById('v5-conf'), confl = document.getElementById('v5-confl');
+    var bA = document.getElementById('v5-a'), bB = document.getElementById('v5-b');
+    var f0 = document.getElementById('v5-f0'), f1 = document.getElementById('v5-f1');
+    var r0 = document.getElementById('v5-r0'), r1 = document.getElementById('v5-r1');
+    var routeEl = document.getElementById('v5-route'), rec = document.getElementById('v5-rec'), why = document.getElementById('v5-why');
+    var exhausted = false, strict = false;
+    var num = function(el, d){ var v = Number(el.value); return isFinite(v) ? v : d; };
+
+    function render(){
+      var p = num(pages, 19), w = num(words, 350), rp = num(rep, 1) / 10, cf = num(conf, 96) / 100;
+      pagesl.textContent = p;
+      wordsl.textContent = w;
+      repl.textContent = rp.toFixed(1) + '%';
+      confl.textContent = cf.toFixed(2);
+      f0.setAttribute('aria-pressed', exhausted ? 'false' : 'true');
+      f1.setAttribute('aria-pressed', exhausted ? 'true' : 'false');
+      r0.setAttribute('aria-pressed', strict ? 'false' : 'true');
+      r1.setAttribute('aria-pressed', strict ? 'true' : 'false');
+      bA.setAttribute('aria-pressed', (p === 19 && w === 350 && rp === 0.1 && cf === 0.96) ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', (p === 2 && w === 13 && rp === 15 && cf === 0.62) ? 'true' : 'false');
+
+      var yield_ = p * w;
+      var cover = Math.round(p / 20 * 100);
+      var fails = [];
+      if (rp > 1) fails.push('ENCODING_CORRUPT (' + rp.toFixed(1) + '% replacement chars, threshold 1.0%)');
+      if (cf < 0.90) fails.push('OCR_LOW_CONFIDENCE (' + cf.toFixed(2) + ', threshold 0.90)');
+      if (p < 16) fails.push('PAGES_MISSING (' + p + ' of 20 processed, threshold 16)');
+      if (w < 50) fails.push('TEXT_YIELD_LOW (' + w + ' words/page median, threshold 50)');
+
+      var tag, col, note;
+      if (!fails.length) { tag = 'ACCEPT'; col = 'var(--viz-green)'; }
+      else if (!exhausted) { tag = 'RETRY WITH FALLBACK'; col = 'var(--viz-accent)'; }
+      else if (strict) { tag = 'QUARANTINE + ALERT'; col = 'var(--viz-amber)'; }
+      else { tag = 'DISCARD (lineage kept)'; col = 'var(--viz-red)'; }
+
+      routeEl.innerHTML =
+        '<span class="v5-big" style="color:' + col + ';border-color:' + col + '">' + tag + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">yield ' + yield_.toLocaleString() + ' words</span>' +
+        '<span class="v5-pill" style="color:' + (cover >= 80 ? 'var(--viz-muted)' : 'var(--viz-red)') + ';border-color:' + (cover >= 80 ? 'var(--viz-line)' : 'var(--viz-red)') + '">coverage ' + cover + '%</span>' +
+        '<span class="v5-pill" style="color:' + (fails.length ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' + (fails.length ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + fails.length + ' signal' + (fails.length === 1 ? '' : 's') + ' failing</span>';
+
+      rec.textContent =
+        'quality record\n' +
+        '  source_id        doc-4417\n' +
+        '  raw_hash         sha256:9c1f…e02\n' +
+        '  extractor        pdf-layout v3.2 · ocr v1.9\n' +
+        '  attempts         ' + (exhausted ? '3 (layout, ocr-hi-res, password path)' : '1') + '\n' +
+        '  reason_codes     ' + (fails.length ? fails.join('\n                   ') : 'none') + '\n' +
+        '  decision         ' + tag + '\n' +
+        '  decided_at       2026-08-11T09:14Z';
+
+      if (!fails.length) {
+        note = '<b style="color:var(--viz-green)">Every signal inside threshold — accept.</b>' +
+          'This is doc A: 19 of 20 pages parse, median 350 words per page, replacement characters under 0.1%, OCR confidence 0.96, a text yield near ' + yield_.toLocaleString() + ' words. No single number carried that decision; the record did. ' +
+          '<br><br>Notice what accepting still stores: the raw hash and extractor version, so a better parser can regenerate this document later <em>without refetching it</em>.';
+      } else if (!exhausted) {
+        note = '<b style="color:var(--viz-accent)">Something is wrong, and something is still untried.</b>' +
+          'Doc B lives here: about 25 words in total, 15% replacement characters, two processed pages. It fails automatic acceptance — but another renderer, OCR engine, password path or parser may repair it, so the correct route is <b>retry</b>, not discard. ' +
+          '<br><br>Most wrong answers on this topic skip straight to a terminal decision while a fallback is sitting unused.';
+      } else if (strict) {
+        note = '<b style="color:var(--viz-amber)">A compliance corpus cannot silently drop a required document.</b>' +
+          'Same artifact, same failing signals, different bias: quarantine it and alert a human. The cost of a false rejection here is a missing contract that everyone believes was never received. ' +
+          '<br><br>Quarantine is also the right route whenever the document is important but confidence is merely <em>uncertain</em> — you are not asserting it is bad, you are refusing to assert it is good.';
+      } else {
+        note = '<b style="color:var(--viz-red)">Discard is legitimate here — and it is still a lineage event.</b>' +
+          'A broad web research corpus may drop low-value failures cheaply once fallbacks are exhausted. But the record above survives: source ID, raw hash, reason codes, attempts, metrics, decision time. That is what stops endless reacquisition of the same broken artifact and what makes reprocessing possible when the parser improves. ' +
+          '<br><br><b>A discard is a lineage event, not an absence.</b>';
+      }
+      why.innerHTML = note +
+        '<br><br><span style="color:var(--viz-muted)">Thresholds are source- and type-aware. A two-line release notice is valid; a 200-page manual yielding two lines is not; a code file fails a prose heuristic outright. Combine rules — never one global minimum length.</span>';
+    }
+
+    function setAll(p, w, rp, cf){ pages.value = p; words.value = w; rep.value = rp; conf.value = cf; render(); }
+    bA.addEventListener('click', function(){ exhausted = false; setAll(19, 350, 1, 96); });
+    bB.addEventListener('click', function(){ exhausted = false; setAll(2, 13, 150, 62); });
+    f0.addEventListener('click', function(){ exhausted = false; render(); });
+    f1.addEventListener('click', function(){ exhausted = true; render(); });
+    r0.addEventListener('click', function(){ strict = false; render(); });
+    r1.addEventListener('click', function(){ strict = true; render(); });
+    [pages, words, rep, conf].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

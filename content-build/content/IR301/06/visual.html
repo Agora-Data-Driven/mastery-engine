@@ -1,0 +1,637 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Budget Becomes Bill</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Pre-Generation Wall</button>
+  <button class="viz-tab" data-viz-tab="3">3. Where Caches Cut In</button>
+  <button class="viz-tab" data-viz-tab="4">4. What The Key Carries</button>
+  <button class="viz-tab" data-viz-tab="5">5. Stuff It Or Search It</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Budget Becomes Bill</h2>
+  <p class="vz-lede"><b>Context Window Budgeting: Relevance Density over Volume</b> made you choose how many
+    chunks earn a place in the prompt. That was a quality argument. Here is the same dial with a price tag
+    on it: per-query tokens multiplied by the query rate. <b>Like a phone plan — the per-minute rate looks
+    tiny until you multiply it by the whole month.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side"><h5>what you already decided</h5>
+      <p>relevance density: send the <b>eight focused chunks</b>, not the fifteen loose ones</p></div>
+    <div class="v1-arrow">→</div>
+    <div class="v1-side"><h5>what it costs</h5>
+      <p>input tokens are the <b>dominant variable cost</b>, and they scale with traffic</p></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-chunks">Chunks in the prompt: <span id="v1-chunkl">10</span>
+      &nbsp;·&nbsp; 500 tokens each</label>
+    <input type="range" id="v1-chunks" min="1" max="20" value="10" step="1" aria-label="Chunks sent to the model">
+
+    <div class="vz-seg" role="group" aria-label="Query rate">
+      <button id="v1-r1" aria-pressed="false">10k queries/day</button>
+      <button id="v1-r2" aria-pressed="true">100k queries/day</button>
+      <button id="v1-r3" aria-pressed="false">1M queries/day</button>
+    </div>
+
+    <div class="v1-out" id="v1-out"></div>
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The second lever costs nothing at all in quality: <b>query-class routing</b>. About a
+    third of traffic is simple enough for a smaller, cheaper model to generate the answer, with no
+    measurable loss <em>on that class</em>. Both levers are only safe once the evaluation layer confirms
+    the saving did not come out of faithfulness — a cheaper answer that is wrong is not cheaper.</p>
+
+  <style>
+    .v1-bridge{display:flex;align-items:stretch;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-side{flex:1 1 130px;border:1.5px solid var(--viz-line);border-radius:11px;padding:10px 11px;
+      background:var(--viz-surface)}
+    .v1-side h5{margin:0 0 5px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-side p{margin:0;font-size:12.5px;line-height:1.5}
+    .v1-arrow{align-self:center;font-weight:800;color:var(--viz-accent);font-size:17px}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-out{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-bars{margin-top:13px;display:flex;flex-direction:column;gap:9px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TOK = 500;                       // tokens per chunk, from the worked example
+    var RATES = [10000, 100000, 1000000];
+    var rate = 1;                        // index into RATES; 100k/day is the lesson's baseline
+    var s = document.getElementById('v1-chunks'), lab = document.getElementById('v1-chunkl');
+    var out = document.getElementById('v1-out'), bars = document.getElementById('v1-bars');
+    var why = document.getElementById('v1-why');
+    var btns = [document.getElementById('v1-r1'), document.getElementById('v1-r2'), document.getElementById('v1-r3')];
+
+    function big(n){
+      if (!isFinite(n) || n < 0) return '0';
+      if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + ' billion';
+      if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + ' million';
+      return Math.round(n).toLocaleString();
+    }
+    function pill(text, col){
+      return '<span class="v1-pill" style="color:' + col + ';border-color:' + col + '">' + text + '</span>';
+    }
+    function bar(title, tokens, col, sub){
+      var w = Math.max(2, Math.round(tokens / (20 * TOK) * 100));
+      return '<div class="v1-b"><h6><span>' + title + '</span><b style="color:' + col + '">' +
+        tokens.toLocaleString() + ' tok/query</b></h6>' +
+        '<div class="v1-track"><i style="width:' + Math.min(100, w) + '%;background:' + col + '"></i></div>' +
+        '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+    }
+
+    function render(){
+      var n = Math.max(1, Number(s.value) || 1);
+      lab.textContent = n;
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === rate ? 'true' : 'false'); });
+
+      var per = n * TOK, day = per * RATES[rate];
+      var focused = 8 * TOK, loose = 15 * TOK;
+      var vsFocused = per - focused;
+
+      out.innerHTML =
+        pill(per.toLocaleString() + ' input tokens / query', 'var(--viz-accent)') +
+        pill(big(day) + ' input tokens / day', day > 5e8 ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill(RATES[rate].toLocaleString() + ' queries / day', 'var(--viz-muted)');
+
+      bars.innerHTML =
+        bar('your setting — ' + n + ' chunk' + (n === 1 ? '' : 's'), per, 'var(--viz-accent)',
+            'Each chunk is 500 tokens, so the prompt grows in 500-token steps whatever the retrieval quality.') +
+        bar('eight focused chunks', focused, 'var(--viz-green)',
+            'The disciplined assembly from the context-assembly lesson — 4,000 tokens per query.') +
+        bar('fifteen loose chunks', loose, 'var(--viz-red)',
+            'Padding the prompt "just in case" — 7,500 tokens, nearly double, on every single query.');
+
+      var delta = Math.abs(vsFocused) * RATES[rate];
+      why.innerHTML = (n >= 15)
+        ? '<b style="color:var(--viz-red)">This is a pricing decision, not only a relevance one.</b>' +
+          'Against the eight-chunk baseline you are spending an extra <b>' + big(delta) + '</b> input tokens a day, ' +
+          'every day, for chunks that the reranker already ranked below the ones you were sending. ' +
+          '<br><br>And it is not only money: more context is also the <em>lost-in-the-middle</em> risk from the ' +
+          'evaluation lesson, so the loose prompt can be worse <em>and</em> dearer at the same time.'
+        : (n <= 8)
+          ? '<b style="color:var(--viz-green)">Focused assembly is a direct input-token cut.</b>' +
+            'Ten chunks of 500 tokens is 5,000 input tokens per query, and at 100,000 queries a day that is ' +
+            '<b>500 million input tokens daily</b> — a number worth pricing explicitly rather than discovering ' +
+            'on an invoice. ' +
+            '<br><br>Track <b>cost per answered query</b> as a first-class metric, right next to p95. Reranker ' +
+            'accelerator-seconds and output tokens go in the same ledger.'
+          : '<b style="color:var(--viz-amber)">Every extra chunk is billed on every query, forever.</b>' +
+            'You are ' + Math.round(vsFocused / TOK) + ' chunk(s) above the focused baseline: <b>' + big(delta) +
+            '</b> extra input tokens a day. ' +
+            '<br><br>The multiplication is the whole point — a per-query cost that looks trivial becomes the ' +
+            'dominant line item once it meets the query rate.';
+    }
+    s.addEventListener('input', render);
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ rate = i; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Pre-Generation Wall</h2>
+  <p class="vz-lede">Streaming hides decode behind progressive rendering. It hides nothing before the first
+    token — that block is dead time, and it is the only part engineering really controls. Toggle the stages
+    and watch the wall move. <b>Like a kitchen: the diner forgives a long meal, never a long wait before the
+    first plate.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Pipeline choices">
+    <button id="v2-rw" aria-pressed="true">rewrite: on</button>
+    <button id="v2-par" aria-pressed="true">retrieval: parallel</button>
+    <button id="v2-rr" aria-pressed="true">rerank 50: on</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-wall" id="v2-wall"></div>
+    <div class="v2-stat" id="v2-stat"></div>
+    <label class="v2-lab" for="v2-out">Answer length: <span id="v2-outl">400</span> output tokens
+      &nbsp;·&nbsp; 15 ms per token</label>
+    <input type="range" id="v2-out" min="100" max="800" value="400" step="50" aria-label="Output tokens">
+    <div class="v2-dec" id="v2-dec"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two expert habits behind this picture. <b>Measure p50 and p95 in production</b> —
+    benchmark numbers lie about queueing, which is exactly where the tail lives. And give every stage a
+    <b>deadline with an evaluated fallback</b>: a reranker timeout serves the fused order, a model timeout
+    retries once then degrades gracefully, and queues stay bounded so overload sheds load instead of
+    compounding it.</p>
+
+  <style>
+    .v2-wall{display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:8px;font-size:11.5px}
+    .v2-nm{flex:0 0 96px;font-weight:700}
+    .v2-track{flex:1;height:16px;border-radius:4px;background:var(--viz-line);overflow:hidden;position:relative}
+    .v2-track i{display:block;height:100%;border-radius:4px}
+    .v2-ms{flex:0 0 66px;text-align:right;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v2-r.is-off{opacity:.45}
+    .v2-stat{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:15px 0 6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-dec{margin-top:10px;font-size:12px;line-height:1.55;border:1.5px dashed var(--viz-line);
+      border-radius:10px;padding:9px 11px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // p50 / p95 measured on a healthy system, straight from the lesson's table.
+    // Serial retrieval is the same two legs run back to back rather than concurrently.
+    var FRONTIER = 2000;                 // the pre-generation block must fit in roughly 2 s
+    var rw = true, par = true, rr = true, outTok = 400, MS_TOK = 15;
+    var bRw = document.getElementById('v2-rw'), bPar = document.getElementById('v2-par'), bRr = document.getElementById('v2-rr');
+    var wall = document.getElementById('v2-wall'), stat = document.getElementById('v2-stat');
+    var s = document.getElementById('v2-out'), lab = document.getElementById('v2-outl');
+    var dec = document.getElementById('v2-dec'), why = document.getElementById('v2-why');
+
+    function stages(){
+      return [
+        { n:'rewrite',    on:rw, p50:120, p95:280,  note:'0.2 s or skipped' },
+        { n:'retrieval',  on:true, p50:par ? 180 : 360, p95:par ? 450 : 900,
+          note:par ? 'BM25 + ANN concurrently' : 'the same two legs, back to back' },
+        { n:'rerank 50',  on:rr, p50:380, p95:900,  note:'depth is the dial' },
+        { n:'assembly',   on:true, p50:0,  p95:0,   note:'effectively free' },
+        { n:'first token',on:true, p50:600, p95:1400, note:'prefill + the model warming up' }
+      ];
+    }
+    function render(){
+      bRw.setAttribute('aria-pressed', rw ? 'true' : 'false');
+      bRw.textContent = 'rewrite: ' + (rw ? 'on' : 'skipped');
+      bPar.setAttribute('aria-pressed', par ? 'true' : 'false');
+      bPar.textContent = 'retrieval: ' + (par ? 'parallel' : 'serial');
+      bRr.setAttribute('aria-pressed', rr ? 'true' : 'false');
+      bRr.textContent = 'rerank 50: ' + (rr ? 'on' : 'skipped');
+
+      var st = stages(), total = 0;
+      st.forEach(function(x){ if (x.on) total += x.p95; });
+      var scale = Math.max(total, FRONTIER, 1);
+
+      wall.innerHTML = st.map(function(x){
+        var w = x.on ? Math.max(1, Math.round(x.p95 / scale * 100)) : 0;
+        var col = x.n === 'first token' ? 'var(--viz-violet)' : 'var(--viz-accent)';
+        return '<div class="v2-r' + (x.on ? '' : ' is-off') + '">' +
+          '<span class="v2-nm">' + x.n + '</span>' +
+          '<span class="v2-track"><i style="width:' + w + '%;background:' + col + '"></i></span>' +
+          '<span class="v2-ms">' + (x.on ? x.p95 + ' ms' : 'skipped') + '</span></div>' +
+          '<div style="font-size:10.5px;color:var(--viz-muted);margin:-2px 0 0 104px">' +
+          (x.on ? 'p50 ' + x.p50 + ' ms · ' + x.note : 'not run') + '</div>';
+      }).join('');
+
+      var fits = total <= FRONTIER;
+      var col = fits ? 'var(--viz-green)' : 'var(--viz-red)';
+      stat.innerHTML =
+        '<span class="v2-pill" style="color:' + col + ';border-color:' + col + '">' +
+          'dead time before token 1: ' + (total / 1000).toFixed(2) + ' s ' + (fits ? '· fits' : '· over budget') + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">frontier ≈ 2.00 s</span>';
+
+      var decodeS = outTok * MS_TOK / 1000;
+      lab.textContent = outTok;
+      dec.innerHTML = '<b>decode: ' + outTok + ' × ' + MS_TOK + ' ms = ' + decodeS.toFixed(1) + ' s</b> — ' +
+        'streamed, so the user is <em>reading</em> through it. Pure multiplication: no retrieval tuning ' +
+        'touches this number. The controls are output caps, prompts that demand concision, and routing ' +
+        'simple query classes to a smaller, faster model to generate with.' +
+        '<br><span style="color:var(--viz-muted)">end to end ≈ ' + ((total / 1000) + decodeS).toFixed(1) +
+        ' s against an 8 s target</span>';
+
+      why.innerHTML = fits
+        ? '<b style="color:var(--viz-green)">Under the frontier — the product feels responsive.</b>' +
+          'Everything before the first token is time the user spends staring at nothing, so this is the ' +
+          'figure to defend. Note what you gave up to get here: skipping the reranker costs precision, and ' +
+          'skipping the rewrite costs recall on badly phrased queries. ' +
+          '<br><br>That is the trade the deadline-with-fallback pattern makes automatically under load — ' +
+          'degrade the stage, keep the answer.'
+        : '<b style="color:var(--viz-red)">Over the frontier — this reads as "stalled", however fast tokens then stream.</b>' +
+          'The tail is assembled from every stage, so no single dashboard shows it. Summing the stage p95s ' +
+          'like this is the <em>safe</em> approximation, because the true chain p95 is lower: the stages do ' +
+          'not all hit their worst case on the same request. Under load, though, they correlate — which is ' +
+          'why you budget with the sum and verify against the measured end-to-end p95. ' +
+          '<br><br>Parallelise whatever the dependency graph allows: the raw-query embedding can run ' +
+          'alongside the rewrite as a hedge, so a slow rewriter never blocks retrieval entirely.';
+    }
+    bRw.addEventListener('click', function(){ rw = !rw; render(); });
+    bPar.addEventListener('click', function(){ par = !par; render(); });
+    bRr.addEventListener('click', function(){ rr = !rr; render(); });
+    s.addEventListener('input', function(){ outTok = Math.max(1, Number(s.value) || 100); render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Where Caches Cut In</h2>
+  <p class="vz-lede">Three caches sit at three points of the same chain. Each saves more than the one before
+    it — and each is more dangerous than the one before it. Pick a layer, then drag its hit rate.
+    <b>Like keeping leftovers: the further along the cooking you saved it, the more time you get back and
+    the sooner it goes off.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Cache layer">
+    <button id="v3-b1" aria-pressed="false">embedding</button>
+    <button id="v3-b2" aria-pressed="true">result</button>
+    <button id="v3-b3" aria-pressed="false">answer</button>
+  </div>
+
+  <div class="v3-chain" id="v3-chain"></div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-hit">Hit rate: <span id="v3-hitl">35%</span>
+      &nbsp;·&nbsp; 100,000 queries/day</label>
+    <input type="range" id="v3-hit" min="0" max="60" value="35" step="1" aria-label="Cache hit rate">
+    <div class="v3-stat" id="v3-stat"></div>
+    <button class="v3-sem" id="v3-sem" aria-pressed="false">key by embedding similarity (semantic cache)</button>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Caching is the cheapest capacity available, and every layer is a consistency liability.
+    So <b>hit rate and staleness complaints are read together, never separately</b>: a rising hit rate
+    alongside rising stale-answer reports is a failure mode wearing a success metric.</p>
+
+  <style>
+    .v3-chain{display:flex;gap:4px;margin-bottom:13px;flex-wrap:wrap}
+    .v3-st{flex:1 1 62px;border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 5px;text-align:center;
+      font-size:10.5px;font-weight:700;background:var(--viz-surface);line-height:1.35}
+    .v3-st.is-cut{border-style:dashed;opacity:.5}
+    .v3-st b{display:block;font-size:9px;font-weight:800;letter-spacing:.03em;margin-top:3px}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-stat{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-sem{margin-top:13px;width:100%;min-height:44px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-muted);font:inherit;font-weight:700;font-size:12px;padding:8px}
+    .v3-sem[aria-pressed="true"]{border-color:var(--viz-amber);color:var(--viz-amber)}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CHAIN = ['embed query', 'retrieve', 'rerank', 'assemble', 'generate'];
+    var QPD = 100000;
+    var LAYERS = [
+      { name:'embedding cache', cuts:['embed query'], hit:40, unit:'embedding calls',
+        key:'normalized query text + embedding model version',
+        saves:'tens of milliseconds and one model call',
+        why:['The cheapest layer, and the one whose key needs the most care about text.',
+          'It pays when queries repeat <em>verbatim</em> — navigational and FAQ traffic does. Normalization is what makes those repetitions actually collide: lowercase the text, collapse the whitespace, and "Reset Password" meets "reset  password". ' +
+          '<br><br>The model version belongs in the key because vectors from different models are simply incompatible; a hit from the old model is not a slower answer, it is a wrong one.'] },
+      { name:'result cache', cuts:['embed query','retrieve','rerank','assemble'], hit:35, unit:'retrieval-plus-rerank executions',
+        key:'query + filters + ACL context + index generation',
+        saves:'the entire expensive pre-generation block',
+        why:['Usually the highest-value layer, because it erases the two slowest pre-generation stages at once.',
+          'Look at visual 2 with this in mind: on a hit, retrieval and reranking both disappear from the wall, and only the first-token cost remains. That is why the saving shows up in the p95 and not only in the bill. ' +
+          '<br><br>The <b>ACL context and tenant</b> belong in the key or this cache becomes exactly the cross-tenant leak the security lesson is about — one tenant\'s candidate list served to another because the query text matched.'] },
+      { name:'answer cache', cuts:['embed query','retrieve','rerank','assemble','generate'], hit:20, unit:'full generations',
+        key:'query + context hash + corpus generation + prompt version + TTL',
+        saves:'everything — the whole chain',
+        why:['Saves the most and is correspondingly the most dangerous.',
+          'Valid only for <b>non-personal, non-time-sensitive</b> answers. Never cached at all: personalized answers, answers derived from documents that have since been revoked, and time-dependent facts like a status page. ' +
+          '<br><br>The prompt version is in the key for a reason people discover late: without it, you ship a prompt improvement and a fifth of your traffic keeps receiving the old behaviour, indefinitely.'] }
+    ];
+    var cur = 1, semantic = false;
+    var btns = [document.getElementById('v3-b1'), document.getElementById('v3-b2'), document.getElementById('v3-b3')];
+    var chain = document.getElementById('v3-chain'), stat = document.getElementById('v3-stat');
+    var s = document.getElementById('v3-hit'), lab = document.getElementById('v3-hitl');
+    var sem = document.getElementById('v3-sem'), why = document.getElementById('v3-why');
+
+    function render(){
+      var L = LAYERS[cur];
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+      chain.innerHTML = CHAIN.map(function(st){
+        var cut = L.cuts.indexOf(st) >= 0;
+        return '<div class="v3-st' + (cut ? ' is-cut' : '') + '">' + st +
+          '<b style="color:' + (cut ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (cut ? 'SKIPPED' : 'still runs') + '</b></div>';
+      }).join('');
+
+      var rate = Math.min(100, Math.max(0, Number(s.value) || 0));
+      lab.textContent = rate + '%';
+      var saved = Math.round(QPD * rate / 100);
+      var col = rate >= 30 ? 'var(--viz-green)' : 'var(--viz-muted)';
+      stat.innerHTML =
+        '<span class="v3-pill" style="color:' + col + ';border-color:' + col + '">' +
+          saved.toLocaleString() + ' ' + L.unit + ' eliminated/day</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">saves ' + L.saves + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">key: ' + L.key + '</span>';
+
+      sem.setAttribute('aria-pressed', semantic ? 'true' : 'false');
+      sem.textContent = semantic
+        ? 'semantic keys ON — similar is not equal'
+        : 'key by embedding similarity (semantic cache)';
+
+      why.innerHTML = '<b>' + L.why[0] + '</b>' + L.why[1] +
+        (semantic
+          ? '<br><br><b style="display:inline;color:var(--viz-amber)">Semantic keys: </b>' +
+            'hit rates jump, because near-duplicate queries now hit too. But some of those hits answer a ' +
+            'question the user did not ask: someone asks about the <b>Team plan</b> and receives the ' +
+            '<b>Enterprise</b> answer because the two embeddings were close. Treat it as experimental — high ' +
+            'similarity thresholds, low-stakes query classes only, the score logged on every hit, and a kill ' +
+            'switch that reverts to exact-match keys the day the threshold proves loose.'
+          : '');
+    }
+    btns.forEach(function(b, i){
+      b.addEventListener('click', function(){ cur = i; s.value = LAYERS[i].hit; render(); });
+    });
+    s.addEventListener('input', render);
+    sem.addEventListener('click', function(){ semantic = !semantic; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. What The Key Carries</h2>
+  <p class="vz-lede">A cache is only as correct as its key. Every version that can invalidate an entry has
+    to be <em>in</em> the key, or the cache keeps serving something that was true once. Switch a component
+    off and read what breaks. <b>Like a filing label with no date on it — you will happily pull last year's
+    contract and never notice.</b></p>
+
+  <div class="v4-chips" id="v4-chips"></div>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v4-key"></div>
+    <div class="v4-fail" id="v4-fail"></div>
+  </div>
+  <p class="vz-note">Some things are never cached at any key: <b>personalized answers</b>, answers derived
+    from <b>revoked documents</b>, and <b>time-dependent facts</b> such as a status page. The test is not
+    "does this repeat?" but "if the world changed, would this entry be wrong and would anyone find out?"</p>
+
+  <style>
+    .v4-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v4-c{flex:1 1 128px;min-height:44px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-muted);font:inherit;font-weight:700;font-size:11.5px;padding:7px 8px}
+    .v4-c[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v4-fail{margin-top:12px;display:flex;flex-direction:column;gap:7px}
+    .v4-f{border:1.5px solid var(--viz-line);border-left-width:4px;border-radius:9px;padding:8px 10px;
+      font-size:12px;line-height:1.5}
+    .v4-f h6{margin:0 0 3px;font-size:11px;font-weight:800;letter-spacing:.02em}
+    .v4-ok{font-size:12.5px;line-height:1.6;padding:8px 2px}
+  </style>
+  <script>
+  (function(){
+    var PARTS = [
+      { id:'model_version', label:'embedding model version', on:true,
+        risk:'INCOMPATIBLE VECTORS',
+        text:'Vectors from a different embedding model are not comparable at all. A hit here is not a stale answer, it is a meaningless one — and nothing in the response says so.' },
+      { id:'index_generation', label:'index generation', on:true,
+        risk:'STALE CANDIDATES',
+        text:'You re-index the corpus and the result cache keeps serving the candidate list from the previous index — documents that may no longer exist, ranked by a model that no longer runs.' },
+      { id:'tenant_acl_hash', label:'tenant + ACL hash', on:true,
+        risk:'CROSS-TENANT LEAK',
+        text:'Two tenants type the same question and share an entry. This is the leak the security lesson exists to prevent, arriving through the cache rather than through the index — and ACL-aware retrieval upstream will not save you.' },
+      { id:'corpus_generation', label:'corpus generation', on:true,
+        risk:'REVOKED SOURCES',
+        text:'The answer was grounded in a document that has since changed or been withdrawn. The cached text still cites it, confidently, with the citation machinery working perfectly.' },
+      { id:'prompt_version', label:'prompt version', on:true,
+        risk:'PROMPT SHIP THAT NEVER SHIPPED',
+        text:'You improve the prompt and the cached fraction of traffic keeps receiving the old behaviour indefinitely — so the A/B looks like the change did nothing.' },
+      { id:'ttl', label:'time-to-live', on:true,
+        risk:'NO BACKSTOP',
+        text:'Every other component only catches invalidations you predicted. The TTL is what bounds the ones you did not; without it a wrong entry is permanent until a human notices.' }
+    ];
+    var chips = document.getElementById('v4-chips');
+    var keyEl = document.getElementById('v4-key'), fail = document.getElementById('v4-fail');
+    var buttons = [];
+
+    function render(){
+      PARTS.forEach(function(p, i){
+        buttons[i].setAttribute('aria-pressed', p.on ? 'true' : 'false');
+        buttons[i].textContent = (p.on ? '✓ ' : '✕ ') + p.label;
+      });
+      var on = PARTS.filter(function(p){ return p.on; });
+      keyEl.textContent = 'cache_key = sha256(\n  query_normalized\n' +
+        (on.length ? on.map(function(p){ return '  + ' + p.id + '\n'; }).join('') : '  (nothing else)\n') + ')';
+
+      var off = PARTS.filter(function(p){ return !p.on; });
+      fail.innerHTML = off.length
+        ? off.map(function(p){
+            return '<div class="v4-f" style="border-left-color:var(--viz-red)">' +
+              '<h6 style="color:var(--viz-red)">MISSING — ' + p.risk + '</h6>' + p.text + '</div>';
+          }).join('')
+        : '<div class="v4-ok"><b style="color:var(--viz-green)">Fully versioned.</b> Every input that can ' +
+          'change the right answer is part of the identity of the entry, so an invalidation is automatic: ' +
+          'the key simply stops matching and the next request recomputes. That is the whole contract — ' +
+          'a cache never has to be "cleared" if its key already knows what it depends on.' +
+          '<br><br>Switch any component off above to see what it was holding up.</div>';
+    }
+    PARTS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.className = 'v4-c';
+      b.setAttribute('aria-pressed', 'true');
+      b.addEventListener('click', function(){ p.on = !p.on; render(); });
+      chips.appendChild(b);
+      buttons[i] = b;
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Stuff It Or Search It</h2>
+  <p class="vz-lede">Million-token windows invite a shortcut: skip retrieval, stuff the corpus into the
+    prompt. The comparison deserves numbers rather than vibes — because one path pays the corpus cost once
+    and the other pays it on every query. <b>Like buying a book versus paying the full cover price each
+    time you want to check one page.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-ctx">Stuffed context: <span id="v5-ctxl">100,000</span> tokens/query
+      &nbsp;·&nbsp; retrieval sends 5,000</label>
+    <input type="range" id="v5-ctx" min="10000" max="200000" value="100000" step="10000" aria-label="Stuffed context tokens">
+
+    <div class="vz-seg" role="group" aria-label="Query rate">
+      <button id="v5-r1" aria-pressed="false">1k/day</button>
+      <button id="v5-r2" aria-pressed="false">10k/day</button>
+      <button id="v5-r3" aria-pressed="true">100k/day</button>
+    </div>
+
+    <div class="v5-bars" id="v5-bars"></div>
+    <div class="v5-stat" id="v5-stat"></div>
+  </div>
+
+  <div class="v5-work" id="v5-work"></div>
+  <div class="vz-card"><div class="v5-why" id="v5-why"></div></div>
+
+  <p class="vz-note">The closing judgment of the course: <b>retrieval was never a workaround for small
+    windows.</b> It is a cost, latency and attention-precision optimization whose logic survives infinite
+    windows, because feeding the model everything means paying to attend to mostly noise. Bigger windows
+    move the break-even point; they do not repeal it.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-bars{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v5-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v5-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+    .v5-stat{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-work{display:flex;flex-direction:column;gap:6px;margin:13px 0}
+    .v5-w{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v5-w[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;flex:0 0 auto}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var RAG_TOK = 5000;                    // focused context on the retrieval path
+    var RATES = [1000, 10000, 100000];
+    var rate = 2, ctx = 100000, cur = 0;
+    var s = document.getElementById('v5-ctx'), lab = document.getElementById('v5-ctxl');
+    var bars = document.getElementById('v5-bars'), stat = document.getElementById('v5-stat');
+    var work = document.getElementById('v5-work'), why = document.getElementById('v5-why');
+    var btns = [document.getElementById('v5-r1'), document.getElementById('v5-r2'), document.getElementById('v5-r3')];
+
+    var WORK = [
+      { t:'Interactive support Q&A · 2,000,000-chunk corpus', tag:'RETRIEVAL',
+        col:'var(--viz-green)',
+        why:['Retrieval, and it is not close.',
+          'The corpus is orders of magnitude larger than any window, the queries are point lookups, and the latency has to be interactive. Focused five-thousand-token contexts answer in about a second to first token. ' +
+          '<br><br>Retrieval also reads the <b>live index</b>, so a document edited this morning is in this afternoon\'s answer with no re-stuffing at all.'] },
+      { t:'Nightly compliance pass over one customer\'s contracts', tag:'LONG CONTEXT',
+        col:'var(--viz-violet)',
+        why:['Long context, in batch — and this is the case people wrongly assume never exists.',
+          'The job must reason <em>across</em> every contract the customer signed, which is corpus synthesis rather than lookup. Seconds of prefill are irrelevant to a nightly job, the slice is one customer rather than the estate, and <b>no chunking boundary can hide a clause</b>. ' +
+          '<br><br>That last point is the real argument: long context eliminates retrieval\'s own failure modes — chunking damage and the recall ceiling — by not having them.'] },
+      { t:'Agent preparing a monthly briefing', tag:'BOTH',
+        col:'var(--viz-accent)',
+        why:['Retrieval to assemble, long context to synthesize.',
+          'The agent retrieves a task-sized dossier, then makes a single long-context call over just that dossier. Each half gets the tool its cost, latency and quality numbers point to. ' +
+          '<br><br>This is the shape the five decision questions usually imply: corpus size against the window, point lookup or synthesis, query rate × per-query context cost, freshness, and what needle tests and the golden set say on <em>your</em> data rather than the vendor\'s.'] }
+    ];
+
+    function big(n){
+      if (!isFinite(n) || n < 0) return '0';
+      if (n >= 1e9) return (n / 1e9).toFixed(n >= 1e10 ? 0 : 1) + ' billion';
+      if (n >= 1e6) return (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + ' million';
+      return Math.round(n).toLocaleString();
+    }
+    function bar(title, tokens, maxT, col, sub){
+      var w = maxT > 0 ? Math.max(2, Math.round(tokens / maxT * 100)) : 2;
+      return '<div class="v5-b"><h6><span>' + title + '</span><b style="color:' + col + '">' + big(tokens) +
+        ' tok/day</b></h6><div class="v5-track"><i style="width:' + Math.min(100, w) + '%;background:' + col +
+        '"></i></div><div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+    }
+    function show(i){
+      cur = i;
+      [].slice.call(work.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      why.innerHTML = '<b>' + WORK[i].why[0] + '</b>' + WORK[i].why[1];
+    }
+    function render(){
+      ctx = Math.max(1000, Number(s.value) || 1000);
+      lab.textContent = ctx.toLocaleString();
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === rate ? 'true' : 'false'); });
+
+      var qpd = RATES[rate];
+      var lc = ctx * qpd, rag = RAG_TOK * qpd, maxT = Math.max(lc, rag, 1);
+      var ratio = Math.round(ctx / RAG_TOK * 10) / 10;
+
+      bars.innerHTML =
+        bar('long context — stuff the slice', lc, maxT, 'var(--viz-red)',
+            'Input price for the entire slice, on every query, forever. Prefill takes seconds before the first token — a batch job, not an interactive one.') +
+        bar('retrieval — send what was found', rag, maxT, 'var(--viz-green)',
+            'The corpus cost is paid once at ingest, through embedding and indexing. First token in about a second, and essentially flat in corpus size.');
+
+      stat.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-red);border-color:var(--viz-red)">' + ratio + '× more input tokens</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + qpd.toLocaleString() + ' queries/day</span>' +
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">quality: lost-in-the-middle grows with the slice</span>';
+    }
+    WORK.forEach(function(w, i){
+      var b = document.createElement('button');
+      b.className = 'v5-w';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + w.t + '</span><span class="v5-tag" style="color:' + w.col + '">' + w.tag + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      work.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ rate = i; render(); }); });
+    render();
+    show(0);
+  })();
+  </script>
+</section>
+
+</body>
+</html>

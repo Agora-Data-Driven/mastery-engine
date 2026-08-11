@@ -1,0 +1,698 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);border-width:2px}
+.vz-seg button[aria-pressed="true"]::before{content:"\25B8\00A0"}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From BIM To BM25</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Saturation Curve</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Length Dial</button>
+  <button class="viz-tab" data-viz-tab="4">4. Doc A Versus Doc B</button>
+  <button class="viz-tab" data-viz-tab="5">5. Tuning By Symptom</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From BIM To BM25</h2>
+  <p class="vz-lede"><b>The Binary Independence Model</b> gave you a sum of per-term weights over matched
+    query terms, and <b>The RSJ Term Weight and Its idf Connection</b> gave you the weight itself. Both
+    survive here untouched. Only the multiplier in front of each weight is new — drag the term count and the
+    document length and watch which models notice. <b>Like swapping a light switch for a dimmer: the wiring
+    is the same, only the control is new.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half">
+      <h5>already yours</h5>
+      <ul>
+        <li>sum over <b>t &isin; q &cap; d</b> only</li>
+        <li>RSJ weight, zero-feedback form</li>
+        <li><b>vector</b>: n=2,000 of N=100,000 &rarr; idf 3.89</li>
+      </ul>
+    </div>
+    <div class="v1-half v1-new">
+      <h5>added this lesson</h5>
+      <ul>
+        <li>saturating tf, rate set by <b>k1</b></li>
+        <li>length ratio B, blended by <b>b</b></li>
+        <li>both live in ONE per-term multiplier</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-tf">Doc contains <span id="v1-tfl">1</span> occurrence of
+      <b>vector</b> &nbsp;·&nbsp; idf 3.89 &nbsp;·&nbsp; k1 = 1.2, b = 0.75</label>
+    <input type="range" id="v1-tf" min="1" max="30" value="1" step="1" aria-label="Term frequency">
+    <div class="vz-seg" id="v1-seg" role="group" aria-label="Document length"></div>
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The two blindnesses this repairs are not cosmetic. A page mentioning a term thirty times
+    is <b>indistinguishable</b> to BIM from one mentioning it once, and a 50-word snippet is judged by the
+    same yardstick as a 5,000-word manual. Everything in this lesson is those two holes, closed by exactly
+    two constants.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-half{flex:1 1 150px;border:1.5px solid var(--viz-line);border-radius:11px;padding:9px 11px;
+      background:var(--viz-bg)}
+    .v1-half.v1-new{border-color:var(--viz-accent)}
+    .v1-half h5{margin:0 0 6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half.v1-new h5{color:var(--viz-accent)}
+    .v1-half ul{margin:0;padding-left:15px}
+    .v1-half li{font-size:11.5px;line-height:1.55;margin-bottom:2px}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:nowrap}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var IDF = 3.89, K1 = 1.2, BB = 0.75, AVGDL = 500, SCALE = 14;
+    var LENS = [
+      { l: "300 words", n: 300 },
+      { l: "500 (average)", n: 500 },
+      { l: "1,500 words", n: 1500 }
+    ];
+    var li = 1;
+    var slider = document.getElementById('v1-tf');
+    var lab = document.getElementById('v1-tfl');
+    var seg = document.getElementById('v1-seg');
+    var bars = document.getElementById('v1-bars');
+    var why = document.getElementById('v1-why');
+
+    LENS.forEach(function(L, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = L.l;
+      b.setAttribute('aria-pressed', i === li ? 'true' : 'false');
+      b.addEventListener('click', function(){ li = i; render(); });
+      seg.appendChild(b);
+    });
+
+    function bar(title, val, colour, sub, clamped){
+      var w = Math.max(1.5, Math.min(100, val / SCALE * 100));
+      return '<div class="v1-b"><h6><span>' + title + '</span><b style="color:' + colour + '">' +
+        val.toFixed(2) + (clamped ? ' &#9658;' : '') + '</b></h6>' +
+        '<div class="v1-track"><i style="width:' + w.toFixed(1) + '%;background:' + colour + '"></i></div>' +
+        '<div class="v1-sub">' + sub + '</div></div>';
+    }
+
+    function render(){
+      var tf = Number(slider.value);
+      lab.textContent = tf;
+      [].slice.call(seg.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', i === li ? 'true' : 'false');
+      });
+      var len = LENS[li].n;
+      var B = (1 - BB) + BB * (len / AVGDL);
+      var denom = tf + K1 * B;
+      var bm = denom > 0 ? IDF * tf * (K1 + 1) / denom : 0;
+      var bim = IDF;
+      var lin = IDF * tf;
+
+      bars.innerHTML =
+        bar("BIM (binary x_t)", bim, 'var(--viz-muted)',
+          "Flat. tf and |d| are both invisible to it — this bar cannot move, whatever you drag.", false) +
+        bar("linear tf &times; idf", lin, 'var(--viz-red)',
+          "The naive repair. Unbounded, so thirty mentions are worth thirty times one — a stuffed page wins by brute force.", lin > SCALE) +
+        bar("BM25 (k1 = 1.2, b = 0.75)", bm, 'var(--viz-green)',
+          "Saturating and length-scaled. B = " + B.toFixed(2) + ", so k1&middot;B = " + (K1 * B).toFixed(2) +
+          ". Ceiling = idf &times; (k1+1) = " + (IDF * (K1 + 1)).toFixed(2) + ".", false);
+
+      var msg;
+      if (tf === 1 && li === 1) {
+        msg = '<b style="color:var(--viz-accent)">The calibration point.</b>' +
+          "One occurrence in an average-length document scores <b>exactly the term's idf</b>, 3.89. That is what the rank-inert (k1+1) in the numerator is for: it rescales the curve so this one case lands on 1.00 &times; idf. " +
+          "Notice all three bars agree here and nowhere else.";
+      } else if (tf >= 12) {
+        msg = '<b style="color:var(--viz-green)">Saturation, visible.</b>' +
+          "Linear scoring has run away to " + lin.toFixed(1) + " while BM25 has crawled to " + bm.toFixed(2) +
+          " against a hard ceiling of " + (IDF * (K1 + 1)).toFixed(2) + ". Repetition can spend a term's evidence budget; it can never exceed it. " +
+          "<br><br>Matching one <em>additional distinct</em> query term would add a whole fresh idf weight instead — which is why BM25 structurally prefers breadth of match over depth of repetition.";
+      } else if (li === 2) {
+        msg = '<b style="color:var(--viz-amber)">Length is doing the work now.</b>' +
+          "At 1,500 words B = 2.50, so k1&middot;B = 3.00 and every occurrence is worth less than it would be in a 300-word document. BIM's bar has not moved a pixel: it has no notion of length at all. " +
+          "<br><br>Whether that discount is fair is the <b>verbosity vs scope</b> question of visual 3.";
+      } else {
+        msg = '<b style="color:var(--viz-accent)">Same skeleton, new multiplier.</b>' +
+          "The score is still &Sigma; over matched query terms of idf &times; something. Last lesson that something was 1. Here it is " +
+          (bm / IDF).toFixed(2) + " — a number in [0, k1+1) built from tf, |d|, k1 and b. " +
+          "<br><br>Nothing about the derivation changed: the sum over t &isin; q &cap; d is still what lets an inverted index score millions of documents by walking a handful of postings lists.";
+      }
+      why.innerHTML = msg;
+    }
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Saturation Curve</h2>
+  <p class="vz-lede">Robertson and Walker threw away the exact 2-Poisson expression and kept its
+    <em>shape</em>: zero at tf = 0, rising, concave, bounded. Drag k1 and watch the curve travel between two
+    models you already own — BIM at one end, raw tf at the other. <b>Like eating pizza: the first slice is
+    transformative, the eighth is barely food.</b></p>
+
+  <div class="vz-seg" id="v2-seg" role="group" aria-label="Which numerator"></div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-k1">k1 = <span id="v2-k1l">1.2</span></label>
+    <input type="range" id="v2-k1" min="0" max="40" value="12" step="1" aria-label="k1">
+    <div class="v2-plot" id="v2-plot"></div>
+    <div class="v2-tbl" id="v2-tbl"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Why this shape and not another? Because it is the shape of the <b>eliteness</b> weight.
+    A document is elite for a term if it is genuinely about that concept; tf is only noisy evidence about
+    that hidden variable, and once you believe the document is elite, further repetitions cannot make it
+    more elite. The asymptote is not a hack to cap spam — it is what "no more evidence available" looks
+    like when you write it down.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-plot{margin-top:12px}
+    .v2-plot svg{width:100%;height:auto;display:block}
+    .v2-tbl{margin-top:12px;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v2-c{border:1.5px solid var(--viz-line);border-radius:8px;padding:6px 7px;background:var(--viz-bg)}
+    .v2-c b{display:block;font-size:13px;margin-bottom:1px}
+    .v2-c i{display:block;font-style:normal;font-size:10px;color:var(--viz-muted);margin-top:2px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MODES = [
+      { id: 'raw',  l: "raw  tf/(k1+tf)" },
+      { id: 'prod', l: "production  tf(k1+1)/(k1+tf)" }
+    ];
+    var mode = 0;
+    var slider = document.getElementById('v2-k1');
+    var lab = document.getElementById('v2-k1l');
+    var seg = document.getElementById('v2-seg');
+    var plot = document.getElementById('v2-plot');
+    var tbl = document.getElementById('v2-tbl');
+    var why = document.getElementById('v2-why');
+
+    MODES.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = m.l;
+      b.setAttribute('aria-pressed', i === mode ? 'true' : 'false');
+      b.addEventListener('click', function(){ mode = i; render(); });
+      seg.appendChild(b);
+    });
+
+    function f(tf, k1, prod){
+      var d = k1 + tf;
+      if (tf <= 0 || d <= 0) return 0;
+      return tf * (prod ? (k1 + 1) : 1) / d;
+    }
+
+    function render(){
+      var k1 = Number(slider.value) / 10;
+      var prod = mode === 1;
+      lab.textContent = k1.toFixed(1);
+      [].slice.call(seg.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', i === mode ? 'true' : 'false');
+      });
+
+      var ymax = prod ? Math.max(k1 + 1, 0.001) : 1;
+      var W = 320, H = 158, L = 30, R = 10, T = 12, BM = 26;
+      var pw = W - L - R, ph = H - T - BM, XMAX = 20;
+      var pts = [];
+      for (var i = 0; i <= 100; i++) {
+        var tf = i / 100 * XMAX;
+        var v = f(tf, k1, prod);
+        var x = L + tf / XMAX * pw;
+        var y = T + ph - Math.min(v / ymax, 1) * ph;
+        pts.push(x.toFixed(1) + ',' + y.toFixed(1));
+      }
+      var xk = L + Math.min(k1, XMAX) / XMAX * pw;
+      var svg =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="saturation curve">' +
+        '<line x1="' + L + '" y1="' + T + '" x2="' + (W - R) + '" y2="' + T + '" stroke="var(--viz-line)" stroke-dasharray="3 3"/>' +
+        '<text x="' + (W - R) + '" y="' + (T - 3) + '" text-anchor="end" font-size="8" fill="var(--viz-muted)">asymptote ' + ymax.toFixed(2) + '</text>' +
+        '<line x1="' + L + '" y1="' + (T + ph / 2) + '" x2="' + (W - R) + '" y2="' + (T + ph / 2) + '" stroke="var(--viz-violet)" stroke-dasharray="2 4" opacity="0.8"/>' +
+        '<line x1="' + xk.toFixed(1) + '" y1="' + T + '" x2="' + xk.toFixed(1) + '" y2="' + (T + ph) + '" stroke="var(--viz-violet)" stroke-dasharray="2 4" opacity="0.8"/>' +
+        '<text x="' + (xk + 3).toFixed(1) + '" y="' + (T + ph / 2 - 4) + '" font-size="8" fill="var(--viz-violet)">tf = k1 &#8594; half</text>' +
+        '<polyline points="' + pts.join(' ') + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.2"/>' +
+        '<line x1="' + L + '" y1="' + (T + ph) + '" x2="' + (W - R) + '" y2="' + (T + ph) + '" stroke="var(--viz-line)" stroke-width="1.2"/>' +
+        '<line x1="' + L + '" y1="' + T + '" x2="' + L + '" y2="' + (T + ph) + '" stroke="var(--viz-line)" stroke-width="1.2"/>' +
+        '<text x="' + (L - 3) + '" y="' + (T + 4) + '" text-anchor="end" font-size="8" fill="var(--viz-muted)">' + ymax.toFixed(1) + '</text>' +
+        '<text x="' + (L - 3) + '" y="' + (T + ph) + '" text-anchor="end" font-size="8" fill="var(--viz-muted)">0</text>' +
+        '<text x="' + L + '" y="' + (H - 12) + '" font-size="8" fill="var(--viz-muted)">0</text>' +
+        '<text x="' + (L + pw / 2) + '" y="' + (H - 12) + '" text-anchor="middle" font-size="8" fill="var(--viz-muted)">tf = 10</text>' +
+        '<text x="' + (W - R) + '" y="' + (H - 12) + '" text-anchor="end" font-size="8" fill="var(--viz-muted)">20</text>' +
+        '<text x="' + (L + pw / 2) + '" y="' + (H - 2) + '" text-anchor="middle" font-size="8.5" fill="var(--viz-muted)">term frequency in the document</text>' +
+        '</svg>';
+      plot.innerHTML = svg;
+
+      var TFS = [1, 2, 3, 5, 10, 100];
+      var prev = 0;
+      tbl.innerHTML = TFS.map(function(tf){
+        var v = f(tf, k1, prod);
+        var d = v - prev; prev = v;
+        return '<div class="v2-c"><b>' + v.toFixed(2) + '</b>tf = ' + tf +
+          '<i>+' + d.toFixed(2) + ' vs previous</i></div>';
+      }).join('');
+
+      var msg;
+      if (k1 < 0.25) {
+        msg = '<b style="color:var(--viz-amber)">This is BIM again.</b>' +
+          "At k1 = 0 the function jumps to its asymptote for any tf &ge; 1 and stays there: presence is everything, repetition is worth literally nothing. " +
+          "You have driven BM25 back to the binary incidence vector of last lesson — which is exactly why k1 = 0 is the correct answer whenever a question asks how to recover BIM.";
+      } else if (k1 > 2.6) {
+        msg = '<b style="color:var(--viz-amber)">Drifting towards raw tf.</b>' +
+          "As k1 grows, tf/(k1+tf) &asymp; tf/k1 — linear in tf on a constant scale. The curve straightens, the concavity that protects you from keyword stuffing weakens, and a document repeating one term starts to out-argue a document matching two. " +
+          "<br><br>Production values live in 1.2 to 2.0, <em>deliberately near the binary end</em>: presence is most of the evidence, repetition a modest bonus.";
+      } else {
+        msg = '<b style="color:var(--viz-green)">The working range.</b>' +
+          "k1 is the tf at which the curve reaches exactly half its asymptote — the violet crosshair. At k1 = " + k1.toFixed(1) +
+          " the step from one occurrence to two buys far more than the step from ten to a hundred, which is the whole claim. " +
+          "<br><br>" + (prod
+            ? "Note that switching numerators changed nothing about the <b>shape</b>: the production form is the raw form multiplied by (k1+1), so the axis relabels and the curve does not move. That is what <b>rank-inert</b> means — and it is why the value at tf = 1 in an average document is exactly 1.00, so a single occurrence contributes exactly the term's idf."
+            : "Switch to the production numerator to see the one cosmetic change real BM25 makes: an extra (k1+1) factor that pins tf = 1 to exactly 1.00 without moving any ranking.");
+      }
+      why.innerHTML = msg;
+    }
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Length Dial</h2>
+  <p class="vz-lede">Before you can normalise length you have to answer a question about your corpus: is a
+    long document long because it is <em>wordy</em>, or because it <em>covers more</em>? b is where you write
+    that answer down. Drag it, and drag the document. <b>Like grading an essay per page instead of per word —
+    first you must decide whether long means padded or thorough.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-b">b = <span id="v3-bl">0.75</span>
+      <i id="v3-btag">mostly verbosity</i></label>
+    <input type="range" id="v3-b" min="0" max="100" value="75" step="5" aria-label="b, the length normalization blend">
+    <label class="v3-lab" for="v3-len">this document: <span id="v3-lenl">1,500</span> words
+      &nbsp;·&nbsp; avgdl = 500</label>
+    <input type="range" id="v3-len" min="100" max="2500" value="1500" step="50" aria-label="Document length in words">
+    <div class="v3-pills" id="v3-pills"></div>
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two operational warnings. avgdl is a <b>collection-wide statistic</b>: it drifts as the
+    corpus grows, and re-chunking a RAG corpus from 1,000-token to 200-token chunks changes every document's
+    B even though b never moved. And the failure modes are symmetric — too high on API references and legal
+    codes buries the comprehensive answers; too low on forum threads and transcripts lets bloat win on word
+    count alone.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v3-lab:first-of-type{margin-top:0}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-lab i{font-style:normal;font-weight:600;font-size:11px;color:var(--viz-muted)}
+    .v3-pills{margin-top:14px;display:flex;gap:6px;flex-wrap:wrap}
+    .v3-pill{font-size:11px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid var(--viz-line);
+      color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v3-pill.is-key{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v3-rows{margin-top:12px;display:flex;flex-direction:column;gap:4px}
+    .v3-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      min-height:38px}
+    .v3-r.is-here{border-color:var(--viz-accent);border-width:2px}
+    .v3-tag{margin-left:auto;font-size:10px;font-weight:800;font-family:inherit;text-align:right}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var AVGDL = 500, K1 = 1.2, IDF = 3.89, TF = 4;
+    var REF = [300, 500, 1500];
+    var sb = document.getElementById('v3-b'), bl = document.getElementById('v3-bl'), btag = document.getElementById('v3-btag');
+    var sl = document.getElementById('v3-len'), ll = document.getElementById('v3-lenl');
+    var pills = document.getElementById('v3-pills'), rows = document.getElementById('v3-rows'), why = document.getElementById('v3-why');
+
+    function Bof(b, len){ return (1 - b) + b * (len / AVGDL); }
+
+    function render(){
+      var b = Number(sb.value) / 100;
+      var len = Number(sl.value);
+      bl.textContent = b.toFixed(2);
+      ll.textContent = len.toLocaleString();
+      btag.textContent = b === 0 ? "pure SCOPE — no normalization at all"
+        : b === 1 ? "pure VERBOSITY — full normalization"
+        : b < 0.5 ? "leaning scope" : b < 0.85 ? "mostly verbosity" : "nearly full verbosity";
+
+      var B = Bof(b, len);
+      var kB = K1 * B;
+      var effTf = B > 0 ? TF / B : 0;
+      var denom = TF + kB;
+      var contrib = denom > 0 ? IDF * TF * (K1 + 1) / denom : 0;
+
+      pills.innerHTML =
+        '<span class="v3-pill is-key">B = ' + B.toFixed(2) + '</span>' +
+        '<span class="v3-pill">k1&middot;B = ' + kB.toFixed(2) + '</span>' +
+        '<span class="v3-pill">effective tf = ' + effTf.toFixed(2) + ' (raw 4)</span>' +
+        '<span class="v3-pill is-key">term score = ' + contrib.toFixed(2) + '</span>';
+
+      rows.innerHTML = REF.map(function(n){
+        var rb = Bof(b, n);
+        var tag = rb < 0.995 ? "INFLATED &times;" + (1 / rb).toFixed(2)
+          : rb > 1.005 ? "DEFLATED &divide;" + rb.toFixed(2) : "NEUTRAL";
+        var col = rb < 0.995 ? 'var(--viz-green)' : rb > 1.005 ? 'var(--viz-red)' : 'var(--viz-muted)';
+        var here = Math.abs(n - len) < 26 ? ' is-here' : '';
+        return '<div class="v3-r' + here + '"><span>' + n.toLocaleString() + ' words</span>' +
+          '<span>B = ' + rb.toFixed(2) + '</span>' +
+          '<span class="v3-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var msg;
+      if (b === 0) {
+        msg = '<b style="color:var(--viz-amber)">b = 0: the scope hypothesis, taken literally.</b>' +
+          "B = 1 for every document, so length is invisible again and a 2,500-word page keeps every one of its occurrences at full weight. Defensible for API references, legal codes and textbook chapters, where long genuinely means <em>covers more</em>. " +
+          "<br><br>This is also the setting that flips the Doc A / Doc B verdict in visual 4.";
+      } else if (b === 1) {
+        msg = '<b style="color:var(--viz-amber)">b = 1: the verbosity hypothesis, taken literally.</b>' +
+          "B = |d|/avgdl exactly, so doubling a document's length halves the effective weight of each occurrence. Right for a corpus of transcripts and forum threads; brutal on anything comprehensive.";
+      } else {
+        msg = '<b style="color:var(--viz-green)">The blend, and what it does to the curve.</b>' +
+          "B = (1&minus;b) + b&middot;|d|/avgdl = " + B.toFixed(2) + ", and the crucial detail is <em>where</em> it lands: <b>inside</b> the saturation function, as k1&middot;B = " + kB.toFixed(2) + ". " +
+          "A long document therefore does not lose score linearly — its effective tf slides down the concave curve of visual 2, and k1&middot;B becomes a <b>per-document saturation rate</b>. " +
+          "<br><br>Long documents need proportionally more occurrences to reach the same evidence level. That sentence is the verbosity hypothesis, made quantitative.";
+      }
+      why.innerHTML = msg;
+    }
+    sb.addEventListener('input', render);
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Doc A Versus Doc B</h2>
+  <p class="vz-lede">Both repairs, assembled, on one query: <code>vector index</code> against a tight
+    300-word note and a sprawling 1,500-word page that contains 2.5&times; the raw counts. Tap the formula to
+    read its anatomy, then move the two constants and watch the winner change. <b>Like a race where the
+    handicap is written in the rulebook, not by the runners.</b></p>
+
+  <div class="vz-card vz-mono" id="v4-formula" style="margin-bottom:10px"></div>
+  <div class="v4-chips" id="v4-chips"></div>
+  <div class="vz-card" style="margin-bottom:11px"><div class="v4-anat" id="v4-anat"></div></div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-k1">k1 = <span id="v4-k1l">1.2</span></label>
+    <input type="range" id="v4-k1" min="0" max="30" value="12" step="1" aria-label="k1">
+    <label class="v4-lab" for="v4-b">b = <span id="v4-bl">0.75</span></label>
+    <input type="range" id="v4-b" min="0" max="100" value="75" step="5" aria-label="b">
+    <div class="v4-score" id="v4-score"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Know what this formula does <b>not</b> contain: no proximity (adjacent or ten paragraphs
+    apart scores the same), no semantics (<code>k8s</code> contributes nothing to a <code>kubernetes</code>
+    query), and nothing per query term beyond idf. Those gaps — not scoring quality on the terms it does
+    match — are why BM25 is <em>paired</em> with dense retrieval in a hybrid stack rather than replaced by it.</p>
+
+  <style>
+    .v4-chips{display:flex;flex-direction:column;gap:6px;margin-bottom:11px}
+    .v4-chip{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-family:ui-monospace,Consolas,monospace;
+      font-size:11px;display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v4-chip[aria-pressed="true"]{border-color:var(--viz-accent);border-width:2px}
+    .v4-n{flex:0 0 auto;font-weight:800;color:var(--viz-muted);width:14px;font-family:inherit}
+    .v4-anat{font-size:12.5px;line-height:1.6}
+    .v4-anat b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v4-lab:first-of-type{margin-top:0}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-score{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+    .v4-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.55}
+    .v4-d.is-win{border-color:var(--viz-green);border-width:2px}
+    .v4-d h6{margin:0 0 4px;font-size:12px;display:flex;justify-content:space-between;gap:8px;font-family:inherit}
+    .v4-d h6 em{font-style:normal;font-weight:800}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var AVGDL = 500, N = 100000;
+    var TERMS = [
+      { t: "vector", idf: 3.89, n: 2000,  a: 4, b: 10 },
+      { t: "index",  idf: 2.20, n: 10000, a: 2, b: 6 }
+    ];
+    var DOCS = [
+      { k: "Doc A", len: 300,  note: "tight 300-word note" },
+      { k: "Doc B", len: 1500, note: "sprawling 1,500-word page" }
+    ];
+    document.getElementById('v4-formula').innerHTML =
+      "score(q,d) =  SUM over t in q AND d  of\n" +
+      "\n" +
+      "                       N - n_t + 0.5            tf_t * (k1 + 1)\n" +
+      "              log  ---------------------  *  ------------------------------\n" +
+      "                         n_t + 0.5            tf_t + k1 * ( (1-b) + b*|d|/avgdl )";
+
+    var CHIPS = [
+      { t: "SUM over t in q AND d",
+        h: "BIM's additive skeleton, inherited whole.",
+        p: "Only terms the document actually matches contribute. That is precisely the computation an inverted index makes cheap: walk the postings lists of the query terms, accumulate a weight per document, never touch the rest of the collection. Every repair in this lesson happens <em>inside</em> the summand — the shape of the sum is untouched." },
+      { t: "log( (N-n_t+0.5) / (n_t+0.5) )",
+        h: "The RSJ weight, zero-relevance-information form.",
+        p: "Last lesson's derivation, unchanged. vector: n = 2,000 of N = 100,000 gives ln(98000.5/2000.5) = 3.89. index: n = 10,000 gives 2.20. It goes <b>negative</b> for any term in more than half the documents, so a common query word could penalise a document — which is why Lucene reformulates it as log(1 + that ratio)." },
+      { t: "tf_t * (k1 + 1)",
+        h: "Saturation's numerator — and (k1+1) is rank-inert.",
+        p: "It makes tf = 1 in an average-length document worth exactly 1.0, so a single occurrence contributes exactly the term's idf and the asymptote becomes k1+1. Because it multiplies every term of every document equally, it cannot reorder anything. A distractor that claims it changes ranking is wrong by construction." },
+      { t: "tf_t + k1*((1-b) + b*|d|/avgdl)",
+        h: "The denominator carries both repairs at once.",
+        p: "k1 sets how fast evidence saturates; B = (1-b)+b|d|/avgdl scales it per document. Their product k1*B is a per-document saturation rate: 0.84 for Doc A and 3.00 for Doc B at the defaults. Length normalization living <em>inside</em> the saturation term, rather than outside it, is the single most-missed detail in this lesson." }
+    ];
+    var chips = document.getElementById('v4-chips'), anat = document.getElementById('v4-anat');
+    function showChip(i){
+      [].slice.call(chips.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      anat.innerHTML = '<b>' + CHIPS[i].h + '</b>' + CHIPS[i].p;
+    }
+    CHIPS.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'v4-chip';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v4-n">' + (i + 1) + '</span><span>' + c.t + '</span>';
+      b.addEventListener('click', function(){ showChip(i); });
+      chips.appendChild(b);
+    });
+    showChip(0);
+
+    var sk = document.getElementById('v4-k1'), kl = document.getElementById('v4-k1l');
+    var sb = document.getElementById('v4-b'), bl = document.getElementById('v4-bl');
+    var score = document.getElementById('v4-score'), why = document.getElementById('v4-why');
+
+    function total(docIdx, k1, b){
+      var d = DOCS[docIdx];
+      var B = (1 - b) + b * (d.len / AVGDL);
+      var parts = [], sum = 0;
+      TERMS.forEach(function(tm){
+        var tf = docIdx === 0 ? tm.a : tm.b;
+        var den = tf + k1 * B;
+        var sat = den > 0 ? tf * (k1 + 1) / den : 0;
+        var v = tm.idf * sat;
+        sum += v;
+        parts.push({ t: tm.t, tf: tf, sat: sat, idf: tm.idf, v: v });
+      });
+      return { B: B, kB: k1 * B, parts: parts, sum: sum };
+    }
+
+    function render(){
+      var k1 = Number(sk.value) / 10, b = Number(sb.value) / 100;
+      kl.textContent = k1.toFixed(1);
+      bl.textContent = b.toFixed(2);
+      var A = total(0, k1, b), Bd = total(1, k1, b);
+      var aWins = A.sum > Bd.sum + 1e-9, bWins = Bd.sum > A.sum + 1e-9;
+
+      function card(d, r, win){
+        return '<div class="v4-d' + (win ? ' is-win' : '') + '"><h6><span>' + d.k + ' &middot; ' + d.note +
+          '</span><em style="color:' + (win ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          r.sum.toFixed(2) + (win ? ' WINS' : '') + '</em></h6>' +
+          'B = ' + r.B.toFixed(2) + ' &nbsp; k1&middot;B = ' + r.kB.toFixed(2) + '<br>' +
+          r.parts.map(function(p){
+            return p.t + ': tf ' + p.tf + ' &rarr; sat ' + p.sat.toFixed(2) + ' &times; idf ' + p.idf.toFixed(2) +
+              ' = ' + p.v.toFixed(2);
+          }).join('<br>') + '</div>';
+      }
+      score.innerHTML = card(DOCS[0], A, aWins) + card(DOCS[1], Bd, bWins);
+
+      var cross = -1;
+      for (var i = 0; i <= 100; i++) {
+        var bb = i / 100;
+        if (total(0, k1, bb).sum > total(1, k1, bb).sum) { cross = bb; break; }
+      }
+      var crossTxt = cross < 0
+        ? "At this k1 the long document wins at <b>every</b> value of b — no amount of length normalization rescues the short one."
+        : cross === 0
+          ? "At this k1 the short document wins at <b>every</b> value of b, including b = 0."
+          : "At this k1, Doc A overtakes Doc B at <b>b &asymp; " + cross.toFixed(2) + "</b>.";
+
+      var msg;
+      if (b <= 0.05) {
+        msg = '<b style="color:var(--viz-red)">b &asymp; 0 and the verdict flips.</b>' +
+          "With no length normalization, Doc B's 2.5&times; raw counts simply count: " + Bd.sum.toFixed(1) + " against " + A.sum.toFixed(1) +
+          ". This is the cleanest demonstration in the lesson that <b>b is not a rounding detail — it decides winners</b>. " +
+          "<br><br>" + crossTxt;
+      } else if (aWins) {
+        msg = '<b style="color:var(--viz-green)">The short document wins on 2.5&times; fewer occurrences.</b>' +
+          "Saturation flattened Doc B's extra mentions (tf 10 is worth only a little more than tf 4 on a concave curve) and length normalization discounted what was left (k1&middot;B = " +
+          Bd.kB.toFixed(2) + " against " + A.kB.toFixed(2) + "). Two independent mechanisms, pulling the same way. " +
+          "<br><br>" + crossTxt;
+      } else {
+        msg = '<b style="color:var(--viz-amber)">The long document is ahead at these constants.</b>' +
+          "Doc B carries 2.5 to 3&times; the raw counts, and at k1 = " + k1.toFixed(1) + ", b = " + b.toFixed(2) +
+          " neither repair is biting hard enough to erase that. Raise b to penalise verbosity, or lower k1 so the extra occurrences saturate sooner. " +
+          "<br><br>" + crossTxt;
+      }
+      why.innerHTML = msg;
+    }
+    sk.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Tuning By Symptom</h2>
+  <p class="vz-lede">Grid search finds the pair; the symptom tells you which direction it will move and
+    whether the problem is a constant at all. Tap what your result list is doing wrong, then pick the
+    collection you are actually indexing. <b>Like a doctor reading symptoms instead of handing everyone the
+    same pill.</b></p>
+
+  <div class="v5-list" id="v5-list"></div>
+  <div class="vz-card" style="margin-bottom:12px"><div class="v5-rx" id="v5-rx"></div></div>
+
+  <div class="vz-seg" id="v5-seg" role="group" aria-label="Collection type"></div>
+  <div class="vz-card"><div class="v5-coll" id="v5-coll"></div></div>
+
+  <p class="vz-note">Two things the grid will not tell you. <b>Overfitting is easy</b>: a judgment pool built
+    from last quarter's head queries will happily choose a pair that regresses the long tail, so keep the
+    query sample representative and re-validate after any change to chunking, fields or analyzers — each
+    silently changes the length and frequency statistics the constants were tuned against. And <b>BM25 scores
+    are not comparable across collections at all</b>, since N, n_t and avgdl are collection statistics. That
+    bites hardest in hybrid retrieval, which is exactly why reciprocal rank fusion — which throws the scores
+    away and keeps only the ranks — is the robust default for combining a sparse and a dense list.</p>
+
+  <style>
+    .v5-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v5-s[aria-pressed="true"]{border-color:var(--viz-accent);border-width:2px}
+    .v5-n{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-muted);width:14px}
+    .v5-rx,.v5-coll{font-size:12.5px;line-height:1.6}
+    .v5-rx b,.v5-coll b{display:block;font-size:13px;margin-bottom:4px}
+    .v5-dose{display:inline-block;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:800;
+      border:1.5px solid var(--viz-accent);color:var(--viz-accent);border-radius:999px;padding:3px 10px;margin-bottom:7px}
+  </style>
+  <script>
+  (function(){
+    var SYM = [
+      { s: "Long, rambling documents fill the top 10",
+        dose: "raise b  &#8594;  0.8 - 0.9",
+        h: "Verbosity is being under-penalised.",
+        p: "At b = 0.75 a 1,500-word document already carries B = 2.50. If it still wins, your corpus is more verbose than the default assumes — forum threads, meeting transcripts, crawled marketing pages. Push b up and re-measure, then watch for the opposite failure appearing as you do: the two failure modes are symmetric and you can trade one for the other in a single step." },
+      { s: "Substantive, comprehensive pages lose to thin stubs",
+        dose: "lower b  &#8594;  0.3 - 0.5",
+        h: "Scope is being punished as if it were padding.",
+        p: "This is the scope hypothesis asserting itself: API references, legal codes and textbook chapters are long because they cover more, and their higher term frequencies are honest. At b = 0 the Doc A / Doc B example of visual 4 flips outright — 11.7 against 9.6 — which is how much of the verdict b alone controls." },
+      { s: "Keyword-stuffed or repetitive pages win",
+        dose: "lower k1  &#8594;  0.5 - 0.9",
+        h: "Make repetition saturate sooner.",
+        p: "Lower k1 compresses the payoff for repeating a term. Going from tf = 1 to tf = 30 multiplies the saturation factor by 2.1&times; at k1 = 1.2, by only 1.5&times; at k1 = 0.5, and by exactly 1&times; at k1 = 0 (which is BIM). Remember what the alternative buys the ranker: matching one <em>additional distinct</em> query term adds a whole fresh idf weight, and no amount of repetition can." },
+      { s: "One passing mention outranks sustained coverage",
+        dose: "raise k1  &#8594;  2.0 - 3.0",
+        h: "Let genuine repetition count for more.",
+        p: "The mirror image. At k1 = 3.0 the tf = 1 to tf = 30 span widens to about 3.6&times;, so a document that returns to the topic repeatedly separates from one that names it once in a footer. The cost is that you have moved towards raw tf and weakened the concavity that protects you from the previous symptom." },
+      { s: "A two-term match scores BELOW a one-term match",
+        dose: "not a constant  &#8594;  fix the idf",
+        h: "Neither knob will help — this is negative idf.",
+        p: "The RSJ idf log((N-n+0.5)/(n+0.5)) goes negative for any term in more than half the documents, so matching a common query word actively subtracts. Lucene reformulates it as log(1 + (N-n+0.5)/(n+0.5)): strictly positive, and it barely perturbs rare terms — 9.16 stays 9.16 at n = 10, while -2.20 becomes +0.10 at n = 90,000. Know which variant your engine implements before you compare scores across systems." }
+    ];
+    var list = document.getElementById('v5-list'), rx = document.getElementById('v5-rx');
+    function showSym(i){
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      rx.innerHTML = '<span class="v5-dose">' + SYM[i].dose + '</span><b>' + SYM[i].h + '</b>' + SYM[i].p;
+    }
+    SYM.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'v5-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v5-n">' + (i + 1) + '</span><span>' + s.s + '</span>';
+      b.addEventListener('click', function(){ showSym(i); });
+      list.appendChild(b);
+    });
+    showSym(0);
+
+    var COLL = [
+      { l: "titles, product names", dose: "k1 &asymp; 0.9 &nbsp;·&nbsp; b &#8804; 0.3",
+        h: "Presence is the whole signal.",
+        p: "In a 6-word field tf &gt; 1 is rare, so the saturation rate hardly matters and a small k1 is safest. Length varies for reasons that are mostly noise rather than verbosity, so heavy normalization would punish a slightly longer title for nothing." },
+      { l: "prose articles", dose: "k1 = 1.2 &nbsp;·&nbsp; b = 0.75",
+        h: "The Lucene default, and where it came from.",
+        p: "These are also Elasticsearch's and OpenSearch's out-of-the-box values, sensible for prose-like collections of moderate length variance — and almost never exactly optimal for yours. Grid-search k1 over [0.5, 3.0] and b over [0, 1] in steps of 0.1 to 0.2; the surface is smooth, so a few hundred cells settles it. Maximise nDCG@10 for graded judgments, MRR for known-item search, and confirm on a held-out split." },
+      { l: "transcripts, forums", dose: "b &gt; 0.75",
+        h: "Verbosity-dominated by construction.",
+        p: "A meeting transcript or a 40-reply thread says the same things repeatedly; its inflated term frequencies are exactly the artefact b exists to remove. Push above the default and expect the top of the list to shorten noticeably." },
+      { l: "reference docs", dose: "b &asymp; 0.3 - 0.5",
+        h: "Here length really does equal scope.",
+        p: "Documentation grows because it documents more. Normalize it hard and the page that answers ten questions loses to ten stubs that answer one each. <br><br>Note that no single pair suits both a 6-word title field and a 3,000-word body field in the same index — which is exactly why field-aware variants such as BM25F and per-field similarity settings exist." }
+    ];
+    var seg = document.getElementById('v5-seg'), coll = document.getElementById('v5-coll');
+    function showColl(i){
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      coll.innerHTML = '<span class="v5-dose">' + COLL[i].dose + '</span><b>' + COLL[i].h + '</b>' + COLL[i].p;
+    }
+    COLL.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.innerHTML = c.l;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ showColl(i); });
+      seg.appendChild(b);
+    });
+    showColl(1);
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,1174 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:34px}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px;margin-top:12px}
+.vz-plot svg{display:block;width:100%;height:auto}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Secant To Tangent</button>
+  <button class="viz-tab" data-viz-tab="2">2. Which Rule Applies</button>
+  <button class="viz-tab" data-viz-tab="3">3. Trig Derivative Cycle</button>
+  <button class="viz-tab" data-viz-tab="4">4. Chain Implicit Rates</button>
+  <button class="viz-tab" data-viz-tab="5">5. Tangent Line Zoom</button>
+  <button class="viz-tab" data-viz-tab="6">6. Minimize The Loss</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Secant To Tangent</h2>
+  <p class="vz-lede"><b>Estimating limits and one-sided limits</b> and <b>Limits by direct substitution,
+    factoring, and conjugates</b> taught you what a quantity approaches. Aim all of that at ONE quotient and
+    you have the derivative. Drag the step h toward zero and watch the secant line swing onto the tangent
+    line — and switch the step to the left to see why a corner has no derivative at all.
+    <b>Like a camera zoom: from far away a curve looks bent, close enough it looks straight.</b></p>
+
+  <div class="vz-card vz-mono" id="v1-fam"></div>
+
+  <div class="vz-seg" role="group" aria-label="function">
+    <button id="v1-f0" aria-pressed="true">x^2 at a = 2</button>
+    <button id="v1-f1" aria-pressed="false">sqrt(x) at a = 4</button>
+    <button id="v1-f2" aria-pressed="false">5t - 1</button>
+    <button id="v1-f3" aria-pressed="false">|x| at a = 0</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-h">step h = <span id="v1-hl">0.50</span></label>
+    <input class="vz-range" type="range" id="v1-h" min="0" max="100" step="1" value="82" aria-label="size of the step h">
+    <div class="vz-seg" role="group" aria-label="direction of the step">
+      <button id="v1-r" aria-pressed="true">h &gt; 0 · from the right</button>
+      <button id="v1-l" aria-pressed="false">h &lt; 0 · from the left</button>
+    </div>
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="vz-mono v1-read" id="v1-read"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The secant slope is not a lesser thing than the derivative — it is the <b>average rate of
+    change</b> over the step, and it is the right answer to a different question. An object at 155 m when
+    t = 12 s and 170 m when t = 13 s has an average velocity of 15 m/s over that second; only the limit turns
+    it into a speedometer reading.</p>
+
+  <style>
+    .v1-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+  </style>
+  <script>
+  (function(){
+    var FN = [
+      { a:2, lab:'f(x) = x^2', trick:'factoring',
+        f:function(x){ return x * x; },
+        d:function(x){ return 2 * x; },
+        alg:'[(2+h)^2 - 4]/h = (4h + h^2)/h = 4 + h   ->   4' },
+      { a:4, lab:'g(x) = sqrt(x)', trick:'the conjugate',
+        f:function(x){ return x < 0 ? NaN : Math.sqrt(x); },
+        d:function(x){ return x <= 0 ? NaN : 0.5 / Math.sqrt(x); },
+        alg:'[sqrt(4+h) - 2]/h = 1/(sqrt(4+h) + 2)   ->   1/4' },
+      { a:1, lab:'h(t) = 5t - 1', trick:'direct substitution',
+        f:function(x){ return 5 * x - 1; },
+        d:function(){ return 5; },
+        alg:'[5(t+h) - 1 - (5t - 1)]/h = 5h/h = 5   (no h left to shrink)' },
+      { a:0, lab:'f(x) = |x|', trick:'one-sided limits',
+        f:function(x){ return Math.abs(x); },
+        d:function(x){ return x > 0 ? 1 : (x < 0 ? -1 : NaN); },
+        alg:'[|0 + h| - 0]/h = |h|/h = +1 when h > 0, -1 when h < 0' }
+    ];
+    var pick = 0, sign = 1;
+    var bs = [document.getElementById('v1-f0'), document.getElementById('v1-f1'),
+              document.getElementById('v1-f2'), document.getElementById('v1-f3')];
+    var hs = document.getElementById('v1-h'), hl = document.getElementById('v1-hl');
+    var bR = document.getElementById('v1-r'), bL = document.getElementById('v1-l');
+    var plot = document.getElementById('v1-plot'), read = document.getElementById('v1-read');
+    var why = document.getElementById('v1-why'), fam = document.getElementById('v1-fam');
+
+    fam.textContent =
+      'FAMILIAR  (lesson 01)             THIS LESSON\n' +
+      'what a quantity approaches        aim it at ONE quotient\n' +
+      '0/0 cleared by factoring          f\'(x) = lim [f(x+h) - f(x)] / h\n' +
+      'and by conjugates                            h->0\n' +
+      'one-sided limits decide           secant slope -> tangent slope\n' +
+      'whether a limit exists            average rate -> instantaneous rate';
+
+    function n4(v){ return isFinite(v) ? v.toFixed(4) : 'undefined'; }
+    function mag(){ return Math.pow(10, -3 + 3.3 * (Number(hs.value) / 100)); }
+
+    function draw(fn, a, h, m, t){
+      var PW = 320, PH = 175, N = 200, i, xv, v;
+      var lo = a - 3, hi = a + 3, xs = [], ys = [], mn = Infinity, mx = -Infinity;
+      for (i = 0; i <= N; i++) {
+        xv = lo + (hi - lo) * i / N;
+        v = fn.f(xv);
+        xs.push(xv); ys.push(v);
+        if (isFinite(v)) { if (v < mn) mn = v; if (v > mx) mx = v; }
+      }
+      var fa = fn.f(a);
+      function at(slope, x){ return fa + slope * (x - a); }
+      var ends = [];
+      if (isFinite(m) && isFinite(fa)) ends.push(at(m, lo), at(m, hi));
+      if (isFinite(t) && isFinite(fa)) ends.push(at(t, lo), at(t, hi));
+      for (i = 0; i < ends.length; i++) {
+        if (isFinite(ends[i])) { if (ends[i] < mn) mn = ends[i]; if (ends[i] > mx) mx = ends[i]; }
+      }
+      if (!isFinite(mn) || !isFinite(mx)) { mn = -1; mx = 1; }
+      if (mx - mn < 1e-6) { mx = mn + 1; mn = mn - 1; }
+      var pad = (mx - mn) * 0.12; mn -= pad; mx += pad;
+      function px(x){ return (x - lo) / (hi - lo) * PW; }
+      function py(y){ return PH - (y - mn) / (mx - mn) * PH; }
+
+      var pts = '';
+      for (i = 0; i <= N; i++) if (isFinite(ys[i])) pts += px(xs[i]).toFixed(1) + ',' + py(ys[i]).toFixed(1) + ' ';
+
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the curve with its secant and tangent lines">';
+      if (mn < 0 && mx > 0) svg += '<line x1="0" y1="' + py(0).toFixed(1) + '" x2="' + PW + '" y2="' + py(0).toFixed(1) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      svg += '<line x1="' + px(a).toFixed(1) + '" y1="0" x2="' + px(a).toFixed(1) + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      svg += '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>';
+      if (isFinite(m) && isFinite(fa)) {
+        svg += '<line x1="0" y1="' + py(at(m, lo)).toFixed(1) + '" x2="' + PW + '" y2="' + py(at(m, hi)).toFixed(1) +
+          '" stroke="var(--viz-amber)" stroke-width="2" stroke-dasharray="6 4"/>';
+      }
+      if (isFinite(t) && isFinite(fa)) {
+        svg += '<line x1="0" y1="' + py(at(t, lo)).toFixed(1) + '" x2="' + PW + '" y2="' + py(at(t, hi)).toFixed(1) +
+          '" stroke="var(--viz-green)" stroke-width="2"/>';
+      }
+      if (isFinite(fa)) svg += '<circle cx="' + px(a).toFixed(1) + '" cy="' + py(fa).toFixed(1) + '" r="4.5" fill="var(--viz-accent)"/>';
+      var fah = fn.f(a + h);
+      if (isFinite(fah)) svg += '<circle cx="' + px(a + h).toFixed(1) + '" cy="' + py(fah).toFixed(1) + '" r="4.5" fill="var(--viz-amber)"/>';
+      svg += '<text x="4" y="12" font-size="9.5" fill="var(--viz-amber)">dashed: secant through both dots</text>';
+      svg += '<text x="4" y="25" font-size="9.5" fill="' + (isFinite(t) ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        (isFinite(t) ? 'solid: tangent at a' : 'no tangent at a — the derivative does not exist here') + '</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+    }
+
+    function render(){
+      var fn = FN[pick], a = fn.a;
+      var h = sign * mag();
+      var i;
+      for (i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', i === pick ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', sign > 0 ? 'true' : 'false');
+      bL.setAttribute('aria-pressed', sign < 0 ? 'true' : 'false');
+      hl.textContent = (h > 0 ? '+' : '') + h.toFixed(4);
+
+      var fa = fn.f(a), fah = fn.f(a + h);
+      var m = (fah - fa) / h;
+      if (!isFinite(m)) m = NaN;
+      var t = fn.d(a);
+      var gap = Math.abs(m - t);
+
+      draw(fn, a, h, m, t);
+
+      read.textContent =
+        fn.lab + '     a = ' + a + '     h = ' + h.toFixed(4) + '\n' +
+        'secant slope  = [f(a+h) - f(a)]/h = (' + n4(fah) + ' - ' + n4(fa) + ')/' + h.toFixed(4) + ' = ' + n4(m) + '\n' +
+        "tangent slope = f'(a)" + '                                    = ' + n4(t) + '\n' +
+        'gap                                                     = ' + (isFinite(gap) ? gap.toFixed(4) : 'no tangent to compare with') + '\n' +
+        'algebra (' + fn.trick + '):  ' + fn.alg;
+
+      if (pick === 3) {
+        why.innerHTML = '<b style="color:var(--viz-red)">A corner: the two one-sided limits disagree.</b>' +
+          'Step to the right and every quotient is exactly <b>+1</b>; step to the left and every one is exactly ' +
+          '<b>-1</b>. Shrinking h changes nothing, because the disagreement is not an accuracy problem — the ' +
+          'limit itself does not exist, so the derivative is undefined at a sharp corner or cusp. ' +
+          '<br><br>Note what has NOT gone wrong: the function is perfectly continuous at 0. Continuity is ' +
+          'necessary for a derivative and nowhere near sufficient.';
+      } else if (pick === 2) {
+        why.innerHTML = '<b style="color:var(--viz-green)">A straight line needs no limit at all.</b>' +
+          'The quotient simplifies to <b>5</b> before h has done anything, so the average rate of change over ' +
+          'every interval and the instantaneous rate of change at every instant are the same number. ' +
+          '<br><br>That is exactly what "constant slope" means, and it is why a linear model has one derivative ' +
+          'and nothing left to say. Every other function on this page is interesting precisely because its ' +
+          'secant slope depends on where you put the second dot.';
+      } else {
+        var close = Math.abs(h) < 0.02;
+        why.innerHTML = '<b style="color:' + (close ? 'var(--viz-green)' : 'var(--viz-amber)') + '">Gap between secant and tangent: ' +
+          (isFinite(gap) ? gap.toFixed(4) : '—') + '</b>' +
+          'Substituting h = 0 gives <b>0/0</b>, which is why ' + fn.trick + ' is doing the real work: it cancels the h ' +
+          'that is making the fraction meaningless, and only then can the limit be read off. ' +
+          (close
+            ? 'At this step size the dashed secant and the solid tangent have all but merged — that merge <em>is</em> the derivative.'
+            : 'At this step size the two lines are still visibly different. Drag h smaller and the dashed line rotates onto the solid one.') +
+          (pick === 0 && sign > 0
+            ? '<br><br><b style="color:var(--viz-accent)">Concave up, so the secant is steeper.</b>' +
+              'For a strictly concave-up function the slope is still climbing across the interval, so the average rate ' +
+              'over [a, a+h] comes out strictly greater than f\'(a). Flip the step to the left and the inequality flips with it.'
+            : '') +
+          (pick === 1
+            ? '<br><br>The value 1/4 is the <b>slope of the tangent line</b> at x = 4 — not a y-coordinate, and not a ' +
+              'secant slope. That distinction is the whole question this limit answers.'
+            : '');
+      }
+    }
+
+    for (var i = 0; i < bs.length; i++) {
+      (function(j){ bs[j].addEventListener('click', function(){ pick = j; render(); }); })(i);
+    }
+    bR.addEventListener('click', function(){ sign = 1; render(); });
+    bL.addEventListener('click', function(){ sign = -1; render(); });
+    hs.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Which Rule Applies</h2>
+  <p class="vz-lede">The power, product and quotient rules exist so you never run that limit twice. Pick an
+    expression, drag x, and compare the correct rule against the tempting shortcut — with a numerical referee
+    that has never heard of either. <b>Like checking a recipe by tasting: the arithmetic settles the argument,
+    not the confidence of the cook.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="expression">
+    <button id="v2-e0" aria-pressed="true">x^5</button>
+    <button id="v2-e1" aria-pressed="false">x^2(x+1)</button>
+    <button id="v2-e2" aria-pressed="false">(x^2+1)(x^3-4)</button>
+    <button id="v2-e3" aria-pressed="false">(x^2+1)/x</button>
+    <button id="v2-e4" aria-pressed="false">x/(x^2+1)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-x">x = <span id="v2-xl">1.50</span></label>
+    <input class="vz-range" type="range" id="v2-x" min="-3" max="3" step="0.05" value="1.5" aria-label="x">
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The power rule does not care that an exponent looks exotic: since e is a constant,
+    d/dx of x^e is e·x^(e-1). And applied term by term to a polynomial of degree n (n &gt;= 1) it lowers the
+    degree by <b>exactly one</b> — which is the quiet reason a second derivative of a cubic is linear.</p>
+
+  <style>
+    .v2-rows{display:flex;flex-direction:column;gap:5px;margin-top:12px}
+    .v2-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      line-height:1.45;flex-wrap:wrap}
+    .v2-r.is-ok{border-color:var(--viz-green)}
+    .v2-r.is-bad{border-color:var(--viz-red);border-style:dashed}
+    .v2-r.is-flat{border-color:var(--viz-violet)}
+    .v2-r i{font-style:normal;margin-left:auto;font-weight:800}
+    .v2-tag{font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var CASES = [
+      { rule:'Power rule',
+        form:'5x^4',
+        f:function(x){ return Math.pow(x, 5); },
+        d:function(x){ return 5 * Math.pow(x, 4); },
+        naiveLab:'', naive:null, needsNonzero:false,
+        why:['One rule, one line — and it is the engine inside the other two.',
+          'Every term of a polynomial goes through this. Note the exponent drops by one, so a degree-5 term ' +
+          'becomes degree 4: apply it to a whole polynomial of degree n and the degree falls by exactly one.'] },
+      { rule:'Product rule',
+        form:"f'g + fg' = 2x(x+1) + x^2(1) = 3x^2 + 2x",
+        f:function(x){ return x * x * (x + 1); },
+        d:function(x){ return 3 * x * x + 2 * x; },
+        naiveLab:"f'g' = (2x)(1)", naive:function(x){ return 2 * x; }, needsNonzero:false,
+        why:['A product, and you can check it by expanding.',
+          'x^2(x+1) expands to x^3 + x^2, whose derivative is 3x^2 + 2x — the same answer the product rule ' +
+          'gives, which is a free proof that the rule is not an arbitrary convention. The shortcut f\'g\' ' +
+          'throws away both terms built from the ORIGINAL functions, and the referee catches it instantly.'] },
+      { rule:'Product rule',
+        form:"f'g + fg' = 2x(x^3-4) + (x^2+1)(3x^2)",
+        f:function(x){ return (x * x + 1) * (x * x * x - 4); },
+        d:function(x){ return 2 * x * (x * x * x - 4) + (x * x + 1) * 3 * x * x; },
+        naiveLab:"f'g' = (2x)(3x^2)", naive:function(x){ return 6 * x * x * x; }, needsNonzero:false,
+        why:['Not the chain rule, not the quotient rule — two factors multiplied.',
+          'Choosing the rule is a question about SHAPE. Two things multiplied is a product however complicated ' +
+          'each factor is; a composition would be one function fed INTO another, which is visual 4.'] },
+      { rule:'Quotient rule — or rewrite as x + 1/x',
+        form:'1 - 1/x^2',
+        f:function(x){ return x === 0 ? NaN : (x * x + 1) / x; },
+        d:function(x){ return x === 0 ? NaN : 1 - 1 / (x * x); },
+        naiveLab:"top' / bottom' = 2x/1", naive:function(x){ return 2 * x; }, needsNonzero:true,
+        why:['The cheapest quotient is the one you never take.',
+          '(x^2+1)/x splits into x + x^(-1), and the power rule finishes it: 1 - 1/x^2. Reaching for the quotient ' +
+          'rule here is legal and gives the same answer after simplification — just slower and easier to fumble.'] },
+      { rule:'Quotient rule',
+        form:'[(x^2+1) - x(2x)]/(x^2+1)^2 = (1-x^2)/(x^2+1)^2',
+        f:function(x){ return x / (x * x + 1); },
+        d:function(x){ return (1 - x * x) / Math.pow(x * x + 1, 2); },
+        naiveLab:"top' / bottom' = 1/(2x)", naive:function(x){ return x === 0 ? NaN : 1 / (2 * x); }, needsNonzero:false,
+        why:['Where the derivative hits zero, the tangent line is horizontal.',
+          'The numerator 1 - x^2 vanishes at x = 1 and at x = -1, and nowhere else — so those are the two ' +
+          'horizontal tangents. Drag onto either one and watch the value cross zero. Setting a derivative to ' +
+          'zero is the same move that finds an optimum in visual 6.'] }
+    ];
+    var pick = 0;
+    var bs = [document.getElementById('v2-e0'), document.getElementById('v2-e1'), document.getElementById('v2-e2'),
+              document.getElementById('v2-e3'), document.getElementById('v2-e4')];
+    var xs = document.getElementById('v2-x'), xl = document.getElementById('v2-xl');
+    var rows = document.getElementById('v2-rows'), why = document.getElementById('v2-why');
+
+    function n4(v){ return isFinite(v) ? v.toFixed(4) : '—'; }
+    function row(label, detail, value, cls, tag){
+      return '<div class="v2-r ' + (cls || '') + '"><span>' + label + '</span>' +
+        '<span style="color:var(--viz-muted)">' + detail + '</span>' +
+        (tag ? '<span class="v2-tag" style="color:var(--viz-muted)">' + tag + '</span>' : '') +
+        '<i>' + value + '</i></div>';
+    }
+
+    function render(){
+      var i;
+      for (i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', i === pick ? 'true' : 'false');
+      var c = CASES[pick], x = Number(xs.value);
+      xl.textContent = x.toFixed(2);
+
+      var truth = c.d(x);
+      var step = 1e-4;
+      var fp = c.f(x + step), fm = c.f(x - step);
+      var ref = (fp - fm) / (2 * step);
+      if (!isFinite(ref)) ref = NaN;
+      var naive = c.naive ? c.naive(x) : NaN;
+      var agree = isFinite(truth) && isFinite(ref) && Math.abs(truth - ref) < 1e-2;
+      var flat = isFinite(truth) && Math.abs(truth) < 0.03;
+
+      var html = row('rule', c.rule, '', '') +
+        row("derivative", c.form, n4(truth), 'is-ok', 'from the rule');
+      if (c.naive) html += row('shortcut', c.naiveLab, n4(naive), 'is-bad', 'WRONG');
+      html += row('referee', '[f(x+h) - f(x-h)]/2h, h = 0.0001', n4(ref), '', 'knows no rules');
+      html += row('verdict',
+        agree ? 'the rule matches the referee' : 'no comparison possible at this x',
+        agree ? 'gap ' + Math.abs(truth - ref).toFixed(5) : '—',
+        agree ? 'is-ok' : '');
+      if (c.naive && isFinite(naive) && isFinite(ref)) {
+        html += row('shortcut error', 'how far the shortcut lands from the truth',
+          Math.abs(naive - ref).toFixed(4), 'is-bad');
+      }
+      if (flat) html += row('horizontal tangent', 'the derivative is zero here', n4(truth), 'is-flat', 'slope 0');
+      rows.innerHTML = html;
+
+      var near0 = Math.abs(x) < 0.2;
+      why.innerHTML = '<b>' + c.why[0] + '</b>' + c.why[1] +
+        (c.needsNonzero && near0
+          ? '<br><br><b style="color:var(--viz-amber)">Undefined at x = 0.</b>' +
+            'This expression divides by x, so neither the function nor its derivative exists there and every ' +
+            'number above is honestly blank rather than quietly wrong. Drag away from the origin.'
+          : '') +
+        (flat
+          ? '<br><br><b style="color:var(--viz-violet)">Derivative = 0, so the tangent line here is horizontal.</b>' +
+            'Not a maximum by itself, and not a claim about the value of the function — only about its slope.'
+          : '');
+    }
+
+    for (var i = 0; i < bs.length; i++) {
+      (function(j){ bs[j].addEventListener('click', function(){ pick = j; render(); }); })(i);
+    }
+    xs.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Trig Derivative Cycle</h2>
+  <p class="vz-lede">Sine and cosine differentiate into each other, so their higher-order derivatives run in a
+    loop of length four. Drag x to read the slope off the curve; drag the order n to see which of the four
+    faces the n-th derivative wears. <b>Like the hands of a clock: after four steps you are exactly where you
+    started, so only the remainder matters.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="function">
+    <button id="v3-m0" aria-pressed="true">sin(x)</button>
+    <button id="v3-m1" aria-pressed="false">cos(x)</button>
+    <button id="v3-m2" aria-pressed="false">sin(x) + cos(x)</button>
+    <button id="v3-m3" aria-pressed="false">4sin(x) - 3cos(x)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-x">x = <span id="v3-xl">0.00</span> radians</label>
+    <input class="vz-range" type="range" id="v3-x" min="0" max="6.28" step="0.01" value="0" aria-label="x in radians">
+    <div class="vz-plot" id="v3-plot"></div>
+    <div class="vz-mono v3-read" id="v3-read"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v3-n">n-th derivative of sin(x), n = <span id="v3-nl">1</span></label>
+    <input class="vz-range" type="range" id="v3-n" min="0" max="104" step="1" value="1" aria-label="derivative order n">
+    <div class="vz-seg" role="group" aria-label="jump to an order">
+      <button id="v3-p100">jump to n = 100</button>
+      <button id="v3-p102">jump to n = 102</button>
+    </div>
+    <div class="v3-cycle" id="v3-cycle"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Concavity is just the second derivative wearing its geometric name. On (0, pi/2) the
+    second derivative of cos(x) is -cos(x), which is negative there — so cos(x) is <b>concave down</b> on that
+    interval, and no amount of staring at the picture is needed to say so.</p>
+
+  <style>
+    .v3-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+    .v3-cycle{display:flex;gap:5px;flex-wrap:wrap;margin-top:12px}
+    .v3-c{flex:1 1 66px;border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 4px;text-align:center;
+      background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-c.is-on{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v3-c u{display:block;text-decoration:none;font-size:9px;letter-spacing:.05em;text-transform:uppercase;
+      color:var(--viz-muted);margin-bottom:3px;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var MODES = [
+      { lab:'sin(x)',            f:function(x){ return Math.sin(x); },
+        d:function(x){ return Math.cos(x); },  dd:function(x){ return -Math.sin(x); },
+        df:"cos(x)", ddf:"-sin(x)" },
+      { lab:'cos(x)',            f:function(x){ return Math.cos(x); },
+        d:function(x){ return -Math.sin(x); }, dd:function(x){ return -Math.cos(x); },
+        df:"-sin(x)", ddf:"-cos(x)" },
+      { lab:'sin(x) + cos(x)',   f:function(x){ return Math.sin(x) + Math.cos(x); },
+        d:function(x){ return Math.cos(x) - Math.sin(x); }, dd:function(x){ return -Math.sin(x) - Math.cos(x); },
+        df:"cos(x) - sin(x)", ddf:"-sin(x) - cos(x)" },
+      { lab:'4sin(x) - 3cos(x)', f:function(x){ return 4 * Math.sin(x) - 3 * Math.cos(x); },
+        d:function(x){ return 4 * Math.cos(x) + 3 * Math.sin(x); }, dd:function(x){ return -4 * Math.sin(x) + 3 * Math.cos(x); },
+        df:"4cos(x) + 3sin(x)", ddf:"-4sin(x) + 3cos(x)" }
+    ];
+    var CYCLE = ['sin(x)', 'cos(x)', '-sin(x)', '-cos(x)'];
+    var pick = 0;
+    var bs = [document.getElementById('v3-m0'), document.getElementById('v3-m1'),
+              document.getElementById('v3-m2'), document.getElementById('v3-m3')];
+    var xs = document.getElementById('v3-x'), xl = document.getElementById('v3-xl');
+    var ns = document.getElementById('v3-n'), nl = document.getElementById('v3-nl');
+    var p100 = document.getElementById('v3-p100'), p102 = document.getElementById('v3-p102');
+    var plot = document.getElementById('v3-plot'), read = document.getElementById('v3-read');
+    var cyc = document.getElementById('v3-cycle'), why = document.getElementById('v3-why');
+
+    function n4(v){ return isFinite(v) ? v.toFixed(4) : '—'; }
+
+    function draw(m, xv){
+      var PW = 320, PH = 150, N = 200, i, t;
+      var lo = 0, hi = 6.2832, mn = Infinity, mx = -Infinity, fs = [], ds = [];
+      for (i = 0; i <= N; i++) {
+        t = lo + (hi - lo) * i / N;
+        var a = m.f(t), b = m.d(t);
+        if (!isFinite(a)) a = 0;
+        if (!isFinite(b)) b = 0;
+        fs.push(a); ds.push(b);
+        mn = Math.min(mn, a, b); mx = Math.max(mx, a, b);
+      }
+      if (!isFinite(mn) || !isFinite(mx)) { mn = -1; mx = 1; }
+      if (mx - mn < 1e-6) { mx = mn + 1; mn = mn - 1; }
+      var pad = (mx - mn) * 0.14; mn -= pad; mx += pad;
+      function px(t2){ return (t2 - lo) / (hi - lo) * PW; }
+      function py(v){ return PH - (v - mn) / (mx - mn) * PH; }
+
+      var pf = '', pd = '';
+      for (i = 0; i <= N; i++) {
+        t = lo + (hi - lo) * i / N;
+        pf += px(t).toFixed(1) + ',' + py(fs[i]).toFixed(1) + ' ';
+        pd += px(t).toFixed(1) + ',' + py(ds[i]).toFixed(1) + ' ';
+      }
+      var fv = m.f(xv), sv = m.d(xv);
+      if (!isFinite(fv)) fv = 0;
+      if (!isFinite(sv)) sv = 0;
+      var half = 0.9;
+      var tx1 = Math.max(lo, xv - half), tx2 = Math.min(hi, xv + half);
+
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the function, its derivative, and the tangent at x">' +
+        '<line x1="0" y1="' + py(0).toFixed(1) + '" x2="' + PW + '" y2="' + py(0).toFixed(1) + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<line x1="' + px(xv).toFixed(1) + '" y1="0" x2="' + px(xv).toFixed(1) + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<polyline points="' + pf + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>' +
+        '<polyline points="' + pd + '" fill="none" stroke="var(--viz-violet)" stroke-width="2.5" stroke-dasharray="5 4"/>' +
+        '<line x1="' + px(tx1).toFixed(1) + '" y1="' + py(fv + sv * (tx1 - xv)).toFixed(1) +
+          '" x2="' + px(tx2).toFixed(1) + '" y2="' + py(fv + sv * (tx2 - xv)).toFixed(1) +
+          '" stroke="var(--viz-green)" stroke-width="2"/>' +
+        '<circle cx="' + px(xv).toFixed(1) + '" cy="' + py(fv).toFixed(1) + '" r="4.5" fill="var(--viz-accent)"/>' +
+        '<circle cx="' + px(xv).toFixed(1) + '" cy="' + py(sv).toFixed(1) + '" r="4.5" fill="var(--viz-violet)"/>' +
+        '<text x="4" y="12" font-size="9.5" fill="var(--viz-accent)">solid: the function</text>' +
+        '<text x="4" y="25" font-size="9.5" fill="var(--viz-violet)">dashed: its derivative</text>' +
+        '<text x="4" y="38" font-size="9.5" fill="var(--viz-green)">short line: the tangent at x</text>' +
+        '</svg>';
+      plot.innerHTML = svg;
+    }
+
+    function render(){
+      var i;
+      for (i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', i === pick ? 'true' : 'false');
+      var m = MODES[pick], xv = Number(xs.value), n = Number(ns.value);
+      xl.textContent = xv.toFixed(2);
+      nl.textContent = n;
+
+      draw(m, xv);
+
+      var fv = m.f(xv), sv = m.d(xv), cv = m.dd(xv);
+      var flat = isFinite(sv) && Math.abs(sv) < 0.03;
+      read.textContent =
+        'f(x)   = ' + m.lab + '                    = ' + n4(fv) + '\n' +
+        "f'(x)  = " + m.df + '   -> slope of the tangent = ' + n4(sv) + '\n' +
+        "f''(x) = " + m.ddf + '                    = ' + n4(cv) + '\n' +
+        'concavity here: ' + (!isFinite(cv) ? 'unknown' : cv > 0.02 ? 'concave up  (f\'\' > 0)' : cv < -0.02 ? 'concave down  (f\'\' < 0)' : 'flat  (f\'\' ~ 0, a possible inflection point)') +
+        (flat ? '\nthe slope is ZERO at this x — a horizontal tangent' : '');
+
+      var r = ((n % 4) + 4) % 4;
+      cyc.innerHTML = CYCLE.map(function(c, j){
+        return '<div class="v3-c' + (j === r ? ' is-on' : '') + '"><u>' + (j === r ? 'n mod 4 = ' + r : 'step ' + j) + '</u>' + c + '</div>';
+      }).join('');
+
+      why.innerHTML = '<b>d^' + n + '/dx^' + n + ' of sin(x) = ' + CYCLE[r] + '</b>' +
+        'Differentiating sine four times returns sine exactly, so the order only matters modulo 4: ' +
+        n + ' = 4 x ' + Math.floor(n / 4) + ' + <b>' + r + '</b>, and the remainder picks the face. ' +
+        'That is why the 100th derivative of sin(x) is sin(x) and the 102nd is -sin(x) — no one differentiates ' +
+        'a hundred times. ' +
+        '<br><br>The minus sign lives on cosine only: d/dx sin(x) = cos(x) and d/dx cos(x) = -sin(x). Sliding x to 0 ' +
+        'on the plot above shows the same fact geometrically — the slope of sin(x) there is cos(0) = 1, the ' +
+        'steepest it ever gets.' +
+        (pick === 2
+          ? '<br><br><b style="color:var(--viz-green)">sin(x) + cos(x) has slope zero at x = pi/4 ~ 0.7854.</b>' +
+            'Its derivative cos(x) - sin(x) vanishes exactly where cosine and sine are equal — the same place ' +
+            'where their own derivatives have equal magnitude and opposite signs.'
+          : '');
+    }
+
+    for (var i = 0; i < bs.length; i++) {
+      (function(j){ bs[j].addEventListener('click', function(){ pick = j; render(); }); })(i);
+    }
+    xs.addEventListener('input', render);
+    ns.addEventListener('input', render);
+    p100.addEventListener('click', function(){ ns.value = 100; render(); });
+    p102.addEventListener('click', function(){ ns.value = 102; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Chain Implicit Rates</h2>
+  <p class="vz-lede">Three faces of one rule. A composition multiplies the outer derivative by the inner one;
+    implicit differentiation applies that to a y that is secretly a function of x; related rates applies it to
+    a variable that is secretly a function of time. <b>Like gears: whatever you turn, the ratio at the far end
+    is the product of every ratio between.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="mode">
+    <button id="v4-m0" aria-pressed="true">chain rule</button>
+    <button id="v4-m1" aria-pressed="false">implicit</button>
+    <button id="v4-m2" aria-pressed="false">related rates</button>
+  </div>
+
+  <div class="v4-box is-on" id="v4-chain">
+    <div class="vz-card">
+      <label class="vz-lab" for="v4-x">x = <span id="v4-xl">1.00</span></label>
+      <input class="vz-range" type="range" id="v4-x" min="0" max="2" step="0.02" value="1" aria-label="x">
+      <div class="v4-rows" id="v4-crows"></div>
+    </div>
+  </div>
+
+  <div class="v4-box" id="v4-imp">
+    <div class="vz-card">
+      <label class="vz-lab" for="v4-th">point on x^2 + y^2 = 25, angle = <span id="v4-thl">50</span> degrees</label>
+      <input class="vz-range" type="range" id="v4-th" min="0" max="360" step="1" value="50" aria-label="angle around the circle">
+      <div class="vz-plot" id="v4-cplot"></div>
+      <div class="vz-mono v4-read" id="v4-iread"></div>
+    </div>
+  </div>
+
+  <div class="v4-box" id="v4-rate">
+    <div class="vz-card">
+      <label class="vz-lab" for="v4-r">radius r = <span id="v4-rl">3.00</span> cm</label>
+      <input class="vz-range" type="range" id="v4-r" min="0.5" max="8" step="0.05" value="3" aria-label="radius r">
+      <label class="vz-lab" for="v4-dr">dr/dt = <span id="v4-drl">2.00</span> cm per second</label>
+      <input class="vz-range" type="range" id="v4-dr" min="0" max="5" step="0.05" value="2" aria-label="rate of change of the radius">
+      <div class="vz-plot" id="v4-rplot"></div>
+      <div class="vz-mono v4-read" id="v4-rread"></div>
+    </div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v4-why2" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Implicit differentiation is what lets you differentiate a curve that is not a function at
+    all: the circle fails the vertical-line test, yet every point on it still has a slope. The same move gives
+    logarithmic differentiation — take ln of both sides of y = x^sin(x) first — and the inverse-function rule,
+    where the derivative of the inverse at b is 1 divided by f'(a).</p>
+
+  <style>
+    .v4-box{display:none}
+    .v4-box.is-on{display:block}
+    .v4-rows{display:flex;flex-direction:column;gap:5px;margin-top:12px}
+    .v4-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      line-height:1.45;flex-wrap:wrap}
+    .v4-r.is-ok{border-color:var(--viz-green)}
+    .v4-r.is-bad{border-color:var(--viz-red);border-style:dashed}
+    .v4-r i{font-style:normal;margin-left:auto;font-weight:800}
+    .v4-tag{font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v4-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+    .v4-why2{font-size:12.5px;line-height:1.6}
+    .v4-why2 b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var mode = 0;
+    var bs = [document.getElementById('v4-m0'), document.getElementById('v4-m1'), document.getElementById('v4-m2')];
+    var boxes = [document.getElementById('v4-chain'), document.getElementById('v4-imp'), document.getElementById('v4-rate')];
+    var xs = document.getElementById('v4-x'), xl = document.getElementById('v4-xl'), crows = document.getElementById('v4-crows');
+    var th = document.getElementById('v4-th'), thl = document.getElementById('v4-thl');
+    var cplot = document.getElementById('v4-cplot'), iread = document.getElementById('v4-iread');
+    var rr = document.getElementById('v4-r'), rl = document.getElementById('v4-rl');
+    var dr = document.getElementById('v4-dr'), drl = document.getElementById('v4-drl');
+    var rplot = document.getElementById('v4-rplot'), rread = document.getElementById('v4-rread');
+    var why = document.getElementById('v4-why');
+
+    function n4(v){ return isFinite(v) ? v.toFixed(4) : '—'; }
+
+    var COMP = [
+      { lab:'(3x + 1)^4', parts:'outer 4u^3 at u = 3x+1, inner 3',
+        f:function(x){ return Math.pow(3 * x + 1, 4); },
+        d:function(x){ return 12 * Math.pow(3 * x + 1, 3); }, form:'12(3x + 1)^3' },
+      { lab:'sin(x^2)', parts:'outer cos(u) at u = x^2, inner 2x',
+        f:function(x){ return Math.sin(x * x); },
+        d:function(x){ return 2 * x * Math.cos(x * x); }, form:'2x cos(x^2)' },
+      { lab:'sqrt(5x + 1)', parts:'outer 1/(2 sqrt(u)) at u = 5x+1, inner 5',
+        f:function(x){ return Math.sqrt(5 * x + 1); },
+        d:function(x){ return 5 / (2 * Math.sqrt(5 * x + 1)); }, form:'5 / (2 sqrt(5x + 1))' },
+      { lab:'sin(cos(x))', parts:'outer cos(u) at u = cos(x), inner -sin(x)',
+        f:function(x){ return Math.sin(Math.cos(x)); },
+        d:function(x){ return -Math.sin(x) * Math.cos(Math.cos(x)); }, form:'-sin(x) cos(cos(x))' }
+    ];
+
+    function chain(){
+      var x = Number(xs.value);
+      xl.textContent = x.toFixed(2);
+      var step = 1e-4, html = '', i, worst = 0;
+      for (i = 0; i < COMP.length; i++) {
+        var c = COMP[i];
+        var d = c.d(x);
+        var ref = (c.f(x + step) - c.f(x - step)) / (2 * step);
+        if (!isFinite(ref)) ref = NaN;
+        var ok = isFinite(d) && isFinite(ref) && Math.abs(d - ref) < 1e-2;
+        if (isFinite(d) && isFinite(ref)) worst = Math.max(worst, Math.abs(d - ref));
+        html += '<div class="v4-r ' + (ok ? 'is-ok' : '') + '"><span>' + c.lab + '</span>' +
+          '<span style="color:var(--viz-muted)">' + c.parts + '</span>' +
+          '<span class="v4-tag" style="color:var(--viz-muted)">= ' + c.form + '</span>' +
+          '<i>' + n4(d) + '</i></div>';
+      }
+      var drop = 4 * Math.pow(3 * x + 1, 3);
+      html += '<div class="v4-r is-bad"><span>(3x + 1)^4</span>' +
+        '<span style="color:var(--viz-muted)">inner derivative dropped: 4(3x+1)^3</span>' +
+        '<span class="v4-tag" style="color:var(--viz-red)">WRONG by a factor of 3</span>' +
+        '<i>' + n4(drop) + '</i></div>';
+      crows.innerHTML = html;
+
+      why.innerHTML = '<b>Every row was checked against a numerical derivative — largest disagreement ' +
+        worst.toFixed(5) + '.</b>' +
+        'The chain rule says the outer derivative is evaluated <em>at the inner function</em>, then multiplied ' +
+        'by the inner derivative. Both halves matter: with g(1) = 2, g\'(1) = 3 and f\'(2) = 7, the composite ' +
+        'f(g(x)) has derivative 7 x 3 = <b>21</b> at x = 1 — a value of f\'(1) is a decoy, because the outer ' +
+        'derivative is read at g(1) = 2, not at 1. ' +
+        '<br><br>The dashed row is the classic slip: keep the outer power, forget the inner 3, and the answer ' +
+        'is off by exactly that factor at every x. It never looks wrong on its own — only the referee catches it.';
+    }
+
+    function implicit(){
+      var deg = Number(th.value), rad = deg * Math.PI / 180;
+      thl.textContent = deg;
+      var R = 5, x = R * Math.cos(rad), y = R * Math.sin(rad);
+      var vertical = Math.abs(y) < 0.08;
+      var slope = vertical ? NaN : -x / y;
+      var second = vertical ? NaN : -(R * R) / (y * y * y);
+
+      var PW = 320, PH = 190, cx = PW / 2, cy = PH / 2, sc = (PH / 2 - 18) / R;
+      function sx(v){ return cx + v * sc; }
+      function sy(v){ return cy - v * sc; }
+      var seg = 3.2;
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="a point on the circle with its tangent line">' +
+        '<line x1="0" y1="' + cy + '" x2="' + PW + '" y2="' + cy + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<line x1="' + cx + '" y1="0" x2="' + cx + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="' + (R * sc).toFixed(1) + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>';
+      if (vertical) {
+        svg += '<line x1="' + sx(x).toFixed(1) + '" y1="0" x2="' + sx(x).toFixed(1) + '" y2="' + PH +
+          '" stroke="var(--viz-red)" stroke-width="2"/>' +
+          '<text x="4" y="' + (PH - 6) + '" font-size="9.5" fill="var(--viz-red)">vertical tangent: dy/dx undefined (y = 0)</text>';
+      } else {
+        svg += '<line x1="' + sx(x - seg).toFixed(1) + '" y1="' + sy(y + slope * (-seg)).toFixed(1) +
+          '" x2="' + sx(x + seg).toFixed(1) + '" y2="' + sy(y + slope * seg).toFixed(1) +
+          '" stroke="var(--viz-green)" stroke-width="2"/>' +
+          '<text x="4" y="' + (PH - 6) + '" font-size="9.5" fill="var(--viz-green)">solid short line: the tangent, slope -x/y</text>';
+      }
+      svg += '<circle cx="' + sx(x).toFixed(1) + '" cy="' + sy(y).toFixed(1) + '" r="5" fill="var(--viz-amber)"/>' +
+        '<text x="4" y="12" font-size="9.5" fill="var(--viz-amber)">dot: the point (x, y)</text>' +
+        '</svg>';
+      cplot.innerHTML = svg;
+
+      iread.textContent =
+        'x = ' + n4(x) + '     y = ' + n4(y) + '     x^2 + y^2 = ' + n4(x * x + y * y) + '\n' +
+        'differentiate both sides:  2x + 2y (dy/dx) = 0\n' +
+        'dy/dx = -x/y                              = ' + (vertical ? 'undefined (y = 0)' : n4(slope)) + '\n' +
+        'd2y/dx2 = -25/y^3                         = ' + (vertical ? 'undefined' : n4(second));
+
+      why.innerHTML = '<b>y is not a constant and not an independent variable — it is an unknown function of x.</b>' +
+        'That is the whole trick. Because y depends on x, differentiating y^2 needs the chain rule and gives ' +
+        '2y(dy/dx), not 2y. Collect the dy/dx terms, solve, and the slope drops out as -x/y without ever ' +
+        'writing y as a formula in x. ' +
+        (vertical
+          ? '<br><br><b style="color:var(--viz-red)">Here y = 0, so -x/y divides by zero.</b>' +
+            'The tangent is genuinely vertical at the far left and far right of the circle, so the slope does not ' +
+            'exist as a number — the formula reports the geometry honestly rather than returning a nonsense value.'
+          : '<br><br>The same method on y^3 + xy - x^2 = 3 at the point (2, 1) gives 3y\' + 1 + 2y\' - 4 = 0, ' +
+            'so the slope there is <b>3/5</b> — a curve you could never rearrange into y = f(x) by hand.') +
+        '<br><br>Differentiating a second time and substituting y\' = -x/y collapses to -25/y^3 for this circle ' +
+        '(and -1/y^3 for the unit circle): a second derivative expressed purely in y.';
+    }
+
+    function rates(){
+      var r = Number(rr.value), d = Number(dr.value);
+      rl.textContent = r.toFixed(2);
+      drl.textContent = d.toFixed(2);
+      var A = Math.PI * r * r;
+      var dA = 2 * Math.PI * r * d;
+      var inPi = Math.PI === 0 ? NaN : dA / Math.PI;
+      var ring = Math.PI * (Math.pow(r + d, 2) - r * r);
+
+      var PW = 320, PH = 190, cx = PW / 2, cy = PH / 2;
+      var sc = (PH / 2 - 10) / Math.max(r + d, 0.5);
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the circle now and one second later">' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="' + ((r + d) * sc).toFixed(1) + '" fill="var(--viz-amber)" fill-opacity="0.22" stroke="var(--viz-amber)" stroke-width="2" stroke-dasharray="6 4"/>' +
+        '<circle cx="' + cx + '" cy="' + cy + '" r="' + (r * sc).toFixed(1) + '" fill="var(--viz-bg)" stroke="var(--viz-accent)" stroke-width="2.5"/>' +
+        '<line x1="' + cx + '" y1="' + cy + '" x2="' + (cx + r * sc).toFixed(1) + '" y2="' + cy + '" stroke="var(--viz-accent)" stroke-width="2"/>' +
+        '<text x="4" y="12" font-size="9.5" fill="var(--viz-accent)">solid: the circle now, radius r</text>' +
+        '<text x="4" y="25" font-size="9.5" fill="var(--viz-amber)">dashed: one second later — the shaded ring is what dA/dt measures</text>' +
+        '</svg>';
+      rplot.innerHTML = svg;
+
+      rread.textContent =
+        'A = pi r^2                                  A = ' + n4(A) + ' cm^2\n' +
+        'DIFFERENTIATE first:  dA/dt = 2 pi r (dr/dt)  = ' + n4(dA) + ' cm^2/s   = ' + n4(inPi) + ' pi\n' +
+        'ring actually added in 1 s                    = ' + n4(ring) + ' cm^2  (bigger by pi (dr/dt)^2)\n' +
+        'SUBSTITUTE first:  A = pi(' + r.toFixed(2) + ')^2 is a constant  ->  dA/dt = 0   WRONG';
+
+      why.innerHTML = '<b>dA/dt = ' + n4(dA) + ' cm^2/s, and at r = 3 with dr/dt = 2 that is exactly 12 pi.</b>' +
+        'A related rates problem is the chain rule run in time: A depends on r, r depends on t, so ' +
+        'dA/dt = (dA/dr)(dr/dt). Notice the answer depends on r as well as on dr/dt — the radius grows at a ' +
+        'steady 2 cm/s while the area accelerates, because the ring being added is longer every second. ' +
+        '<br><br><b style="color:var(--viz-red)">Order is the whole discipline here.</b>' +
+        'Substitute r = 3 into A = pi r^2 first and you have differentiated a constant: dA/dt = 0, for a circle ' +
+        'that is visibly growing. Numbers go in only AFTER the equation relating the variables is differentiated. ' +
+        '<br><br>The same shape governs the other classics: for an ideal gas at constant temperature, PV = k gives ' +
+        'dP/dt = -(k/V^2)(dV/dt), so the pressure rate is inversely proportional to the SQUARE of the volume; and ' +
+        'for a ladder sliding down a wall, the angular rate is inversely related to the height of the top.';
+    }
+
+    function render(){
+      var i;
+      for (i = 0; i < bs.length; i++) {
+        bs[i].setAttribute('aria-pressed', i === mode ? 'true' : 'false');
+        boxes[i].className = 'v4-box' + (i === mode ? ' is-on' : '');
+      }
+      if (mode === 0) chain();
+      else if (mode === 1) implicit();
+      else rates();
+    }
+
+    for (var i = 0; i < bs.length; i++) {
+      (function(j){ bs[j].addEventListener('click', function(){ mode = j; render(); }); })(i);
+    }
+    xs.addEventListener('input', render);
+    th.addEventListener('input', render);
+    rr.addEventListener('input', render);
+    dr.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Tangent Line Zoom</h2>
+  <p class="vz-lede">Three functions that agree on everything the tangent line knows — same point, same slope
+    at a = 2 — and differ only in curvature. Drag the step and watch the approximation error appear out of
+    the second derivative alone. <b>Like a straight road drawn on a curved map: fine for the next mile,
+    hopeless by the next county.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="curvature">
+    <button id="v5-c0" aria-pressed="true">f'' &gt; 0 concave up</button>
+    <button id="v5-c1" aria-pressed="false">f'' = 0 straight</button>
+    <button id="v5-c2" aria-pressed="false">f'' &lt; 0 concave down</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-d">step from a = 2:  dx = <span id="v5-dl">0.10</span></label>
+    <input class="vz-range" type="range" id="v5-d" min="-1.5" max="1.5" step="0.01" value="0.1" aria-label="step away from a">
+    <div class="vz-plot" id="v5-plot"></div>
+    <div class="vz-mono v5-read" id="v5-read"></div>
+    <div class="v5-bars" id="v5-bars"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Read the geometry backwards and the same line answers a different question: a tangent
+    that passes through (2, 5) and (2.2, 5.6) has slope (5.6 - 5)/0.2 = <b>3.0</b>, so f'(2) = 3. And a
+    tangent slope of -4 means the function is falling at 4 output units per input unit — a statement about
+    the rate, never about the value.</p>
+
+  <style>
+    .v5-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+    .v5-bars{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+    .v5-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between}
+    .v5-b h6 b{font-family:ui-monospace,Consolas,monospace}
+    .v5-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%;background:var(--viz-amber)}
+  </style>
+  <script>
+  (function(){
+    var A = 2, FA = 5, FP = 3;
+    var MODES = [
+      { lab:'concave up',   c:0.5,  dd:1,  form:'f(x) = 0.5x^2 + x + 1' },
+      { lab:'straight',     c:0,    dd:0,  form:'f(x) = 3x - 1' },
+      { lab:'concave down', c:-0.5, dd:-1, form:'f(x) = -0.5x^2 + 5x - 3' }
+    ];
+    var pick = 0;
+    var bs = [document.getElementById('v5-c0'), document.getElementById('v5-c1'), document.getElementById('v5-c2')];
+    var ds = document.getElementById('v5-d'), dl = document.getElementById('v5-dl');
+    var plot = document.getElementById('v5-plot'), read = document.getElementById('v5-read');
+    var bars = document.getElementById('v5-bars'), why = document.getElementById('v5-why');
+
+    // Every mode is built to satisfy f(2) = 5 and f'(2) = 3, so the tangent line
+    // is IDENTICAL in all three and only the curvature term can explain the error.
+    function f(m, x){ return FA + FP * (x - A) + m.c * (x - A) * (x - A); }
+    function L(x){ return FA + FP * (x - A); }
+    function n4(v){ return isFinite(v) ? v.toFixed(4) : '—'; }
+
+    function draw(m, dx){
+      var PW = 320, PH = 175, N = 160, i, xv;
+      var lo = A - 1.8, hi = A + 1.8, mn = Infinity, mx = -Infinity, ys = [];
+      for (i = 0; i <= N; i++) {
+        xv = lo + (hi - lo) * i / N;
+        var v = f(m, xv);
+        if (!isFinite(v)) v = FA;
+        ys.push(v);
+        mn = Math.min(mn, v, L(xv)); mx = Math.max(mx, v, L(xv));
+      }
+      if (!isFinite(mn) || !isFinite(mx)) { mn = 0; mx = 10; }
+      if (mx - mn < 1e-6) { mx = mn + 1; mn = mn - 1; }
+      var pad = (mx - mn) * 0.14; mn -= pad; mx += pad;
+      function px(x){ return (x - lo) / (hi - lo) * PW; }
+      function py(y){ return PH - (y - mn) / (mx - mn) * PH; }
+
+      var pts = '';
+      for (i = 0; i <= N; i++) pts += px(lo + (hi - lo) * i / N).toFixed(1) + ',' + py(ys[i]).toFixed(1) + ' ';
+      var xt = A + dx, ft = f(m, xt), lt = L(xt);
+
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the curve, its tangent line, and the gap between them">' +
+        '<line x1="' + px(A).toFixed(1) + '" y1="0" x2="' + px(A).toFixed(1) + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<line x1="0" y1="' + py(L(lo)).toFixed(1) + '" x2="' + PW + '" y2="' + py(L(hi)).toFixed(1) + '" stroke="var(--viz-green)" stroke-width="2"/>' +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>';
+      if (isFinite(ft) && isFinite(lt) && px(xt) >= 0 && px(xt) <= PW) {
+        svg += '<line x1="' + px(xt).toFixed(1) + '" y1="' + py(lt).toFixed(1) + '" x2="' + px(xt).toFixed(1) +
+          '" y2="' + py(ft).toFixed(1) + '" stroke="var(--viz-amber)" stroke-width="4"/>' +
+          '<circle cx="' + px(xt).toFixed(1) + '" cy="' + py(ft).toFixed(1) + '" r="4" fill="var(--viz-accent)"/>' +
+          '<circle cx="' + px(xt).toFixed(1) + '" cy="' + py(lt).toFixed(1) + '" r="4" fill="var(--viz-green)"/>';
+      }
+      svg += '<circle cx="' + px(A).toFixed(1) + '" cy="' + py(FA).toFixed(1) + '" r="4.5" fill="var(--viz-violet)"/>' +
+        '<text x="4" y="12" font-size="9.5" fill="var(--viz-accent)">solid curve: f</text>' +
+        '<text x="4" y="25" font-size="9.5" fill="var(--viz-green)">straight line: L(x) = 5 + 3(x - 2)</text>' +
+        '<text x="4" y="38" font-size="9.5" fill="var(--viz-amber)">thick bar: the approximation error</text>' +
+        '</svg>';
+      plot.innerHTML = svg;
+    }
+
+    function render(){
+      var i;
+      for (i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', i === pick ? 'true' : 'false');
+      var m = MODES[pick], dx = Number(ds.value);
+      dl.textContent = (dx >= 0 ? '+' : '') + dx.toFixed(2);
+
+      var xt = A + dx, lt = L(xt), ft = f(m, xt), err = ft - lt;
+      var pred = 0.5 * m.dd * dx * dx;
+      draw(m, dx);
+
+      read.textContent =
+        m.form + '        f(2) = 5,  f\'(2) = 3,  f\'\' = ' + m.dd + '\n' +
+        'tangent line   L(x) = 5 + 3(x - 2)\n' +
+        'at x = ' + xt.toFixed(2) + '     L = ' + n4(lt) + '     f = ' + n4(ft) + '\n' +
+        'error f - L                        = ' + (err >= 0 ? '+' : '') + n4(err) + '\n' +
+        'predicted (1/2) f\'\'(a) (dx)^2       = ' + (pred >= 0 ? '+' : '') + n4(pred);
+
+      var scale = Math.max(Math.abs(f(m, A + 1.5) - L(A + 1.5)), 1e-6);
+      var html = '';
+      for (i = 0; i < 3; i++) {
+        var s = dx / Math.pow(2, i);
+        var e = Math.abs(f(m, A + s) - L(A + s));
+        html += '<div class="v5-b"><h6><span>step ' + (i === 0 ? 'dx' : 'dx / ' + Math.pow(2, i)) +
+          ' = ' + s.toFixed(3) + '</span><b>error ' + e.toFixed(5) + '</b></h6>' +
+          '<div class="v5-track"><i style="width:' + Math.max(0.5, Math.min(100, e / scale * 100)).toFixed(1) + '%"></i></div></div>';
+      }
+      bars.innerHTML = html;
+
+      var tag = m.dd > 0 ? 'UNDERestimates' : m.dd < 0 ? 'OVERestimates' : 'is exact';
+      why.innerHTML = '<b style="color:' + (m.dd === 0 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">The tangent line ' + tag + ' this function.</b>' +
+        'All three modes share the same point and the same slope, so they share the same tangent line ' +
+        'L(x) = 5 + 3(x - 2) — the classic reading is g(2.1) ~ 5 + 3(0.1) = <b>5.3</b>. What separates them is ' +
+        'the curvature: the error is about (1/2)f\'\'(a)(dx)^2, so the SIGN of f\'\' decides which side of the ' +
+        'curve the line falls on. ' +
+        (m.dd === 0
+          ? '<br><br>With f\'\' = 0 the function IS its own tangent line, and the error is exactly zero at every ' +
+            'step — which is the same fact visual 1 showed from the other end: a straight line has one slope everywhere.'
+          : '<br><br><b>The error is quadratic, and the bars prove it.</b>' +
+            'Halve the step and the error falls to about a QUARTER, not a half. That is why linear approximation ' +
+            'is excellent nearby and useless far away, and why nobody quotes an accuracy without quoting a range.');
+    }
+
+    for (var i = 0; i < bs.length; i++) {
+      (function(j){ bs[j].addEventListener('click', function(){ pick = j; render(); }); })(i);
+    }
+    ds.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. Minimize The Loss</h2>
+  <p class="vz-lede">Setting a derivative to zero is one move with four costumes: a shape problem, a cost
+    problem, and the two loss functions a model is trained on. Drag the variable and watch the derivative tell
+    you which way to move — and go silent exactly at the optimum. <b>Like walking downhill blindfolded: the
+    slope under your feet is all the instruction you need, until it flattens.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="objective">
+    <button id="v6-o0" aria-pressed="true">rectangle area</button>
+    <button id="v6-o1" aria-pressed="false">cost x + 4/x</button>
+    <button id="v6-o2" aria-pressed="false">square loss</button>
+    <button id="v6-o3" aria-pressed="false">log loss</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v6-s"><span id="v6-sname">side x</span> = <span id="v6-sl">3.00</span></label>
+    <input class="vz-range" type="range" id="v6-s" min="0" max="1000" step="1" value="300" aria-label="the quantity being optimised">
+    <div class="vz-plot" id="v6-plot"></div>
+    <div class="vz-mono v6-read" id="v6-read"></div>
+    <div class="v6-pills" id="v6-pills"></div>
+    <div class="vz-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">Two habits separate a correct answer from a plausible one. On a CLOSED interval the
+    absolute extreme can sit at an endpoint, where the derivative is never zero — so the endpoints get checked
+    alongside the critical points. And the derivative supplies a <b>direction</b>, not the size of the error:
+    that is exactly the role it plays when a model is trained.</p>
+
+  <style>
+    .v6-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+    .v6-pills{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v6-p{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    function sig(t){
+      if (t > 40) return 1 - 1e-12;
+      if (t < -40) return 1e-12;
+      return 1 / (1 + Math.exp(-t));
+    }
+    function clamp(p){ return Math.min(1 - 1e-9, Math.max(1e-9, p)); }
+
+    var LOGX = [2, 1], LOGY = [1, 0];
+
+    var MODES = [
+      { name:'side x', unit:'', lo:0, hi:10, start:3, goal:'max', jlab:'A',
+        J:function(x){ return x * (10 - x); },
+        dJ:function(x){ return 10 - 2 * x; },
+        read:function(x){
+          return 'perimeter fixed at 20, one side x, the other 10 - x\n' +
+            'A(x)  = x(10 - x)                      = ' + f4(x * (10 - x)) + '\n' +
+            "A'(x) = 10 - 2x                        = " + f4(10 - 2 * x) + '\n' +
+            'endpoints:  A(0) = 0   and   A(10) = 0   <- always check these';
+        },
+        why:['A constraint turns two unknowns into one.',
+          'The perimeter pins the other side to 10 - x, so the area is a function of a single variable and the ' +
+          'derivative can do its work: A\'(x) = 10 - 2x is zero at x = 5, the square. ' +
+          '<br><br>Both endpoints give area 0, so here the interior critical point wins — but that had to be ' +
+          'checked, not assumed. On a closed interval a global extremum is allowed to sit on the boundary, ' +
+          'where the derivative is not zero and never will be.'] },
+      { name:'quantity x', unit:'', lo:0.3, hi:8, start:3, goal:'min', jlab:'C',
+        J:function(x){ return x <= 0 ? NaN : x + 4 / x; },
+        dJ:function(x){ return x <= 0 ? NaN : 1 - 4 / (x * x); },
+        read:function(x){
+          var t1 = x, t2 = x <= 0 ? NaN : 4 / x;
+          return 'C(x) = a.x + b/x   with a = 1, b = 4,  x > 0\n' +
+            'the two terms:  a.x = ' + f4(t1) + '     b/x = ' + f4(t2) + '\n' +
+            "C'(x) = a - b/x^2 = 1 - 4/x^2          = " + f4(1 - 4 / (x * x)) + '\n' +
+            'they are equal when x = sqrt(b/a) = 2, and both equal sqrt(ab) = 2';
+        },
+        why:['At the minimum the two competing terms are exactly equal.',
+          'One term grows with x, the other shrinks with x, and C\'(x) = a - b/x^2 vanishes at x* = sqrt(b/a). ' +
+          'Substitute it back: a.x* = sqrt(ab) and b/x* = sqrt(ab) — the same number. ' +
+          '<br><br>That equality is a genuinely useful fact rather than a coincidence of these numbers, and it is ' +
+          'the same reason a closed cylindrical can of fixed volume has minimum surface area exactly when its ' +
+          'height equals twice its radius.'] },
+      { name:'weight w', unit:'', lo:-1, hi:4, start:0.5, goal:'min', jlab:'L',
+        J:function(w){ return Math.pow(2 * w - 3, 2); },
+        dJ:function(w){ return 8 * w - 12; },
+        read:function(w){
+          return 'one training example: x = 2, target y = 3,  model yhat = w.x\n' +
+            'yhat  = 2w                             = ' + f4(2 * w) + '\n' +
+            'L(w)  = (yhat - y)^2 = (2w - 3)^2      = ' + f4(Math.pow(2 * w - 3, 2)) + '\n' +
+            'dL/dw = 8w - 12                        = ' + f4(8 * w - 12);
+        },
+        why:['Square loss: the squared difference between actual and predicted.',
+          'This is the loss a house-price model minimises, because the target is a continuous number and being ' +
+          'wrong by a lot should hurt much more than being wrong by a little. ' +
+          '<br><br>The derivative is doing ONE job: it says which way to move w. Negative means push w up, positive ' +
+          'means pull it back, zero means stop — at w = 1.5, where the model predicts exactly 3. It is not ' +
+          'measuring the error (that is L itself) and it is not averaging anything.'] },
+      { name:'weight w', unit:'', lo:-3, hi:3, start:0, goal:'min', jlab:'L',
+        J:function(w){
+          var s = 0, i;
+          for (i = 0; i < LOGX.length; i++) {
+            var p = clamp(sig(w * LOGX[i]));
+            s += -(LOGY[i] * Math.log(p) + (1 - LOGY[i]) * Math.log(1 - p));
+          }
+          return s;
+        },
+        dJ:function(w){
+          var s = 0, i;
+          for (i = 0; i < LOGX.length; i++) s += (clamp(sig(w * LOGX[i])) - LOGY[i]) * LOGX[i];
+          return s;
+        },
+        read:function(w){
+          var p0 = clamp(sig(w * LOGX[0])), p1 = clamp(sig(w * LOGX[1]));
+          return 'two emails:  x = 2 is spam (y = 1),  x = 1 is not (y = 0)\n' +
+            'yhat = sigmoid(w.x)     ' + f4(p0) + '   and   ' + f4(p1) + '\n' +
+            'L = -sum [ y ln(yhat) + (1 - y) ln(1 - yhat) ]  = ' + f4(MODES[3].J(w)) + '\n' +
+            'dL/dw = sum (yhat - y) x                        = ' + f4(MODES[3].dJ(w));
+        },
+        why:['Log loss: built from the logarithm of the predicted probabilities.',
+          'A spam classifier does not predict a number, it predicts a probability — so the loss is built from ' +
+          'the logarithm of that probability, and confidently predicting the wrong class is punished savagely ' +
+          '(the log of a value near zero runs off to minus infinity). Square loss on this task would barely ' +
+          'notice. ' +
+          '<br><br>The derivative has the same job as before, and even the same shape: sum of (yhat - y) times x. ' +
+          'Direction, not magnitude of error — which is the entire reason derivatives appear in training at all.'] }
+    ];
+
+    function f4(v){ return isFinite(v) ? v.toFixed(4) : '—'; }
+
+    var pick = 0;
+    var bs = [document.getElementById('v6-o0'), document.getElementById('v6-o1'),
+              document.getElementById('v6-o2'), document.getElementById('v6-o3')];
+    var sl = document.getElementById('v6-s'), lab = document.getElementById('v6-sl');
+    var sname = document.getElementById('v6-sname');
+    var plot = document.getElementById('v6-plot'), read = document.getElementById('v6-read');
+    var pills = document.getElementById('v6-pills'), why = document.getElementById('v6-why');
+    var pos = [0.3, 0.34, 0.3, 0.5];
+
+    function valOf(m, t){ return m.lo + (m.hi - m.lo) * t; }
+
+    function starOf(m){
+      var best = m.lo, bd = Infinity, i, x, d;
+      for (i = 0; i <= 500; i++) {
+        x = m.lo + (m.hi - m.lo) * i / 500;
+        d = Math.abs(m.dJ(x));
+        if (isFinite(d) && d < bd) { bd = d; best = x; }
+      }
+      return best;
+    }
+
+    function draw(m, x, star){
+      var PW = 320, PH = 165, N = 200, i, xv, v;
+      var mn = Infinity, mx = -Infinity, ys = [];
+      for (i = 0; i <= N; i++) {
+        xv = m.lo + (m.hi - m.lo) * i / N;
+        v = m.J(xv);
+        if (!isFinite(v)) v = null;
+        ys.push(v);
+        if (v !== null) { if (v < mn) mn = v; if (v > mx) mx = v; }
+      }
+      if (!isFinite(mn) || !isFinite(mx)) { mn = 0; mx = 1; }
+      if (mx - mn < 1e-6) { mx = mn + 1; mn = mn - 1; }
+      var pad = (mx - mn) * 0.12; mn -= pad; mx += pad;
+      function px(t){ return (t - m.lo) / (m.hi - m.lo) * PW; }
+      function py(v2){ return PH - (v2 - mn) / (mx - mn) * PH; }
+
+      var pts = '';
+      for (i = 0; i <= N; i++) {
+        if (ys[i] === null) continue;
+        pts += px(m.lo + (m.hi - m.lo) * i / N).toFixed(1) + ',' + py(ys[i]).toFixed(1) + ' ';
+      }
+      var jv = m.J(x), dv = m.dJ(x);
+      var span = (m.hi - m.lo) * 0.16;
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the objective curve with the current point and its tangent">' +
+        '<line x1="' + px(star).toFixed(1) + '" y1="0" x2="' + px(star).toFixed(1) + '" y2="' + PH +
+          '" stroke="var(--viz-violet)" stroke-width="1.5" stroke-dasharray="4 4"/>' +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>';
+      if (isFinite(jv) && isFinite(dv)) {
+        svg += '<line x1="' + px(x - span).toFixed(1) + '" y1="' + py(jv - dv * span).toFixed(1) +
+          '" x2="' + px(x + span).toFixed(1) + '" y2="' + py(jv + dv * span).toFixed(1) +
+          '" stroke="var(--viz-green)" stroke-width="2.5"/>' +
+          '<circle cx="' + px(x).toFixed(1) + '" cy="' + py(jv).toFixed(1) + '" r="5" fill="var(--viz-amber)"/>';
+      }
+      svg += '<text x="4" y="12" font-size="9.5" fill="var(--viz-accent)">curve: ' + m.jlab + ' against ' + m.name + '</text>' +
+        '<text x="4" y="25" font-size="9.5" fill="var(--viz-green)">short line: the tangent — its tilt is the derivative</text>' +
+        '<text x="4" y="38" font-size="9.5" fill="var(--viz-violet)">dashed: where the derivative is zero</text>' +
+        '</svg>';
+      plot.innerHTML = svg;
+    }
+
+    function render(){
+      var i;
+      for (i = 0; i < bs.length; i++) bs[i].setAttribute('aria-pressed', i === pick ? 'true' : 'false');
+      var m = MODES[pick];
+      pos[pick] = Number(sl.value) / 1000;
+      var x = valOf(m, pos[pick]);
+      sname.textContent = m.name;
+      lab.textContent = x.toFixed(2);
+
+      var star = starOf(m);
+      draw(m, x, star);
+      read.textContent = m.read(x);
+
+      var jv = m.J(x), dv = m.dJ(x);
+      var atOpt = isFinite(dv) && Math.abs(dv) < 0.05;
+      var dirWord = !isFinite(dv) ? 'undefined here'
+        : atOpt ? 'STOP — the derivative is zero'
+        : (m.goal === 'min')
+          ? (dv > 0 ? 'DECREASE ' + m.name : 'INCREASE ' + m.name)
+          : (dv > 0 ? 'INCREASE ' + m.name : 'DECREASE ' + m.name);
+      var col = atOpt ? 'var(--viz-green)' : 'var(--viz-amber)';
+      pills.innerHTML =
+        '<span class="v6-p" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + m.jlab + ' = ' + f4(jv) + '</span>' +
+        '<span class="v6-p" style="color:' + col + ';border-color:' + col + '">derivative = ' + f4(dv) + '</span>' +
+        '<span class="v6-p" style="color:' + col + ';border-color:' + col + '">' + dirWord + '</span>' +
+        '<span class="v6-p" style="color:var(--viz-violet);border-color:var(--viz-violet)">' +
+          (m.goal === 'max' ? 'maximum' : 'minimum') + ' at ' + m.name + ' = ' + star.toFixed(3) + '</span>';
+
+      why.innerHTML = '<b>' + m.why[0] + '</b>' + m.why[1] +
+        (atOpt
+          ? '<br><br><b style="color:var(--viz-green)">You are standing on the optimum: the tangent is flat.</b>' +
+            'The derivative has stopped pointing anywhere, which is exactly the condition f\'(x) = 0 that a ' +
+            'search for an interior optimum tests FIRST.'
+          : '');
+    }
+
+    for (var i = 0; i < bs.length; i++) {
+      (function(j){
+        bs[j].addEventListener('click', function(){
+          pick = j;
+          sl.value = Math.round(pos[j] * 1000);
+          render();
+        });
+      })(i);
+    }
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,631 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Funnel Meets Reranker</button>
+  <button class="viz-tab" data-viz-tab="2">2. Reading Both Together</button>
+  <button class="viz-tab" data-viz-tab="3">3. Compress Now Or Later</button>
+  <button class="viz-tab" data-viz-tab="4">4. Finding The Knee</button>
+  <button class="viz-tab" data-viz-tab="5">5. Depth Is Capacity</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Funnel Meets Reranker</h2>
+  <p class="vz-lede"><b>Recall Stage vs Precision Stage: The Ranking Funnel</b> said the cheap stage protects
+    coverage and someone still has to read the shortlist carefully. <b>Budgeting Candidates per Stage</b> said
+    each count is set by what the next stage can afford. Here is the model that occupies the precision stage —
+    drag how many candidates it reads and watch the budget decide the architecture.
+    <b>Like a job ad: a keyword filter reads ten thousand CVs in a second, a human reads twelve properly.</b></p>
+
+  <div class="v1-funnel" id="v1-funnel"></div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-n">Cross-encoder rescores <span id="v1-nl">100</span> candidates
+      &nbsp;·&nbsp; 32 pairs per 18 ms batch</label>
+    <input type="range" id="v1-n" min="0" max="7" value="2" step="1" aria-label="Candidates the cross-encoder rescores">
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The reranker does not merely <em>fit</em> the funnel — it is what <b>forces</b> it. Because a
+    cross-encoder can only judge one query-document pair at a time, and nothing about a document can be
+    precomputed for a query that has not arrived, the corpus can never be its input. Some cheaper stage must
+    hand it a shortlist first. Every number on this panel is the previous lesson's candidate budget, priced.</p>
+
+  <style>
+    .v1-funnel{display:flex;align-items:stretch;gap:5px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-st{flex:1 1 88px;border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 9px;background:var(--viz-bg)}
+    .v1-st h6{margin:0 0 3px;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-st b{font-family:ui-monospace,Consolas,monospace;font-size:13px;display:block}
+    .v1-st span{font-size:10.5px;color:var(--viz-muted);display:block;margin-top:2px;line-height:1.35}
+    .v1-st.is-hot{border-color:var(--viz-accent)}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.4}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STEPS = [10, 50, 100, 200, 1000, 10000, 100000, 1000000];
+    var CORPUS = 1000000, PER_BATCH = 32, BATCH_MS = 18, RECALL_MS = 12;
+    var s = document.getElementById('v1-n'), nl = document.getElementById('v1-nl');
+    var funnel = document.getElementById('v1-funnel');
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+
+    function ms(v){
+      if (!isFinite(v) || v < 0) return '—';
+      if (v < 1000) return Math.round(v) + ' ms';
+      if (v < 60000) return (v / 1000).toFixed(1) + ' s';
+      return (v / 60000).toFixed(1) + ' min';
+    }
+    function num(v){ return v.toLocaleString(); }
+
+    function render(){
+      var n = STEPS[Number(s.value)] || STEPS[0];
+      nl.textContent = num(n);
+      var batches = Math.ceil(n / PER_BATCH);
+      var rerankMs = batches * BATCH_MS;
+      var maxMs = Math.ceil(CORPUS / PER_BATCH) * BATCH_MS;      // 562,500 ms — the full-corpus case
+      var span = Math.log10(Math.max(maxMs, 2));
+
+      funnel.innerHTML =
+        '<div class="v1-st"><h6>corpus</h6><b>' + num(CORPUS) + '</b><span>every passage in the index</span></div>' +
+        '<div class="v1-st"><h6>recall stage</h6><b>' + num(n) + '</b><span>BM25 + ANN, cheap per document</span></div>' +
+        '<div class="v1-st is-hot"><h6>precision stage ★</h6><b>' + num(n) + '</b><span>' + num(batches) +
+          ' batch' + (batches === 1 ? '' : 'es') + ' of ' + PER_BATCH + ' pairs</span></div>' +
+        '<div class="v1-st"><h6>shown</h6><b>10</b><span>what the learner actually reads</span></div>';
+
+      function bar(t, v, c, sub){
+        var w = Math.max(2, Math.round(Math.log10(Math.max(v, 2)) / span * 100));
+        return '<div class="v1-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + ms(v) + '</b></h6>' +
+          '<div class="v1-track"><i style="width:' + w + '%;background:' + c + '"></i></div>' +
+          '<div class="v1-sub">' + sub + '</div></div>';
+      }
+      var col = n <= 200 ? 'var(--viz-green)' : (n <= 10000 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      bars.innerHTML =
+        bar('recall stage · ' + num(CORPUS) + ' passages', RECALL_MS, 'var(--viz-accent)',
+            'One query encoding, then an approximate nearest-neighbour search. Flat in the number of candidates — the whole corpus costs about the same as ten documents.') +
+        bar('precision stage · ' + num(n) + ' pairs', rerankMs, col,
+            num(batches) + ' forward-pass batch' + (batches === 1 ? '' : 'es') + ' × 18 ms. <b>Linear in candidates</b>, because each pair is a separate pass through the network.');
+
+      var ratio = Math.round(rerankMs / Math.max(RECALL_MS, 1));
+      why.innerHTML = n <= 200
+        ? '<b style="color:var(--viz-green)">✓ This is the operating range — ' + ms(rerankMs) + ' of model time.</b>' +
+          'Rescoring 100 candidates needs 4 batches, roughly <b>60–75 ms</b> once tail queuing is counted, and that single number is the direct input to the previous lesson\'s budgeting. ' +
+          'The reranker is ' + ratio + '× the cost of the stage that fed it, and it is judging ' + num(n) + ' documents rather than ' + num(CORPUS) + '. ' +
+          '<br><br>Notice which quantity is missing from the reranker\'s bill: <em>the corpus size</em>. Depth is measured in the tens or low hundreds and never in documents indexed.'
+        : n <= 10000
+          ? '<b style="color:var(--viz-amber)">⚠ Past the budget, and the gain has already flattened.</b>' +
+            num(n) + ' pairs is ' + ms(rerankMs) + ' of pure model time — several times any realistic tail budget. Worse, the candidates out here are mostly irrelevant and <b>off-distribution</b> for a reranker trained on top-100 negatives, so its scores are less trustworthy exactly where you are paying most for them. ' +
+            '<br><br>Visual 4 is the sweep that finds where to stop.'
+          : '<b style="color:var(--viz-red)">✗ ' + ms(rerankMs) + ' per query. No serving architecture tolerates this.</b>' +
+            'Scoring a corpus of one million passages at 32 pairs per 18 ms batch is ' + num(batches) + ' batches — <b>over nine minutes for a single query</b>. ' +
+            'That is not a tuning problem, it is the mechanism: the pair encoding depends on both inputs, so nothing about a document can be computed in advance. ' +
+            '<br><br>This is the whole argument for the funnel. The cross-encoder is not too slow to be useful; it is too slow to be <em>first</em>.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Reading Both Together</h2>
+  <p class="vz-lede">A cross-encoder takes one sequence — <code>[CLS] query [SEP] document [SEP]</code> — and in
+    every layer each query token attends to every document token and back. Pick a query, then flip how the pair
+    is encoded and watch the verdict change. <b>Like reading a question and an answer side by side, instead of
+    memorising the answer first and being handed the question afterwards.</b></p>
+
+  <div class="v2-qs" id="v2-qs"></div>
+
+  <div class="vz-seg" role="group" aria-label="How the pair is encoded">
+    <button id="v2-joint" aria-pressed="true">cross-encoder · joint attention</button>
+    <button id="v2-sep" aria-pressed="false">bi-encoder · encoded apart</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-seq" id="v2-seq"></div>
+    <div class="v2-verdict" id="v2-verdict"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The scoring head is one linear layer over the <code>[CLS]</code> representation, emitting a
+    single relevance <b>logit</b> per pair — and that logit is <b>not a calibrated probability</b>. It orders pairs
+    within one model reasonably well; adding, averaging or thresholding it against a BM25 score or another model's
+    logit, without calibration, produces erratic rankings. What the model learns to separate is set by its
+    negatives: <b>hard negatives</b> mined by BM25 or a bi-encoder are what teach it the distinctions real traffic
+    requires.</p>
+
+  <style>
+    .v2-qs{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-q{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v2-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-qk{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted);
+      border:1px solid var(--viz-line);border-radius:999px;padding:2px 7px}
+    .v2-qt{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-seq{display:flex;flex-wrap:wrap;gap:3px;align-items:center;line-height:1.4}
+    .v2-tok{font-family:ui-monospace,Consolas,monospace;font-size:11px;border:1.5px solid var(--viz-line);
+      border-radius:6px;padding:3px 6px;background:var(--viz-bg);color:var(--viz-muted)}
+    .v2-tok.is-q{color:var(--viz-ink)}
+    .v2-tok.is-d{color:var(--viz-ink)}
+    .v2-tok.is-bindq{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:700}
+    .v2-tok.is-bindd{border-color:var(--viz-violet);color:var(--viz-violet);font-weight:700}
+    .v2-tok sup{font-size:8.5px;margin-left:2px}
+    .v2-sep{border-style:dashed}
+    .v2-box{display:flex;gap:8px;flex-wrap:wrap;width:100%}
+    .v2-vec{flex:1 1 140px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg)}
+    .v2-vec h6{margin:0 0 3px;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v2-vec b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;display:block;color:var(--viz-ink)}
+    .v2-vec span{font-size:10.5px;color:var(--viz-muted);display:block;margin-top:3px;line-height:1.35}
+    .v2-binds{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v2-bd{font-size:11.5px;line-height:1.45;display:flex;gap:7px}
+    .v2-bn{flex:0 0 auto;font-weight:800;font-size:10px;border-radius:999px;border:1.5px solid var(--viz-violet);
+      color:var(--viz-violet);padding:1px 7px;height:18px}
+    .v2-verdict{margin-top:13px;font-size:12.5px;font-weight:700;line-height:1.5;display:flex;gap:8px;align-items:flex-start}
+    .v2-mk{flex:0 0 auto;font-size:11px;font-weight:800;border-radius:6px;padding:2px 7px;border:1.5px solid}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CASES = [
+      { kind:'disambiguation',
+        q:['jaguar','0-60','time'],
+        d:['The','Jaguar','F-Type','reaches','60','mph','in','3.5','s','from','rest'],
+        binds:[
+          { n:1, qi:[0], di:[1,2], t:'<code>jaguar</code> ↔ <code>Jaguar F-Type</code> — the CAR sense, chosen because <code>0-60</code> sits in the same sequence.' },
+          { n:2, qi:[1], di:[4,5,6,7,8], t:'<code>0-60</code> ↔ <code>60 mph in 3.5 s</code> — the exact figure the query asked for.' }
+        ],
+        cross:['RELEVANT','var(--viz-green)','Car sense resolved and the 0-60 figure located.'],
+        bi:['UNCERTAIN','var(--viz-amber)','The document vector was frozen before anyone knew which jaguar was meant.'],
+        why:['Disambiguation is only possible after the query arrives.',
+          'Because the representation of each document token is computed <em>while looking at the query</em>, the model can pick a word sense. A bi-encoder had to choose one embedding for this passage that would serve every future query — animal, car, guitar, operating system — and commit to it at index time.'] },
+      { kind:'negation',
+        q:['exercises','that','do','not','load','the','knee'],
+        d:['Barbell','back','squat','with','heavy','knee','loading','through','full','range'],
+        binds:[
+          { n:1, qi:[2,3], di:[4,5,6], t:'<code>do not</code> ↔ <code>heavy knee loading</code> — the negation binds to the thing being negated, so this document is <b>rejected</b>.' }
+        ],
+        cross:['NOT RELEVANT','var(--viz-green)','The negation was bound to its object, so a knee-loading document is correctly rejected.'],
+        bi:['STRONGLY RELEVANT — and wrong','var(--viz-red)','Every content word matches. Lexical matching and most embedding models read these tokens as strong positive evidence for knee exercises.'],
+        why:['Negation is the failure that costs the most and looks the least like a failure.',
+          '<code>do not</code> is two short tokens averaged into a 768-float summary alongside <code>exercises</code>, <code>load</code> and <code>knee</code>. The vector ends up near documents about loading the knee — which is the exact opposite of the request, returned with high confidence. Only a model that can <em>bind</em> the negation to its object gets this right.'] },
+      { kind:'numeric constraint',
+        q:['laptop','under','4','pounds'],
+        d:['Ultrabook','13-inch','aluminium','chassis','weighs','3.8','lb'],
+        binds:[
+          { n:1, qi:[1,2,3], di:[4,5,6], t:'<code>under 4 pounds</code> ↔ <code>weighs 3.8 lb</code> — related token by token, including the unit conversion.' }
+        ],
+        cross:['RELEVANT','var(--viz-green)','3.8 lb is under 4 pounds; the unit conversion happens inside the same sequence.'],
+        bi:['UNCERTAIN','var(--viz-amber)','A fine-grained numeric condition that a fixed vector smooths over — 3.8 lb and 5.2 lb land in nearly the same place.'],
+        why:['Numeric and unit constraints need both sides present at once.',
+          'The comparison <code>3.8 &lt; 4</code> cannot be precomputed, because the threshold arrives with the query. This is the same family as part numbers and rare names: <b>exact signals a vector averages away</b>, and one of the four places the cross-encoder\'s advantage concentrates.'] }
+    ];
+    var cur = 0, joint = true;
+    var qs = document.getElementById('v2-qs'), seq = document.getElementById('v2-seq');
+    var verdict = document.getElementById('v2-verdict'), why = document.getElementById('v2-why');
+    var bJ = document.getElementById('v2-joint'), bS = document.getElementById('v2-sep');
+
+    function tok(text, cls, mark){
+      return '<span class="v2-tok ' + cls + '">' + text + (mark ? '<sup>' + mark + '</sup>' : '') + '</span>';
+    }
+    function render(){
+      var c = CASES[cur];
+      [].slice.call(qs.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      bJ.setAttribute('aria-pressed', joint ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', joint ? 'false' : 'true');
+
+      var qMark = {}, dMark = {};
+      c.binds.forEach(function(b){
+        b.qi.forEach(function(i){ qMark[i] = b.n; });
+        b.di.forEach(function(i){ dMark[i] = b.n; });
+      });
+
+      if (joint) {
+        var h = tok('[CLS]', 'v2-sep', 0);
+        c.q.forEach(function(t, i){ h += tok(t, qMark[i] ? 'is-bindq' : 'is-q', qMark[i] || 0); });
+        h += tok('[SEP]', 'v2-sep', 0);
+        c.d.forEach(function(t, i){ h += tok(t, dMark[i] ? 'is-bindd' : 'is-d', dMark[i] || 0); });
+        h += tok('[SEP]', 'v2-sep', 0);
+        h += '<div class="v2-binds">' + c.binds.map(function(b){
+          return '<div class="v2-bd"><span class="v2-bn">' + b.n + '</span><span>' + b.t + '</span></div>';
+        }).join('') + '</div>';
+        seq.innerHTML = h;
+        verdict.innerHTML = '<span class="v2-mk" style="color:' + c.cross[1] + ';border-color:' + c.cross[1] + '">' +
+          c.cross[0] + '</span><span>' + c.cross[2] + '</span>';
+      } else {
+        seq.innerHTML = '<div class="v2-box">' +
+          '<div class="v2-vec"><h6>query, encoded now</h6><b>768 floats</b>' +
+            '<span>' + c.q.join(' ') + '</span></div>' +
+          '<div class="v2-vec"><h6>document, encoded offline</h6><b>768 floats</b>' +
+            '<span>' + c.d.join(' ') + '<br><em>computed before this query existed</em></span></div>' +
+          '</div>' +
+          '<div class="v2-binds"><div class="v2-bd"><span class="v2-bn">×</span><span>No token on one side ever sees a token on the other. The only thing that crosses the gap is <b>one dot product between two fixed vectors</b>.</span></div></div>';
+        verdict.innerHTML = '<span class="v2-mk" style="color:' + c.bi[1] + ';border-color:' + c.bi[1] + '">' +
+          c.bi[0] + '</span><span>' + c.bi[2] + '</span>';
+      }
+      why.innerHTML = '<b>' + c.why[0] + '</b>' + c.why[1] +
+        '<br><br><b style="display:inline">Cost of the joint view:</b> the pair encoding depends on both inputs, so ' +
+        'nothing here can be cached. Scoring n candidates is n forward passes, and attention inside each pass grows ' +
+        '<b style="display:inline">quadratically</b> with sequence length. A 512-token window and a 30-token query leave ' +
+        'about 480 tokens for the document — so long documents are truncated, and truncation can silently delete the ' +
+        'evidence you just watched the model bind. Measure the truncation rate and treat it as a quality metric.';
+    }
+    CASES.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v2-q';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v2-qk">' + c.kind + '</span><span class="v2-qt">' + c.q.join(' ') + '</span>';
+      b.addEventListener('click', function(){ cur = i; render(); });
+      qs.appendChild(b);
+    });
+    bJ.addEventListener('click', function(){ joint = true; render(); });
+    bS.addEventListener('click', function(){ joint = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Compress Now Or Later</h2>
+  <p class="vz-lede">The bi-encoder compresses a document into 768 floats <em>before</em> the query is known; the
+    cross-encoder waits and then reads both token sequences. Drag the corpus size and watch which bargain the
+    hardware allows. <b>Like writing a one-line summary of every book in advance, versus rereading the relevant
+    pages once someone finally tells you the question.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-n">Corpus: <span id="v3-nl">1,000,000</span> passages</label>
+    <input type="range" id="v3-n" min="0" max="5" value="4" step="1" aria-label="Corpus size in passages">
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The gap is not fixed. Domain fine-tuning with mined hard negatives, larger embedding
+    dimensions and better ANN indexes all narrow it <b>from the bi-encoder side</b>; zero-shot out-of-domain
+    traffic and constraint-heavy queries widen it. And compare <b>pipelines, not models</b>: a bi-encoder top-10
+    and a bi-encoder top-100 plus cross-encoder rerank are different systems with different latencies and prices.
+    Judge them at equal p95 latency and equal infrastructure cost, or you will systematically overinvest in the
+    reranker and underinvest in candidate recall.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v3-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v3-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v3-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v3-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SIZES = [1000, 5000, 20000, 100000, 1000000, 10000000];
+    var PER_BATCH = 32, BATCH_MS = 18, DIM = 768;
+    var s = document.getElementById('v3-n'), nl = document.getElementById('v3-nl');
+    var bars = document.getElementById('v3-bars'), why = document.getElementById('v3-why');
+
+    function ms(v){
+      if (!isFinite(v) || v < 0) return '—';
+      if (v < 1000) return Math.round(v) + ' ms';
+      if (v < 60000) return (v / 1000).toFixed(1) + ' s';
+      return (v / 60000).toFixed(1) + ' min';
+    }
+    function render(){
+      var n = SIZES[Number(s.value)] || SIZES[0];
+      nl.textContent = n.toLocaleString();
+      var biMs = 8 + Math.round(4 * Math.log10(Math.max(n, 10)));       // one query encode + an ANN search
+      var ceBatches = Math.ceil(n / PER_BATCH);
+      var ceMs = ceBatches * BATCH_MS;
+      var worst = Math.ceil(SIZES[SIZES.length - 1] / PER_BATCH) * BATCH_MS;
+      var span = Math.log10(Math.max(worst, 2));
+      var small = n <= 5000;
+
+      function bar(t, v, c, sub){
+        var w = Math.max(2, Math.round(Math.log10(Math.max(v, 2)) / span * 100));
+        return '<div class="v3-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + ms(v) + ' per query</b></h6>' +
+          '<div class="v3-track"><i style="width:' + w + '%;background:' + c + '"></i></div>' +
+          '<div class="v3-sub">' + sub + '</div></div>';
+      }
+      var ceCol = small ? 'var(--viz-amber)' : 'var(--viz-red)';
+      var ratio = Math.round(ceMs / Math.max(biMs, 1));
+      bars.innerHTML =
+        bar('bi-encoder over the whole corpus', biMs, 'var(--viz-green)',
+            'Documents were encoded <b>once, offline</b>, into ' + n.toLocaleString() + ' × ' + DIM + ' floats in an ANN index. Online: one query encoding, then a search. Per-pair cost is effectively one multiply.') +
+        bar('cross-encoder over the whole corpus', ceMs, ceCol,
+            ceBatches.toLocaleString() + ' batches × 18 ms. <b>Nothing is precomputable</b>, so every document costs a forward pass with the query attached.') +
+        '<div class="v3-pills">' +
+          '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">effectiveness: cross-encoder, +several nDCG points over a top-100</span>' +
+          '<span class="v3-pill" style="color:var(--viz-green);border-color:var(--viz-green)">efficiency: bi-encoder, ' + ratio + '× cheaper here</span>' +
+        '</div>';
+
+      why.innerHTML = small
+        ? '<b style="color:var(--viz-amber)">△ The legitimate single-stage exception.</b>' +
+          'With ' + n.toLocaleString() + ' documents, brute-force cross-encoding every candidate costs ' + ms(ceMs) +
+          ' — affordable at <b>modest query rates</b>, and the funnel collapses into one simpler stage. An internal tool with a small corpus should take that simplification rather than operating machinery it does not need. ' +
+          '<br><br>Note what makes it legitimate: not that the cross-encoder got cheaper, but that ' + n.toLocaleString() +
+          ' × 18/32 ms happens to fit. Multiply the query rate and the exception evaporates.'
+        : '<b style="color:var(--viz-red)">✗ ' + ms(ceMs) + ' per query — the funnel is mandatory.</b>' +
+          'At one million passages this is over nine minutes for a single query. So the two are <b>complements, not competitors</b>: the bi-encoder (with BM25 beside it) owns the recall stage and produces the shortlist, and the cross-encoder owns the precision stage over that shortlist. Every serious production ranker is this pair. ' +
+          '<br><br><b style="display:inline">Why the effectiveness gap exists at all:</b> a bi-encoder must compress everything a document might ever need to say to <em>any</em> future query into ' + DIM +
+          ' floats, before the query is known. A cross-encoder defers the comparison and then uses the full token sequences of both sides — orders of magnitude more representational capacity <em>per judged pair</em>. ' +
+          'The gap concentrates in exact lexical signals such as part numbers and rare names, negation and conjunctive constraints, fine-grained numeric conditions, and out-of-domain text.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Finding The Knee</h2>
+  <p class="vz-lede">Rerank depth <code>k</code> is how many candidates get rescored; everything deeper keeps its
+    retrieval order. Set a tail-latency budget, then change the first stage and watch the answer move.
+    <b>Like buying insurance: the first policy covers most of the risk, and the third costs as much again for a
+    rounding error.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="First stage">
+    <button id="v4-bm25" aria-pressed="true">first stage: BM25 only</button>
+    <button id="v4-hyb" aria-pressed="false">first stage: after hybrid fusion</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-budget">p95 latency budget: <span id="v4-budgetl">100 ms</span></label>
+    <input type="range" id="v4-budget" min="20" max="220" value="100" step="5" aria-label="p95 latency budget in milliseconds">
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Three rules protect quality at the boundary. <b>Deduplicate before rescoring</b> — near-identical
+    chunks from one source waste pair budget and crowd out diverse evidence, so collapse by source document or content
+    hash first. <b>Order by the reranker within the top k and keep retrieval order below k</b>, rather than blending
+    uncalibrated scores across the boundary. And <b>adapt depth by observable query class</b> — an exact part-number
+    query needs 20, an ambiguous natural-language question may merit 150 — gating on the class, never on the model's
+    own confidence, always under a hard maximum.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-rows{margin-top:16px;display:flex;flex-direction:column;gap:5px}
+    .v4-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 10px;background:var(--viz-bg)}
+    .v4-r.is-pick{border-color:var(--viz-green)}
+    .v4-r.is-over{opacity:.5;border-style:dashed}
+    .v4-r.is-blind{border-color:var(--viz-red)}
+    .v4-top{display:flex;align-items:center;gap:9px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-d{flex:0 0 62px;font-weight:800}
+    .v4-track{flex:1;height:12px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%;background:var(--viz-accent)}
+    .v4-nd{flex:0 0 46px;text-align:right}
+    .v4-ms{flex:0 0 52px;text-align:right;color:var(--viz-muted)}
+    .v4-tag{margin-top:4px;font-size:10.5px;font-weight:800;letter-spacing:.02em}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The sweep from the lesson: rerank at 20/50/100/200 on labelled queries and
+    // record final metric and tail latency at each point.
+    var SWEEP = [
+      { d:20,  nd:0.410, p95:25  },
+      { d:50,  nd:0.440, p95:50  },
+      { d:100, nd:0.452, p95:95  },
+      { d:200, nd:0.455, p95:180 }
+    ];
+    var LO = 0.395, HI = 0.462;
+    var hybrid = false;
+    var bud = document.getElementById('v4-budget'), budl = document.getElementById('v4-budgetl');
+    var rowsEl = document.getElementById('v4-rows'), why = document.getElementById('v4-why');
+    var bB = document.getElementById('v4-bm25'), bH = document.getElementById('v4-hyb');
+
+    function render(){
+      var budget = Number(bud.value) || 0;
+      budl.textContent = budget + ' ms';
+      bB.setAttribute('aria-pressed', hybrid ? 'false' : 'true');
+      bH.setAttribute('aria-pressed', hybrid ? 'true' : 'false');
+      var ceiling = hybrid ? 40 : 150;      // where relevant documents tend to sit in the first stage
+
+      var pick = null;
+      SWEEP.forEach(function(r){ if (r.p95 <= budget) pick = r; });
+
+      rowsEl.innerHTML = SWEEP.map(function(r, i){
+        var over = r.p95 > budget;
+        var blind = r.d < ceiling;
+        var cls = over ? 'is-over' : (pick && r.d === pick.d ? 'is-pick' : (blind ? 'is-blind' : ''));
+        var w = Math.max(3, Math.round((r.nd - LO) / (HI - LO) * 100));
+        var prev = i > 0 ? SWEEP[i - 1] : null;
+        var dNd = prev ? r.nd - prev.nd : 0;
+        var dMs = prev ? Math.max(r.p95 - prev.p95, 1) : 1;
+        var gain = prev
+          ? '+' + dNd.toFixed(3) + ' nDCG for +' + (r.p95 - prev.p95) + ' ms  (' + (dNd / dMs * 1000).toFixed(2) + ' nDCG per second bought)'
+          : 'baseline of the sweep';
+        var tag, col;
+        if (over)       { tag = '✗ over the ' + budget + ' ms budget'; col = 'var(--viz-muted)'; }
+        else if (blind) { tag = '⚑ below the candidate ceiling — relevant documents sit near rank ' + ceiling + ', so the reranker never sees them'; col = 'var(--viz-red)'; }
+        else if (pick && r.d === pick.d) { tag = '★ deepest affordable — ' + gain; col = 'var(--viz-green)'; }
+        else            { tag = '· affordable, ' + gain; col = 'var(--viz-muted)'; }
+        return '<div class="v4-r ' + cls + '">' +
+          '<div class="v4-top"><span class="v4-d">k = ' + r.d + '</span>' +
+          '<span class="v4-track"><i style="width:' + w + '%"></i></span>' +
+          '<span class="v4-nd">' + r.nd.toFixed(3) + '</span>' +
+          '<span class="v4-ms">' + r.p95 + ' ms</span></div>' +
+          '<div class="v4-tag" style="color:' + col + '">' + tag + '</div></div>';
+      }).join('');
+
+      var head, body;
+      if (!pick) {
+        head = '<b style="color:var(--viz-red)">✗ Nothing in the sweep fits ' + budget + ' ms.</b>';
+        body = 'Every measured depth exceeds the tail budget, so the honest answers are to make the reranker cheaper (a distilled student, a shorter window, token-budget batching) or to accept retrieval order. ' +
+          'Do not pick a depth you have not measured and hope: the region below 20 was never swept.';
+      } else if (pick.d === 200) {
+        head = '<b style="color:var(--viz-amber)">△ k = 200 fits, and it is still not the answer.</b>';
+        body = 'Depth 200 buys <b>0.003 of nDCG for nearly double the latency</b> over depth 100. The knee of the curve, not the largest affordable number, is the answer — and the deep region is <b>off-distribution</b> for a reranker trained on top-100 negatives, so confidently wrong rescoring of very off-topic pairs can occasionally make the final order worse.';
+      } else if (pick.d === 100) {
+        head = '<b style="color:var(--viz-green)">✓ k = 100 — the justified operating point.</b>';
+        body = 'It buys most of the available quality inside the budget. Everything above it on this curve is flat: retrieval scores at depth are noisy and those candidates are mostly irrelevant, so cost grows roughly linearly in k while the gain does not.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">△ k = ' + pick.d + ' — inside the budget, short of the knee.</b>';
+        body = 'The curve is still climbing here: going from ' + pick.d + ' to 100 is worth 0.0' + (pick.d === 20 ? '42' : '12') + ' of nDCG. A tighter budget is a real constraint, not a modelling opinion — but record that you are leaving measured quality on the table, and revisit it when the reranker gets faster.';
+      }
+
+      why.innerHTML = head + body +
+        (hybrid
+          ? '<br><br><b style="color:var(--viz-violet);display:inline">First stage changed → this table is void.</b> ' +
+            'With hybrid fusion the relevant documents move from around rank 150 toward rank <b>40</b>, so a shallower depth now buys the same final quality at lower cost. ' +
+            'Depth is a property of the <b>retriever-reranker pair</b>, never of the reranker alone. Recompute the sweep whenever either stage changes materially: new embedder, new fusion, new reranker, or a corpus whose size doubled.'
+          : '<br><br><b style="display:inline">The ceiling is the other side of the decision.</b> ' +
+            'Relevant documents sit near rank ' + ceiling + ' with this first stage, so k = 20 and k = 50 cannot see them at all — final metrics stay flat and <b>upgrading the reranker accomplishes nothing</b>. That is the diagnosis to reach for before the model.');
+    }
+    bud.addEventListener('input', render);
+    bB.addEventListener('click', function(){ hybrid = false; render(); });
+    bH.addEventListener('click', function(){ hybrid = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Depth Is Capacity</h2>
+  <p class="vz-lede">Pair throughput is query rate × depth, and a replica does about 2,500 pairs a second. Move
+    either dial and the fleet moves with it — then hit peak and watch what the fallback path serves.
+    <b>Like a restaurant: the price of a dish is one thing, how many cooks you must keep on payroll to serve it
+    at eight o'clock is another.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-qps">Query rate: <span id="v5-qpsl">200 qps</span></label>
+    <input type="range" id="v5-qps" min="10" max="500" value="200" step="10" aria-label="Queries per second">
+    <label class="v5-lab" for="v5-depth" style="margin-top:12px">Rerank depth k: <span id="v5-depthl">100</span></label>
+    <input type="range" id="v5-depth" min="20" max="200" value="100" step="10" aria-label="Rerank depth">
+    <div class="v5-pills" id="v5-pills"></div>
+    <div class="v5-reps" id="v5-reps"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Traffic">
+    <button id="v5-normal" aria-pressed="true">steady traffic</button>
+    <button id="v5-peak" aria-pressed="false">traffic peak · 2× for 90 s</button>
+  </div>
+
+  <p class="vz-note">A real incident, and the reason the sweep must include load. A team doubled depth from 100 to
+    200 to chase 0.003 of nDCG. p95 latency doubled, <b>autoscaling lagged</b> during a traffic peak, batch timeouts
+    fired, and the fallback served unreranked retrieval order to a third of peak queries. Production quality ended up
+    <b>worse than at depth 100</b>. The depth chosen on a quiet benchmark was not the depth the system could sustain
+    under representative concurrency — which is also why the first-stage order has to be acceptable on its own.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-pills{margin-top:15px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-reps{margin-top:13px}
+    .v5-row{display:flex;align-items:center;gap:8px;margin-top:6px;flex-wrap:wrap}
+    .v5-key{flex:0 0 96px;font-size:10.5px;color:var(--viz-muted);font-weight:700}
+    .v5-blocks{display:flex;gap:3px;flex-wrap:wrap;flex:1 1 160px}
+    .v5-blk{width:13px;height:20px;border-radius:3px;background:var(--viz-accent);opacity:.85}
+    .v5-blk.is-short{background:transparent;border:1.5px dashed var(--viz-red)}
+    .v5-more{font-size:10.5px;color:var(--viz-muted);align-self:center}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PER_REPLICA = 2500;      // pairs per second on one replica
+    var qpsEl = document.getElementById('v5-qps'), qpsL = document.getElementById('v5-qpsl');
+    var dEl = document.getElementById('v5-depth'), dL = document.getElementById('v5-depthl');
+    var pills = document.getElementById('v5-pills'), reps = document.getElementById('v5-reps');
+    var why = document.getElementById('v5-why');
+    var bN = document.getElementById('v5-normal'), bP = document.getElementById('v5-peak');
+    var peak = false;
+
+    function blocks(n, cls){
+      var shown = Math.min(n, 48);
+      var h = '';
+      for (var i = 0; i < shown; i++) h += '<div class="v5-blk ' + (cls || '') + '"></div>';
+      if (n > shown) h += '<span class="v5-more">+ ' + (n - shown) + ' more</span>';
+      return h || '<span class="v5-more">none</span>';
+    }
+    function render(){
+      var qps = Math.max(Number(qpsEl.value) || 0, 1);
+      var depth = Math.max(Number(dEl.value) || 0, 1);
+      qpsL.textContent = qps + ' qps';
+      dL.textContent = depth;
+      bN.setAttribute('aria-pressed', peak ? 'false' : 'true');
+      bP.setAttribute('aria-pressed', peak ? 'true' : 'false');
+
+      var steadyPairs = qps * depth;
+      var running = Math.ceil(steadyPairs / PER_REPLICA);              // what autoscaling had provisioned
+      var demandPairs = peak ? steadyPairs * 2 : steadyPairs;
+      var needed = Math.ceil(demandPairs / PER_REPLICA);
+      var halved = Math.ceil((qps * Math.max(depth / 2, 1)) / PER_REPLICA);
+      var shortfall = Math.max(needed - running, 0);
+      var dropped = needed > 0 ? Math.round(shortfall / needed * 100) : 0;
+
+      pills.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' +
+          qps + ' × ' + depth + ' = ' + demandPairs.toLocaleString() + ' pairs/sec</span>' +
+        '<span class="v5-pill" style="color:' + (shortfall ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' +
+          (shortfall ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + needed + ' replica' + (needed === 1 ? '' : 's') + ' needed</span>' +
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">halve k → ' + halved + ' replica' + (halved === 1 ? '' : 's') + '</span>';
+
+      reps.innerHTML =
+        '<div class="v5-row"><span class="v5-key">running</span><span class="v5-blocks">' + blocks(running, '') + '</span></div>' +
+        (shortfall
+          ? '<div class="v5-row"><span class="v5-key">short by ' + shortfall + '</span><span class="v5-blocks">' + blocks(shortfall, 'is-short') + '</span></div>'
+          : '<div class="v5-row"><span class="v5-key">headroom</span><span class="v5-blocks"><span class="v5-more">demand is met — add your own margin for retries and shadow traffic</span></span></div>');
+
+      why.innerHTML = peak
+        ? '<b style="color:var(--viz-red)">✗ Autoscaling lags, and the shortfall does not queue — it falls back.</b>' +
+          'Demand jumped to ' + demandPairs.toLocaleString() + ' pairs/sec against ' + running + ' running replica' + (running === 1 ? '' : 's') +
+          ', so roughly <b>' + dropped + '% of queries</b> cannot be rescored in time. Batch timeouts fire, and those queries are served in <b>retrieval order</b>. ' +
+          '<br><br>That makes fallback part of the depth decision, not an operational detail: the unreranked first-stage order is the <em>evaluated degraded mode</em>, so it must be acceptable on its own. ' +
+          'It is also why doubling depth for a small offline gain can lower production quality — the extra depth is spent on the queries that still get reranked, while the rest lose the reranker entirely.'
+        : '<b style="color:var(--viz-green)">✓ Depth debates are capacity debates in disguise.</b>' +
+          qps + ' queries per second at depth ' + depth + ' is <b>' + demandPairs.toLocaleString() + ' pairs per second</b>, and at ' +
+          PER_REPLICA.toLocaleString() + ' pairs per second per replica that is <b>' + needed + ' replica' + (needed === 1 ? '' : 's') +
+          '</b> before headroom, retries and shadow traffic. The canonical figure from the lesson is 200 qps at depth 100 → 20,000 pairs/sec → eight replicas. ' +
+          '<br><br>Halving depth halves the reranking fleet, from ' + needed + ' to ' + halved + '. That is the same arithmetic the previous lesson used for candidate budgets, only denominated in machines — which is why a quality argument about k is always also a bill.';
+    }
+    qpsEl.addEventListener('input', render);
+    dEl.addEventListener('input', render);
+    bN.addEventListener('click', function(){ peak = false; render(); });
+    bP.addEventListener('click', function(){ peak = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

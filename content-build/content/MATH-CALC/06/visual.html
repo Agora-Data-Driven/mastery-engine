@@ -1,0 +1,734 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:34px}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Chain Rule To Graph</button>
+  <button class="viz-tab" data-viz-tab="2">2. Linear Stack Collapses</button>
+  <button class="viz-tab" data-viz-tab="3">3. Activation Zoo</button>
+  <button class="viz-tab" data-viz-tab="4">4. Two Paths, One Sum</button>
+  <button class="viz-tab" data-viz-tab="5">5. Backprop Layer By Layer</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Chain Rule To Graph</h2>
+  <p class="vz-lede"><b>Chain Rule and Implicit differentiation</b> already gives you
+    dL/dw = dL/dy · dy/dz · dz/dw. A computational graph is that same sentence drawn as boxes, with one
+    easy local derivative written on each arrow. Drag the weight and the input and watch every edge, the
+    product, and an independent numerical check move together.
+    <b>Like gearing on a bike: each cog multiplies the one before it, and the ratio at the wheel is the
+    product of them all.</b></p>
+
+  <div class="vz-card v1-fam vz-mono" id="v1-fam"></div>
+
+  <div class="v1-nodes" id="v1-nodes"></div>
+  <div class="v1-edges" id="v1-edges"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-w">weight w = <span id="v1-wl">0.50</span></label>
+    <input class="vz-range" type="range" id="v1-w" min="-3" max="3" step="0.05" value="0.5" aria-label="weight w">
+    <label class="vz-lab" for="v1-x">input x = <span id="v1-xl">2.00</span></label>
+    <input class="vz-range" type="range" id="v1-x" min="-3" max="3" step="0.05" value="2" aria-label="input x">
+    <div class="vz-seg" role="group" aria-label="target label">
+      <button id="v1-y0" aria-pressed="false">target y = 0</button>
+      <button id="v1-y1" aria-pressed="true">target y = 1</button>
+    </div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Every node here is deliberately trivial — a linear function or a sigmoid — so each local
+    derivative is a one-liner. That is the whole design of a computational graph: make the pieces boring so
+    the composition is mechanical. The same graph with log loss instead of square loss collapses even
+    further, to the famous dL/dw = x(y&#770; &minus; y).</p>
+
+  <style>
+    .v1-fam{margin-bottom:12px}
+    .v1-nodes{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+    .v1-n{flex:1 1 68px;border:1.5px solid var(--viz-line);border-radius:10px;padding:7px 6px;
+      background:var(--viz-bg);text-align:center}
+    .v1-n u{display:block;text-decoration:none;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;
+      color:var(--viz-muted)}
+    .v1-n b{display:block;font-family:ui-monospace,Consolas,monospace;font-size:13px;margin-top:2px}
+    .v1-edges{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v1-e{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-surface);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v1-e.is-sum{border-color:var(--viz-accent);border-style:solid}
+    .v1-e.is-chk{border-style:dashed}
+    .v1-e i{font-style:normal;margin-left:auto;font-weight:800}
+  </style>
+  <script>
+  (function(){
+    var w = document.getElementById('v1-w'), x = document.getElementById('v1-x');
+    var wl = document.getElementById('v1-wl'), xl = document.getElementById('v1-xl');
+    var y0 = document.getElementById('v1-y0'), y1 = document.getElementById('v1-y1');
+    var nodes = document.getElementById('v1-nodes'), edges = document.getElementById('v1-edges');
+    var why = document.getElementById('v1-why'), fam = document.getElementById('v1-fam');
+    var y = 1;
+
+    fam.textContent =
+      'FAMILIAR                          THIS LESSON\n' +
+      'L = L(y(z(w)))                    w  ->  z  ->  y-hat  ->  L\n' +
+      'dL/dw = dL/dy . dy/dz . dz/dw     one local derivative per arrow';
+
+    function sig(t){ return 1 / (1 + Math.exp(-t)); }
+    function num(v){ return (isFinite(v) ? v : 0).toFixed(3); }
+    function loss(ww, xx){ var yh = sig(ww * xx); return 0.5 * (yh - y) * (yh - y); }
+
+    function render(){
+      var W = Number(w.value), X = Number(x.value);
+      wl.textContent = W.toFixed(2); xl.textContent = X.toFixed(2);
+      y0.setAttribute('aria-pressed', y === 0 ? 'true' : 'false');
+      y1.setAttribute('aria-pressed', y === 1 ? 'true' : 'false');
+
+      var z = W * X, yh = sig(z), L = 0.5 * (yh - y) * (yh - y);
+      var dzdw = X, dydz = yh * (1 - yh), dLdy = yh - y;
+      var prod = dLdy * dydz * dzdw;
+
+      var h = 1e-4;
+      var fd = (loss(W + h, X) - loss(W - h, X)) / (2 * h);
+      if (!isFinite(fd)) fd = 0;
+      var agree = Math.abs(fd - prod) < 1e-3;
+
+      nodes.innerHTML =
+        '<div class="v1-n"><u>w</u><b>' + num(W) + '</b></div>' +
+        '<div class="v1-n"><u>z = w&middot;x</u><b>' + num(z) + '</b></div>' +
+        '<div class="v1-n"><u>y&#770; = sig(z)</u><b>' + num(yh) + '</b></div>' +
+        '<div class="v1-n"><u>L = &frac12;(y&#770;-y)&sup2;</u><b>' + num(L) + '</b></div>';
+
+      function edge(sym, form, val, cls){
+        return '<div class="v1-e ' + (cls || '') + '"><span>' + sym + '</span>' +
+          '<span style="color:var(--viz-muted)">= ' + form + '</span><i>' + num(val) + '</i></div>';
+      }
+      edges.innerHTML =
+        edge('&part;z/&part;w', 'x', dzdw) +
+        edge('&part;y&#770;/&part;z', 'y&#770;(1-y&#770;)', dydz) +
+        edge('&part;L/&part;y&#770;', 'y&#770; - y', dLdy) +
+        edge('&part;L/&part;w', 'the PRODUCT of the three', prod, 'is-sum') +
+        edge('numerical', '(L(w+h)-L(w-h))/2h', fd, 'is-chk');
+
+      why.innerHTML = agree
+        ? '<b>Multiplied, not added &mdash; and the numbers prove it.</b>' +
+          'The analytic product is <b>' + num(prod) + '</b> and a finite-difference estimate that knows nothing ' +
+          'about the chain rule returns <b>' + num(fd) + '</b>. They agree because w, z, y&#770; and L form a ' +
+          '<em>chain of dependence</em>: that is the entire justification for writing one derivative as a product ' +
+          'of several simpler ones. Add them instead and you get ' + num(dzdw + dydz + dLdy) + ', which matches nothing.'
+        : '<b>Numerical check is off &mdash; read it as a rounding artefact.</b>' +
+          'Analytic ' + num(prod) + ' vs numerical ' + num(fd) + '. The rule is unchanged: multiply along the chain.';
+
+      if (Math.abs(z) > 6) {
+        why.innerHTML += '<br><br><b style="color:var(--viz-amber)">Saturated: |z| = ' + num(Math.abs(z)) + '.</b>' +
+          'y&#770;(1-y&#770;) has collapsed to ' + dydz.toExponential(2) + '. One nearly-zero factor in the product ' +
+          'drives the whole gradient to nearly zero, and the weight stops moving. Visual 3 is what happens when ten ' +
+          'layers do this at once.';
+      }
+    }
+    w.addEventListener('input', render);
+    x.addEventListener('input', render);
+    y0.addEventListener('click', function(){ y = 0; render(); });
+    y1.addEventListener('click', function(){ y = 1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Linear Stack Collapses</h2>
+  <p class="vz-lede">A layer is a&#770;[l] = g(W[l] &middot; a[l-1] + b[l]). Stack five of them, then choose g.
+    With the identity the whole stack is provably one straight line however deep you go; switch g and the
+    same weights bend. <b>Like stacking magnifying glasses: five in a row still just scale, until you slip
+    one prism into the pile.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="activation function">
+    <button id="v2-lin" aria-pressed="true">g = linear</button>
+    <button id="v2-relu" aria-pressed="false">g = ReLU</button>
+    <button id="v2-sig" aria-pressed="false">g = sigmoid</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-d">depth = <span id="v2-dl">3</span> layers &nbsp;&middot;&nbsp;
+      <span id="v2-pl">6</span> parameters</label>
+    <input class="vz-range" type="range" id="v2-d" min="1" max="5" step="1" value="3" aria-label="number of layers">
+    <div class="v2-plot" id="v2-plot"></div>
+    <div class="vz-mono" id="v2-eq" style="margin-top:10px"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">This is why the question "what if every neuron uses a linear activation?" has one answer:
+    the network collapses to an equivalent single linear model. Depth without non-linearity buys parameters and
+    zero expressive power &mdash; and note it is not a claim about training difficulty, it is an algebraic
+    identity you can write down.</p>
+
+  <style>
+    .v2-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px;margin-top:12px}
+    .v2-plot svg{display:block;width:100%;height:auto}
+  </style>
+  <script>
+  (function(){
+    var W = [1.4, -1.1, 1.6, -0.9, 1.2], B = [0.5, -0.7, 0.4, 0.6, -0.3];
+    var mode = 'lin';
+    var bl = document.getElementById('v2-lin'), br = document.getElementById('v2-relu'), bs = document.getElementById('v2-sig');
+    var d = document.getElementById('v2-d'), dl = document.getElementById('v2-dl'), pl = document.getElementById('v2-pl');
+    var plot = document.getElementById('v2-plot'), eq = document.getElementById('v2-eq'), why = document.getElementById('v2-why');
+
+    function g(t){
+      if (mode === 'relu') return Math.max(0, t);
+      if (mode === 'sig') return 1 / (1 + Math.exp(-t));
+      return t;
+    }
+    function fwd(x, depth){
+      var a = x;
+      for (var l = 0; l < depth; l++) a = g(W[l] * a + B[l]);
+      return a;
+    }
+    function eff(depth){
+      var we = 1, be = 0;
+      for (var l = 0; l < depth; l++) { we = W[l] * we; be = W[l] * be + B[l]; }
+      return { w: we, b: be };
+    }
+
+    function render(){
+      bl.setAttribute('aria-pressed', mode === 'lin' ? 'true' : 'false');
+      br.setAttribute('aria-pressed', mode === 'relu' ? 'true' : 'false');
+      bs.setAttribute('aria-pressed', mode === 'sig' ? 'true' : 'false');
+      var depth = Number(d.value);
+      dl.textContent = depth; pl.textContent = depth * 2;
+
+      var N = 160, xs = [], ys = [], i, v, lo = Infinity, hi = -Infinity;
+      for (i = 0; i <= N; i++) {
+        var xv = -4 + 8 * i / N;
+        v = fwd(xv, depth);
+        if (!isFinite(v)) v = 0;
+        xs.push(xv); ys.push(v);
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      if (!isFinite(lo) || !isFinite(hi)) { lo = -1; hi = 1; }
+      if (hi - lo < 1e-6) { hi = lo + 1; lo = lo - 1; }
+      var pad = (hi - lo) * 0.15; lo -= pad; hi += pad;
+
+      var PW = 320, PH = 150;
+      function px(x){ return (x + 4) / 8 * PW; }
+      function py(yv){ return PH - (yv - lo) / (hi - lo) * PH; }
+      var pts = '';
+      for (i = 0; i <= N; i++) pts += px(xs[i]).toFixed(1) + ',' + py(ys[i]).toFixed(1) + ' ';
+
+      var zeroY = (lo < 0 && hi > 0) ? py(0) : null;
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="output of the stacked layers against the input">' +
+        '<line x1="' + px(0) + '" y1="0" x2="' + px(0) + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        (zeroY === null ? '' : '<line x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + PW + '" y2="' + zeroY.toFixed(1) + '" stroke="var(--viz-line)" stroke-width="1"/>') +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>' +
+        '<text x="4" y="12" font-size="9" fill="var(--viz-muted)">output</text>' +
+        '<text x="' + (PW - 34) + '" y="' + (PH - 4) + '" font-size="9" fill="var(--viz-muted)">x = +4</text>' +
+        '<text x="4" y="' + (PH - 4) + '" font-size="9" fill="var(--viz-muted)">x = -4</text>' +
+        '</svg>';
+      plot.innerHTML = svg;
+
+      var e = eff(depth);
+      if (mode === 'lin') {
+        eq.textContent =
+          'a[l] = W[l].a[l-1] + b[l]   (g = identity)\n' +
+          'compose ' + depth + ' of them  ->  y = ' + e.w.toFixed(3) + '.x ' + (e.b < 0 ? '- ' : '+ ') + Math.abs(e.b).toFixed(3) + '\n' +
+          'W_eff = ' + W.slice(0, depth).map(function(v2){ return v2.toFixed(1); }).join(' x ') + ' = ' + e.w.toFixed(3);
+        why.innerHTML = '<b>' + (depth * 2) + ' parameters, 2 of them effective.</b>' +
+          'A composition of affine maps is an affine map: W[2](W[1]x + b[1]) + b[2] = (W[2]W[1])x + (W[2]b[1] + b[2]). ' +
+          'Recall from linear algebra that a product of matrices is a matrix &mdash; so by induction any depth of purely ' +
+          'linear layers <b>behaves as a single linear transformation</b>. Drag depth: the line tilts, it never bends. ' +
+          '<br><br>Nothing about the hidden layers has stopped working &mdash; they still multiply their inputs by their ' +
+          'weights. It is just that the result is reachable with one layer.';
+      } else if (mode === 'relu') {
+        eq.textContent =
+          'a[l] = max(0, W[l].a[l-1] + b[l])\n' +
+          'piecewise linear: up to ' + depth + ' kink(s), flat wherever a unit is off\n' +
+          'no single (W_eff, b_eff) reproduces this';
+        why.innerHTML = '<b>Kinks are expressive power.</b>' +
+          'ReLU is the rule max(0, z): output z when z is positive and 0 otherwise. Each layer can fold the line once, ' +
+          'so depth now genuinely adds shapes a straight line cannot make. This is the entire reason non-linear ' +
+          'activations sit <em>between</em> the hidden layers. ' +
+          '<br><br>Note the flat stretches: where a unit outputs 0 its derivative is 0 too, and no gradient passes ' +
+          'through it. Visual 5 shows what that does to a weight underneath.';
+      } else {
+        eq.textContent =
+          'a[l] = sigmoid(W[l].a[l-1] + b[l])\n' +
+          'output is strictly between 0 and 1, never reaching either\n' +
+          'no single (W_eff, b_eff) reproduces this';
+        why.innerHTML = '<b>Smooth, bounded, and saturating at both ends.</b>' +
+          'The sigmoid squashes its input to an output strictly inside (0, 1), which is what makes it readable as a ' +
+          'probability at the output layer. The flat tails are the problem in hidden layers, and visual 3 measures it: ' +
+          'a flat curve means a small derivative, and small derivatives multiply.';
+      }
+    }
+    bl.addEventListener('click', function(){ mode = 'lin'; render(); });
+    br.addEventListener('click', function(){ mode = 'relu'; render(); });
+    bs.addEventListener('click', function(){ mode = 'sig'; render(); });
+    d.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Activation Zoo</h2>
+  <p class="vz-lede">Four functions, one question each time: what does the <em>derivative</em> do, because
+    backpropagation multiplies one per layer. Pick a function, drag z, and read the decay strip &mdash; the
+    gradient factor surviving after n layers. <b>Like photocopying a photocopy: at 25% fidelity a tenth-generation
+    copy is blank, at 100% it is still the original.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="activation function">
+    <button id="v3-sig" aria-pressed="true">sigmoid</button>
+    <button id="v3-relu" aria-pressed="false">ReLU</button>
+    <button id="v3-lin" aria-pressed="false">linear</button>
+    <button id="v3-soft" aria-pressed="false">softmax</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-z">pre-activation z = <span id="v3-zl">1.00</span></label>
+    <input class="vz-range" type="range" id="v3-z" min="-6" max="6" step="0.1" value="1" aria-label="pre-activation z">
+    <div class="v3-plot" id="v3-plot"></div>
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-read vz-mono" id="v3-read"></div>
+    <div class="v3-decay" id="v3-decay"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two of these are output-layer decisions, not hidden-layer ones. <b>Softmax</b> is for
+    multi-class problems where each input belongs to exactly one of several mutually exclusive classes;
+    a single <b>sigmoid</b> plus a 0.5 threshold is the binary case; <b>linear</b> is for an unbounded
+    regression target. ReLU belongs in the hidden layers, and the decay strip is the reason.</p>
+
+  <style>
+    .v3-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px;margin-top:12px}
+    .v3-plot svg{display:block;width:100%;height:auto}
+    .v3-bars{display:none;flex-direction:column;gap:6px;margin-top:12px}
+    .v3-bars.is-on{display:flex}
+    .v3-plot.is-off{display:none}
+    .v3-b{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-b span:first-child{flex:0 0 62px;color:var(--viz-muted)}
+    .v3-track{flex:1;height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%;background:var(--viz-accent)}
+    .v3-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+    .v3-decay{margin-top:12px;display:flex;gap:3px;align-items:flex-end;height:70px}
+    .v3-d{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+    .v3-d i{display:block;background:var(--viz-accent);border-radius:2px 2px 0 0;min-height:2px}
+    .v3-d u{display:block;text-decoration:none;font-size:8.5px;text-align:center;color:var(--viz-muted);margin-top:3px}
+  </style>
+  <script>
+  (function(){
+    var mode = 'sig';
+    var bS = document.getElementById('v3-sig'), bR = document.getElementById('v3-relu');
+    var bL = document.getElementById('v3-lin'), bX = document.getElementById('v3-soft');
+    var z = document.getElementById('v3-z'), zl = document.getElementById('v3-zl');
+    var plot = document.getElementById('v3-plot'), bars = document.getElementById('v3-bars');
+    var read = document.getElementById('v3-read'), decay = document.getElementById('v3-decay');
+    var why = document.getElementById('v3-why');
+
+    function sig(t){ return 1 / (1 + Math.exp(-t)); }
+    function fx(t){
+      if (mode === 'relu') return Math.max(0, t);
+      if (mode === 'lin') return t;
+      return sig(t);
+    }
+    function dfx(t){
+      if (mode === 'relu') return t > 0 ? 1 : 0;
+      if (mode === 'lin') return 1;
+      var a = sig(t); return a * (1 - a);
+    }
+    function fmt(v){
+      if (!isFinite(v)) return '0';
+      if (v !== 0 && Math.abs(v) < 0.001) return v.toExponential(2);
+      return v.toFixed(4);
+    }
+
+    function drawCurve(zv){
+      var PW = 320, PH = 140, N = 160, i, t, lo = Infinity, hi = -Infinity, ys = [], ds = [];
+      for (i = 0; i <= N; i++) {
+        t = -6 + 12 * i / N;
+        var a = fx(t), dv = dfx(t);
+        if (!isFinite(a)) a = 0;
+        if (!isFinite(dv)) dv = 0;
+        ys.push(a); ds.push(dv);
+        lo = Math.min(lo, a, dv); hi = Math.max(hi, a, dv);
+      }
+      if (!isFinite(lo) || !isFinite(hi)) { lo = 0; hi = 1; }
+      if (hi - lo < 1e-6) { hi = lo + 1; lo = lo - 1; }
+      var pad = (hi - lo) * 0.12; lo -= pad; hi += pad;
+      function px(t2){ return (t2 + 6) / 12 * PW; }
+      function py(v){ return PH - (v - lo) / (hi - lo) * PH; }
+      var pg = '', pd = '';
+      for (i = 0; i <= N; i++) {
+        t = -6 + 12 * i / N;
+        pg += px(t).toFixed(1) + ',' + py(ys[i]).toFixed(1) + ' ';
+        pd += px(t).toFixed(1) + ',' + py(ds[i]).toFixed(1) + ' ';
+      }
+      var mx = px(zv), myG = py(fx(zv)), myD = py(dfx(zv));
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the activation function and its derivative">' +
+        '<line x1="' + mx.toFixed(1) + '" y1="0" x2="' + mx.toFixed(1) + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<polyline points="' + pg + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>' +
+        '<polyline points="' + pd + '" fill="none" stroke="var(--viz-violet)" stroke-width="2.5" stroke-dasharray="5 4"/>' +
+        '<circle cx="' + mx.toFixed(1) + '" cy="' + myG.toFixed(1) + '" r="4" fill="var(--viz-accent)"/>' +
+        '<circle cx="' + mx.toFixed(1) + '" cy="' + myD.toFixed(1) + '" r="4" fill="var(--viz-violet)"/>' +
+        '<text x="4" y="12" font-size="9.5" fill="var(--viz-accent)">solid: g(z)</text>' +
+        '<text x="4" y="25" font-size="9.5" fill="var(--viz-violet)">dashed: g\'(z)</text>' +
+        '</svg>';
+    }
+
+    function drawSoftmax(zv){
+      var logits = [zv, 1.0, -0.5], names = ['class A', 'class B', 'class C'];
+      var m = Math.max(logits[0], logits[1], logits[2]);
+      var ex = logits.map(function(v){ return Math.exp(v - m); });
+      var s = ex[0] + ex[1] + ex[2];
+      if (!isFinite(s) || s <= 0) s = 1;
+      var p = ex.map(function(v){ return v / s; });
+      var best = p.indexOf(Math.max(p[0], p[1], p[2]));
+      bars.innerHTML = p.map(function(v, i){
+        var w2 = Math.max(1, Math.round(v * 100));
+        return '<div class="v3-b"><span>' + names[i] + '</span>' +
+          '<span class="v3-track"><i style="width:' + w2 + '%"></i></span>' +
+          '<span style="flex:0 0 88px;text-align:right">' + v.toFixed(3) + (i === best ? ' &larr; argmax' : '') + '</span></div>';
+      }).join('');
+      return { p: p, sum: p[0] + p[1] + p[2], logits: logits };
+    }
+
+    function render(){
+      bS.setAttribute('aria-pressed', mode === 'sig' ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', mode === 'relu' ? 'true' : 'false');
+      bL.setAttribute('aria-pressed', mode === 'lin' ? 'true' : 'false');
+      bX.setAttribute('aria-pressed', mode === 'soft' ? 'true' : 'false');
+      var zv = Number(z.value);
+      zl.textContent = zv.toFixed(2);
+
+      if (mode === 'soft') {
+        plot.className = 'v3-plot is-off';
+        bars.className = 'v3-bars is-on';
+        var sm = drawSoftmax(zv);
+        read.textContent =
+          'logits      z1 = ' + sm.logits[0].toFixed(2) + '   z2 = 1.00   z3 = -0.50\n' +
+          'softmax_i = exp(z_i) / sum_j exp(z_j)\n' +
+          'sum of the three probabilities = ' + sm.sum.toFixed(3);
+        decay.innerHTML = '';
+        why.innerHTML = '<b>Softmax turns a vector of scores into one distribution.</b>' +
+          'Every output is positive and they always sum to exactly 1, which is what "mutually exclusive classes" ' +
+          'means numerically: probability spent on one class is taken from the others. Drag z1 and watch B and C ' +
+          'give way. That coupling is precisely what a layer of independent sigmoids would <em>not</em> give you, ' +
+          'and it is why softmax is the output choice when each input belongs to exactly one class.';
+        return;
+      }
+
+      plot.className = 'v3-plot';
+      bars.className = 'v3-bars';
+      drawCurve(zv);
+      var a = fx(zv), dv = dfx(zv);
+      var maxd = mode === 'sig' ? 0.25 : 1;
+      read.textContent =
+        'g(z)  = ' + fmt(a) + (mode === 'sig' ? '   (strictly between 0 and 1)' : '') + '\n' +
+        "g'(z) = " + fmt(dv) + '   max possible = ' + maxd +
+        (mode === 'sig' ? '\nthreshold at 0.5  ->  predicted class ' + (a > 0.5 ? '1' : '0') : '');
+
+      var html = '', n, f;
+      for (n = 1; n <= 10; n++) {
+        f = Math.pow(dv, n);
+        if (!isFinite(f)) f = 0;
+        html += '<div class="v3-d" title="after ' + n + ' layers"><i style="height:' +
+          Math.max(2, Math.round(Math.min(1, Math.max(0, f)) * 60)) + 'px"></i><u>' + n + '</u></div>';
+      }
+      decay.innerHTML = html;
+
+      var ten = Math.pow(dv, 10);
+      if (!isFinite(ten)) ten = 0;
+      why.innerHTML = '<b>Gradient factor surviving 10 layers: ' + fmt(ten) + '</b>' +
+        (mode === 'sig'
+          ? "Differentiate sigma = (1 + e^-z)^-1 and you get sigma' = a(1 - a), which peaks at a = 0.5 with value 0.25. " +
+            'Backpropagation multiplies one of these per layer, so ten sigmoid layers contribute at most 0.25^10 &asymp; ' +
+            '9.5e-7. That is the <b>vanishing gradient</b>: the early layers receive almost nothing and stop learning.'
+          : mode === 'relu'
+            ? 'ReLU has a constant derivative of exactly 1 for positive inputs, so the product does not shrink with depth &mdash; ' +
+              'that, and not any bound on its outputs, is why ReLU is preferred over sigmoid in the hidden layers of deep ' +
+              'networks. ReLU is <em>unbounded</em> above. The cost is the other side: for z &lt; 0 the derivative is 0 ' +
+              'exactly, and a unit stuck there passes nothing back at all.'
+            : 'The identity has derivative 1 everywhere, so nothing decays &mdash; and nothing is gained either. Visual 2 ' +
+              'is the reason: a stack of these is one linear map, so there is no depth for a gradient to travel through.');
+    }
+    bS.addEventListener('click', function(){ mode = 'sig'; render(); });
+    bR.addEventListener('click', function(){ mode = 'relu'; render(); });
+    bL.addEventListener('click', function(){ mode = 'lin'; render(); });
+    bX.addEventListener('click', function(){ mode = 'soft'; render(); });
+    z.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Two Paths, One Sum</h2>
+  <p class="vz-lede">When one variable reaches the output by more than one route &mdash; which is every hidden
+    unit in every network &mdash; the chain rule on graphs adds the path products. Compare the correct rule
+    against the two standard distractors, with a finite-difference referee that cannot be argued with.
+    <b>Like two roads to the same town: you multiply the legs of each road, then add the roads.</b></p>
+
+  <div class="vz-card vz-mono" id="v4-graph" style="margin-bottom:11px"></div>
+
+  <div class="vz-seg" role="group" aria-label="candidate formula">
+    <button id="v4-f0" aria-pressed="true">sum of products</button>
+    <button id="v4-f1" aria-pressed="false">product of all four</button>
+    <button id="v4-f2" aria-pressed="false">sum then multiply</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-x">x = <span id="v4-xl">1.00</span></label>
+    <input class="vz-range" type="range" id="v4-x" min="-2" max="2" step="0.05" value="1" aria-label="input x">
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Products run <b>along</b> a path, sums run <b>across</b> paths. Keep the two directions
+    straight and the whole of backpropagation is bookkeeping: a hidden unit feeding forty units in the next
+    layer contributes forty path products, added, and the network gets the same answer forty times faster than
+    differentiating the composed formula by hand.</p>
+
+  <style>
+    .v4-rows{display:flex;flex-direction:column;gap:5px;margin-top:12px}
+    .v4-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-r.is-truth{border-color:var(--viz-accent)}
+    .v4-r.is-wrong{border-style:dashed;border-color:var(--viz-red)}
+    .v4-r i{font-style:normal;margin-left:auto;font-weight:800}
+    .v4-tag{font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+  </style>
+  <script>
+  (function(){
+    var pick = 0;
+    var b0 = document.getElementById('v4-f0'), b1 = document.getElementById('v4-f1'), b2 = document.getElementById('v4-f2');
+    var x = document.getElementById('v4-x'), xl = document.getElementById('v4-xl');
+    var rows = document.getElementById('v4-rows'), why = document.getElementById('v4-why');
+    var graph = document.getElementById('v4-graph');
+
+    graph.textContent =
+      '           /--> y1 = x^2 --\\\n' +
+      '   x ----->                 +--> f = y1 . y2\n' +
+      '           \\--> y2 = 3x ---/\n' +
+      '\n' +
+      '   dy1/dx = 2x      df/dy1 = y2\n' +
+      '   dy2/dx = 3       df/dy2 = y1';
+
+    function fOf(xv){ return 3 * xv * xv * xv; }
+    function num(v){ return (isFinite(v) ? v : 0).toFixed(4); }
+
+    function render(){
+      b0.setAttribute('aria-pressed', pick === 0 ? 'true' : 'false');
+      b1.setAttribute('aria-pressed', pick === 1 ? 'true' : 'false');
+      b2.setAttribute('aria-pressed', pick === 2 ? 'true' : 'false');
+      var xv = Number(x.value);
+      xl.textContent = xv.toFixed(2);
+
+      var y1 = xv * xv, y2 = 3 * xv;
+      var dy1 = 2 * xv, dy2 = 3, df1 = y2, df2 = y1;
+      var CAND = [
+        { n: 'df/dy1 . dy1/dx  +  df/dy2 . dy2/dx', v: df1 * dy1 + df2 * dy2, ok: true },
+        { n: 'df/dy1 . dy1/dx . df/dy2 . dy2/dx', v: df1 * dy1 * df2 * dy2, ok: false },
+        { n: '(df/dy1 + df/dy2) . (dy1/dx + dy2/dx)', v: (df1 + df2) * (dy1 + dy2), ok: false }
+      ];
+      var h = 1e-4;
+      var fd = (fOf(xv + h) - fOf(xv - h)) / (2 * h);
+      if (!isFinite(fd)) fd = 0;
+      var c = CAND[pick];
+      var agree = Math.abs(c.v - fd) < 1e-2;
+
+      rows.innerHTML =
+        '<div class="v4-r"><span>y1 = ' + num(y1) + ' &middot; y2 = ' + num(y2) + ' &middot; f = ' + num(y1 * y2) + '</span></div>' +
+        '<div class="v4-r ' + (agree ? 'is-truth' : 'is-wrong') + '"><span>candidate</span>' +
+          '<span style="color:var(--viz-muted)">' + c.n + '</span><i>' + num(c.v) + '</i></div>' +
+        '<div class="v4-r"><span>referee</span><span style="color:var(--viz-muted)">numerical df/dx of f = 3x^3</span>' +
+          '<i>' + num(fd) + '</i></div>' +
+        '<div class="v4-r ' + (agree ? 'is-truth' : 'is-wrong') + '"><span class="v4-tag">' +
+          (agree ? 'MATCHES the referee' : 'DISAGREES with the referee') + '</span>' +
+          '<i>gap ' + num(Math.abs(c.v - fd)) + '</i></div>';
+
+      why.innerHTML = pick === 0
+        ? '<b>The correct rule: add the path products.</b>' +
+          'Path 1 contributes (3x)(2x) = 6x&sup2;, path 2 contributes (x&sup2;)(3) = 3x&sup2;, and the total is 9x&sup2;. ' +
+          'Differentiating f = 3x&sup3; directly gives 9x&sup2; too, and the numerical referee agrees at every x you drag to. ' +
+          '<br><br>In a network this is the normal case, not a special one: every hidden unit feeds many units in the ' +
+          'next layer, so its gradient is a sum over all the routes its influence takes to the loss.'
+        : pick === 1
+          ? '<b style="color:var(--viz-red)">Multiplying across paths &mdash; the most common distractor.</b>' +
+            'It gives ' + num(c.v) + ' against a true ' + num(fd) + '. The product form is right <em>along</em> a chain, ' +
+            'where each derivative converts the units of the one before it. Two parallel paths are not links in a chain; ' +
+            'they are independent contributions, and independent contributions add.' +
+            (Math.abs(xv) < 0.05 ? '<br><br>Note that at x = 0 several candidates coincide at 0 &mdash; drag away from the origin before judging any formula.' : '')
+          : '<b style="color:var(--viz-red)">Summing first, then multiplying.</b>' +
+            'It gives ' + num(c.v) + ' against a true ' + num(fd) + '. This one is tempting because it contains all four ' +
+            'correct local derivatives &mdash; but grouping matters: each path must be completed (multiplied end to end) ' +
+            'before paths can be combined. Distributing the brackets produces cross terms that pair a derivative from one ' +
+            'path with a derivative from the other, which corresponds to no route through the graph at all.' +
+            (Math.abs(xv) < 0.05 ? '<br><br>Note that at x = 0 several candidates coincide at 0 &mdash; drag away from the origin before judging any formula.' : '');
+    }
+    b0.addEventListener('click', function(){ pick = 0; render(); });
+    b1.addEventListener('click', function(){ pick = 1; render(); });
+    b2.addEventListener('click', function(){ pick = 2; render(); });
+    x.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Backprop Layer By Layer</h2>
+  <p class="vz-lede">A two-layer network, all the way through: forward to a loss, then backward with the
+    intermediate derivatives cached. The five-factor product and the layer-by-layer recursion are the same
+    arithmetic in a different order, and the counter shows why the order matters at depth.
+    <b>Like doing the shopping once for the whole street instead of each neighbour driving to the same shop.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-x">x = <span id="v5-xl">1.00</span></label>
+    <input class="vz-range" type="range" id="v5-x" min="-2" max="2" step="0.05" value="1" aria-label="input x">
+    <label class="vz-lab" for="v5-w1">w1 = <span id="v5-w1l">0.50</span></label>
+    <input class="vz-range" type="range" id="v5-w1" min="-2" max="2" step="0.05" value="0.5" aria-label="weight w1">
+    <label class="vz-lab" for="v5-w2">w2 = <span id="v5-w2l">2.00</span></label>
+    <input class="vz-range" type="range" id="v5-w2" min="-3" max="3" step="0.05" value="2" aria-label="weight w2">
+    <div class="vz-seg" role="group" aria-label="target label">
+      <button id="v5-t0" aria-pressed="true">target y = 0</button>
+      <button id="v5-t1" aria-pressed="false">target y = 1</button>
+    </div>
+    <div class="vz-mono" id="v5-fwd"></div>
+    <div class="v5-back" id="v5-back"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v5-dep">network depth = <span id="v5-depl">10</span> layers</label>
+    <input class="vz-range" type="range" id="v5-dep" min="2" max="40" step="1" value="10" aria-label="network depth">
+    <div class="v5-cost" id="v5-cost"></div>
+  </div>
+  <p class="vz-note">Backpropagation produces the gradient of the loss for every weight and bias, and stops
+    there. It does not update anything, it does not search randomly, and it does not decide how many layers you
+    should have &mdash; gradient descent, with its learning rate, is the separate step that consumes what this
+    produces.</p>
+
+  <style>
+    .v5-back{display:flex;flex-direction:column;gap:5px;margin-top:12px}
+    .v5-s{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      line-height:1.4;flex-wrap:wrap}
+    .v5-s.is-key{border-color:var(--viz-accent)}
+    .v5-s.is-dead{border-style:dashed;border-color:var(--viz-amber)}
+    .v5-s i{font-style:normal;margin-left:auto;font-weight:800}
+    .v5-cost{margin-top:12px;display:flex;flex-direction:column;gap:9px}
+    .v5-c h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between}
+    .v5-c h6 b{font-family:ui-monospace,Consolas,monospace}
+    .v5-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+  </style>
+  <script>
+  (function(){
+    var x = document.getElementById('v5-x'), w1 = document.getElementById('v5-w1'), w2 = document.getElementById('v5-w2');
+    var xl = document.getElementById('v5-xl'), w1l = document.getElementById('v5-w1l'), w2l = document.getElementById('v5-w2l');
+    var t0 = document.getElementById('v5-t0'), t1 = document.getElementById('v5-t1');
+    var fwd = document.getElementById('v5-fwd'), back = document.getElementById('v5-back'), why = document.getElementById('v5-why');
+    var dep = document.getElementById('v5-dep'), depl = document.getElementById('v5-depl'), cost = document.getElementById('v5-cost');
+    var y = 0;
+
+    function sig(t){ return 1 / (1 + Math.exp(-t)); }
+    function n4(v){ return (isFinite(v) ? v : 0).toFixed(4); }
+
+    function render(){
+      var X = Number(x.value), W1 = Number(w1.value), W2 = Number(w2.value);
+      xl.textContent = X.toFixed(2); w1l.textContent = W1.toFixed(2); w2l.textContent = W2.toFixed(2);
+      t0.setAttribute('aria-pressed', y === 0 ? 'true' : 'false');
+      t1.setAttribute('aria-pressed', y === 1 ? 'true' : 'false');
+
+      var z1 = W1 * X, a1 = Math.max(0, z1), z2 = W2 * a1, yh = sig(z2);
+      var L = 0.5 * (yh - y) * (yh - y);
+      var dLdy = yh - y, dydz2 = yh * (1 - yh), d2 = dLdy * dydz2;
+      var dLdw2 = d2 * a1, dLda1 = d2 * W2, rp = z1 > 0 ? 1 : 0, d1 = dLda1 * rp, dLdw1 = d1 * X;
+      var five = dLdy * dydz2 * W2 * rp * X;
+
+      fwd.textContent =
+        'FORWARD\n' +
+        '  z1 = w1.x            = ' + n4(z1) + '\n' +
+        '  a1 = ReLU(z1)        = ' + n4(a1) + '\n' +
+        '  z2 = w2.a1           = ' + n4(z2) + '\n' +
+        '  yhat = sigmoid(z2)   = ' + n4(yh) + '\n' +
+        '  L = 0.5(yhat - y)^2  = ' + n4(L);
+
+      function step(sym, form, val, cls){
+        return '<div class="v5-s ' + (cls || '') + '"><span>' + sym + '</span>' +
+          '<span style="color:var(--viz-muted)">' + form + '</span><i>' + n4(val) + '</i></div>';
+      }
+      back.innerHTML =
+        step('&part;L/&part;y&#770;', '= y&#770; - y', dLdy) +
+        step('&part;y&#770;/&part;z2', '= y&#770;(1-y&#770;)', dydz2) +
+        step('&delta;2 = &part;L/&part;z2', '= cached product so far', d2, 'is-key') +
+        step('&part;L/&part;w2', '= &delta;2 &middot; a1', dLdw2) +
+        step('&part;L/&part;a1', '= &delta;2 &middot; w2', dLda1) +
+        step("ReLU'(z1)", '= 1 if z1 &gt; 0 else 0', rp, rp === 0 ? 'is-dead' : '') +
+        step('&delta;1 = &part;L/&part;z1', '= &part;L/&part;a1 &middot; ReLU\'(z1)', d1, 'is-key') +
+        step('&part;L/&part;w1', '= &delta;1 &middot; x', dLdw1, 'is-key') +
+        step('five-factor form', '(y&#770;-y)&middot;y&#770;(1-y&#770;)&middot;w2&middot;ReLU\'&middot;x', five, 'is-key');
+
+      var same = Math.abs(five - dLdw1) < 1e-9;
+      why.innerHTML = '<b>' + (same ? 'Recursion and five-factor product agree exactly.' : 'Rounding aside, both routes give the same gradient.') + '</b>' +
+        'L depends on y&#770;, y&#770; on z2, z2 on a1, a1 on z1, and z1 on w1 &mdash; five links, so &part;L/&part;w1 is the ' +
+        '<b>product of five derivatives</b>, never their sum (the sum here would be ' +
+        n4(dLdy + dydz2 + W2 + rp + X) + ', which means nothing). The recursion computes exactly that product, but stores ' +
+        '&delta;2 and &delta;1 on the way so every weight in a layer reuses them.' +
+        (rp === 0
+          ? '<br><br><b style="color:var(--viz-amber)">z1 &le; 0, so ReLU\'(z1) = 0 and the chain is severed.</b>' +
+            'One zero factor annihilates the whole product: &part;L/&part;w1 = 0 and this weight receives no update at all, ' +
+            'however wrong the prediction is. That is the price of ReLU\'s flat left half &mdash; and the mirror image of ' +
+            'the sigmoid saturation in visual 3.'
+          : '<br><br>Try dragging w1 negative with x positive: ReLU\'(z1) drops to 0 and every gradient below it goes to ' +
+            'zero, which is the ReLU failure mode.');
+
+      var D = Number(dep.value);
+      depl.textContent = D;
+      var naive = D * (D + 1) / 2, cached = 2 * D;
+      var mx = Math.max(naive, cached, 1);
+      function bar(t, v, c, sub){
+        return '<div class="v5-c"><h6><span>' + t + '</span><b style="color:' + c + '">' + v + ' multiplications</b></h6>' +
+          '<div class="v5-track"><i style="width:' + Math.max(2, Math.round(v / mx * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+      }
+      cost.innerHTML =
+        bar('recompute each weight&rsquo;s chain from scratch', naive, 'var(--viz-red)',
+          'Layer k re-multiplies the whole suffix down to the loss, so the total grows with the square of the depth.') +
+        bar('backpropagation, intermediates cached', cached, 'var(--viz-green)',
+          'One chain-rule computation is reused layer by layer, so the cost grows in proportion to depth &mdash; roughly one extra forward pass. This is exactly why intermediate derivatives are stored once computed.');
+    }
+    x.addEventListener('input', render);
+    w1.addEventListener('input', render);
+    w2.addEventListener('input', render);
+    dep.addEventListener('input', render);
+    t0.addEventListener('click', function(){ y = 0; render(); });
+    t1.addEventListener('click', function(){ y = 1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

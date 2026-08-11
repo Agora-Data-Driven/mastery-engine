@@ -1,0 +1,539 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 120px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Weights To Axes</button>
+  <button class="viz-tab" data-viz-tab="2">2. Building The Vector</button>
+  <button class="viz-tab" data-viz-tab="3">3. Dot Product Versus Cosine</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Alpha Dial</button>
+  <button class="viz-tab" data-viz-tab="5">5. Pivoted Length Penalty</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Weights To Axes</h2>
+  <p class="vz-lede"><b>Term Frequency and Its Saturation Problem</b> and <b>Inverse Document Frequency:
+    Rare Terms Carry Signal</b> handed you one number per term per document. They never said what to do
+    with a bag of them. This lesson answers that: each term gets an <em>axis</em>, and the weight is the
+    coordinate. Drag the count of <code>index</code> and watch the number from the last lesson become a
+    position. <b>Like scoring a dish for salt, acid and heat — and then plotting those three numbers so two
+    dishes can actually be compared.</b></p>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-tf">Occurrences of <code>index</code> in this document:
+      <span id="v1-tfl">2</span></label>
+    <input type="range" id="v1-tf" min="0" max="12" value="2" step="1"
+      aria-label="Occurrences of the term index">
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Representation and weighting are <b>separate decisions</b>. Bag-of-words fixes the
+    axes; the weighting scheme decides how much evidence an active axis supplies — binary presence, a raw
+    count, saturated tf, or the full tf-idf product. Everything you learned about weighting schemes still
+    applies here unchanged. It is now choosing coordinate values instead of summands.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-rows{margin-top:15px;display:flex;flex-direction:column;gap:9px}
+    .v1-r{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v1-t{flex:0 0 74px;font-weight:700}
+    .v1-c{flex:0 0 30px;text-align:right;color:var(--viz-muted)}
+    .v1-track{position:relative;flex:1;height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%;border-radius:5px}
+    .v1-v{flex:0 0 52px;text-align:right;font-weight:700}
+    .v1-off{opacity:.5}
+    .v1-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Vocabulary [database, index, query, vector] — the document is
+    // "database index index query", with `index` under the learner's control.
+    var IDF = { database: 2.303, index: 2.0, query: 1.5, vector: 4.605 };
+    var s = document.getElementById('v1-tf'), lab = document.getElementById('v1-tfl');
+    var rows = document.getElementById('v1-rows'), why = document.getElementById('v1-why');
+
+    function w(c, idf){ return c > 0 ? (1 + Math.log(c)) * idf : 0; }
+    function f(x, d){ return (isFinite(x) ? x : 0).toFixed(d); }
+
+    function render(){
+      var tf = Number(s.value) || 0;
+      lab.textContent = tf;
+      var counts = { database: 1, index: tf, query: 1, vector: 0 };
+      var maxW = 8;
+      var html = '', vec = [];
+      ['database', 'index', 'query', 'vector'].forEach(function(t){
+        var c = counts[t], v = w(c, IDF[t]);
+        vec.push(f(v, 2));
+        var col = c > 0 ? (t === 'index' ? 'var(--viz-accent)' : 'var(--viz-green)') : 'var(--viz-line)';
+        html += '<div class="v1-r' + (c > 0 ? '' : ' v1-off') + '">' +
+          '<span class="v1-t">' + t + '</span>' +
+          '<span class="v1-c">tf ' + c + '</span>' +
+          '<span class="v1-track"><i style="width:' + Math.max(0, Math.min(100, v / maxW * 100)) + '%;background:' + col + '"></i></span>' +
+          '<span class="v1-v" style="color:' + (c > 0 ? 'var(--viz-ink)' : 'var(--viz-muted)') + '">' + f(v, 2) + '</span>' +
+          '</div>';
+      });
+      rows.innerHTML = html +
+        '<div class="v1-r" style="margin-top:4px"><span class="v1-t" style="color:var(--viz-muted)">vector</span>' +
+        '<span style="flex:1">[ ' + vec.join(', ') + ' ]</span></div>';
+
+      if (tf === 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Zero occurrences ⇒ coordinate exactly 0 ⇒ nothing is stored.</b>' +
+          'The transform <code>1 + ln tf</code> is undefined at 0, so the zero branch is written down explicitly rather than left to a fallback. ' +
+          'And a zero coordinate is not a stored zero: sparse implementations keep only <code>(term_id, weight)</code> pairs, so this document simply never appears in the posting list for <code>index</code>. ' +
+          '<br><br>That is the whole reason a million-dimensional geometry is affordable — <b>the vector is a handful of postings, not an array</b>.';
+      } else {
+        var v = w(tf, IDF.index);
+        why.innerHTML = '<b>coordinate(index) = (1 + ln ' + tf + ') × 2.0 = ' + f(v, 3) + '</b>' +
+          'Raw count ' + tf + ' would put the axis at <b>' + tf + '</b>; the saturated weight puts it at <b>' + f(v, 2) + '</b>. ' +
+          (tf === 4 ? 'This is the worked case from the lesson: a term occurring four times with idf 2.0 receives (1 + 1.386) × 2 = <b>4.772</b>, not 4. ' : '') +
+          'Notice <code>vector</code> sits at 0 even though it has the highest idf of the four (4.605). ' +
+          '<b>idf only pays out on an axis the document actually activates</b> — rarity is worth nothing on a term that is absent.' +
+          '<br><br>The previous lesson produced the number. This lesson decides <em>where it goes</em>: one coordinate per vocabulary term, and the document is now a point in that space.';
+      }
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Building The Vector</h2>
+  <p class="vz-lede">A bag-of-words vector is one coordinate per vocabulary term, with word order thrown
+    away. Build a document with the steppers and watch it meet the fixed query <code>vector query</code> =
+    <code>[0, 0, 1, 1]</code>. Only axes nonzero in <em>both</em> contribute anything at all.
+    <b>Like two shopping lists compared item by item: what neither list mentions can never match.</b></p>
+
+  <div class="v2-terms" id="v2-terms"></div>
+
+  <div class="vz-card">
+    <div class="v2-out vz-mono" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Order is discarded on purpose, and it buys real invariance: <b>"vector search ranks
+    documents"</b> and <b>"documents rank vector search"</b> activate identical coordinates, which is what
+    lets an inverted index aggregate evidence term by term, independently. The price is structure —
+    "dog bites person" and "person bites dog" have the same bag, and "not reliable" overlaps "reliable"
+    almost perfectly. Phrase indexes, positional features or a reranker put some of that back.</p>
+
+  <style>
+    .v2-terms{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-row{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:5px 8px;background:var(--viz-surface)}
+    .v2-name{flex:1;font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:700}
+    .v2-q{font-size:9.5px;font-weight:800;letter-spacing:.04em;border-radius:999px;padding:2px 7px;
+      border:1.5px solid var(--viz-violet);color:var(--viz-violet)}
+    .v2-btn{min-width:44px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:9px;font:inherit;font-size:17px;font-weight:800;line-height:1}
+    .v2-n{flex:0 0 26px;text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:14px;font-weight:800}
+    .v2-out{margin-bottom:4px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TERMS = ['database', 'index', 'query', 'vector'];
+    var Q = [0, 0, 1, 1];                 // the query "vector query"
+    var doc = [1, 2, 1, 0];               // "database index index query"
+    var box = document.getElementById('v2-terms');
+    var out = document.getElementById('v2-out'), why = document.getElementById('v2-why');
+    var nums = [];
+
+    function pad(a){ return '[ ' + a.join(', ') + ' ]'; }
+
+    function render(){
+      nums.forEach(function(el, i){ el.textContent = doc[i]; });
+      var dot = 0, shared = [];
+      for (var i = 0; i < TERMS.length; i++) {
+        if (doc[i] > 0 && Q[i] > 0) { dot += doc[i] * Q[i]; shared.push(TERMS[i]); }
+      }
+      var nz = doc.filter(function(x){ return x > 0; }).length;
+      out.innerHTML =
+        'vocabulary   [ ' + TERMS.join(', ') + ' ]\n' +
+        'document     ' + pad(doc) + '   ← ' + nz + ' of 4 axes active\n' +
+        'query        ' + pad(Q) + '   ← "vector query"\n' +
+        '\n' +
+        'q · d = ' + TERMS.map(function(t, i){ return Q[i] + '×' + doc[i]; }).join(' + ') + ' = ' + dot;
+
+      if (dot === 0) {
+        why.innerHTML = '<b style="color:var(--viz-red)">Dot product 0 — no shared axis, no lexical score.</b>' +
+          'A document containing no query term cannot receive positive lexical similarity under this model, however related it may read. ' +
+          'A query for <code>car</code> will not match a page that only says <code>automobile</code> unless expansion, normalization or a second retrieval channel connects them. ' +
+          '<br><br><b>Recognise this as a boundary of the representation, not a bug in cosine similarity.</b> The axes decide what is even comparable; the angle only measures what is left.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">Shared axes: ' + shared.join(', ') + ' → q · d = ' + dot + '</b>' +
+          'Only coordinates nonzero in <em>both</em> vectors contribute, so the sum has ' + shared.length + ' live term' + (shared.length === 1 ? '' : 's') +
+          ' and the other ' + (TERMS.length - shared.length) + ' are arithmetic no one performs. ' +
+          'That is not a coincidence — it is exactly what <b>traversing the postings of the query terms</b> does. The geometry and the index are the same operation described twice.' +
+          '<br><br>Real vocabularies hold millions of terms and a document activates a tiny fraction, so nothing allocates a million-element array: it stores <code>(term_id, weight)</code> pairs. ' +
+          'Sparsity is what makes an apparently enormous space affordable.';
+      }
+    }
+
+    TERMS.forEach(function(t, i){
+      var row = document.createElement('div');
+      row.className = 'v2-row';
+      var name = document.createElement('span');
+      name.className = 'v2-name';
+      name.textContent = t;
+      row.appendChild(name);
+      if (Q[i] > 0) {
+        var tag = document.createElement('span');
+        tag.className = 'v2-q';
+        tag.textContent = 'IN QUERY';
+        row.appendChild(tag);
+      }
+      var minus = document.createElement('button');
+      minus.className = 'v2-btn'; minus.textContent = '−';
+      minus.setAttribute('aria-label', 'decrease ' + t);
+      var n = document.createElement('span');
+      n.className = 'v2-n';
+      var plus = document.createElement('button');
+      plus.className = 'v2-btn'; plus.textContent = '+';
+      plus.setAttribute('aria-label', 'increase ' + t);
+      minus.addEventListener('click', function(){ doc[i] = Math.max(0, doc[i] - 1); render(); });
+      plus.addEventListener('click', function(){ doc[i] = Math.min(9, doc[i] + 1); render(); });
+      row.appendChild(minus); row.appendChild(n); row.appendChild(plus);
+      nums.push(n);
+      box.appendChild(row);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Dot Product Versus Cosine</h2>
+  <p class="vz-lede">Two ranking rules over the same three vectors. The dot product rewards <em>magnitude</em>;
+    cosine divides it out and ranks by <em>direction</em>. Drag B's second coordinate and watch the two rules
+    hand you opposite winners. <b>Like judging archers: one rule counts total arrows fired, the other asks
+    how close to the bullseye they were pointing.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Scoring form">
+    <button id="v3-full" aria-pressed="true">full cosine</button>
+    <button id="v3-fast" aria-pressed="false">runtime form (drop ‖q‖)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-x">B's second coordinate: <span id="v3-xl">4</span>
+      &nbsp;·&nbsp; q = [1, 1, 0] &nbsp;·&nbsp; A = [2, 1, 0]</label>
+    <input type="range" id="v3-x" min="0" max="12" value="4" step="1" aria-label="B second coordinate">
+    <div class="v3-table" id="v3-table"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Cosine does <b>not</b> rescue a bad weighting scheme. The weights shape the angle before
+    cosine ever runs: leave a common term at raw count 20 next to a discriminative term at count 1 and that
+    common coordinate steers both directions. The pipeline is tokenize → weight → accumulate overlap →
+    normalize, never cosine over unexamined counts. And cosine is not always the right rule at all — very
+    short queries make the query direction coarse, exact identifiers want filters or large boosts, and BM25
+    often calibrates length better.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-table{margin-top:15px;display:flex;flex-direction:column;gap:7px}
+    .v3-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.6;white-space:pre-wrap}
+    .v3-d.is-win{border-color:var(--viz-green)}
+    .v3-hd{display:flex;align-items:center;gap:8px;font-weight:800;font-size:12px;margin-bottom:3px}
+    .v3-rank{margin-left:auto;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.04em}
+    .v3-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var q = [1, 1, 0], A = [2, 1, 0];
+    var full = true;
+    var s = document.getElementById('v3-x'), lab = document.getElementById('v3-xl');
+    var table = document.getElementById('v3-table'), why = document.getElementById('v3-why');
+    var bFull = document.getElementById('v3-full'), bFast = document.getElementById('v3-fast');
+
+    function dot(a, b){ var t = 0; for (var i = 0; i < a.length; i++) t += a[i] * b[i]; return t; }
+    function norm(a){ return Math.sqrt(dot(a, a)); }
+    function f(x, d){ return (isFinite(x) ? x : 0).toFixed(d); }
+
+    function render(){
+      bFull.setAttribute('aria-pressed', full ? 'true' : 'false');
+      bFast.setAttribute('aria-pressed', full ? 'false' : 'true');
+      var x = Number(s.value) || 0;
+      lab.textContent = x;
+      var B = [1, x, 0];
+      var nq = Math.max(norm(q), 1e-9);
+      var docs = [
+        { n: 'A', v: A, d: dot(q, A), z: Math.max(norm(A), 1e-9) },
+        { n: 'B', v: B, d: dot(q, B), z: Math.max(norm(B), 1e-9) }
+      ];
+      docs.forEach(function(o){
+        o.cos = o.d / (nq * o.z);
+        o.score = full ? o.cos : o.d / o.z;
+      });
+      var dotWin = docs[0].d === docs[1].d ? null : (docs[0].d > docs[1].d ? 'A' : 'B');
+      var cosWin = Math.abs(docs[0].cos - docs[1].cos) < 1e-9 ? null : (docs[0].cos > docs[1].cos ? 'A' : 'B');
+
+      table.innerHTML = docs.map(function(o){
+        var win = cosWin === o.n;
+        return '<div class="v3-d' + (win ? ' is-win' : '') + '">' +
+          '<div class="v3-hd"><span>document ' + o.n + ' = [' + o.v.join(', ') + ']</span>' +
+          '<span class="v3-rank" style="color:' + (win ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (win ? '★ COSINE WINNER' : (cosWin ? 'second on cosine' : 'tied on cosine')) + '</span></div>' +
+          'q · d = ' + o.d + '   ‖d‖ = √' + f(o.z * o.z, 0) + ' = ' + f(o.z, 3) + '\n' +
+          (full
+            ? 'cos = ' + o.d + ' / (' + f(nq, 3) + ' × ' + f(o.z, 3) + ') = <b style="color:' + (win ? 'var(--viz-green)' : 'var(--viz-ink)') + '">' + f(o.cos, 3) + '</b>'
+            : 'score = ' + o.d + ' / ' + f(o.z, 3) + ' = <b style="color:' + (win ? 'var(--viz-green)' : 'var(--viz-ink)') + '">' + f(o.score, 3) + '</b>   (‖q‖ = ' + f(nq, 3) + ' dropped)') +
+          '</div>';
+      }).join('');
+
+      var disagree = dotWin && cosWin && dotWin !== cosWin;
+      why.innerHTML =
+        (disagree
+          ? '<b style="color:var(--viz-amber)">The two rules disagree: dot product picks ' + dotWin + ', cosine picks ' + cosWin + '.</b>' +
+            'B accumulates the larger raw dot product (' + docs[1].d + ' against ' + docs[0].d + ') because it has more weight to spend — the same advantage a long document gets from more opportunities to mention query terms. ' +
+            'Cosine divides that magnitude out and asks which vector <em>points</em> at the query: ' + cosWin + ' does, because its term proportions match the query’s while the other spends most of its weight on one coordinate. ' +
+            '<br><br>At x = 4 this is the lesson’s worked case exactly: dot products 3 and 5, but cosines 3/√10 ≈ <b>0.949</b> and 5/√34 ≈ <b>0.857</b>. <b>The ranking reverses.</b>'
+          : '<b>Both rules currently agree' + (cosWin ? ' on ' + cosWin : '') + '.</b>' +
+            'Keep dragging: disagreement appears once one document’s extra weight piles into a coordinate the query cares less about. ' +
+            'Magnitude and direction only diverge when the <em>proportions</em> differ, which is why scaling a whole vector never moves cosine at all — [1, 2] and [3, 6] have cosine exactly 1.') +
+        '<br><br><b style="display:inline">‖q‖ is constant within one query</b>, so the ' +
+        (full ? 'runtime form on the other button' : 'form on screen') +
+        ' drops it: every score is rescaled by the same factor and the ordering is untouched. Document norms are computed at index time and stored, so the scorer accumulates the numerator from postings and multiplies by a stored inverse norm — no vocabulary-wide scan, ever.';
+    }
+    s.addEventListener('input', render);
+    bFull.addEventListener('click', function(){ full = true; render(); });
+    bFast.addEventListener('click', function(){ full = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Alpha Dial</h2>
+  <p class="vz-lede">Full cosine divides by ‖d‖. That is one point on a dial, not a law: dividing by
+    ‖d‖<sup>α</sup> lets you choose how hard length is punished. Two documents with the identical numerator 6
+    and norms 2 and 8 — drag α from "ignore length" to "full cosine".
+    <b>Like grading an essay per page instead of per essay: the right divisor is a choice, and both extremes
+    are defensible for someone.</b></p>
+
+  <div class="vz-card" style="margin-bottom:11px">
+    <label class="v4-lab" for="v4-alpha">α = <span id="v4-alphal">0.50</span></label>
+    <input type="range" id="v4-alpha" min="0" max="100" value="50" step="5"
+      aria-label="Normalization exponent alpha">
+    <div class="v4-bars" id="v4-bars"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Norm is not token count">
+    <button id="v4-na" aria-pressed="true">A = [3, 0, 0]</button>
+    <button id="v4-nb" aria-pressed="false">B = [1, 1, 1]</button>
+  </div>
+  <div class="vz-card vz-mono" id="v4-normout"></div>
+
+  <p class="vz-note">Cosine normalizes by the <b>vector norm</b>, not by token count — and that distinction
+    has teeth. The norm depends on the weights and their distribution, so ten repetitions of one term
+    produce a different norm from ten distinct terms, especially after tf saturation and idf. Two documents
+    carrying "three weighted units" can sit at norm 3 or norm 1.732 depending purely on how those units are
+    spread.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-bars{margin-top:15px;display:flex;flex-direction:column;gap:11px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%;border-radius:5px}
+    .v4-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NUM = 6, SHORT = 2, LONG = 8;     // same numerator, norms 2 and 8
+    var s = document.getElementById('v4-alpha'), lab = document.getElementById('v4-alphal');
+    var bars = document.getElementById('v4-bars'), why = document.getElementById('v4-why');
+    var bA = document.getElementById('v4-na'), bB = document.getElementById('v4-nb');
+    var normOut = document.getElementById('v4-normout');
+    var pickA = true;
+
+    function f(x, d){ return (isFinite(x) ? x : 0).toFixed(d); }
+
+    function render(){
+      var a = (Number(s.value) || 0) / 100;
+      lab.textContent = f(a, 2);
+      var sc = [SHORT, LONG].map(function(z){
+        var den = Math.pow(Math.max(z, 1e-9), a);
+        return NUM / Math.max(den, 1e-9);
+      });
+      var top = Math.max(sc[0], sc[1], 1e-9);
+      function bar(name, z, v, col){
+        return '<div class="v4-b"><h6><span>' + name + '  (‖d‖ = ' + z + ')</span>' +
+          '<b style="color:' + col + '">score ' + f(v, 3) + '</b></h6>' +
+          '<div class="v4-track"><i style="width:' + Math.max(2, Math.round(v / top * 100)) + '%;background:' + col + '"></i></div>' +
+          '<div class="v4-sub">6 / ' + z + '^' + f(a, 2) + ' = 6 / ' + f(Math.pow(z, a), 3) + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('concise document', SHORT, sc[0], 'var(--viz-green)') +
+        bar('long document', LONG, sc[1], 'var(--viz-violet)');
+
+      var gap = sc[1] > 1e-9 ? sc[0] / sc[1] : 0;
+      why.innerHTML = a < 0.02
+        ? '<b style="color:var(--viz-red)">α = 0 — no document normalization at all. The two tie at 6.</b>' +
+          'Length is ignored entirely, so a 5,000-word manual beats a focused 200-word answer purely by having more opportunities to repeat query terms. ' +
+          'This is the raw dot product of visual 3, and it is why the manual keeps winning arguments it should lose.'
+        : a > 0.98
+          ? '<b style="color:var(--viz-amber)">α = 1 — full cosine. Scores are 3 and 0.75, a ' + f(gap, 1) + '× gap.</b>' +
+            'Full normalization is a strong opinion, not a neutral default: it is the setting most favourable to short documents. ' +
+            'Over-penalise and the concise answer wins even when the long document contains a more complete and genuinely useful discussion. ' +
+            '<b>Length is a confounder, but it also carries information</b> — a long legal opinion may be relevant precisely because it is comprehensive.'
+          : '<b>α = ' + f(a, 2) + ' — a tunable middle. Gap: ' + f(gap, 2) + '×.</b>' +
+            'At α = 0.50 the lesson’s worked numbers appear: 6/√2 ≈ <b>4.24</b> and 6/√8 ≈ <b>2.12</b>, against 6 and 6 unnormalized or 3 and 0.75 at full cosine. ' +
+            'The parameter controls the <em>strength</em> of the penalty rather than assuming one universal strength — which is the point. ' +
+            '<br><br>The right value is measured, never chosen for tidiness: slice evaluation by document-length bucket and query class and look for systematic failures — long relevant documents disappearing, or short keyword-stuffed pages rising.';
+    }
+
+    function renderNorm(){
+      bA.setAttribute('aria-pressed', pickA ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', pickA ? 'false' : 'true');
+      var v = pickA ? [3, 0, 0] : [1, 1, 1];
+      var sum = v.reduce(function(t, x){ return t + x; }, 0);
+      var sq = v.reduce(function(t, x){ return t + x * x; }, 0);
+      normOut.textContent =
+        'vector          [ ' + v.join(', ') + ' ]\n' +
+        'total weight    ' + sum + '            ← identical for both\n' +
+        'sum of squares  ' + sq + '\n' +
+        '‖d‖ = √' + sq + ' = ' + f(Math.sqrt(sq), 3) + '   ← NOT identical';
+    }
+
+    s.addEventListener('input', render);
+    bA.addEventListener('click', function(){ pickA = true; renderNorm(); });
+    bB.addEventListener('click', function(){ pickA = false; renderNorm(); });
+    render();
+    renderNorm();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Pivoted Length Penalty</h2>
+  <p class="vz-lede">Pivoted normalization takes a different view: compare each document with the
+    <em>collection average</em> and tilt a line around that pivot. Denominator
+    <code>(1 − s) + s × length(d) / avg</code>. Drag the slope and watch a 5,000-word manual trade places
+    with a 200-word answer. <b>Like a handicap in golf: the pivot is the average player, and the slope
+    decides how much the strong get penalised.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-s">slope s = <span id="v5-sl">0.20</span></label>
+    <input type="range" id="v5-s" min="0" max="100" value="20" step="5" aria-label="Pivoted slope s">
+    <label class="v5-lab" for="v5-avg" style="margin-top:12px">collection average length =
+      <span id="v5-avgl">500</span> words</label>
+    <input type="range" id="v5-avg" min="100" max="1500" value="500" step="50"
+      aria-label="Collection average length">
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Whatever the dial says, <b>the definition of length must match the field and the
+    tokenizer</b>. A 12-token product title is not unusually long because a body field averages 800, and
+    normalizing them together suppresses useful title matches — fielded systems keep a separate length
+    statistic and average per channel. Norms are also versioned state: stored norms computed before a
+    tokenizer change, combined with new term weights, make incoherent scores, so index metadata must record
+    tokenizer, vocabulary statistics, weighting formula, field configuration and norm calculation. For very
+    long documents, segmenting into passages usually beats hunting for one exponent that fixes everything.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-rows{margin-top:15px;display:flex;flex-direction:column;gap:6px}
+    .v5-d{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      flex-wrap:wrap}
+    .v5-d.is-top{border-color:var(--viz-green)}
+    .v5-nm{flex:1 1 118px;font-weight:700}
+    .v5-tag{margin-left:auto;font-family:inherit;font-size:9.5px;font-weight:800;letter-spacing:.04em}
+    .v5-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Four documents: raw accumulated overlap, and body length in words.
+    var DOCS = [
+      { n: 'support answer', len: 200,  num: 5 },
+      { n: 'how-to page',    len: 250,  num: 6 },
+      { n: 'reference doc',  len: 1000, num: 9 },
+      { n: 'full manual',    len: 5000, num: 20 }
+    ];
+    var sS = document.getElementById('v5-s'), sL = document.getElementById('v5-sl');
+    var sA = document.getElementById('v5-avg'), aL = document.getElementById('v5-avgl');
+    var rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+
+    function f(x, d){ return (isFinite(x) ? x : 0).toFixed(d); }
+
+    function render(){
+      var s = (Number(sS.value) || 0) / 100;
+      var avg = Math.max(Number(sA.value) || 0, 1);
+      sL.textContent = f(s, 2);
+      aL.textContent = avg;
+
+      var scored = DOCS.map(function(d){
+        var den = Math.max((1 - s) + s * (d.len / avg), 0.01);
+        return { n: d.n, len: d.len, num: d.num, den: den, sc: d.num / den };
+      }).sort(function(a, b){ return b.sc - a.sc; });
+
+      rows.innerHTML = scored.map(function(d, i){
+        var top = i === 0;
+        var amp = d.den < 0.999, pen = d.den > 1.001;
+        var mark = amp ? 'AMPLIFIED' : (pen ? 'PENALISED' : 'AT PIVOT');
+        var col = amp ? 'var(--viz-green)' : (pen ? 'var(--viz-red)' : 'var(--viz-muted)');
+        return '<div class="v5-d' + (top ? ' is-top' : '') + '">' +
+          '<span class="v5-nm">' + (top ? '★ ' : '  ') + d.n + '</span>' +
+          '<span>' + d.len + 'w · raw ' + d.num + '</span>' +
+          '<span>÷ ' + f(d.den, 3) + ' = <b>' + f(d.sc, 2) + '</b></span>' +
+          '<span class="v5-tag" style="color:' + col + '">' + mark + '</span></div>';
+      }).join('');
+
+      var winner = scored[0].n;
+      var head = s < 0.02
+        ? '<b style="color:var(--viz-red)">s = 0 — every denominator is 1, so length is ignored and the full manual wins on raw overlap alone.</b>'
+        : s > 0.98
+          ? '<b style="color:var(--viz-amber)">s = 1 — the denominator is the pure length ratio, and the shortest document wins almost regardless of content.</b>'
+          : '<b>s = ' + f(s, 2) + ' — a line pivoting on the average. Current winner: ' + winner + '.</b>';
+
+      why.innerHTML = head +
+        'With s = 0.20 and an average of 500 words the lesson’s worked pair falls straight out: a 1,000-word document gets 0.8 + 0.4 = <b>1.2</b> and is penalised, while a 250-word document gets 0.8 + 0.1 = <b>0.9</b> and is modestly amplified. ' +
+        'Documents at exactly the average always divide by 1, whatever s is — that is what "pivot" means, and it is why the two sliders interact: moving the average moves which documents are on which side of the line.' +
+        '<br><br><b style="display:inline">Both failure modes are on this screen.</b> Too little normalization and a 5,000-word manual beats a focused 200-word answer by repeating query terms more often. Too much and the concise answer wins even when the manual holds the more complete and genuinely useful discussion. ' +
+        'Document type decides which error is worse: long legal opinions and research papers may be relevant <em>because</em> they are comprehensive, a support-answer collection rewards focus, and source files inflate raw length with repeated syntax tokens that carry no extra meaning at all.';
+    }
+    sS.addEventListener('input', render);
+    sA.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

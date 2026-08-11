@@ -1,0 +1,756 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap;
+  overflow-x:auto}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Merge To Postings</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Matrix Does Not Fit</button>
+  <button class="viz-tab" data-viz-tab="3">3. Build The Dictionary</button>
+  <button class="viz-tab" data-viz-tab="4">4. Two Cursors Stepping</button>
+  <button class="viz-tab" data-viz-tab="5">5. Rarest Term First</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Merge To Postings</h2>
+  <p class="vz-lede"><b>Big-O of Intersecting Two Sorted Lists</b> and <b>Memory Hierarchy: Why Sequential
+    Access Beats Random Access</b> already costed this machine out in IR 100. Flip the label on the same two
+    arrays and you have Boolean retrieval. Then drag a term's document frequency and see what the dense
+    matrix would have charged instead. <b>Like a stocktake: counting the twenty crates you have beats
+    ticking "none" against every item in the catalogue.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which course is speaking">
+    <button id="v1-old" aria-pressed="true">IR 100 · two sorted arrays</button>
+    <button id="v1-new" aria-pressed="false">IR 101 · two postings lists</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v1-view" style="margin-bottom:11px"></div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-df">Rare side: <span id="v1-dfl">quokka · df 20</span>
+      &nbsp;·&nbsp; other side: <code>database</code> df 2,000,000 &nbsp;·&nbsp; corpus N = 100,000,000</label>
+    <input type="range" id="v1-df" min="0" max="3" value="0" step="1" aria-label="Document frequency of the rare term">
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">The invariant to carry forward: <b>query cost should scale with occurrences, not with
+    corpus size.</b> The dense row does identical work for every term in the vocabulary — which is why the
+    incidence matrix is a contract to reason with and never a structure to store.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px;line-height:1.5}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px;white-space:nowrap}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.5}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 100000000, PARTNER = 2000000;
+    var TERMS = [
+      { l:'quokka · df 20',        df:20 },
+      { l:'vectorized · df 5,000', df:5000 },
+      { l:'vector · df 200,000',   df:200000 },
+      { l:'the · df 80,000,000',   df:80000000 }
+    ];
+    var OLD = [
+      'A = [1, 3, 7, 10, 14]              sorted, ascending',
+      'B = [2, 3, 6, 10, 12, 14]          sorted, ascending',
+      '',
+      'two cursors, advance the smaller   ->  O(m + n)',
+      'A ∩ B = [3, 10, 14]'
+    ].join('\n');
+    var NEW = [
+      'vector   -> [1, 3, 7, 10, 14]      postings, ascending doc IDs',
+      'database -> [2, 3, 6, 10, 12, 14]  postings, ascending doc IDs',
+      '',
+      'two cursors, advance the smaller   ->  O(m + n)',
+      'vector AND database = [3, 10, 14]'
+    ].join('\n');
+
+    var bOld = document.getElementById('v1-old'), bNew = document.getElementById('v1-new');
+    var view = document.getElementById('v1-view');
+    var s = document.getElementById('v1-df'), lab = document.getElementById('v1-dfl');
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+    var isOld = true;
+
+    function fmt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : '—'; }
+
+    function render(){
+      bOld.setAttribute('aria-pressed', isOld ? 'true' : 'false');
+      bNew.setAttribute('aria-pressed', isOld ? 'false' : 'true');
+      view.textContent = isOld ? OLD : NEW;
+
+      var t = TERMS[Number(s.value) || 0];
+      lab.textContent = t.l;
+      var postings = t.df + PARTNER;          // the m + n bound on a two-cursor merge
+      var dense = 2 * N;                      // two dense incidence rows, one bit per document
+      var max = Math.max(postings, dense, 1);
+      var ratio = dense / Math.max(postings, 1);
+
+      function bar(title, v, col, sub){
+        return '<div class="v1-b"><h6><span>' + title + '</span><b style="color:' + col + '">' +
+          fmt(v) + '</b></h6><div class="v1-track"><i style="width:' +
+          Math.max(1, Math.round(v / max * 100)) + '%;background:' + col + '"></i></div>' +
+          '<div class="v1-sub">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('postings merge · entries touched', postings, 'var(--viz-green)',
+            'm + n = ' + fmt(t.df) + ' + ' + fmt(PARTNER) + '. Only observed term-document pairs exist, so the work follows the terms.') +
+        bar('dense matrix rows · bits read', dense, 'var(--viz-red)',
+            'Two rows of ' + fmt(N) + ' bits — identical for every term in the vocabulary, including one that occurs 20 times.');
+
+      why.innerHTML = ratio >= 10
+        ? '<b style="color:var(--viz-green)">' + (Math.round(ratio * 10) / 10).toLocaleString() + '× less work than the dense rows.</b>' +
+          'Reading a 100,000,000-bit row for <code>quokka</code> spends essentially all of its effort <em>proving absence</em>: 99,999,980 of those bits are zero. The sparse form stores the 20 document IDs and stops. ' +
+          '<br><br>Now read the merge bound properly. It is <b>m + n</b>, so the 2,000,000-entry side sets the floor — making the rare term rarer still cannot drag the pair below 2,000,000. That single observation is what visual 5 turns into a query plan. ' +
+          '<br><br>Both sides also walk memory <b>sequentially</b>, so IR 100’s memory-hierarchy result carries over untouched: a postings list is a run of ascending integers, exactly the access pattern storage rewards.'
+        : '<b style="color:var(--viz-amber)">A very common term closes the gap — and that is where bitmaps come back.</b>' +
+          'At df ' + fmt(t.df) + ' the postings list is itself a large fraction of the corpus, so the merge touches nearly as much as two bit vectors would. For a genuinely dense predicate such as <code>language=en</code> or <code>published=true</code>, one bit per document is compact, intersections run a machine word or a SIMD vector at a time, and compressed bitmap formats exploit long runs. ' +
+          '<br><br>So the judgment is density, not dogma: <b>sparse postings for terms with few matches, bitmaps for dense filter sets under repeated bitwise operations.</b> The answer set is identical either way; only the physical path changes.';
+    }
+    bOld.addEventListener('click', function(){ isOld = true; render(); });
+    bNew.addEventListener('click', function(){ isOld = false; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Matrix Does Not Fit</h2>
+  <p class="vz-lede">The term-document incidence matrix is the semantics of Boolean retrieval — tap two term
+    rows and combine them. Then scale the same idea up and watch it become 125 TB of mostly "no".
+    <b>Like a school register with a column for every pupil on Earth: perfectly correct, and unprintable.</b></p>
+
+  <div class="v2-rows" id="v2-rows"></div>
+
+  <div class="vz-seg" role="group" aria-label="Boolean operator">
+    <button id="v2-and" aria-pressed="true">AND · row-wise</button>
+    <button id="v2-or" aria-pressed="false">OR · row-wise</button>
+  </div>
+  <div class="vz-card vz-mono" id="v2-result" style="margin-bottom:12px"></div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-n">Corpus: <span id="v2-nl">100,000,000</span> documents
+      &nbsp;·&nbsp; vocabulary V = 10,000,000 terms</label>
+    <input type="range" id="v2-n" min="0" max="3" value="2" step="1" aria-label="Number of documents">
+    <label class="v2-lab" for="v2-t" style="margin-top:12px">Distinct indexed terms per document:
+      <span id="v2-tl">300</span></label>
+    <input type="range" id="v2-t" min="50" max="600" value="300" step="50" aria-label="Distinct terms per document">
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Keep the matrix as the <b>conceptual contract</b> and never as the storage. A postings
+    list is exactly the column indexes where one row is nonzero — so adding term frequency, positions or
+    weights enriches those nonzero entries without changing the reversal at all.</p>
+
+  <style>
+    .v2-rows{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-r{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;
+      gap:10px;line-height:1.4}
+    .v2-r[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-pick{flex:0 0 auto;font-weight:800;font-size:10px;letter-spacing:.04em;font-family:inherit;
+      color:var(--viz-muted);width:38px}
+    .v2-r[aria-pressed="true"] .v2-pick{color:var(--viz-accent)}
+    .v2-bits{margin-left:auto;letter-spacing:.12em}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-stats{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // d1 "vector search", d2 "database search", d3 "vector database"
+    var TERMS = [
+      { t:'vector',   bits:[1,0,1] },
+      { t:'search',   bits:[1,1,0] },
+      { t:'database', bits:[0,1,1] }
+    ];
+    var picked = [0, 2];          // vector AND database is the worked example
+    var op = 'and';
+    var NS = [1000000, 10000000, 100000000, 1000000000];
+    var V = 10000000;
+
+    var rows = document.getElementById('v2-rows');
+    var bAnd = document.getElementById('v2-and'), bOr = document.getElementById('v2-or');
+    var result = document.getElementById('v2-result');
+    var sN = document.getElementById('v2-n'), labN = document.getElementById('v2-nl');
+    var sT = document.getElementById('v2-t'), labT = document.getElementById('v2-tl');
+    var stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+
+    function fmt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : '—'; }
+    function sci(x){
+      if (!isFinite(x) || x <= 0) return '0';
+      var e = Math.floor(Math.log(x) / Math.LN10);
+      if (e < 6) return fmt(x);
+      var m = Math.round(x / Math.pow(10, e) * 10) / 10;
+      if (m >= 10) { m = Math.round(m / 10 * 10) / 10; e += 1; }   // log10 rounds 1e15 down; renormalise
+      return m + ' × 10^' + e;
+    }
+    function bytesTxt(bytes){
+      if (!isFinite(bytes) || bytes <= 0) return '0 B';
+      var tb = bytes / 1e12;
+      if (tb >= 1000) return (Math.round(tb / 100) / 10) + ' PB';
+      if (tb >= 10) return fmt(tb) + ' TB';
+      if (tb >= 1) return (Math.round(tb * 10) / 10) + ' TB';
+      return fmt(bytes / 1e9) + ' GB';
+    }
+    function pad(s){ while (s.length < 8) s += ' '; return s; }
+    function fmtBits(b){ return b.map(function(v){ return ' ' + v; }).join(' '); }
+
+    function renderRows(){
+      rows.innerHTML = TERMS.map(function(t, i){
+        var on = picked.indexOf(i) !== -1;
+        return '<button class="v2-r" type="button" aria-pressed="' + (on ? 'true' : 'false') + '" data-i="' + i + '">' +
+          '<span class="v2-pick">' + (on ? 'PICKED' : 'tap') + '</span>' +
+          '<span>' + t.t + '</span>' +
+          '<span class="v2-bits">[' + t.bits.join(', ') + ']</span></button>';
+      }).join('');
+    }
+
+    function renderResult(){
+      var a = TERMS[picked[0]], b = TERMS[picked[1]];
+      var out = [0,1,2].map(function(k){
+        return op === 'and' ? ((a.bits[k] && b.bits[k]) ? 1 : 0) : ((a.bits[k] || b.bits[k]) ? 1 : 0);
+      });
+      var docs = [];
+      out.forEach(function(v, k){ if (v) docs.push('d' + (k + 1)); });
+      var word = op === 'and' ? 'AND' : 'OR';
+      result.textContent =
+        '        d1 d2 d3\n' +
+        pad(a.t) + fmtBits(a.bits) + '\n' +
+        pad(b.t) + fmtBits(b.bits) + '   ' + word + '\n' +
+        '        -- -- --\n' +
+        pad('=') + fmtBits(out) + '   ->  ' + (docs.length ? docs.join(', ') : 'no document matches');
+      bAnd.setAttribute('aria-pressed', op === 'and' ? 'true' : 'false');
+      bOr.setAttribute('aria-pressed', op === 'or' ? 'true' : 'false');
+    }
+
+    function renderScale(){
+      var N = NS[Number(sN.value) || 0];
+      var t = Math.max(1, Number(sT.value) || 1);
+      labN.textContent = fmt(N);
+      labT.textContent = fmt(t);
+      var cells = N * V;
+      var bytes = cells / 8;
+      var pairs = N * t;
+      var ratio = pairs > 0 ? cells / pairs : 0;
+
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-red);border-color:var(--viz-red)">dense: ' + sci(cells) + ' cells</span>' +
+        '<span class="v2-pill" style="color:var(--viz-red);border-color:var(--viz-red)">' + bytesTxt(bytes) + ' at 1 bit each</span>' +
+        '<span class="v2-pill" style="color:var(--viz-green);border-color:var(--viz-green)">sparse: ' + sci(pairs) + ' nonzero pairs</span>' +
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + fmt(ratio) + '× fewer entries</span>';
+
+      why.innerHTML =
+        '<b>Dense costs N × V whatever the text actually says.</b>' +
+        fmt(N) + ' documents × ' + fmt(V) + ' terms = <b>' + sci(cells) + '</b> cells, and one bit each is still <b>' +
+        bytesTxt(bytes) + '</b>. Sparse costs one entry per relationship that exists: ' + fmt(N) + ' × ' + fmt(t) +
+        ' = <b>' + sci(pairs) + '</b> pairs, which is <b>' + fmt(ratio) + '× fewer</b>. ' +
+        '<br><br>Now drag the second slider and watch where the argument really lives. The ratio is V ÷ (terms per document) = <b>' +
+        fmt(V) + ' ÷ ' + fmt(t) + '</b> — it is decided by how <em>few</em> distinct terms one document holds, not by how big the corpus is. Both sides grow linearly in N, so scaling the corpus never rescues the dense form. ' +
+        '<br><br>Compression then shrinks those ordered document IDs further, which is lesson 05’s subject.';
+    }
+
+    rows.addEventListener('click', function(e){
+      var b = e.target && e.target.closest ? e.target.closest('.v2-r') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-i'));
+      var at = picked.indexOf(i);
+      if (at !== -1) { if (picked.length > 1) picked.splice(at, 1); }
+      else { picked.push(i); if (picked.length > 2) picked.shift(); }
+      while (picked.length < 2) { picked.push(picked[0] === 0 ? 1 : 0); }
+      renderRows(); renderResult();
+    });
+    bAnd.addEventListener('click', function(){ op = 'and'; renderResult(); });
+    bOr.addEventListener('click', function(){ op = 'or'; renderResult(); });
+    sN.addEventListener('input', renderScale);
+    sT.addEventListener('input', renderScale);
+    renderRows(); renderResult(); renderScale();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Build The Dictionary</h2>
+  <p class="vz-lede">Indexing is IR 100’s sorting problem wearing new labels: emit one tuple per occurrence,
+    sort, group. Step through it on the three-document corpus, then choose how much payload each posting
+    carries. <b>Like alphabetising a pile of index cards — the sort is what puts every mention of a word
+    next to every other one.</b></p>
+
+  <div class="v3-steps" id="v3-steps"></div>
+  <div class="vz-card vz-mono" id="v3-out" style="margin-bottom:12px"></div>
+
+  <div class="vz-seg" role="group" aria-label="Postings payload">
+    <button id="v3-p0" aria-pressed="true">doc IDs only</button>
+    <button id="v3-p1" aria-pressed="false">+ term frequency</button>
+    <button id="v3-p2" aria-pressed="false">+ positions</button>
+  </div>
+
+  <div class="vz-card"><div class="v3-why" id="v3-why"></div></div>
+
+  <p class="vz-note">The dictionary holds one entry per <b>term</b>, not per term-document pair, so it stays
+    small enough to keep hot — a hash table for exact lookup, a sorted array or FST where compact storage and
+    prefix enumeration matter. A noisy corpus is what breaks that: millions of one-off strings make
+    normalisation a memory decision as much as a relevance one.</p>
+
+  <style>
+    .v3-steps{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-s{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-size:12.5px;display:flex;align-items:center;gap:10px;line-height:1.4}
+    .v3-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-n{flex:0 0 auto;font-weight:800;font-size:12px;color:var(--viz-muted);width:16px}
+    .v3-s[aria-pressed="true"] .v3-n{color:var(--viz-accent)}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PAY = [
+      { db:'[2, 3]',
+        se:'[1, 2]',
+        ve:'[1, 3]',
+        note:'Sorted document IDs and nothing else. That order is not cosmetic — it is what makes the two-cursor intersection O(m + n) and what lets gap encoding store differences instead of values.' },
+      { db:'[(doc=2, tf=1), (doc=3, tf=1)]',
+        se:'[(doc=1, tf=1), (doc=2, tf=1)]',
+        ve:'[(doc=1, tf=1), (doc=3, tf=1)]',
+        note:'Term frequency rides along, for ranking later. Note the distinction it forces: a document repeating <code>vector</code> ten times contributes <b>one</b> to document frequency and <b>ten</b> to collection frequency.' },
+      { db:'[(doc=2, tf=1, pos=[1]), (doc=3, tf=1, pos=[2])]',
+        se:'[(doc=1, tf=1, pos=[2]), (doc=2, tf=1, pos=[2])]',
+        ve:'[(doc=1, tf=1, pos=[1]), (doc=3, tf=1, pos=[1])]',
+        note:'Positions unlock phrase and proximity queries — lesson 03. They are also the most expensive field by a wide margin, because there is one entry per <em>occurrence</em> rather than per document.' }
+    ];
+    var pay = 0, stage = 0;
+
+    function stage4(){
+      var p = PAY[pay];
+      return [
+        'DICTIONARY                    POSTINGS',
+        'database  df=2  offset  -->   ' + p.db,
+        'search    df=2  offset  -->   ' + p.se,
+        'vector    df=2  offset  -->   ' + p.ve,
+        '',
+        'df = documents containing the term (2 for all three here)'
+      ].join('\n');
+    }
+
+    var STEPS = [
+      { t:'Analyse each document into normalised tokens',
+        out:function(){ return [
+          'd1  "vector search"      ->  [vector, search]',
+          'd2  "database search"    ->  [database, search]',
+          'd3  "vector database"    ->  [vector, database]'
+        ].join('\n'); },
+        why:['The analyser runs here — and it must run again at query time.',
+          'Whatever this step does to the text, the query has to have had done to it too. Look up normalised <code>vector</code> and you reach the dictionary entry, seek to its offset and decode <code>[1, 3]</code>. If the two normalisations differ, a term that is plainly present <b>misses</b>, because the lookup key is not the stored key. That failure is silent, and it is the subject of lesson 02.'] },
+      { t:'Emit one (term, doc_id, position) tuple per occurrence',
+        out:function(){ return [
+          '(vector,   1, 1)',
+          '(search,   1, 2)',
+          '(database, 2, 1)',
+          '(search,   2, 2)',
+          '(vector,   3, 1)',
+          '(database, 3, 2)'
+        ].join('\n'); },
+        why:['Six occurrences, six tuples — the nonzero entries of visual 2’s matrix.',
+          'This is the reversal made concrete. Every tuple is a cell of the incidence matrix that happens to be a 1, and nothing at all is emitted for the cells that are 0. The forward view (document to terms) is still recoverable from this list; it simply is not the useful direction any more.'] },
+      { t:'Sort by the tuple',
+        out:function(){ return [
+          '(database, 2, 1)',
+          '(database, 3, 2)',
+          '(search,   1, 2)',
+          '(search,   2, 2)',
+          '(vector,   1, 1)',
+          '(vector,   3, 1)'
+        ].join('\n'); },
+        why:['<b style="display:inline">Why Index Construction Is a Sorting Problem</b>, from IR 100, cashed in.',
+          'One sort on the tuple puts equal terms adjacent <em>and</em> their document IDs in increasing order, at the same time. Nothing further is needed to obtain sorted postings — the ordering that Boolean intersection and gap compression both depend on falls out of this single step. At corpus scale it becomes an external merge sort, which is lesson 04.'] },
+      { t:'Group equal terms into dictionary + postings',
+        out:stage4,
+        why:['One pass over the sorted run writes the whole index.',
+          'Equal terms are already adjacent, so the builder streams each postings list straight to disk and records that list’s <b>byte offset</b> in the dictionary as it goes. Note what the index cannot do: postings alone will not reconstruct the original text, which is why an engine keeps stored fields or a separate document store beside them. The index is a <em>derived serving artifact</em>, never the authoritative corpus — so keep stable document IDs and analyser versions, and rebuild rather than repair.'] }
+    ];
+
+    var steps = document.getElementById('v3-steps');
+    var out = document.getElementById('v3-out');
+    var why = document.getElementById('v3-why');
+    var pb = [document.getElementById('v3-p0'), document.getElementById('v3-p1'), document.getElementById('v3-p2')];
+
+    function render(){
+      [].slice.call(steps.children).forEach(function(b, j){
+        b.setAttribute('aria-pressed', stage === j ? 'true' : 'false');
+      });
+      pb.forEach(function(b, j){ b.setAttribute('aria-pressed', pay === j ? 'true' : 'false'); });
+      out.textContent = STEPS[stage].out();
+      var extra = stage === 3
+        ? '<br><br><b style="display:inline">Payload:</b> ' + PAY[pay].note +
+          ' Every field costs storage and decode time, so a real index omits what the product never uses.'
+        : '<br><br><span style="color:var(--viz-muted)">The payload buttons below change what step 4 writes.</span>';
+      why.innerHTML = '<b>' + STEPS[stage].why[0] + '</b>' + STEPS[stage].why[1] + extra;
+    }
+
+    STEPS.forEach(function(st, i){
+      var b = document.createElement('button');
+      b.className = 'v3-s';
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v3-n">' + (i + 1) + '</span><span>' + st.t + '</span>';
+      b.addEventListener('click', function(){ stage = i; render(); });
+      steps.appendChild(b);
+    });
+    pb.forEach(function(b, j){ b.addEventListener('click', function(){ pay = j; stage = 3; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Two Cursors Stepping</h2>
+  <p class="vz-lede">One comparison at a time on the worked lists. Pick an operator and step: the rule never
+    changes — emit on equality, otherwise advance the cursor sitting on the <em>smaller</em> document ID.
+    <b>Like two fingers running down two sorted guest lists, always moving the one that is behind.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Boolean operator">
+    <button id="v4-and" aria-pressed="true">vector AND database</button>
+    <button id="v4-or" aria-pressed="false">vector OR database</button>
+    <button id="v4-not" aria-pressed="false">vector AND NOT database</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <div class="v4-list" id="v4-a"></div>
+    <div class="v4-list" id="v4-b" style="margin-top:8px"></div>
+    <p class="v4-key">Solid outline = cursor here &nbsp;·&nbsp; dashed + faded = already passed
+      &nbsp;·&nbsp; bold green = emitted to the result</p>
+    <div class="v4-ctl">
+      <button class="v4-btn" id="v4-step" type="button">Step ▸</button>
+      <button class="v4-btn" id="v4-run" type="button">Run to end ▸▸</button>
+      <button class="v4-btn" id="v4-reset" type="button">Reset</button>
+    </div>
+    <div class="v4-stats" id="v4-stats"></div>
+  </div>
+
+  <div class="vz-card vz-mono" id="v4-log" style="margin-bottom:12px"></div>
+  <div class="vz-card"><div class="v4-why" id="v4-why"></div></div>
+
+  <p class="vz-note">Skip pointers, exponential advances and block-maximum IDs can jump a lagging cursor when
+    the lists are badly imbalanced — but skipping carries overhead and <b>cannot avoid output work</b>: two
+    dense, equal lists still match on nearly every step. Note too what this panel never produces: an order.
+    Boolean AND returns a <b>set</b>; ranking is a different question, and a ranked engine may use "should"
+    semantics where matching more terms merely raises a score.</p>
+
+  <style>
+    .v4-list{display:flex;align-items:center;gap:5px;flex-wrap:wrap;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-name{flex:0 0 74px;color:var(--viz-muted);font-weight:700}
+    .v4-c{min-width:30px;text-align:center;padding:5px 4px;border-radius:7px;border:1.5px solid var(--viz-line);
+      background:var(--viz-bg);color:var(--viz-ink)}
+    .v4-c.is-cur{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v4-c.is-done{opacity:.4;border-style:dashed}
+    .v4-c.is-hit{border-color:var(--viz-green);color:var(--viz-green);font-weight:800}
+    .v4-key{font-size:11px;color:var(--viz-muted);line-height:1.5;margin:11px 0 0}
+    .v4-ctl{display:flex;gap:6px;margin-top:12px;flex-wrap:wrap}
+    .v4-btn{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v4-btn:disabled{opacity:.45}
+    .v4-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var A = [1, 3, 7, 10, 14];                 // vector
+    var B = [2, 3, 6, 10, 12, 14];             // database
+    var op = 'and', cur = 0;
+
+    var bAnd = document.getElementById('v4-and'), bOr = document.getElementById('v4-or'), bNot = document.getElementById('v4-not');
+    var la = document.getElementById('v4-a'), lb = document.getElementById('v4-b');
+    var step = document.getElementById('v4-step'), run = document.getElementById('v4-run'), reset = document.getElementById('v4-reset');
+    var stats = document.getElementById('v4-stats'), logBox = document.getElementById('v4-log'), why = document.getElementById('v4-why');
+
+    // The whole trace is built once and then replayed frame by frame, so "Step" and
+    // "Run to end" can never disagree about what the algorithm actually did.
+    function trace(o){
+      var i = 0, j = 0, out = [], hits = [], frames = [], cmp = 0;
+      function push(line, counted){
+        if (counted) cmp += 1;
+        frames.push({ i:i, j:j, out:out.slice(), hits:hits.slice(), line:line, cmp:cmp });
+      }
+      while (i < A.length && j < B.length) {
+        var a = A[i], b = B[j];
+        if (a === b) {
+          if (o !== 'not') { out.push(a); hits.push(a); }
+          i += 1; j += 1;
+          push(a + ' = ' + b + '    ' + (o === 'not' ? 'excluded; advance both' : 'MATCH ' + a + '; advance both'), true);
+        } else if (a < b) {
+          if (o !== 'and') { out.push(a); hits.push(a); }
+          i += 1;
+          push(a + ' < ' + b + '    ' + (o === 'and' ? 'advance vector' : 'emit ' + a + '; advance vector'), true);
+        } else {
+          if (o === 'or') { out.push(b); hits.push(b); }
+          j += 1;
+          push(a + ' > ' + b + '    ' + (o === 'or' ? 'emit ' + b + '; advance database' : 'advance database'), true);
+        }
+      }
+      if (o === 'or' || o === 'not') {
+        while (i < A.length) { out.push(A[i]); hits.push(A[i]); i += 1; push('drain vector      emit ' + A[i - 1], false); }
+      }
+      if (o === 'or') {
+        while (j < B.length) { out.push(B[j]); hits.push(B[j]); j += 1; push('drain database    emit ' + B[j - 1], false); }
+      }
+      return frames;
+    }
+
+    var WHY = {
+      and:['Intersection: emit only where both cursors agree.',
+        'Every step either records a match or discards a document ID that one list provably does not contain, so no ID is ever visited twice: the work is bounded by <b>m + n = 11</b>, with nothing in memory but two cursors and the output. Result <code>[3, 10, 14]</code>. ' +
+        '<br><br>Three terms compose the same way — intersect a pair, then intersect that result with the third list. It works because <b>an intersection can only shrink</b>: the intermediate is still sorted and ascending, so it is a valid input to the next merge.'],
+      or:['Union: the same walk, emitting from whichever side is behind.',
+        'On equality emit once and advance both, otherwise emit the smaller and advance it — then drain whatever is left. Result <code>[1, 2, 3, 6, 7, 10, 12, 14]</code>, still sorted, still one pass. ' +
+        '<br><br>Notice what changes for planning: <b>every list contributes results</b>, so no ordering of the terms can shrink the answer. That is exactly why the rarest-term-first argument in visual 5 does not transfer to OR.'],
+      not:['Negation is exclusion while traversing a positive list.',
+        '<code>vector AND NOT database</code> walks the same two cursors but emits from <code>vector</code> only where <code>database</code> is behind or exhausted, giving <code>[1, 7]</code>. ' +
+        '<br><br>What it never does is <b>materialise the complement</b>. The complement of a rare term is nearly the whole corpus — 100 million document IDs to express the absence of 20 — so a NOT must always ride on a positive candidate list, and a query of pure negations has nothing to start from.']
+    };
+
+    function render(){
+      bAnd.setAttribute('aria-pressed', op === 'and' ? 'true' : 'false');
+      bOr.setAttribute('aria-pressed', op === 'or' ? 'true' : 'false');
+      bNot.setAttribute('aria-pressed', op === 'not' ? 'true' : 'false');
+
+      var frames = trace(op);
+      var total = frames.length;
+      if (cur > total) cur = total;
+      if (cur < 0) cur = 0;
+      var f = cur === 0
+        ? { i:0, j:0, out:[], hits:[], line:'', cmp:0 }
+        : frames[cur - 1];
+
+      function cells(list, name, ptr, hits){
+        return '<span class="v4-name">' + name + '</span>' + list.map(function(v, k){
+          var c = 'v4-c';
+          if (hits.indexOf(v) !== -1) c += ' is-hit';
+          if (k === ptr) c += ' is-cur';
+          else if (k < ptr) c += ' is-done';
+          return '<span class="' + c + '">' + v + '</span>';
+        }).join('') + (ptr >= list.length ? '<span class="v4-c is-done">end</span>' : '');
+      }
+      la.innerHTML = cells(A, 'vector', f.i, f.hits);
+      lb.innerHTML = cells(B, 'database', f.j, op === 'not' ? [] : f.hits);
+
+      var done = cur >= total;
+      step.disabled = done;
+      var outTxt = f.out.length ? '[' + f.out.join(', ') + ']' : '[]';
+      stats.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">step ' + cur + ' of ' + total + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + f.cmp + ' comparisons · bound m+n = ' + (A.length + B.length) + '</span>' +
+        '<span class="v4-pill" style="color:' + (done ? 'var(--viz-green)' : 'var(--viz-muted)') + ';border-color:' + (done ? 'var(--viz-green)' : 'var(--viz-line)') + '">' +
+          (done ? 'FINAL ' : 'so far ') + outTxt + '</span>';
+
+      var lines = frames.slice(0, cur).map(function(fr, k){ return String(k + 1) + '.  ' + fr.line; });
+      logBox.textContent = (lines.length
+        ? lines.join('\n')
+        : 'vector   -> [' + A.join(', ') + ']\ndatabase -> [' + B.join(', ') + ']\n\npress Step to walk the cursors')
+        + (done ? '\n\nresult = ' + outTxt : '');
+
+      why.innerHTML = '<b>' + WHY[op][0] + '</b>' + WHY[op][1];
+    }
+
+    bAnd.addEventListener('click', function(){ op = 'and'; cur = 0; render(); });
+    bOr.addEventListener('click', function(){ op = 'or'; cur = 0; render(); });
+    bNot.addEventListener('click', function(){ op = 'not'; cur = 0; render(); });
+    step.addEventListener('click', function(){ cur += 1; render(); });
+    run.addEventListener('click', function(){ cur = trace(op).length; render(); });
+    reset.addEventListener('click', function(){ cur = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Rarest Term First</h2>
+  <p class="vz-lede">Same three terms, same answer set, wildly different bills. Reorder the plan with the
+    ▲ buttons, then change how each pair is joined. <b>Like packing a suitcase: put the bulkiest thing in
+    first and you repack everything; start with the smallest and it never gets in the way.</b></p>
+
+  <div class="v5-order" id="v5-order"></div>
+  <button class="v5-quick" id="v5-rare" type="button">Sort rarest first ↓</button>
+
+  <div class="vz-seg" role="group" aria-label="How each pair is joined">
+    <button id="v5-merge" aria-pressed="true">sequential merge</button>
+    <button id="v5-probe" aria-pressed="false">probe / gallop into the larger list</button>
+  </div>
+
+  <div class="vz-card vz-mono" id="v5-plan" style="margin-bottom:12px"></div>
+  <div class="vz-card">
+    <div class="v5-stats" id="v5-stats"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Document frequency is the stable <b>first approximation</b>, not a latency model. A
+    cost-based optimiser also weighs where the postings live, whether they are cached, how they compress and
+    what the operator means — a rare term fetched from remote storage can lose to a slightly larger list
+    already in memory. And the whole argument is AND-only: under OR every list contributes results, so
+    ordering moves heap use and deduplication, never eligibility.</p>
+
+  <style>
+    .v5-order{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+    .v5-row{display:flex;align-items:center;gap:10px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:6px 6px 6px 11px;background:var(--viz-surface);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v5-pos{flex:0 0 auto;font-weight:800;color:var(--viz-muted);width:16px}
+    .v5-df{margin-left:auto;color:var(--viz-muted)}
+    .v5-up{flex:0 0 auto;min-width:44px;min-height:44px;border:1.5px solid var(--viz-line);border-radius:9px;
+      background:var(--viz-bg);color:var(--viz-ink);font:inherit;font-weight:800;font-size:14px}
+    .v5-up:disabled{opacity:.35}
+    .v5-quick{width:100%;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;margin-bottom:14px}
+    .v5-stats{display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var order = [
+      { t:'the',        df:80000000 },
+      { t:'database',   df:2000000 },
+      { t:'vectorized', df:5000 }
+    ];
+    var probe = false;
+
+    var list = document.getElementById('v5-order');
+    var quick = document.getElementById('v5-rare');
+    var bM = document.getElementById('v5-merge'), bP = document.getElementById('v5-probe');
+    var plan = document.getElementById('v5-plan'), stats = document.getElementById('v5-stats'), why = document.getElementById('v5-why');
+
+    function fmt(x){ return isFinite(x) ? Math.round(x).toLocaleString() : '—'; }
+    function lg2(n){ return Math.max(1, Math.ceil(Math.log(Math.max(n, 1) + 1) / Math.LN2)); }
+
+    // Cost of joining a candidate set of size c with a postings list of size n.
+    // A merge walks both (m + n). A probe drives from the SMALLER side and binary-searches
+    // the larger — the only reason a 5,000-against-80,000,000 pair is ever cheap.
+    function pairCost(c, n){
+      if (!probe) return c + n;
+      return Math.min(c, n) * lg2(Math.max(c, n));
+    }
+
+    function costOf(seq){
+      var c = seq[0].df, total = 0, lines = [];
+      lines.push('start with ' + seq[0].t + '  df = ' + fmt(seq[0].df) + '   ->  at most ' + fmt(c) + ' candidates');
+      for (var k = 1; k < seq.length; k++) {
+        var n = seq[k].df;
+        var stepCost = pairCost(c, n);
+        total += stepCost;
+        var next = Math.min(c, n);                 // an intersection can only shrink
+        lines.push('  x ' + seq[k].t + '  df = ' + fmt(n) + '   ' +
+          (probe ? 'probe ' + fmt(Math.min(c, n)) + ' x log2(' + fmt(Math.max(c, n)) + ')' : 'merge m + n') +
+          ' = ' + fmt(stepCost) + '   ->  at most ' + fmt(next) + ' left');
+        c = next;
+      }
+      lines.push('');
+      lines.push('TOTAL postings entries touched:  ' + fmt(total));
+      return { total:total, lines:lines };
+    }
+
+    function sortedCost(dir){
+      var s = order.slice().sort(function(a, b){ return dir * (a.df - b.df); });
+      return costOf(s).total;
+    }
+
+    function render(){
+      bM.setAttribute('aria-pressed', probe ? 'false' : 'true');
+      bP.setAttribute('aria-pressed', probe ? 'true' : 'false');
+
+      list.innerHTML = order.map(function(o, i){
+        return '<div class="v5-row"><span class="v5-pos">' + (i + 1) + '</span><span>' + o.t + '</span>' +
+          '<span class="v5-df">df ' + fmt(o.df) + '</span>' +
+          '<button class="v5-up" type="button" data-i="' + i + '" aria-label="Move ' + o.t + ' earlier"' +
+          (i === 0 ? ' disabled' : '') + '>▲</button></div>';
+      }).join('');
+
+      var r = costOf(order);
+      plan.textContent = r.lines.join('\n');
+
+      var b = sortedCost(1), w = sortedCost(-1);
+      var factor = Math.round(r.total / Math.max(b, 1) * 10) / 10;
+      var isBest = r.total <= b, isWorst = r.total >= w;
+      var col = isBest ? 'var(--viz-green)' : (isWorst ? 'var(--viz-red)' : 'var(--viz-amber)');
+      var word = isBest ? 'BEST ORDER' : (isWorst ? 'WORST ORDER' : 'in between');
+
+      stats.innerHTML =
+        '<span class="v5-pill" style="color:' + col + ';border-color:' + col + '">' + word + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + fmt(r.total) + ' entries touched</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + factor + '× the best plan (' + fmt(b) + ')</span>';
+
+      var head = probe
+        ? '<b style="color:var(--viz-green)">Ordering plus the right access method is the real win.</b>' +
+          'Driving from the small side and binary-searching the large one costs about <code>min(m,n) × log2(max(m,n))</code>. Rarest-first now touches roughly <b>' + fmt(b) + '</b> entries against <b>' + fmt(w) + '</b> for commonest-first — about <b>' + fmt(w / Math.max(b, 1)) + '×</b>. ' +
+          'That is IR 100’s binary search living inside a postings list, which is why an optimiser reads the <em>ratio</em> of the two lengths and not merely their order.'
+        : '<b style="color:var(--viz-amber)">Sequential merge alone barely rewards the reordering.</b>' +
+          'A plain merge walks both lists whatever their sizes, so <code>the</code>’s 80,000,000 postings get scanned somewhere in every plan: ' + fmt(b) + ' against ' + fmt(w) + ' entries. Merging <code>the</code> with <code>database</code> first scans roughly <b>82 million</b> postings and builds a large intermediate that <code>vectorized</code> then discards almost entirely. ' +
+          '<br><br>Switch the join to <b>probe / gallop</b> and watch the same reordering suddenly pay.';
+
+      why.innerHTML = head +
+        '<br><br><b>Why rarest-first is provable, not folklore.</b>' +
+        'Document frequency predicts postings length, and an AND result <b>can never contain more documents than the shortest list</b>. Starting with <code>' + order[0].t + '</code> therefore caps every later stage at ' + fmt(order[0].df) +
+        ' candidates, and small intermediates mean fewer comparisons, less decoding, less memory and less scoring. The final set is commutative; the execution cost is not. ' +
+        '<br><br>Second worked plan from the lesson: <code>neural vector database</code> at df 500,000 / 200,000 / 2,000,000 orders as <code>vector</code>, <code>neural</code>, <code>database</code>. If that first intersection returns just <b>700</b> IDs, everything downstream runs on 700 candidates instead of hundreds of thousands. ' +
+        '<br><br>One caution the numbers hide: the statistics must match the <em>live</em> index. An analyser change can make a term common while stale metadata still calls it rare, and segment-level frequencies differ from the aggregate — a term can be dense in one specialised segment and absent everywhere else.';
+    }
+
+    list.addEventListener('click', function(e){
+      var b = e.target && e.target.closest ? e.target.closest('.v5-up') : null;
+      if (!b || b.disabled) return;
+      var i = Number(b.getAttribute('data-i'));
+      if (i > 0) { var tmp = order[i - 1]; order[i - 1] = order[i]; order[i] = tmp; render(); }
+    });
+    quick.addEventListener('click', function(){ order.sort(function(a, b){ return a.df - b.df; }); render(); });
+    bM.addEventListener('click', function(){ probe = false; render(); });
+    bP.addEventListener('click', function(){ probe = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

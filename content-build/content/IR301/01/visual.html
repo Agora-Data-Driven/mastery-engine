@@ -1,0 +1,794 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Funnel's Ceiling</button>
+  <button class="viz-tab" data-viz-tab="2">2. Size Versus Overlap</button>
+  <button class="viz-tab" data-viz-tab="3">3. Where To Cut</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Distance Spike</button>
+  <button class="viz-tab" data-viz-tab="5">5. Breadcrumbs And Context</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Funnel's Ceiling</h2>
+  <p class="vz-lede">IR 202 handed you a funnel you can tune end to end — BM25 and vectors fused by
+    <b>Reciprocal Rank Fusion</b>, then a cross-encoder for the precision stage. Every one of those stages
+    ranks chunks somebody else cut. Turn the funnel up, then move the overlap.
+    <b>Like a world-class librarian: they can find any book on the shelves, and none that was never
+    shelved.</b></p>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-q">Funnel quality — BM25 + vectors + RRF + reranker:
+      <span id="v1-ql">92%</span></label>
+    <input type="range" id="v1-q" min="50" max="100" value="92" step="1" aria-label="Funnel quality">
+    <div class="v1-stages" id="v1-stages"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <label class="v1-lab" for="v1-o">2,000-token policy doc · chunk 500 · overlap
+      <span id="v1-ol">100</span> tokens · stride <span id="v1-sl">400</span></label>
+    <input type="range" id="v1-o" min="0" max="250" value="100" step="25" aria-label="Overlap in tokens">
+    <div class="v1-spans" id="v1-spans"></div>
+    <div class="v1-verdict" id="v1-verdict"></div>
+  </div>
+
+  <p class="vz-note">This is why chunking is the <b>first irreversible decision</b> in the stack. Re-ranking
+    is a config change; re-chunking means re-embedding and re-indexing the whole corpus. The funnel slider
+    is cheap to move and the overlap slider is not — which is exactly backwards from how much each one
+    can cost you.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.45}
+    .v1-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v1-stages{margin-top:12px;display:flex;flex-direction:column;gap:7px}
+    .v1-st{display:flex;align-items:center;gap:8px;font-size:11.5px}
+    .v1-nm{flex:0 0 106px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--viz-muted)}
+    .v1-tr{flex:1;height:12px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v1-tr i{display:block;height:100%;background:var(--viz-accent)}
+    .v1-spans{margin-top:14px;display:flex;flex-direction:column;gap:4px}
+    .v1-c{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v1-cl{flex:0 0 92px;color:var(--viz-muted)}
+    .v1-ct{position:relative;flex:1;height:15px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v1-ct i{position:absolute;top:0;bottom:0;background:var(--viz-accent);opacity:.55;border-radius:4px}
+    .v1-sent{position:absolute;top:0;bottom:0;left:24%;width:2%;background:var(--viz-violet)}
+    .v1-mk{flex:0 0 74px;font-size:9.5px;font-weight:800;text-align:right;font-family:inherit}
+    .v1-verdict{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-verdict b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var S = 500, LEN = 2000, A = 480, B = 520;   // the sentence at tokens 480–520
+    var STAGES = ['BM25 recall', 'dense recall', 'RRF fusion', 'cross-encoder'];
+    var q = document.getElementById('v1-q'), ql = document.getElementById('v1-ql');
+    var o = document.getElementById('v1-o'), ol = document.getElementById('v1-ol'), sl = document.getElementById('v1-sl');
+    var stages = document.getElementById('v1-stages');
+    var spans = document.getElementById('v1-spans'), verdict = document.getElementById('v1-verdict');
+
+    function chunkList(ov){
+      var stride = Math.max(1, S - ov), out = [], start = 0, guard = 0;
+      while (start < LEN && guard < 40) { out.push([start, Math.min(LEN, start + S)]); start += stride; guard += 1; }
+      return out;
+    }
+
+    function render(){
+      var qv = Number(q.value); ql.textContent = qv + '%';
+      var ov = Number(o.value), stride = Math.max(1, S - ov);
+      ol.textContent = ov; sl.textContent = stride;
+
+      var cs = chunkList(ov);
+      var intact = cs.some(function(c){ return c[0] <= A && c[1] >= B; });
+
+      stages.innerHTML = STAGES.map(function(nm){
+        return '<div class="v1-st"><span class="v1-nm">' + nm + '</span>' +
+          '<span class="v1-tr"><i style="width:' + qv + '%"></i></span>' +
+          '<span class="v1-mk" style="color:var(--viz-muted)">' + qv + '% tuned</span></div>';
+      }).join('');
+
+      spans.innerHTML = cs.map(function(c, i){
+        var holds = c[0] <= A && c[1] >= B;
+        var touches = c[0] < B && c[1] > A;
+        var col = holds ? 'var(--viz-green)' : (touches ? 'var(--viz-red)' : 'var(--viz-muted)');
+        var tag = holds ? 'HOLDS IT WHOLE' : (touches ? 'CUTS IT' : '—');
+        return '<div class="v1-c"><span class="v1-cl">chunk ' + i + ' · ' + c[0] + '–' + c[1] + '</span>' +
+          '<span class="v1-ct"><i style="left:' + (c[0] / LEN * 100) + '%;width:' + ((c[1] - c[0]) / LEN * 100) + '%"></i>' +
+          '<span class="v1-sent"></span></span>' +
+          '<span class="v1-mk" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var grounded = intact ? qv : 0;
+      verdict.innerHTML = intact
+        ? '<b style="color:var(--viz-green)">Answer grounded in a real span: ' + grounded + '% — the funnel is the limit.</b>' +
+          'Stride is <b>' + S + ' − ' + ov + ' = ' + stride + '</b>, so the window at 400–900 carries the whole sentence and the ' +
+          'reranker has something correct to promote. The index now holds <b>' + cs.length + ' chunks</b> instead of ' +
+          Math.ceil(LEN / S) + ' — the inflation factor ' + S + '/' + stride + ' = ' + (S / stride).toFixed(2) + '×. ' +
+          '<br><br>Two adjacent chunks sharing this overlap also score almost identically for a query hitting the shared ' +
+          'region, so both take top-k slots: <b>near-duplicate crowding</b>. Deduplicate before assembling context.'
+        : '<b style="color:var(--viz-red)">Answer grounded in a real span: 0% — at any funnel quality.</b>' +
+          'With stride ' + stride + ' the boundaries land at 0, ' + stride + ', ' + (2 * stride) + ' … and the sentence at ' +
+          A + '–' + B + ' is cut by one of them. It exists nowhere intact in the index, so no BM25 tuning, no fusion ' +
+          'constant and no cross-encoder can return it. Drag the funnel to 100% and the number above does not move. ' +
+          '<br><br>That is the ceiling: chunking fixes the unit of indexing, and therefore <b>the most any downstream ' +
+          'stage can ever see</b>.';
+    }
+    q.addEventListener('input', render);
+    o.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Size Versus Overlap</h2>
+  <p class="vz-lede">The core tradeoff has two dials and they pull against each other: a sharp vector wants
+    a small chunk, an interpretable passage wants a large one, and overlap buys safety by inflating the
+    index. <b>Like a photo crop: tight enough to be about one thing, wide enough that you can tell what it
+    is.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-s">Chunk size <span id="v2-sl">500</span> tokens</label>
+    <input type="range" id="v2-s" min="100" max="1500" value="500" step="50" aria-label="Chunk size in tokens">
+    <label class="v2-lab" for="v2-p">Overlap <span id="v2-pl">20%</span> = <span id="v2-ol">100</span> tokens
+      · stride <span id="v2-st">400</span></label>
+    <input type="range" id="v2-p" min="0" max="50" value="20" step="5" aria-label="Overlap as a percent of chunk size">
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="v2-pills" id="v2-pills"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Retrieval unit" style="margin-top:12px">
+    <button id="v2-flat" aria-pressed="true">retrieval unit = generation unit</button>
+    <button id="v2-big" aria-pressed="false">small-to-big: return the parent</button>
+  </div>
+
+  <div class="vz-card"><div class="v2-why" id="v2-why"></div></div>
+
+  <p class="vz-note">The judgment: short factoid queries over homogeneous text tolerate small chunks;
+    synthesis-heavy questions over dense documents want larger chunks or small-to-big. And note which dial
+    you are actually allowed to move — <b>every embedding model has a maximum input length, and text past
+    it is truncated without an error</b>. Many cap around 512 tokens; a 900-token chunk under such a model
+    has a tail that is permanently invisible to vector search while sitting happily in your index.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px;line-height:1.45}
+    .v2-lab:first-child{margin-top:0}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v2-tr{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-tr i{display:block;height:100%}
+    .v2-sub{font-size:10.5px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v2-pills{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v2-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var L = 10000, CAP = 512;
+    var s = document.getElementById('v2-s'), sl = document.getElementById('v2-sl');
+    var p = document.getElementById('v2-p'), pl = document.getElementById('v2-pl');
+    var ol = document.getElementById('v2-ol'), st = document.getElementById('v2-st');
+    var bars = document.getElementById('v2-bars'), pills = document.getElementById('v2-pills');
+    var why = document.getElementById('v2-why');
+    var bFlat = document.getElementById('v2-flat'), bBig = document.getElementById('v2-big');
+    var big = false;
+
+    function bar(t, pct, col, sub, val){
+      return '<div class="v2-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + val + '</b></h6>' +
+        '<div class="v2-tr"><i style="width:' + Math.max(2, Math.min(100, pct)) + '%;background:' + col + '"></i></div>' +
+        '<div class="v2-sub">' + sub + '</div></div>';
+    }
+
+    function render(){
+      bFlat.setAttribute('aria-pressed', big ? 'false' : 'true');
+      bBig.setAttribute('aria-pressed', big ? 'true' : 'false');
+
+      var sv = Number(s.value), pct = Number(p.value);
+      var ov = Math.round(sv * pct / 100);
+      var stride = Math.max(1, sv - ov);
+      sl.textContent = sv; pl.textContent = pct + '%'; ol.textContent = ov; st.textContent = stride;
+
+      var n = Math.max(1, Math.ceil((L - ov) / stride));
+      var flat = Math.max(1, Math.ceil(L / sv));
+      var inflate = sv / stride;
+      var topics = Math.max(1, sv / 500);                 // 1,500 tokens ≈ three topics blended
+      var focus = Math.min(1, 500 / sv);                  // cosine pull toward the centroid
+      var whole = big ? 1 : Math.min(1, sv / 450);        // can the passage be read on its own
+      var idxPct = Math.min(100, n / 100 * 100);
+
+      bars.innerHTML =
+        bar('vector focus (1 / topics blended)', focus * 100, 'var(--viz-green)',
+          'This chunk blends about ' + topics.toFixed(1) + ' topic' + (topics >= 1.95 ? 's' : '') +
+          ' into one vector, so it sits near their centroid and cosine similarity to a focused query drops.',
+          Math.round(focus * 100) + '%') +
+        bar('passage is self-contained', whole * 100, 'var(--viz-violet)',
+          big ? 'Small-to-big: the child vector stays sharp, the LLM receives the whole parent section.'
+              : 'Below ~450 tokens pronouns and definitions get severed — "It must be submitted within 30 days" with no antecedent.',
+          Math.round(whole * 100) + '%') +
+        bar('index size for a 10,000-token doc', idxPct, 'var(--viz-amber)',
+          flat + ' chunks with no overlap → ' + n + ' at ' + pct + '% (divide by the stride, not the size).',
+          n + ' vectors');
+
+      var over = sv > CAP;
+      var crowd = pct >= 40;
+      pills.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">inflation ' + inflate.toFixed(2) + '×</span>' +
+        '<span class="v2-pill" style="color:' + (over ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' +
+          (over ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+          (over ? 'OVER a 512-token embed cap' : 'within a 512-token embed cap') + '</span>' +
+        '<span class="v2-pill" style="color:' + (crowd ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' +
+          (crowd ? 'var(--viz-amber)' : 'var(--viz-line)') + '">' +
+          (crowd ? 'near-duplicate crowding' : 'crowding low') + '</span>';
+
+      var head, body;
+      if (over) {
+        head = '<b style="color:var(--viz-red)">Past the embedding model’s input cap — silently.</b>';
+        body = 'At ' + sv + ' tokens this chunk exceeds a 512-token cap by ' + (sv - CAP) + ' tokens. Those tokens are ' +
+          'truncated at embed time with no error, so the tail of every such chunk is invisible to vector search while ' +
+          'still occupying an index slot. Check the model card before you choose a size — this is the one setting that ' +
+          'fails without a symptom.';
+      } else if (sv <= 200) {
+        head = '<b style="color:var(--viz-amber)">Sharp vectors, shattered meaning.</b>';
+        body = 'At ' + sv + ' tokens the vector is about as focused as it gets, and that is not the whole story: a chunk ' +
+          'this size routinely reads "It must be submitted within 30 days" with the referent two sentences upstream. ' +
+          'The retriever ranks it first and the LLM cannot use it. ' +
+          (big ? 'Small-to-big is exactly the fix you have switched on — match on the child, generate from the parent.'
+               : 'Try the small-to-big toggle: the retrieval unit does not have to be the generation unit.');
+      } else if (sv >= 1000) {
+        head = '<b style="color:var(--viz-amber)">Complete passages, blurry vectors.</b>';
+        body = 'A ' + sv + '-token chunk covering refund policy, shipping times and warranty claims produces a vector near ' +
+          'the centroid of all three — roughly ⅓(v_refund + v_ship + v_warranty) — so a focused refund query scores it ' +
+          'low and it never reaches the reranker. Each retrieved hit also spends more of the generation window on text ' +
+          'that is mostly irrelevant. <b>Embedding dilution</b> is the whole reason "just make chunks bigger" is not free.';
+      } else {
+        head = '<b style="color:var(--viz-green)">The ordinary working range: 200–800 tokens.</b>';
+        body = 'Sharp enough to match, long enough to interpret, and ' + inflate.toFixed(2) + '× index inflation buys the ' +
+          'boundary insurance. Note that the count divides by the <b>stride</b>: ' + L + ' tokens at size ' + sv +
+          ' and overlap ' + ov + ' gives ⌈(' + L + ' − ' + ov + ') / ' + stride + '⌉ = ' + n + ', not ' + flat + '.' +
+          (big ? '<br><br>With small-to-big on, you can push the child smaller still — the parent carries the context.' : '');
+      }
+      why.innerHTML = head + body;
+    }
+    s.addEventListener('input', render);
+    p.addEventListener('input', render);
+    bFlat.addEventListener('click', function(){ big = false; render(); });
+    bBig.addEventListener('click', function(){ big = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Where To Cut</h2>
+  <p class="vz-lede">Fixed-size splitting treats a document as an undifferentiated token stream, so it cuts
+    mid-sentence, mid-table and mid-function. Run the same contract through four splitters and watch which
+    units survive. <b>Like slicing a cake with your eyes shut versus following the icing lines.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Splitter">
+    <button id="v3-m0" aria-pressed="true">fixed size</button>
+    <button id="v3-m1" aria-pressed="false">recursive separators</button>
+    <button id="v3-m2" aria-pressed="false">structure-aware + atomic</button>
+    <button id="v3-m3" aria-pressed="false">semantic</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-lim">Size limit <span id="v3-liml">200</span> tokens</label>
+    <input type="range" id="v3-lim" min="150" max="500" value="200" step="25" aria-label="Chunk size limit">
+    <div class="v3-doc" id="v3-doc"></div>
+    <div class="v3-pills" id="v3-pills"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">The separator hierarchy behind recursive splitting is
+    <span class="vz-mono">¶¶ blank line → ↵ newline → . sentence → ␣ word</span>: take the strongest
+    separator that fits, drop to a weaker one only when a piece still exceeds the limit. That produces
+    chunks as large as allowed that almost never cut inside a semantic unit — and its blind spot is that a
+    <b>table or a function is not made of paragraphs</b>. Structure-aware splitters treat those as
+    indivisible, oversized or not.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-doc{margin-top:14px;display:flex;flex-direction:column;gap:3px}
+    .v3-u{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:8px;
+      padding:7px 9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:10.5px;line-height:1.35}
+    .v3-u.is-cut{border-color:var(--viz-amber)}
+    .v3-u.is-broken{border-color:var(--viz-red);border-style:dashed}
+    .v3-u.is-atom{border-color:var(--viz-green)}
+    .v3-t{flex:1;min-width:0}
+    .v3-mk{flex:0 0 92px;text-align:right;font-size:9.5px;font-weight:800;font-family:inherit;line-height:1.3}
+    .v3-pills{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DOC = [
+      { t:'# Acme MSA 2025',                        k:'heading', tok:6   },
+      { t:'9. Termination — three paragraphs',      k:'prose',   tok:210 },
+      { t:'## 9.2 Notice',                          k:'heading', tok:5   },
+      { t:'Notice periods, two paragraphs',         k:'prose',   tok:150 },
+      { t:'| tier | notice | fee |   9-row table',  k:'table',   tok:220, atomic:true },
+      { t:'## 10. Fees',                            k:'heading', tok:5   },
+      { t:'def notice_days(tier): …  function',     k:'code',    tok:230, atomic:true },
+      { t:'Fee schedule, two paragraphs',           k:'prose',   tok:190 }
+    ];
+    var SHIFTS = [216, 591];   // where adjacent-sentence distance spikes (see visual 4)
+    var off = 0;
+    DOC.forEach(function(u){ u.start = off; off += u.tok; u.end = off; });
+    var TOTAL = off;
+
+    var MODES = ['fixed size', 'recursive separators', 'structure-aware + atomic', 'semantic'];
+    var btns = [document.getElementById('v3-m0'), document.getElementById('v3-m1'),
+                document.getElementById('v3-m2'), document.getElementById('v3-m3')];
+    var lim = document.getElementById('v3-lim'), liml = document.getElementById('v3-liml');
+    var docEl = document.getElementById('v3-doc'), pills = document.getElementById('v3-pills');
+    var why = document.getElementById('v3-why');
+    var mode = 0;
+
+    function cutsFor(m, L){
+      var cuts = [], i, u, x;
+      if (m === 0) { for (x = L; x < TOTAL; x += L) cuts.push(x); }
+      else if (m === 3) {
+        var edges = [0].concat(SHIFTS, [TOTAL]);
+        for (i = 0; i < edges.length - 1; i++) {
+          if (i > 0) cuts.push(edges[i]);
+          for (x = edges[i] + L; x < edges[i + 1]; x += L) cuts.push(x);
+        }
+      } else {
+        var acc = 0;
+        for (i = 0; i < DOC.length; i++) {
+          u = DOC[i];
+          if (m === 2 && u.k === 'heading' && acc > 0) { cuts.push(u.start); acc = 0; }
+          if (u.tok > L) {
+            if (acc > 0) { cuts.push(u.start); acc = 0; }
+            if (m === 2 && u.atomic) { if (u.end < TOTAL) cuts.push(u.end); continue; }
+            for (x = u.start + L; x < u.end; x += L) cuts.push(x);
+            acc = u.tok % L;
+            continue;
+          }
+          if (acc + u.tok > L) { cuts.push(u.start); acc = u.tok; } else { acc += u.tok; }
+        }
+      }
+      var seen = {}, out = [];
+      cuts.forEach(function(c){ if (c > 0 && c < TOTAL && !seen[c]) { seen[c] = 1; out.push(c); } });
+      return out.sort(function(a, b){ return a - b; });
+    }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      var L = Number(lim.value); liml.textContent = L;
+      var cuts = cutsFor(mode, L);
+      var severe = 0, minor = 0, kept = 0;
+
+      docEl.innerHTML = DOC.map(function(u){
+        var inside = cuts.filter(function(c){ return c > u.start && c < u.end; }).length;
+        var atomKept = u.atomic && inside === 0;
+        if (atomKept) kept += 1;
+        if (inside && u.atomic) severe += inside; else if (inside) minor += inside;
+        var cls = inside ? (u.atomic ? 'is-broken' : 'is-cut') : (atomKept ? 'is-atom' : '');
+        var col = inside ? (u.atomic ? 'var(--viz-red)' : 'var(--viz-amber)') : (atomKept ? 'var(--viz-green)' : 'var(--viz-muted)');
+        var tag = !inside ? (atomKept ? 'ATOMIC · whole' : 'whole')
+          : (u.k === 'table' ? '✂ ' + inside + ' × mid-row'
+          : u.k === 'code' ? '✂ ' + inside + ' × mid-body'
+          : '✂ ' + inside + ' × mid-text');
+        return '<div class="v3-u ' + cls + '"><span class="v3-t">' + u.t + '</span>' +
+          '<span style="color:var(--viz-muted);flex:0 0 44px;text-align:right">' + u.tok + 't</span>' +
+          '<span class="v3-mk" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var nChunks = cuts.length + 1;
+      var avg = Math.round(TOTAL / Math.max(1, nChunks));
+      pills.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + nChunks + ' chunks · avg ' + avg + 't</span>' +
+        '<span class="v3-pill" style="color:' + (severe ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' +
+          (severe ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + severe + ' cut through an atomic unit</span>' +
+        '<span class="v3-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">' + minor + ' cut mid-text</span>';
+
+      var head, body;
+      if (mode === 0) {
+        head = '<b style="color:var(--viz-red)">Blind to everything the document declares.</b>';
+        body = 'Cuts land every ' + L + ' tokens regardless of what is there, so ' + severe + ' of them fall inside the ' +
+          'table or the function. <b>A table split mid-row indexes as gibberish in both halves</b>, and a function split ' +
+          'mid-body loses its signature or its return — neither half can answer a question about it and both still take ' +
+          'up index space.';
+      } else if (mode === 1) {
+        head = '<b style="color:var(--viz-amber)">Paragraph-aware, atomicity-blind.</b>';
+        body = 'Chunks now close at paragraph and heading boundaries, so prose is almost never cut mid-sentence. ' +
+          'But an oversized table or function still gets split — the hierarchy simply falls through to a weaker ' +
+          'separator, and for a table the next weakest separator is <b>a newline, which is a row</b>. ' +
+          'The limit is ' + L + 't; the table is 220t and the function 230t, so both fall through.';
+      } else if (mode === 2) {
+        head = '<b style="color:var(--viz-green)">Structure first, atomic units held whole.</b>';
+        body = kept + ' unit' + (kept === 1 ? '' : 's') + ' declared indivisible and kept intact, oversized or not, and ' +
+          'chunks close at heading boundaries — which also means the <b>headers are preserved</b>, and those headers are ' +
+          'exactly the material for the breadcrumbs in visual 5. Markdown splits on heading levels, HTML on DOM elements, ' +
+          'code on function and class boundaries, PDFs on layout blocks. Deterministic, reproducible across re-index runs, ' +
+          'and free.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">Boundaries where the meaning shifts — and nowhere else.</b>';
+        body = 'Semantic chunking finds the two real topic shifts in this contract (visual 4 shows how), which fixed-size ' +
+          'splitting missed entirely. But it knows nothing about tables or functions, so once a segment exceeds ' + L + 't ' +
+          'it force-splits at sentence granularity and can land mid-row. On a document that <em>has</em> structure this is ' +
+          'the expensive way to do slightly worse: one embedding call per sentence at index time, variable-length chunks ' +
+          'that still need minimum and maximum caps, and boundaries that <b>move when the embedding model changes</b>. ' +
+          'Reach for it on transcripts, chat logs, OCR output and scraped text with mangled markup.';
+      }
+      why.innerHTML = head + body;
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    lim.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Distance Spike</h2>
+  <p class="vz-lede">Semantic chunking manufactures boundaries where none are marked: embed every sentence,
+    measure the cosine distance to the next one, and cut where it spikes. Move the threshold percentile and
+    watch the chunks multiply. <b>Like listening for the pause where a speaker changes subject.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-p">Threshold percentile <span id="v4-pl">95</span>th
+      → distance ≥ <span id="v4-thr">0.47</span></label>
+    <input type="range" id="v4-p" min="50" max="99" value="95" step="1" aria-label="Threshold percentile">
+    <div class="v4-chart" id="v4-chart"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Length caps" style="margin-top:12px">
+    <button id="v4-off" aria-pressed="true">raw semantic chunks</button>
+    <button id="v4-on" aria-pressed="false">apply min 60 / max 120 caps</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-chunks" id="v4-chunks"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Distance is <span class="vz-mono">1 − cosθ = 1 − (a·b)/(‖a‖‖b‖)</span> — the exact
+    complement of the cosine similarity you already use for retrieval, so this needs no new machinery, only
+    an embedding call per sentence <b>at index time</b>. In published comparisons it beats naive fixed-size
+    splitting only modestly and rarely beats good structure-aware splitting on documents that have
+    structure. The 95th percentile of these six distances lands near 0.47; the lesson quotes ≈0.40 as the
+    rule of thumb, and either way exactly one spike clears it — which is the point.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.45}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-chart{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v4-r{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v4-rl{flex:0 0 64px;color:var(--viz-muted)}
+    .v4-tr{position:relative;flex:1;height:16px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v4-tr i{display:block;height:100%;border-radius:4px}
+    .v4-thr{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--viz-violet)}
+    .v4-mk{flex:0 0 84px;text-align:right;font-size:9.5px;font-weight:800;font-family:inherit}
+    .v4-chunks{display:flex;flex-direction:column;gap:5px}
+    .v4-c{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-size:11px;line-height:1.45}
+    .v4-c.is-over{border-color:var(--viz-amber);border-style:dashed}
+    .v4-ch{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;
+      font-size:10px;color:var(--viz-muted);margin-bottom:3px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var SENTS = [
+      { t:'Chunk size fixes the unit of indexing.',            tok:45 },
+      { t:'Small chunks keep each vector sharp.',              tok:38 },
+      { t:'Large chunks pull the vector toward a centroid.',   tok:52 },
+      { t:'Overlap advances the window with stride s − o.',    tok:30 },
+      { t:'Enrichment prepends the title and heading path.',   tok:60 },
+      { t:'The breadcrumb is indexed, not shown to the model.',tok:41 },
+      { t:'Re-enrichment belongs in the re-index path.',       tok:47 }
+    ];
+    var D = [0.11, 0.09, 0.14, 0.58, 0.12, 0.10];
+    var MINT = 60, MAXT = 120;
+    var p = document.getElementById('v4-p'), plab = document.getElementById('v4-pl'), thrEl = document.getElementById('v4-thr');
+    var chart = document.getElementById('v4-chart'), out = document.getElementById('v4-chunks'), why = document.getElementById('v4-why');
+    var bOff = document.getElementById('v4-off'), bOn = document.getElementById('v4-on');
+    var caps = false;
+
+    function quantile(q){
+      var a = D.slice().sort(function(x, y){ return x - y; });
+      var idx = (a.length - 1) * Math.min(1, Math.max(0, q));
+      var lo = Math.floor(idx), hi = Math.min(a.length - 1, Math.ceil(idx));
+      if (lo === hi) return a[lo];
+      return a[lo] + (idx - lo) * (a[hi] - a[lo]);
+    }
+    function sum(g){ return g.reduce(function(t, i){ return t + SENTS[i].tok; }, 0); }
+
+    function render(){
+      bOff.setAttribute('aria-pressed', caps ? 'false' : 'true');
+      bOn.setAttribute('aria-pressed', caps ? 'true' : 'false');
+      var pv = Number(p.value); plab.textContent = pv;
+      var thr = quantile(pv / 100);
+      thrEl.textContent = thr.toFixed(2);
+
+      chart.innerHTML = D.map(function(d, i){
+        var fires = d >= thr;
+        var col = fires ? 'var(--viz-red)' : 'var(--viz-accent)';
+        return '<div class="v4-r"><span class="v4-rl">s' + (i + 1) + '→s' + (i + 2) + '</span>' +
+          '<span class="v4-tr"><i style="width:' + Math.max(2, d / 0.6 * 100) + '%;background:' + col + '"></i>' +
+          '<span class="v4-thr" style="left:' + Math.min(99, thr / 0.6 * 100) + '%"></span></span>' +
+          '<span class="v4-mk" style="color:' + col + '">' + d.toFixed(2) + (fires ? ' ✂ CUT' : '') + '</span></div>';
+      }).join('');
+
+      var groups = [], cur = [0];
+      for (var i = 0; i < D.length; i++) {
+        if (D[i] >= thr) { groups.push(cur); cur = []; }
+        cur.push(i + 1);
+      }
+      groups.push(cur);
+      var rawCount = groups.length;
+
+      var final = groups;
+      var overs = 0;
+      if (caps) {
+        var split = [];
+        groups.forEach(function(g){
+          var c = [];
+          g.forEach(function(si){
+            if (c.length && sum(c) + SENTS[si].tok > MAXT) { split.push(c); c = []; }
+            c.push(si);
+          });
+          if (c.length) split.push(c);
+        });
+        var merged = [];
+        split.forEach(function(c){
+          if (merged.length && sum(c) < MINT) { merged[merged.length - 1] = merged[merged.length - 1].concat(c); }
+          else { merged.push(c); }
+        });
+        final = merged;
+      }
+
+      out.innerHTML = final.map(function(g, i){
+        var n = sum(g);
+        var over = n > MAXT;
+        if (over && caps) overs += 1;
+        return '<div class="v4-c' + (over && caps ? ' is-over' : '') + '">' +
+          '<div class="v4-ch"><span>chunk ' + (i + 1) + ' · s' + (g[0] + 1) + '–s' + (g[g.length - 1] + 1) + '</span>' +
+          '<span style="color:' + (over && caps ? 'var(--viz-amber)' : 'var(--viz-muted)') + '">' + n + ' tokens' +
+          (over && caps ? ' · OVER the 120 cap' : '') + '</span></div>' +
+          g.map(function(si){ return SENTS[si].t; }).join(' ') + '</div>';
+      }).join('');
+
+      var head, body;
+      if (!caps) {
+        head = rawCount === 1
+          ? '<b style="color:var(--viz-amber)">No spike clears the threshold — one chunk.</b>'
+          : '<b style="color:var(--viz-green)">' + (rawCount - 1) + ' boundar' + (rawCount === 2 ? 'y' : 'ies') +
+            ' → ' + rawCount + ' chunks.</b>';
+        body = 'At the ' + pv + 'th percentile the threshold is <b>' + thr.toFixed(2) + '</b>. While consecutive ' +
+          'sentences discuss one topic the distances sit around 0.09–0.14; the 0.58 between s4 and s5 is the topic ' +
+          'genuinely changing from splitting to enrichment. ' +
+          (pv >= 90
+            ? 'Only that spike fires, and the passage splits into its two actual topics. Drop the percentile and smaller ' +
+              'shifts start firing — <b>lower threshold, more and smaller chunks</b>, always in that direction.'
+            : 'You have lowered the bar, so ordinary sentence-to-sentence drift now reads as a topic change. This is the ' +
+              'failure mode of a threshold tuned on one document and applied to another: the percentile is computed over ' +
+              '<em>that document’s own</em> distance distribution.') +
+          '<br><br>Chunks come out at ' + final.map(function(g){ return sum(g); }).join(', ') + ' tokens — <b>variable ' +
+          'length by construction</b>, which is why the caps toggle exists.';
+      } else {
+        head = '<b style="color:var(--viz-violet)">Caps applied — and they fight each other at the tail.</b>';
+        body = 'The max cap splits anything over 120 tokens at a sentence boundary; the min cap then merges anything ' +
+          'under 60 into its neighbour, which can push a chunk back over the max — ' + overs + ' here. That is the ' +
+          'ordinary state of a semantic chunker in production: the boundaries it found are advisory, and a size policy ' +
+          'sits on top of them. ' +
+          '<br><br>Two costs the fixed-size splitter never pays: an embedding call per sentence at index time, and ' +
+          '<b>non-determinism</b> — swap the embedding model and these boundaries move, which complicates incremental ' +
+          're-indexing in a way header-based splitting never does.';
+      }
+      why.innerHTML = head + body;
+    }
+    p.addEventListener('input', render);
+    bOff.addEventListener('click', function(){ caps = false; render(); });
+    bOn.addEventListener('click', function(){ caps = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Breadcrumbs And Context</h2>
+  <p class="vz-lede">Splitting destroys global context by construction: "The termination notice period is 60
+    days" is useless in an index of 400 contracts. Contextual enrichment injects the document's knowledge
+    back into every chunk, at index time, before both the embedding and the BM25 terms.
+    <b>Like writing the case name at the top of every loose page in a file.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Enrichment level">
+    <button id="v5-raw" aria-pressed="true">raw chunk</button>
+    <button id="v5-bc" aria-pressed="false">+ title &amp; header breadcrumb</button>
+    <button id="v5-llm" aria-pressed="false">+ LLM-written context</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-idx vz-mono" id="v5-idx"></div>
+    <div class="v5-terms" id="v5-terms"></div>
+    <div class="v5-fail" id="v5-fail"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <label class="v5-lab" for="v5-n">Chunks per 12,000-token document: <span id="v5-nl">24</span></label>
+    <input type="range" id="v5-n" min="4" max="200" value="24" step="4" aria-label="Chunks per document">
+    <div class="vz-seg" role="group" aria-label="Prompt caching" style="margin:10px 0 0">
+      <button id="v5-nocache" aria-pressed="false">no prompt caching</button>
+      <button id="v5-cache" aria-pressed="true">prompt caching on</button>
+    </div>
+    <div class="v5-cost" id="v5-cost"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px"><div class="v5-why" id="v5-why"></div></div>
+
+  <p class="vz-note">Two engineering details separate clean implementations from messy ones. <b>Index the
+    enriched text, but store the original chunk boundaries</b> so generation and citation use clean source
+    text — a duplicated breadcrumb on every chunk also wastes generation-window tokens. And enrichment is
+    derived data with an invalidation problem: edit the document and its chunks' contexts go stale
+    silently, so re-enrichment must be part of the re-index path. A hallucinated enrichment is worse than
+    none, because it injects a confident falsehood into the index itself, where it attracts queries the
+    chunk cannot answer.</p>
+
+  <style>
+    .v5-idx{border:1.5px solid var(--viz-line);border-radius:9px;padding:10px;background:var(--viz-bg)}
+    .v5-terms{margin-top:12px;display:flex;gap:6px;flex-wrap:wrap}
+    .v5-t{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-fail{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v5-f h6{margin:0 0 4px;font-size:11px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-f h6 b{font-family:ui-monospace,Consolas,monospace}
+    .v5-ftr{height:13px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-ftr i{display:block;height:100%}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-cost{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v5-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DOCTOK = 12000, CHUNKTOK = 500, CACHED_RATE = 0.1;
+    var CHUNK = 'The termination notice period is 60 days.';
+    var CRUMB = 'Acme MSA 2025 > 9. Termination > 9.2 Notice';
+    var CTX = 'This clause is from the Acme master services agreement and specifies the notice period the customer must give to terminate for convenience.';
+    var QTERMS = ['acme', 'termination', 'notice', 'period'];
+
+    var bRaw = document.getElementById('v5-raw'), bBc = document.getElementById('v5-bc'), bLlm = document.getElementById('v5-llm');
+    var idx = document.getElementById('v5-idx'), terms = document.getElementById('v5-terms'), fail = document.getElementById('v5-fail');
+    var n = document.getElementById('v5-n'), nl = document.getElementById('v5-nl');
+    var bNo = document.getElementById('v5-nocache'), bYes = document.getElementById('v5-cache');
+    var cost = document.getElementById('v5-cost'), why = document.getElementById('v5-why');
+    var mode = 0, cache = true;
+
+    function indexed(){
+      if (mode === 0) return CHUNK;
+      if (mode === 1) return CRUMB + '\n' + CHUNK;
+      return CRUMB + '\n' + CTX + '\n' + CHUNK;
+    }
+    function bar(t, pct, col, val){
+      return '<div class="v5-f"><h6><span>' + t + '</span><b style="color:' + col + '">' + val + '</b></h6>' +
+        '<div class="v5-ftr"><i style="width:' + Math.max(2, Math.min(100, pct)) + '%;background:' + col + '"></i></div></div>';
+    }
+
+    function render(){
+      bRaw.setAttribute('aria-pressed', mode === 0 ? 'true' : 'false');
+      bBc.setAttribute('aria-pressed', mode === 1 ? 'true' : 'false');
+      bLlm.setAttribute('aria-pressed', mode === 2 ? 'true' : 'false');
+      bNo.setAttribute('aria-pressed', cache ? 'false' : 'true');
+      bYes.setAttribute('aria-pressed', cache ? 'true' : 'false');
+
+      var text = indexed();
+      idx.textContent = text;
+      var low = text.toLowerCase();
+
+      terms.innerHTML = QTERMS.map(function(w){
+        var hit = low.indexOf(w) >= 0;
+        var col = hit ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<span class="v5-t" style="color:' + col + ';border-color:' + col + '">' +
+          (hit ? '✓ ' : '✗ ') + w + '</span>';
+      }).join('');
+
+      var acme = low.indexOf('acme') >= 0;
+      var candidates = acme ? 1 : 400;
+      var rows = bar('BM25 candidate documents that look identical', candidates / 400 * 100,
+        acme ? 'var(--viz-green)' : 'var(--viz-red)',
+        candidates + ' of 400 contracts');
+      if (mode === 2) {
+        rows += bar('top-20 retrieval failures · contextual embeddings', 65, 'var(--viz-amber)', '−35%');
+        rows += bar('top-20 retrieval failures · + contextual BM25', 51, 'var(--viz-green)', '−49%');
+      } else {
+        rows += bar('top-20 retrieval failures · baseline', 100, 'var(--viz-red)', 'baseline 100%');
+      }
+      fail.innerHTML = rows;
+
+      var nv = Number(n.value); nl.textContent = nv;
+      var calls = mode === 2 ? nv : 0;
+      var noCache = nv * (DOCTOK + CHUNKTOK);
+      var withCache = DOCTOK + nv * CHUNKTOK + CACHED_RATE * nv * DOCTOK;
+      var spend = mode === 2 ? (cache ? withCache : noCache) : 0;
+      var ratio = noCache / Math.max(1, withCache);
+      cost.innerHTML =
+        '<span class="v5-pill" style="color:' + (calls ? 'var(--viz-amber)' : 'var(--viz-green)') + ';border-color:' +
+          (calls ? 'var(--viz-amber)' : 'var(--viz-green)') + '">' + calls + ' LLM calls at index time</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+          Math.round(spend).toLocaleString() + ' full-price input tokens</span>' +
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">caching saves ' +
+          ratio.toFixed(1) + '×</span>';
+
+      var head, body;
+      if (mode === 0) {
+        head = '<b style="color:var(--viz-red)">The chunk no longer says what the document knew.</b>';
+        body = 'Which party, which agreement? The words "termination", "notice" and "period" appear in all 400 ' +
+          'contracts, so BM25 cannot separate them and the embedding sits in the same region for every one. The same ' +
+          'shape bites "Returns are accepted within 30 days" taken from one product page: it will match return-policy ' +
+          'queries about <em>every</em> product. Splitting caused this, so the repair belongs at index time.';
+      } else if (mode === 1) {
+        head = '<b style="color:var(--viz-green)">Breadcrumbs: nearly free, deterministic, the default everywhere.</b>';
+        body = 'Prefixing the document title and heading path makes "Acme" a lexical match through BM25 and moves the ' +
+          'embedding toward this contract in vector space. Candidates drop from 400 contracts to 1. And notice where ' +
+          'the prefix came from: the <b>headers you preserved during structure-aware splitting</b> in visual 3 — which ' +
+          'is why those two techniques compose. A related pattern prepends a short document-level summary or key ' +
+          'entities (product, client, date range) to every chunk. Zero LLM calls, zero non-determinism, no staleness ' +
+          'beyond the title itself.';
+      } else {
+        head = '<b style="color:var(--viz-violet)">LLM-written context: the heavyweight, and a budget decision.</b>';
+        body = 'For each chunk a model sees the whole document plus the chunk and writes 50–100 tokens situating it. ' +
+          'Anthropic reported roughly <b>35% fewer top-20 retrieval failures</b> from contextual embeddings, and ' +
+          'roughly <b>49% fewer</b> combining contextual embeddings with contextual BM25 — treat the exact figures as ' +
+          'benchmark-specific, the direction replicates. ' +
+          (cache
+            ? 'Prompt caching is what makes it affordable: the document is a stable prefix reused across all ' + nv +
+              ' of its chunks’ calls, so you pay full input price roughly <b>once per document</b> rather than once ' +
+              'per chunk — ' + ratio.toFixed(1) + '× cheaper here.'
+            : 'Without caching you resend all ' + DOCTOK.toLocaleString() + ' document tokens for every one of the ' + nv +
+              ' chunks: ' + noCache.toLocaleString() + ' input tokens for a single document. Turn caching on.') +
+          '<br><br>Escalate to this when chunks are strongly context-dependent — contracts, codebases, support threads ' +
+          'where "it" and "the customer" abound — the corpus is large enough that retrieval failure is your measured ' +
+          'bottleneck, and the re-index budget tolerates it.';
+      }
+      why.innerHTML = head + body;
+    }
+    bRaw.addEventListener('click', function(){ mode = 0; render(); });
+    bBc.addEventListener('click', function(){ mode = 1; render(); });
+    bLlm.addEventListener('click', function(){ mode = 2; render(); });
+    bNo.addEventListener('click', function(){ cache = false; render(); });
+    bYes.addEventListener('click', function(){ cache = true; render(); });
+    n.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

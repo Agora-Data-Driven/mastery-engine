@@ -1,0 +1,742 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. One Arrow Two Grids</button>
+  <button class="viz-tab" data-viz-tab="2">2. Build The P Matrix</button>
+  <button class="viz-tab" data-viz-tab="3">3. Subtract The Shadow</button>
+  <button class="viz-tab" data-viz-tab="4">4. Divide By The Norm</button>
+  <button class="viz-tab" data-viz-tab="5">5. Where R Comes From</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. One Arrow Two Grids</h2>
+  <p class="vz-lede"><b>Basis and dimension of a space</b> said a coordinate list is a recipe written
+    against a chosen basis, not the vector itself. Here is that claim you can push on: move the arrow,
+    then swap the grid underneath it and watch the numbers change while the arrow does not.
+    <b>Like giving one building a latitude/longitude and a street address.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which basis reads the arrow">
+    <button id="v1-std" aria-pressed="true">standard grid</button>
+    <button id="v1-bb" aria-pressed="false">basis B</button>
+    <button id="v1-cc" aria-pressed="false">basis C</button>
+  </div>
+
+  <div class="vz-card">
+    <svg id="v1-svg" viewBox="0 0 320 224" role="img" aria-label="A fixed arrow drawn over a grid that changes with the chosen basis"></svg>
+    <label class="v1-lab" for="v1-x">Arrow tip in standard coordinates:
+      (<span id="v1-xl">3</span>, <span id="v1-yl">1</span>)</label>
+    <div class="v1-sliders">
+      <input type="range" id="v1-x" min="-4" max="4" value="3" step="1" aria-label="Standard x coordinate">
+      <input type="range" id="v1-y" min="-4" max="4" value="1" step="1" aria-label="Standard y coordinate">
+    </div>
+    <div class="v1-read" id="v1-read"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Nothing intrinsic moved: not the arrow, not its length, not the dimension of the space.
+    Only the <b>recipe</b> changed. Everything else in this lesson is built on that permission — if the
+    coordinates are yours to choose, you may as well choose the ones that make the problem easy. The matrix
+    that converts one readout directly into another is visual 2.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+    .v1-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v1-sliders{display:flex;gap:10px}
+    .v1-sliders input{flex:1 1 40%}
+    .v1-grid{stroke:var(--viz-line);stroke-width:1}
+    .v1-axis{stroke:var(--viz-muted);stroke-width:1.4;opacity:.55}
+    .v1-b{stroke:var(--viz-violet);stroke-width:2.4}
+    .v1-bh{fill:var(--viz-violet)}
+    .v1-v{stroke:var(--viz-accent);stroke-width:3.2}
+    .v1-vh{fill:var(--viz-accent)}
+    .v1-dec{stroke:var(--viz-amber);stroke-width:2;stroke-dasharray:4 4}
+    .v1-t{fill:var(--viz-muted);font-size:10px;font-family:ui-monospace,Consolas,monospace}
+    .v1-read{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v1-row{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v1-row b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;color:var(--viz-accent)}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var BASES = [
+      { lab:'standard', b1:[1,0], b2:[0,1] },
+      { lab:'B', b1:[2,1], b2:[-1,2] },
+      { lab:'C', b1:[1,1], b2:[1,-1] }
+    ];
+    var cur = 0;
+    var btns = [document.getElementById('v1-std'), document.getElementById('v1-bb'), document.getElementById('v1-cc')];
+    var svg = document.getElementById('v1-svg');
+    var sx = document.getElementById('v1-x'), sy = document.getElementById('v1-y');
+    var xl = document.getElementById('v1-xl'), yl = document.getElementById('v1-yl');
+    var read = document.getElementById('v1-read'), why = document.getElementById('v1-why');
+    var OX = 160, OY = 110, S = 21;
+
+    function n(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 100) / 100;
+      if (Math.abs(r) < 0.005) r = 0;
+      return r.toFixed(2);
+    }
+    function P(p){ return [OX + p[0] * S, OY - p[1] * S]; }
+    function seg(a, b, cls){
+      var A = P(a), B = P(b);
+      return '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + B[0] + '" y2="' + B[1] + '" class="' + cls + '"/>';
+    }
+    function arrow(a, b, cls){
+      var A = P(a), B = P(b), dx = B[0] - A[0], dy = B[1] - A[1];
+      var L = Math.sqrt(dx * dx + dy * dy);
+      if (!isFinite(L) || L < 2) return '';
+      var ux = dx / L, uy = dy / L, h = 9, w = 4.4;
+      var bx = B[0] - ux * h, by = B[1] - uy * h;
+      return '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + bx + '" y2="' + by + '" class="' + cls + '"/>' +
+        '<polygon points="' + B[0] + ',' + B[1] + ' ' + (bx - uy * w) + ',' + (by + ux * w) + ' ' +
+        (bx + uy * w) + ',' + (by - ux * w) + '" class="' + cls + 'h"/>';
+    }
+    // Cramer's rule on [b1 b2]c = v. Returns null on a singular pair, so a
+    // degenerate basis prints a sentence instead of two NaNs.
+    function coords(bs, v){
+      var d = bs.b1[0] * bs.b2[1] - bs.b2[0] * bs.b1[1];
+      if (!isFinite(d) || Math.abs(d) < 1e-9) return null;
+      return [(v[0] * bs.b2[1] - bs.b2[0] * v[1]) / d, (bs.b1[0] * v[1] - v[0] * bs.b1[1]) / d];
+    }
+
+    function render(){
+      var v = [Number(sx.value), Number(sy.value)];
+      var bs = BASES[cur];
+      xl.textContent = v[0]; yl.textContent = v[1];
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var g = '';
+      for (var k = -9; k <= 9; k++) {
+        var o1 = [bs.b2[0] * k, bs.b2[1] * k], o2 = [bs.b1[0] * k, bs.b1[1] * k];
+        var c1 = k === 0 ? 'v1-axis' : 'v1-grid', c2 = k === 0 ? 'v1-axis' : 'v1-grid';
+        g += seg([o1[0] - bs.b1[0] * 14, o1[1] - bs.b1[1] * 14], [o1[0] + bs.b1[0] * 14, o1[1] + bs.b1[1] * 14], c1);
+        g += seg([o2[0] - bs.b2[0] * 14, o2[1] - bs.b2[1] * 14], [o2[0] + bs.b2[0] * 14, o2[1] + bs.b2[1] * 14], c2);
+      }
+
+      var c = coords(bs, v);
+      var body = '';
+      if (c) {
+        var m1 = [bs.b1[0] * c[0], bs.b1[1] * c[0]];
+        body += seg([0, 0], m1, 'v1-dec') + seg(m1, v, 'v1-dec');
+      }
+      body += arrow([0, 0], bs.b1, 'v1-b') + arrow([0, 0], bs.b2, 'v1-b');
+      var t1 = P([bs.b1[0] * 1.15, bs.b1[1] * 1.15]), t2 = P([bs.b2[0] * 1.15, bs.b2[1] * 1.15]);
+      body += '<text class="v1-t" x="' + t1[0] + '" y="' + t1[1] + '">b1</text>' +
+        '<text class="v1-t" x="' + t2[0] + '" y="' + t2[1] + '">b2</text>';
+      body += arrow([0, 0], v, 'v1-v');
+      svg.innerHTML = g + body;
+
+      if (!c) {
+        read.innerHTML = '<div class="v1-row"><span>these two vectors are not a basis</span><b>—</b></div>';
+        why.innerHTML = '<b style="color:var(--viz-red)">Singular pair.</b>Two parallel vectors span a line, not the plane, so no recipe exists for most arrows.';
+        return;
+      }
+      read.innerHTML =
+        '<div class="v1-row"><span>standard coordinates</span><b>(' + n(v[0]) + ', ' + n(v[1]) + ')</b></div>' +
+        '<div class="v1-row"><span>coordinates in ' + bs.lab + '</span><b>(' + n(c[0]) + ', ' + n(c[1]) + ')</b></div>' +
+        '<div class="v1-row"><span>the recipe it stands for</span><b>' + n(c[0]) + '&middot;b1 + ' + n(c[1]) + '&middot;b2</b></div>' +
+        '<div class="v1-row"><span>b1, b2 in standard coordinates</span><b>(' + n(bs.b1[0]) + ', ' + n(bs.b1[1]) + '), (' + n(bs.b2[0]) + ', ' + n(bs.b2[1]) + ')</b></div>';
+
+      why.innerHTML = cur === 0
+        ? '<b style="color:var(--viz-accent)">Standard coordinates are a recipe too.</b>' +
+          '(' + n(v[0]) + ', ' + n(v[1]) + ') means ' + n(v[0]) + '&middot;e1 + ' + n(v[1]) + '&middot;e2, and it only <em>feels</em> like the vector itself because you have been reading that grid since school. ' +
+          'Switch to B or C and the same arrow gets a different pair of numbers. <br><br>Nothing about the arrow is in those numbers alone — a coordinate list is meaningless until you say which basis it is against.'
+        : '<b style="color:var(--viz-green)">The arrow did not move.</b>' +
+          'Same length, same direction, same point of the plane. The grid under it changed and the readout changed with it: in ' + bs.lab + ' this arrow is ' +
+          '(' + n(c[0]) + ', ' + n(c[1]) + '). The dashed path is the recipe being followed — ' + n(c[0]) + ' steps along b1, then ' + n(c[1]) + ' along b2. ' +
+          '<br><br>Getting those two numbers is one matrix solve: stack b1 and b2 as the columns of a matrix and the coordinates are its inverse applied to the arrow. That is the whole of <b>changing the basis of a vector space</b>, and the next visual turns it into a single matrix you can reuse.';
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ cur = i; render(); }); });
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Build The P Matrix</h2>
+  <p class="vz-lede">One matrix that takes B-coordinates in and hands C-coordinates out. Pick a pair of
+    bases, then slide a vector's B-coordinates and watch every representation of it move together.
+    <b>Like a currency converter: one rate, applied to any amount.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the two bases" id="v2-pairs"></div>
+
+  <div class="vz-card">
+    <div class="v2-mats" id="v2-mats"></div>
+    <label class="v2-lab" for="v2-c1">Coordinates in B:
+      (<span id="v2-c1l">1</span>, <span id="v2-c2l">1</span>)</label>
+    <div class="v2-sliders">
+      <input type="range" id="v2-c1" min="-3" max="3" value="1" step="1" aria-label="First B coordinate">
+      <input type="range" id="v2-c2" min="-3" max="3" value="1" step="1" aria-label="Second B coordinate">
+    </div>
+    <div class="v2-trace" id="v2-trace"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two directions, one object: P<sub>C&larr;B</sub> and P<sub>B&larr;C</sub> are inverses
+    of each other, so mixing them up is the single most common error here — the arrow in the subscript
+    points at the <b>output</b>. And a <b>map</b> moves by conjugation rather than multiplication: with
+    P = P<sub>C&larr;B</sub>, a transformation written in B becomes P [T]<sub>B</sub> P<sup>-1</sup> in C —
+    read right to left, it drops into B, works there, and comes back.</p>
+
+  <style>
+    .v2-mats{display:flex;gap:9px;flex-wrap:wrap;align-items:flex-start}
+    .v2-m{flex:0 0 auto}
+    .v2-m h6{margin:0 0 4px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);font-weight:800}
+    .v2-g{display:grid;grid-template-columns:repeat(2,minmax(34px,1fr));gap:2px 8px;border-left:2px solid var(--viz-line);
+      border-right:2px solid var(--viz-line);border-radius:3px;padding:5px 7px;background:var(--viz-bg)}
+    .v2-g span{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:right}
+    .v2-m.is-p .v2-g{border-color:var(--viz-accent)}
+    .v2-m.is-p .v2-g span{color:var(--viz-accent);font-weight:700}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:12px 0 4px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-sliders{display:flex;gap:10px}
+    .v2-sliders input{flex:1 1 40%}
+    .v2-trace{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v2-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PAIRS = [
+      { lab:'two skew bases', B:[[3,1],[1,3]], C:[[1,1],[1,-1]],
+        note:'B holds (3,1) and (1,3); C holds (1,1) and (1,-1). C inverse times B gives the top-left 2 you can read straight off column 1: b1 = 2&middot;c1 + 1&middot;c2.' },
+      { lab:'a stretched axis', B:[[1,1],[0,1]], C:[[2,0],[0,1]],
+        note:'C only stretches the x axis by 2, so C inverse halves it — every first coordinate of B comes back halved, and the second row is untouched.' },
+      { lab:'from standard', B:[[1,0],[0,1]], C:[[1,3],[2,4]],
+        note:'B is the standard basis, so P collapses to C inverse alone: this is the "write a standard vector in basis C" question in its purest form.' }
+    ];
+    var cur = 0;
+    var pairsEl = document.getElementById('v2-pairs');
+    var mats = document.getElementById('v2-mats'), trace = document.getElementById('v2-trace'), why = document.getElementById('v2-why');
+    var s1 = document.getElementById('v2-c1'), s2 = document.getElementById('v2-c2');
+    var l1 = document.getElementById('v2-c1l'), l2 = document.getElementById('v2-c2l');
+
+    function n(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 1000) / 1000;
+      if (Math.abs(r) < 0.0005) r = 0;
+      return String(r);
+    }
+    function inv(M){
+      var d = M[0][0] * M[1][1] - M[0][1] * M[1][0];
+      if (!isFinite(d) || Math.abs(d) < 1e-9) return null;
+      return [[M[1][1] / d, -M[0][1] / d], [-M[1][0] / d, M[0][0] / d]];
+    }
+    function mul(A, B){
+      return [
+        [A[0][0] * B[0][0] + A[0][1] * B[1][0], A[0][0] * B[0][1] + A[0][1] * B[1][1]],
+        [A[1][0] * B[0][0] + A[1][1] * B[1][0], A[1][0] * B[0][1] + A[1][1] * B[1][1]]
+      ];
+    }
+    function ap(M, v){ return [M[0][0] * v[0] + M[0][1] * v[1], M[1][0] * v[0] + M[1][1] * v[1]]; }
+    function mat(label, M, cls){
+      if (!M) return '<div class="v2-m"><h6>' + label + '</h6><div class="v2-g"><span>not</span><span>invertible</span></div></div>';
+      return '<div class="v2-m ' + (cls || '') + '"><h6>' + label + '</h6><div class="v2-g">' +
+        '<span>' + n(M[0][0]) + '</span><span>' + n(M[0][1]) + '</span>' +
+        '<span>' + n(M[1][0]) + '</span><span>' + n(M[1][1]) + '</span></div></div>';
+    }
+
+    function render(){
+      var pr = PAIRS[cur];
+      [].slice.call(pairsEl.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+      var Ci = inv(pr.C);
+      var Pm = Ci ? mul(Ci, pr.B) : null;
+      var Pi = Pm ? inv(Pm) : null;
+      mats.innerHTML = mat('B', pr.B) + mat('C', pr.C) + mat('C inverse', Ci) +
+        mat('P = C&#8315;&#185;B', Pm, 'is-p') + mat('P&#8315;&#185; = P B&larr;C', Pi);
+
+      var c = [Number(s1.value), Number(s2.value)];
+      l1.textContent = c[0]; l2.textContent = c[1];
+      if (!Pm) {
+        trace.innerHTML = '<div class="v2-r"><span>C is singular — its columns are not a basis</span><b>—</b></div>';
+        why.innerHTML = '<b style="color:var(--viz-red)">No conversion exists.</b>A change-of-basis matrix needs both column sets to be genuine bases.';
+        return;
+      }
+      var std = ap(pr.B, c);
+      var inC = ap(Pm, c);
+      var back = ap(pr.C, inC);
+      var ok = Math.abs(back[0] - std[0]) < 1e-6 && Math.abs(back[1] - std[1]) < 1e-6;
+      trace.innerHTML =
+        '<div class="v2-r"><span>the vector in B-coordinates</span><b>(' + n(c[0]) + ', ' + n(c[1]) + ')</b></div>' +
+        '<div class="v2-r"><span>same vector, standard coordinates &nbsp;B&middot;[v]B</span><b>(' + n(std[0]) + ', ' + n(std[1]) + ')</b></div>' +
+        '<div class="v2-r"><span>same vector in C-coordinates &nbsp;P&middot;[v]B</span><b style="color:var(--viz-accent)">(' + n(inC[0]) + ', ' + n(inC[1]) + ')</b></div>' +
+        '<div class="v2-r"><span>rebuilt from C &nbsp;C&middot;[v]C</span><b style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">(' + n(back[0]) + ', ' + n(back[1]) + ') ' + (ok ? 'matches' : 'MISMATCH') + '</b></div>';
+
+      var col1 = [Pm[0][0], Pm[1][0]], col2 = [Pm[0][1], Pm[1][1]];
+      why.innerHTML = '<b style="color:var(--viz-accent)">Column j of P is b<sub>j</sub> written in C.</b>' +
+        'Column 1 is (' + n(col1[0]) + ', ' + n(col1[1]) + '), which says b1 = ' + n(col1[0]) + '&middot;c1 + ' + n(col1[1]) + '&middot;c2. ' +
+        'Column 2 is (' + n(col2[0]) + ', ' + n(col2[1]) + '), so b2 = ' + n(col2[0]) + '&middot;c1 + ' + n(col2[1]) + '&middot;c2. ' +
+        'Those coordinate vectors go in as <em>columns</em> — laid in as rows you get the transpose, which is the wrong matrix and exactly the right shape to look convincing. ' +
+        '<br><br>' + pr.note +
+        '<br><br><b style="display:inline;font-size:12.5px">Why C inverse times B, in that order?</b> B lifts B-coordinates up to standard, then C inverse lowers standard down into C. ' +
+        'Written the other way round, B&middot;C&#8315;&#185; would consume C-coordinates and emit B-coordinates — the same two ingredients, the opposite converter.';
+    }
+    PAIRS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = p.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      pairsEl.appendChild(b);
+    });
+    s1.addEventListener('input', render);
+    s2.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Subtract The Shadow</h2>
+  <p class="vz-lede">Gram-Schmidt has exactly one move: take the next vector, work out how much of it
+    already lies along what you have, and subtract that off. Drag v2 anywhere and watch the leftover stay
+    perpendicular. <b>Like cutting a plank flush to a wall: you remove only the part that overlaps.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the first vector" id="v3-u1s"></div>
+
+  <div class="vz-card">
+    <svg id="v3-svg" viewBox="0 0 320 224" role="img" aria-label="v2 split into its shadow along u1 and the perpendicular remainder"></svg>
+    <label class="v3-lab" for="v3-x">v2 = (<span id="v3-xl">2</span>, <span id="v3-yl">2</span>)</label>
+    <div class="v3-sliders">
+      <input type="range" id="v3-x" min="-4" max="4" value="2" step="1" aria-label="v2 x component">
+      <input type="range" id="v3-y" min="-4" max="4" value="2" step="1" aria-label="v2 y component">
+    </div>
+    <div class="v3-read" id="v3-read"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The step never rescales to length 1 and never flips a direction — it removes a
+    component, nothing more. And it does not change what you can reach: every u is the v's recombined and
+    the relation runs both ways, so <b>span{u1, u2} = span{v1, v2}</b> at every step. That is why
+    orthogonalising a basis is safe: you get right angles for free and lose no directions.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+    .v3-lab span{color:var(--viz-violet);font-family:ui-monospace,Consolas,monospace}
+    .v3-sliders{display:flex;gap:10px}
+    .v3-sliders input{flex:1 1 40%}
+    .v3-grid{stroke:var(--viz-line);stroke-width:1}
+    .v3-axis{stroke:var(--viz-muted);stroke-width:1.3;opacity:.55}
+    .v3-u1{stroke:var(--viz-accent);stroke-width:3}
+    .v3-u1h{fill:var(--viz-accent)}
+    .v3-v2{stroke:var(--viz-violet);stroke-width:2.6}
+    .v3-v2h{fill:var(--viz-violet)}
+    .v3-pr{stroke:var(--viz-amber);stroke-width:3}
+    .v3-prh{fill:var(--viz-amber)}
+    .v3-u2{stroke:var(--viz-green);stroke-width:3}
+    .v3-u2h{fill:var(--viz-green)}
+    .v3-dash{stroke:var(--viz-muted);stroke-width:1.4;stroke-dasharray:4 4}
+    .v3-t{fill:var(--viz-muted);font-size:10px;font-family:ui-monospace,Consolas,monospace}
+    .v3-read{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v3-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v3-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v3-key{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;font-size:10.5px;font-weight:800;letter-spacing:.02em}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var U1S = [{ lab:'u1 = (3, 0)', u:[3, 0] }, { lab:'u1 = (1, 1)', u:[1, 1] }, { lab:'u1 = (2, 1)', u:[2, 1] }];
+    var cur = 0;
+    var host = document.getElementById('v3-u1s');
+    var svg = document.getElementById('v3-svg');
+    var sx = document.getElementById('v3-x'), sy = document.getElementById('v3-y');
+    var xl = document.getElementById('v3-xl'), yl = document.getElementById('v3-yl');
+    var read = document.getElementById('v3-read'), why = document.getElementById('v3-why');
+    var OX = 128, OY = 112, S = 24;
+
+    function n(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 100) / 100;
+      if (Math.abs(r) < 0.005) r = 0;
+      return String(r);
+    }
+    function P(p){ return [OX + p[0] * S, OY - p[1] * S]; }
+    function seg(a, b, cls){
+      var A = P(a), B = P(b);
+      return '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + B[0] + '" y2="' + B[1] + '" class="' + cls + '"/>';
+    }
+    function arrow(a, b, cls){
+      var A = P(a), B = P(b), dx = B[0] - A[0], dy = B[1] - A[1];
+      var L = Math.sqrt(dx * dx + dy * dy);
+      if (!isFinite(L) || L < 2) return '';
+      var ux = dx / L, uy = dy / L, h = 9, w = 4.4;
+      var bx = B[0] - ux * h, by = B[1] - uy * h;
+      return '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + bx + '" y2="' + by + '" class="' + cls + '"/>' +
+        '<polygon points="' + B[0] + ',' + B[1] + ' ' + (bx - uy * w) + ',' + (by + ux * w) + ' ' +
+        (bx + uy * w) + ',' + (by - ux * w) + '" class="' + cls + 'h"/>';
+    }
+
+    function render(){
+      var u1 = U1S[cur].u;
+      var v2 = [Number(sx.value), Number(sy.value)];
+      xl.textContent = v2[0]; yl.textContent = v2[1];
+      [].slice.call(host.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var uu = u1[0] * u1[0] + u1[1] * u1[1];
+      var vu = v2[0] * u1[0] + v2[1] * u1[1];
+      // u1 is a preset and never zero, but the guard is what keeps a future
+      // edit from printing NaN across the whole readout.
+      var t = (isFinite(uu) && uu > 1e-9) ? vu / uu : 0;
+      var pr = [u1[0] * t, u1[1] * t];
+      var u2 = [v2[0] - pr[0], v2[1] - pr[1]];
+      var dot = u1[0] * u2[0] + u1[1] * u2[1];
+      var len2 = Math.sqrt(u2[0] * u2[0] + u2[1] * u2[1]);
+
+      var g = '';
+      for (var k = -6; k <= 6; k++) {
+        g += seg([k, -5], [k, 5], k === 0 ? 'v3-axis' : 'v3-grid');
+        g += seg([-6, k], [6, k], k === 0 ? 'v3-axis' : 'v3-grid');
+      }
+      var body = seg(pr, v2, 'v3-dash');
+      body += arrow([0, 0], u1, 'v3-u1') + arrow([0, 0], v2, 'v3-v2');
+      if (Math.abs(t) > 1e-9) body += arrow([0, 0], pr, 'v3-pr');
+      if (len2 > 1e-9) body += arrow([0, 0], u2, 'v3-u2');
+      var tu = P([u1[0] * 1.12, u1[1] * 1.12]), tv = P([v2[0] * 1.12, v2[1] * 1.12]);
+      body += '<text class="v3-t" x="' + tu[0] + '" y="' + tu[1] + '">u1</text>' +
+        '<text class="v3-t" x="' + tv[0] + '" y="' + tv[1] + '">v2</text>';
+      svg.innerHTML = g + body;
+
+      read.innerHTML =
+        '<div class="v3-r"><span>v2 &middot; u1</span><b>' + n(vu) + '</b></div>' +
+        '<div class="v3-r"><span>u1 &middot; u1</span><b>' + n(uu) + '</b></div>' +
+        '<div class="v3-r"><span>scalar (v2&middot;u1)/(u1&middot;u1)</span><b style="color:var(--viz-amber)">' + n(t) + '</b></div>' +
+        '<div class="v3-r"><span>the shadow: that scalar times u1</span><b style="color:var(--viz-amber)">(' + n(pr[0]) + ', ' + n(pr[1]) + ')</b></div>' +
+        '<div class="v3-r"><span>u2 = v2 &minus; shadow</span><b style="color:var(--viz-green)">(' + n(u2[0]) + ', ' + n(u2[1]) + ')</b></div>' +
+        '<div class="v3-r"><span>check u1 &middot; u2</span><b style="color:' + (Math.abs(dot) < 1e-6 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + n(dot) + (Math.abs(dot) < 1e-6 ? ' &mdash; orthogonal' : ' &mdash; NOT orthogonal') + '</b></div>' +
+        '<div class="v3-key"><span style="color:var(--viz-accent)">u1 kept</span>' +
+        '<span style="color:var(--viz-violet)">v2 raw</span>' +
+        '<span style="color:var(--viz-amber)">shadow removed</span>' +
+        '<span style="color:var(--viz-green)">u2 leftover</span></div>';
+
+      why.innerHTML = len2 < 1e-9
+        ? '<b style="color:var(--viz-red)">DEPENDENT — u2 is the zero vector.</b>' +
+          'v2 is a multiple of u1, so the shadow is the whole of it and there is nothing left over. This is not an arithmetic slip: it is <b>linear dependence</b>, reported by the algorithm itself. ' +
+          'Gram-Schmidt needs an independent input, and a zero at step k says column k added no new direction — the same fact a free column in RREF tells you. ' +
+          '<br><br>In the QR machine of visual 5, this is the case where the matrix is rank deficient.'
+        : Math.abs(t) < 1e-9
+          ? '<b style="color:var(--viz-green)">Already orthogonal — the shadow is zero.</b>' +
+            'v2 &middot; u1 = 0, so the scalar is 0, the projection is the zero vector, and u2 = v2 comes through untouched. ' +
+            'Note what did <em>not</em> happen: it was not shrunk to length 1 and it was not flipped. The step only ever removes an overlap. ' +
+            '<br><br>Lengths are visual 4’s job; this step is purely about angle.'
+          : '<b style="color:var(--viz-green)">u1 &middot; u2 = 0, by construction.</b>' +
+            'The scalar ' + n(t) + ' is chosen precisely so the leftover has no component along u1 — subtract exactly the overlap and what remains must be perpendicular. Drag v2 anywhere and that check stays at zero. ' +
+            '<br><br>With three or more vectors the step generalises by subtracting <em>every</em> earlier shadow: u3 = v3 &minus; proj onto u1 &minus; proj onto u2. Each subtraction is independent because the u’s are already mutually orthogonal, which is what makes the algorithm run in one pass.';
+    }
+    U1S.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = p.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      host.appendChild(b);
+    });
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Divide By The Norm</h2>
+  <p class="vz-lede">Orthogonality fixed the angles; normalization fixes the lengths. Slide a vector and
+    compare the three things people divide by — only one of them lands on length exactly 1.
+    <b>Like resizing a photo: you divide by the width, not by the area.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-x">v = (<span id="v4-xl">3</span>, <span id="v4-yl">4</span>, <span id="v4-zl">0</span>)</label>
+    <div class="v4-sliders">
+      <input type="range" id="v4-x" min="-6" max="6" value="3" step="1" aria-label="First component">
+      <input type="range" id="v4-y" min="-6" max="6" value="4" step="1" aria-label="Second component">
+      <input type="range" id="v4-z" min="-6" max="6" value="0" step="1" aria-label="Third component">
+    </div>
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="v4-sub">A whole orthogonal set at once — norms 2, 5 and 10. Which rule makes it orthonormal?</p>
+  <div class="vz-seg" role="group" aria-label="How to rescale an orthogonal set" id="v4-modes"></div>
+  <div class="vz-card">
+    <div class="v4-set" id="v4-set"></div>
+  </div>
+
+  <p class="vz-note">Orthonormal is two conditions at once: q&middot;q = 1 for each vector and q&middot;q' = 0
+    for each pair — which is exactly the statement Q&#7488;Q = I. It is worth the effort because in an
+    orthonormal basis a vector's coordinates are just dot products, and the Gram matrix behind the normal
+    equations collapses to the identity, so a projection needs no inverse at all.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:0 0 4px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-sliders{display:flex;gap:8px}
+    .v4-sliders input{flex:1 1 30%}
+    .v4-rows{margin-top:10px;display:flex;flex-direction:column;gap:10px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v4-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-tag{font-size:10px;font-weight:800;letter-spacing:.03em;margin-top:3px;display:block}
+    .v4-sub{font-size:12.5px;font-weight:700;margin:16px 0 8px}
+    .v4-set{display:flex;flex-direction:column;gap:6px}
+    .v4-s{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v4-s.is-unit{border-color:var(--viz-green)}
+    .v4-mk{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var sx = document.getElementById('v4-x'), sy = document.getElementById('v4-y'), sz = document.getElementById('v4-z');
+    var xl = document.getElementById('v4-xl'), yl = document.getElementById('v4-yl'), zl = document.getElementById('v4-zl');
+    var rows = document.getElementById('v4-rows'), why = document.getElementById('v4-why');
+    var modesEl = document.getElementById('v4-modes'), setEl = document.getElementById('v4-set');
+    var NORMS = [2, 5, 10];
+    var MODES = [
+      { lab:'each &divide; its own norm', f:function(m){ return m > 1e-9 ? m / m : 0; } },
+      { lab:'all &divide; the largest', f:function(m, mx){ return mx > 1e-9 ? m / mx : 0; } },
+      { lab:'each &times; its own norm', f:function(m){ return m * m; } }
+    ];
+    var mode = 0;
+
+    function n(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 1000) / 1000;
+      if (Math.abs(r) < 0.0005) r = 0;
+      return String(r);
+    }
+
+    function render(){
+      var v = [Number(sx.value), Number(sy.value), Number(sz.value)];
+      xl.textContent = v[0]; yl.textContent = v[1]; zl.textContent = v[2];
+      var sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+      var nn = Math.sqrt(sq);
+
+      if (!(nn > 1e-9)) {
+        rows.innerHTML = '<div class="v4-b"><h6><span>the zero vector</span><b>length 0</b></h6>' +
+          '<span class="v4-tag" style="color:var(--viz-red)">UNDEFINED &mdash; no direction to keep</span></div>';
+        why.innerHTML = '<b style="color:var(--viz-red)">You cannot normalize the zero vector.</b>' +
+          'Division by its norm is division by zero. This is not a corner case to memorise — it is the same fact as visual 3: a zero vector out of a Gram-Schmidt step means the input was dependent, and there is no unit direction to record.';
+        return;
+      }
+
+      var cand = [
+        { t:'v itself', vec:[v[0], v[1], v[2]], len:nn },
+        { t:'v &divide; ||v||  (correct)', vec:[v[0] / nn, v[1] / nn, v[2] / nn], len:1 },
+        { t:'v &divide; ||v||&#178;  (the classic slip)', vec:[v[0] / sq, v[1] / sq, v[2] / sq], len:nn / sq }
+      ];
+      var mx = Math.max(nn, 1, nn / sq);
+      rows.innerHTML = cand.map(function(c){
+        var unit = Math.abs(c.len - 1) < 1e-6;
+        var col = unit ? 'var(--viz-green)' : 'var(--viz-red)';
+        var w = mx > 1e-9 ? Math.max(2, Math.round(c.len / mx * 100)) : 2;
+        return '<div class="v4-b"><h6><span>' + c.t + '</span><b>(' + n(c.vec[0]) + ', ' + n(c.vec[1]) + ', ' + n(c.vec[2]) + ')</b></h6>' +
+          '<div class="v4-track"><i style="width:' + w + '%;background:' + col + '"></i></div>' +
+          '<span class="v4-tag" style="color:' + col + '">length ' + n(c.len) + (unit ? ' &mdash; UNIT' : ' &mdash; NOT UNIT') + '</span></div>';
+      }).join('');
+
+      why.innerHTML = '<b style="color:var(--viz-accent)">Dividing by the norm gives length 1, always.</b>' +
+        'Scaling by 1/||v|| scales the length by 1/||v||, and ||v||/||v|| = 1 — no matter which vector you slide to. ' +
+        'Right now ||v||&#178; = ' + n(sq) + ' and ||v|| = ' + n(nn) + '; divide by the square and you land on length ' + n(nn / sq) + ' instead. ' +
+        'With v = (1, 2, 2) that is the textbook trap: the square is 9, the norm is 3, and only thirds are right. ' +
+        '<br><br>The direction is untouched either way — every entry is scaled by the same positive number — so both answers <em>look</em> plausible and only the length test separates them.';
+    }
+
+    function renderSet(){
+      [].slice.call(modesEl.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      var mx = Math.max.apply(null, NORMS);
+      var out = NORMS.map(function(m, i){
+        var len = MODES[mode].f(m, mx);
+        if (!isFinite(len)) len = 0;
+        var unit = Math.abs(len - 1) < 1e-6;
+        return '<div class="v4-s ' + (unit ? 'is-unit' : '') + '"><span>v' + (i + 1) + ' &middot; norm ' + m + '</span>' +
+          '<span>&rarr; length ' + n(len) + '</span>' +
+          '<span class="v4-mk" style="color:' + (unit ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (unit ? 'UNIT' : 'NOT UNIT') + '</span></div>';
+      }).join('');
+      var allUnit = mode === 0;
+      setEl.innerHTML = out + '<div style="font-size:12.5px;line-height:1.6;margin-top:8px">' +
+        (allUnit
+          ? '<b style="color:var(--viz-green)">Orthonormal.</b> Every vector divided by <em>its own</em> norm, so every length is 1 and the right angles were never disturbed — scaling a vector cannot change an angle.'
+          : mode === 1
+            ? '<b style="color:var(--viz-red)">Not orthonormal.</b> One shared divisor only makes the <em>largest</em> vector a unit vector; the others land at 0.2 and 0.5. Still orthogonal, still not orthonormal.'
+            : '<b style="color:var(--viz-red)">Backwards.</b> Multiplying by the norm makes long vectors longer — 2, 5 and 10 become 4, 25 and 100. The operation you want is division.') +
+        '</div>';
+    }
+
+    MODES.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = m.lab;
+      b.addEventListener('click', function(){ mode = i; renderSet(); });
+      modesEl.appendChild(b);
+    });
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    sz.addEventListener('input', render);
+    render();
+    renderSet();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Where R Comes From</h2>
+  <p class="vz-lede">Run Gram-Schmidt on the columns of A and write down every number you used: the unit
+    directions become Q, the coefficients become R. Pick a matrix, then stretch its second column and watch
+    which factor absorbs the change. <b>Like a receipt: Q is what you bought, R is what you paid.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the columns of A" id="v5-presets"></div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-scale">Stretch the second column: a2 &rarr; c&middot;a2 with c =
+      <span id="v5-cl">1</span></label>
+    <input type="range" id="v5-scale" min="0.5" max="3" value="1" step="0.25" aria-label="Scale factor on the second column">
+    <div class="v5-steps" id="v5-steps"></div>
+    <div class="v5-mats" id="v5-mats"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two facts that catch people out. The factorization is only <b>unique</b> once you insist
+    every diagonal entry of R is positive — otherwise you may negate any column of Q and the matching column
+    of R and get an equally valid answer. And for a tall A with more rows than columns, the reduced Q
+    satisfies Q&#7488;Q = I (columns are orthonormal) but <b>not</b> QQ&#7488; = I: that product is the
+    projection matrix onto the column space, which is precisely the least-squares machinery from the
+    previous lesson wearing a cheaper, more stable coat.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:0 0 4px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-steps{margin-top:10px;display:flex;flex-direction:column;gap:5px}
+    .v5-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v5-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v5-mats{display:flex;gap:12px;flex-wrap:wrap;margin-top:13px}
+    .v5-m h6{margin:0 0 4px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);font-weight:800}
+    .v5-g{display:grid;gap:2px 10px;border-left:2px solid var(--viz-line);border-right:2px solid var(--viz-line);
+      border-radius:3px;padding:5px 8px;background:var(--viz-bg)}
+    .v5-g span{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:right}
+    .v5-g span.is-zero{color:var(--viz-muted)}
+    .v5-g span.is-diag{color:var(--viz-accent);font-weight:700}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PRESETS = [
+      { lab:'clean thirds', a1:[1, 2, 2], a2:[3, 0, 3] },
+      { lab:'two edges', a1:[1, 1, 0], a2:[1, 0, 1] },
+      { lab:'a diagonal', a1:[1, 0, 1], a2:[2, 1, 3] },
+      { lab:'a2 = 2&middot;a1', a1:[1, 2, 2], a2:[2, 4, 4] }
+    ];
+    var cur = 0;
+    var host = document.getElementById('v5-presets');
+    var sc = document.getElementById('v5-scale'), cl = document.getElementById('v5-cl');
+    var steps = document.getElementById('v5-steps'), mats = document.getElementById('v5-mats'), why = document.getElementById('v5-why');
+
+    function n(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 1000) / 1000;
+      if (Math.abs(r) < 0.0005) r = 0;
+      return String(r);
+    }
+    function vec(v){ return '(' + n(v[0]) + ', ' + n(v[1]) + ', ' + n(v[2]) + ')'; }
+    function dot(a, b){ return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+    function norm(a){ return Math.sqrt(Math.max(0, dot(a, a))); }
+
+    function render(){
+      var p = PRESETS[cur];
+      var c = Number(sc.value);
+      cl.textContent = n(c);
+      [].slice.call(host.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var a1 = p.a1, a2 = [p.a2[0] * c, p.a2[1] * c, p.a2[2] * c];
+      var r11 = norm(a1);
+      var q1 = r11 > 1e-9 ? [a1[0] / r11, a1[1] / r11, a1[2] / r11] : [0, 0, 0];
+      var r12 = dot(q1, a2);
+      var v2 = [a2[0] - r12 * q1[0], a2[1] - r12 * q1[1], a2[2] - r12 * q1[2]];
+      var r22 = norm(v2);
+      var dep = !(r22 > 1e-9);
+      var q2 = dep ? null : [v2[0] / r22, v2[1] / r22, v2[2] / r22];
+
+      steps.innerHTML =
+        '<div class="v5-r"><span>a1</span><b>' + vec(a1) + '</b></div>' +
+        '<div class="v5-r"><span>r11 = ||a1||</span><b style="color:var(--viz-accent)">' + n(r11) + '</b></div>' +
+        '<div class="v5-r"><span>q1 = a1 / r11</span><b style="color:var(--viz-accent)">' + vec(q1) + '</b></div>' +
+        '<div class="v5-r"><span>a2 (after the stretch)</span><b>' + vec(a2) + '</b></div>' +
+        '<div class="v5-r"><span>r12 = q1&#7488;a2</span><b style="color:var(--viz-amber)">' + n(r12) + '</b></div>' +
+        '<div class="v5-r"><span>v2 = a2 &minus; r12&middot;q1</span><b>' + vec(v2) + '</b></div>' +
+        '<div class="v5-r"><span>r22 = ||v2||</span><b style="color:var(--viz-accent)">' + n(r22) + '</b></div>' +
+        '<div class="v5-r"><span>q2 = v2 / r22</span><b style="color:' + (dep ? 'var(--viz-red)' : 'var(--viz-accent)') + '">' +
+          (dep ? 'undefined &mdash; v2 is zero' : vec(q2)) + '</b></div>';
+
+      var qq11 = dot(q1, q1), qq12 = dep ? 0 : dot(q1, q2), qq22 = dep ? 0 : dot(q2, q2);
+      mats.innerHTML =
+        '<div class="v5-m"><h6>Q (3&times;2)</h6><div class="v5-g" style="grid-template-columns:repeat(2,minmax(42px,1fr))">' +
+          [0, 1, 2].map(function(i){
+            return '<span>' + n(q1[i]) + '</span><span>' + (dep ? '—' : n(q2[i])) + '</span>';
+          }).join('') + '</div></div>' +
+        '<div class="v5-m"><h6>R (2&times;2)</h6><div class="v5-g" style="grid-template-columns:repeat(2,minmax(42px,1fr))">' +
+          '<span class="is-diag">' + n(r11) + '</span><span>' + n(r12) + '</span>' +
+          '<span class="is-zero">0</span><span class="is-diag">' + n(r22) + '</span></div></div>' +
+        '<div class="v5-m"><h6>Q&#7488;Q</h6><div class="v5-g" style="grid-template-columns:repeat(2,minmax(42px,1fr))">' +
+          '<span>' + n(qq11) + '</span><span>' + n(qq12) + '</span>' +
+          '<span>' + n(qq12) + '</span><span>' + (dep ? '—' : n(qq22)) + '</span></div></div>';
+
+      var re = dep ? null : [
+        r12 * q1[0] + r22 * q2[0], r12 * q1[1] + r22 * q2[1], r12 * q1[2] + r22 * q2[2]
+      ];
+      var ok = re && Math.abs(re[0] - a2[0]) < 1e-6 && Math.abs(re[1] - a2[1]) < 1e-6 && Math.abs(re[2] - a2[2]) < 1e-6;
+
+      why.innerHTML = dep
+        ? '<b style="color:var(--viz-red)">RANK DEFICIENT &mdash; v2 came out as the zero vector.</b>' +
+          'a2 lies entirely in the span of a1, so subtracting its shadow leaves nothing and r22 = 0. There is no second orthonormal direction to record, and R has a zero on its diagonal, so it cannot be inverted. ' +
+          'The algorithm did not fail — it <em>reported</em> that the columns are linearly dependent. ' +
+          '<br><br>Note that r12 = ' + n(r12) + ' is still perfectly well defined; it is only the leftover that vanished.'
+        : '<b style="color:var(--viz-accent)">R is upper triangular because a<sub>k</sub> only ever uses q<sub>1</sub>&hellip;q<sub>k</sub>.</b>' +
+          'a1 was built from q1 alone, so the entry below the diagonal is a structural 0, not a coincidence — every r<sub>jk</sub> with j &gt; k must vanish. ' +
+          'Reading a column of R downwards reconstructs a column of A: a2 = ' + n(r12) + '&middot;q1 + ' + n(r22) + '&middot;q2 = ' + vec(re) +
+          ', which ' + (ok ? 'matches a2 exactly' : 'should match a2') + '. ' +
+          '<br><br><b style="display:inline;font-size:12.5px">Watch the stretch.</b> With c = ' + n(c) + ', q1 and q2 are unchanged — the <em>directions</em> of the columns did not move — while r12 and r22 both scaled by c. Magnitude lands in R, direction lands in Q. ' +
+          '<br><br>And because Q&#7488;Q = I (the third grid above), multiplying A = QR on the left by Q&#7488; gives <b>R = Q&#7488;A</b> — you never have to invert anything to recover R.';
+    }
+    PRESETS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = p.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      host.appendChild(b);
+    });
+    sc.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

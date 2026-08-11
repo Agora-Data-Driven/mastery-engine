@@ -1,0 +1,872 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the little table.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 6px;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-surface)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-tab-tbl{width:100%;border-collapse:collapse;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+.vz-tab-tbl th{text-align:right;font-weight:800;color:var(--viz-muted);padding:3px 5px;font-size:10px;
+  letter-spacing:.03em;text-transform:uppercase;border-bottom:1px solid var(--viz-line)}
+.vz-tab-tbl td{text-align:right;padding:3px 5px;border-bottom:1px solid var(--viz-line)}
+.vz-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block;margin:3px 4px 0 0}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Value Versus Approach</button>
+  <button class="viz-tab" data-viz-tab="2">2. Clearing 0/0</button>
+  <button class="viz-tab" data-viz-tab="3">3. Squeeze The Oscillation</button>
+  <button class="viz-tab" data-viz-tab="4">4. Small Angle Ratios</button>
+  <button class="viz-tab" data-viz-tab="5">5. Breaks And Skipped Values</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Value Versus Approach</h2>
+  <p class="vz-lede">Everything you already do — substitute the number, get the answer — asks <em>what is f AT
+    the point</em>. A limit asks <em>what is f heading TOWARD</em>. Pick a function, then shrink the distance h
+    and watch the two columns close in (or refuse to). <b>Like a train's destination board versus the platform
+    it is standing on: usually the same place, and the interesting cases are when they are not.</b></p>
+
+  <div class="vz-seg" id="v1-cases" role="group" aria-label="Function near x = 2">
+    <button aria-pressed="true">x^2+3x-1</button>
+    <button aria-pressed="false">(x^2-4)/(x-2)</button>
+    <button aria-pressed="false">hole, f(2)=10</button>
+    <button aria-pressed="false">4+|x-2|/(x-2)</button>
+    <button aria-pressed="false">sin(pi/(x-2))</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-h">Approach distance h = <span id="v1-hl">0.5</span> &nbsp;·&nbsp; sampling x = 2 &minus; h and x = 2 + h</label>
+    <input type="range" id="v1-h" min="0" max="7" value="0" step="1" aria-label="Approach distance h">
+    <div id="v1-table" style="margin-top:10px"></div>
+    <div id="v1-probe" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The limit reads the neighbourhood; <b>f(2) is one isolated fact it never consults</b> — which
+    is why a limit can exist where the function is undefined, and can disagree with a value that is defined. The
+    reverse reading is the definition of continuity, and it is the exception rather than the rule from here on.</p>
+
+  <style>
+    .v1-flag{font-size:11px;font-weight:800;letter-spacing:.03em;font-family:ui-monospace,Consolas,monospace}
+    .v1-val{font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:700}
+    .v1-probe{border:1.5px dashed var(--viz-line);border-radius:9px;padding:9px 10px;font-size:11.5px;
+      font-family:ui-monospace,Consolas,monospace;line-height:1.55}
+  </style>
+  <script>
+  (function(){
+    var HS = [0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.001];
+    // Every 1/h here is a whole number on purpose: it is exactly the "round number"
+    // grid a learner would type into a table, and it is what the last case exploits.
+    var CASES = [
+      { f: function(x){ return x*x + 3*x - 1; },
+        at: 'f(2) = 9',
+        why: 'Substitution and the limit agree, and that agreement IS continuity. A polynomial is continuous everywhere, which is the theorem that licenses direct substitution — not a rule of thumb.' },
+      { f: function(x){ return x === 2 ? NaN : (x*x - 4) / (x - 2); },
+        at: 'f(2) is undefined',
+        why: 'Both columns march to 4 while the function has no value at 2 at all. <b>f(c) need not be defined for the limit to exist.</b> The expression equals x + 2 everywhere except at the single point the limit refuses to look at.' },
+      { f: function(x){ return x === 2 ? 10 : (x*x - 4) / (x - 2); },
+        at: 'f(2) = 10',
+        why: 'Same limit, 4 — and now the function IS defined at 2, with the wrong value. A table showing f approaching 4 from both sides pins the limit at 4 no matter what f(2) says. This is a <b>removable discontinuity</b>: the limit exists, the value is missing or wrong.' },
+      { f: function(x){ return x === 2 ? NaN : 4 + Math.abs(x - 2) / (x - 2); },
+        at: 'f(2) is undefined',
+        why: 'The left column sits at 3 and the right at 5, and shrinking h never closes the gap. The two-sided limit <b>does not exist</b> — not 3, not 5, and never the average 4. Both one-sided limits exist perfectly well; they simply disagree, which is a <b>jump</b>.' },
+      { f: function(x){ return x === 2 ? NaN : Math.sin(Math.PI / (x - 2)); },
+        at: 'f(2) is undefined',
+        why: 'Every round-number probe returns exactly 0, because pi/h is a whole multiple of pi at each one. The table looks like it is settling on 0 and it is lying: the off-grid probe below, the SAME distance from 2, returns 1. <b>Rapid oscillation is the failure mode that makes a table of values untrustworthy.</b>' }
+    ];
+
+    var cur = 0;
+    var segEl = document.getElementById('v1-cases');
+    var slider = document.getElementById('v1-h');
+    var hLab = document.getElementById('v1-hl');
+    var tableEl = document.getElementById('v1-table');
+    var probeEl = document.getElementById('v1-probe');
+    var whyEl = document.getElementById('v1-why');
+
+    function fmt(v){
+      if (v === null || v === undefined || !isFinite(v)) return 'undefined';
+      if (Math.abs(v) < 5e-5) v = 0;              // -1.2e-13 should read as 0, not "-0.0000"
+      return v.toFixed(4);
+    }
+    // A point the same distance from 2 that the round-number grid never lands on.
+    // 1/(x-2) is a half-odd multiple there, so sin(pi/(x-2)) is exactly 1.
+    function offGrid(h){
+      var n = Math.max(0, Math.round((2 / h - 1) / 4));
+      return 2 / (4 * n + 1);
+    }
+
+    function render(){
+      var idx = Number(slider.value);
+      var h = HS[idx];
+      var f = CASES[cur].f;
+      hLab.textContent = String(h);
+
+      var rows = '';
+      for (var i = 0; i <= idx; i++) {
+        var hh = HS[i];
+        rows += '<tr><td>' + hh + '</td><td>' + fmt(f(2 - hh)) + '</td><td>' + fmt(f(2 + hh)) + '</td></tr>';
+      }
+      tableEl.innerHTML = '<table class="vz-tab-tbl"><tr><th>h</th><th>f(2 &minus; h)</th><th>f(2 + h)</th></tr>' +
+        rows + '</table>';
+
+      var d = offGrid(h);
+      var probe = f(2 + d);
+      var left = f(2 - h), right = f(2 + h);
+      var gapNow = (isFinite(left) && isFinite(right)) ? Math.abs(right - left) : Infinity;
+      var fine = (isFinite(f(2 + h / 10)) && isFinite(f(2 - h / 10)))
+        ? Math.abs(f(2 + h / 10) - f(2 - h / 10)) : Infinity;
+      // The probe tolerance scales with the gap on purpose: at a coarse h a smooth
+      // function legitimately differs a lot across the window, and only a mismatch
+      // far larger than that window means "these values are not settling at all".
+      var tol = Math.max(0.05 * Math.abs(right), 0.6 * (isFinite(gapNow) ? gapNow : 0), 0.02);
+      var wobbles = isFinite(probe) && isFinite(right) && Math.abs(probe - right) > tol;
+
+      probeEl.innerHTML = '<div class="v1-probe"><b>off-grid probe</b> &nbsp; x = 2 + ' + d.toFixed(6) +
+        ' &nbsp;(distance ' + d.toFixed(4) + ', essentially the same h)<br>f(x) = <span class="v1-val">' +
+        fmt(probe) + '</span> &nbsp; ' +
+        (wobbles
+          ? '<span class="v1-flag" style="color:var(--viz-red)">&#9888; DISAGREES with the table &mdash; nothing is settling</span>'
+          : '<span class="v1-flag" style="color:var(--viz-green)">&#10003; agrees with the table</span>') +
+        '</div>';
+
+      var verdict, tone;
+      if (!isFinite(left) || !isFinite(right)) {
+        verdict = 'A sample landed exactly on the undefined point.'; tone = 'var(--viz-amber)';
+      } else if (wobbles) {
+        verdict = 'Two points the same distance from 2 give ' + fmt(right) + ' and ' + fmt(probe) +
+          '. The limit does NOT exist.'; tone = 'var(--viz-red)';
+      } else if (gapNow > 1e-6 && fine > gapNow * 0.5) {
+        verdict = 'left &rarr; ' + fmt(left) + ' , right &rarr; ' + fmt(right) +
+          ' : the gap of ' + gapNow.toFixed(4) + ' is not closing. The two-sided limit does NOT exist.';
+        tone = 'var(--viz-red)';
+      } else {
+        verdict = 'Both sides are closing on L &asymp; ' + fmt((left + right) / 2) +
+          ' , and ' + CASES[cur].at + '.'; tone = 'var(--viz-green)';
+      }
+
+      whyEl.innerHTML = '<b style="color:' + tone + '">' + verdict + '</b>' + CASES[cur].why;
+    }
+
+    [].slice.call(segEl.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(segEl.children).forEach(function(o, j){ o.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Clearing 0/0</h2>
+  <p class="vz-lede">Substitution answers first. A number means you are done; 0/0 means the algebra is unfinished.
+    Watch the raw quotient and the rewritten one produce <em>the same numbers</em> everywhere except at the point
+    itself — which is the whole justification for cancelling. <b>Like cancelling a common factor in a fraction: it
+    is the same fraction, just written so you can read it.</b></p>
+
+  <div class="vz-seg" id="v2-cases" role="group" aria-label="Limit to evaluate">
+    <button aria-pressed="true">x^2+3x-1 &rarr;2</button>
+    <button aria-pressed="false">(x^2-9)/(x-3)</button>
+    <button aria-pressed="false">(x^2+x-6)/(x-2)</button>
+    <button aria-pressed="false">(x^3-1)/(x-1)</button>
+    <button aria-pressed="false">(sqrt(x)-2)/(x-4)</button>
+    <button aria-pressed="false">(sqrt(x+9)-3)/x</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-work vz-mono" id="v2-work"></div>
+    <label class="vz-lab" for="v2-h" style="margin-top:12px">Evaluate at x = a + h, with h = <span id="v2-hl">1</span></label>
+    <input type="range" id="v2-h" min="0" max="5" value="0" step="1" aria-label="Distance from the point">
+    <div id="v2-table" style="margin-top:8px"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v2-c">Side experiment: lim (x^2 &minus; c)/(x &minus; 3) as x&rarr;3, with c = <span id="v2-cl">9</span></label>
+    <input type="range" id="v2-c" min="0" max="18" value="9" step="1" aria-label="The constant c">
+    <div id="v2-cout" class="vz-mono" style="margin-top:8px"></div>
+  </div>
+  <p class="vz-note">A conjugate is not a separate theorem — it is <b>(a&minus;b)(a+b) = a^2 &minus; b^2</b> used to turn a
+    radical into a polynomial so the offending factor can cancel. Reach for it when the 0/0 contains a root, and for
+    factoring when it does not. Either way the goal is identical: get the vanishing factor out of the denominator.</p>
+
+  <style>
+    .v2-work{background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:9px;padding:10px 11px;
+      white-space:pre-wrap;overflow-x:auto}
+    .v2-eq{color:var(--viz-accent);font-weight:700}
+  </style>
+  <script>
+  (function(){
+    var HS = [1, 0.5, 0.2, 0.1, 0.01, 0.001];
+    var CASES = [
+      { a: 2, exact: 9, exactText: '9',
+        raw: function(x){ return x*x + 3*x - 1; },
+        simp: function(x){ return x*x + 3*x - 1; },
+        work: ['substitute x = 2:  (2)^2 + 3(2) - 1 = 9',
+               'no indeterminate form at all - a polynomial is',
+               'continuous everywhere, so substitution IS the theorem'],
+        why: 'Nothing to fix. Direct substitution is legal exactly when the function is continuous at the point, and a polynomial always is. Notice both columns are identical all the way down, including at h = 0.' },
+      { a: 3, exact: 6, exactText: '6',
+        raw: function(x){ return (x*x - 9) / (x - 3); },
+        simp: function(x){ return x + 3; },
+        work: ['substitute x = 3:  (9 - 9)/(3 - 3) = 0/0',
+               'factor:            (x-3)(x+3)/(x-3)',
+               'cancel:            x + 3   ->   3 + 3 = 6'],
+        why: 'The factored form differs from the original at exactly one point - x = 3, where one is undefined and the other is 6. A limit never looks at that point, so the swap is free.' },
+      { a: 2, exact: 5, exactText: '5',
+        raw: function(x){ return (x*x + x - 6) / (x - 2); },
+        simp: function(x){ return x + 3; },
+        work: ['substitute x = 2:  (4 + 2 - 6)/(2 - 2) = 0/0',
+               'factor:            (x+3)(x-2)/(x-2)',
+               'cancel:            x + 3   ->   2 + 3 = 5'],
+        why: 'The 0/0 was the signal that (x - 2) divides the numerator too. Factoring is how you find out; the quadratic factors as (x+3)(x-2) and the trouble cancels.' },
+      { a: 1, exact: 3, exactText: '3',
+        raw: function(x){ return (x*x*x - 1) / (x - 1); },
+        simp: function(x){ return x*x + x + 1; },
+        work: ['substitute x = 1:  (1 - 1)/(1 - 1) = 0/0',
+               'factor:            (x-1)(x^2+x+1)/(x-1)',
+               'cancel:            x^2 + x + 1  ->  1+1+1 = 3'],
+        why: 'Same move one degree up. The difference of cubes leaves a quadratic, and substitution into THAT is legal because it is a polynomial. The answer is 3, not 1 - the cancelled factor left something behind.' },
+      { a: 4, exact: 0.25, exactText: '1/4',
+        raw: function(x){ return (Math.sqrt(x) - 2) / (x - 4); },
+        simp: function(x){ return 1 / (Math.sqrt(x) + 2); },
+        work: ['substitute x = 4:  (2 - 2)/(4 - 4) = 0/0',
+               'multiply by (sqrt(x)+2)/(sqrt(x)+2):',
+               '                   (x - 4) / ((x-4)(sqrt(x)+2))',
+               'cancel:            1/(sqrt(x)+2)  ->  1/4'],
+        why: 'The conjugate manufactures a difference of squares in the numerator: (sqrt(x)-2)(sqrt(x)+2) = x - 4. That is the whole trick - the radical becomes a polynomial that cancels the denominator.' },
+      { a: 0, exact: 1 / 6, exactText: '1/6',
+        raw: function(x){ return (Math.sqrt(x + 9) - 3) / x; },
+        simp: function(x){ return 1 / (Math.sqrt(x + 9) + 3); },
+        work: ['substitute x = 0:  (3 - 3)/0 = 0/0',
+               'multiply by (sqrt(x+9)+3)/(sqrt(x+9)+3):',
+               '                   x / (x(sqrt(x+9)+3))',
+               'cancel:            1/(sqrt(x+9)+3)  ->  1/6'],
+        why: 'Identical mechanism, and the answer is 1/6 rather than 1/3 because the surviving denominator is sqrt(9) + 3 = 6, not 3. Conjugating the numerator, not the denominator, is what puts the cancelling factor where you need it.' }
+    ];
+
+    var cur = 0;
+    var segEl = document.getElementById('v2-cases');
+    var slider = document.getElementById('v2-h');
+    var hLab = document.getElementById('v2-hl');
+    var workEl = document.getElementById('v2-work');
+    var tableEl = document.getElementById('v2-table');
+    var whyEl = document.getElementById('v2-why');
+    var cSlider = document.getElementById('v2-c');
+    var cLab = document.getElementById('v2-cl');
+    var cOut = document.getElementById('v2-cout');
+
+    function fmt(v){
+      if (v === null || v === undefined || !isFinite(v)) return '&mdash;';
+      if (Math.abs(v) < 5e-9) v = 0;
+      return v.toFixed(6);
+    }
+
+    function render(){
+      var c = CASES[cur];
+      var idx = Number(slider.value);
+      var h = HS[idx];
+      hLab.textContent = String(h);
+      workEl.textContent = c.work.join('\n');
+
+      var rows = '';
+      for (var i = 0; i <= idx; i++) {
+        var x = c.a + HS[i];
+        rows += '<tr><td>' + HS[i] + '</td><td>' + fmt(c.raw(x)) + '</td><td>' + fmt(c.simp(x)) + '</td></tr>';
+      }
+      var rawAt = c.raw(c.a);
+      rows += '<tr><td><b>0</b></td><td style="color:var(--viz-red)"><b>' +
+        (isFinite(rawAt) ? fmt(rawAt) : '0 / 0') + '</b></td><td style="color:var(--viz-green)"><b>' +
+        fmt(c.simp(c.a)) + '</b></td></tr>';
+      tableEl.innerHTML = '<table class="vz-tab-tbl"><tr><th>h</th><th>raw quotient</th><th>after the algebra</th></tr>' +
+        rows + '</table>';
+
+      var err = Math.abs(c.raw(c.a + h) - c.exact);
+      whyEl.innerHTML = '<b>At h = ' + h + ' the raw quotient is off the true limit ' + c.exactText +
+        ' by ' + (isFinite(err) ? err.toExponential(2) : '&mdash;') + '.</b>' +
+        '<span style="color:var(--viz-muted)">The two columns agree at every h except the last row, where one is 0/0 and the other is the answer.</span><br><br>' +
+        c.why;
+    }
+
+    function renderC(){
+      var cv = Number(cSlider.value);
+      cLab.textContent = String(cv);
+      var g = function(x){ return (x*x - cv) / (x - 3); };
+      var v1 = g(3.01), v2 = g(3.001), v3 = g(3.0001);
+      var finite = Math.abs(v3) < 1e3;
+      cOut.innerHTML =
+        'numerator at x = 3 is 9 &minus; c = <b>' + (9 - cv) + '</b><br>' +
+        'x = 3.01&nbsp;&nbsp;&rarr; ' + v1.toFixed(3) + '<br>' +
+        'x = 3.001&nbsp;&rarr; ' + v2.toFixed(3) + '<br>' +
+        'x = 3.0001 &rarr; ' + v3.toFixed(3) + '<br><br>' +
+        (finite
+          ? '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">FINITE &mdash; settles on 6</span> ' +
+            'With c = 9 the numerator vanishes at the same place the denominator does, so the 0/0 factors into x + 3 and the limit is 6.'
+          : '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">BLOWS UP</span> ' +
+            'The numerator is ' + (9 - cv) + ' at x = 3, not 0. A nonzero number over a vanishing denominator grows without bound &mdash; each extra decimal multiplies it by 10. ' +
+            '<b>A finite limit forces the numerator to vanish too, so c = 9 is the only value that works.</b>');
+    }
+
+    [].slice.call(segEl.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(segEl.children).forEach(function(o, j){ o.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    slider.addEventListener('input', render);
+    cSlider.addEventListener('input', renderC);
+    render();
+    renderC();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Squeeze The Oscillation</h2>
+  <p class="vz-lede">Some functions have no limit worth computing directly, and are trapped between two that do.
+    Drag the zoom and watch the band between the bounds pinch shut — the function inside has nowhere left to go.
+    <b>Like two lift doors closing on someone: you never watch them, but you know exactly where they end up.</b></p>
+
+  <div class="vz-seg" id="v3-cases" role="group" aria-label="Function to squeeze">
+    <button aria-pressed="true">x&middot;sin(1/x)</button>
+    <button aria-pressed="false">x^2&middot;sin(1/x)</button>
+    <button aria-pressed="false">sin(1/x)</button>
+    <button aria-pressed="false">sin(x)/x, x&rarr;inf</button>
+  </div>
+
+  <div class="vz-card">
+    <div id="v3-plot"></div>
+    <div id="v3-legend" style="margin-top:6px"></div>
+    <label class="vz-lab" for="v3-zoom" style="margin-top:12px">Window: <span id="v3-zl"></span></label>
+    <input type="range" id="v3-zoom" min="0" max="8" value="0" step="1" aria-label="Zoom toward the limit point">
+    <div id="v3-nums" style="margin-top:8px"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">What f must supply is small: <b>defined on an open interval around the point</b>. Not
+    differentiable, not monotonic, not positive — none of that is asked for, and none of it would help. What the
+    theorem needs is the pair of bounds, and it needs them to share one limit. Everything else is bookkeeping.</p>
+
+  <style>
+    .v3-svg{width:100%;height:auto;display:block;border:1px solid var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v3-key{font-size:11px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;line-height:1.7}
+    .v3-key i{display:inline-block;width:22px;height:0;border-top-width:2.5px;vertical-align:middle;margin-right:5px}
+    .v3-row{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--viz-line)}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 165;
+    var CASES = [
+      { key: 'x*sin(1/x)', target: '0',
+        xr: function(w){ return [-w, w]; },
+        yr: function(w){ return [-1.15 * w, 1.15 * w]; },
+        f:  function(x){ return x === 0 ? NaN : x * Math.sin(1 / x); },
+        up: function(x){ return Math.abs(x); },
+        lo: function(x){ return -Math.abs(x); },
+        upT: '|x|', loT: '-|x|', limit: 0, squeezed: true,
+        why: 'sin(1/x) never leaves [-1, 1] however violently it swings, so multiplying by x confines the whole product between -|x| and |x|. Both bounds run to 0, so the product is forced to 0 - and notice the theorem never once evaluated sin(1/x) at a point.' },
+      { key: 'x^2*sin(1/x)', target: '0',
+        xr: function(w){ return [-w, w]; },
+        yr: function(w){ return [-1.15 * w * w, 1.15 * w * w]; },
+        f:  function(x){ return x === 0 ? NaN : x * x * Math.sin(1 / x); },
+        up: function(x){ return x * x; },
+        lo: function(x){ return -x * x; },
+        upT: 'x^2', loT: '-x^2', limit: 0, squeezed: true,
+        why: 'The bounding pair has to match the vanishing factor: for x^2&middot;sin(1/x) it is the quadratics -x^2 and x^2. The constants -1 and 1 are true bounds on sin(1/x) alone but they do NOT share a limit, and the lines -x and x are not bounds at all near 0.' },
+      { key: 'sin(1/x)', target: '0',
+        xr: function(w){ return [-w, w]; },
+        yr: function(){ return [-1.2, 1.2]; },
+        f:  function(x){ return x === 0 ? NaN : Math.sin(1 / x); },
+        up: function(){ return 1; },
+        lo: function(){ return -1; },
+        upT: '1', loT: '-1', limit: null, squeezed: false,
+        why: 'The bounds are correct and the theorem still says nothing, because -1 and 1 do not converge to a common value. The band never narrows; the function keeps using all of it. <b>The shared limit of the bounds is the entire hypothesis</b>, and this limit genuinely does not exist.' },
+      { key: 'sin(x)/x', target: 'infinity',
+        xr: function(w){ return [1, 5 / w]; },
+        yr: function(){ return [-1.2, 1.2]; },
+        f:  function(x){ return x === 0 ? NaN : Math.sin(x) / x; },
+        up: function(x){ return 1 / x; },
+        lo: function(x){ return -1 / x; },
+        upT: '1/x', loT: '-1/x', limit: 0, squeezed: true,
+        why: 'The same move works at infinity. For x &gt; 0 the bounds -1/x and 1/x both fall to 0, so sin(x)/x is dragged to 0 with them - even though sin(x) itself keeps oscillating forever and has no limit of its own.' }
+    ];
+
+    var cur = 0;
+    var segEl = document.getElementById('v3-cases');
+    var zoom = document.getElementById('v3-zoom');
+    var zLab = document.getElementById('v3-zl');
+    var plot = document.getElementById('v3-plot');
+    var legend = document.getElementById('v3-legend');
+    var nums = document.getElementById('v3-nums');
+    var whyEl = document.getElementById('v3-why');
+
+    function pathOf(fn, x0, x1, y0, y1, n){
+      if (!(x1 > x0) || !(y1 > y0)) return '';
+      var d = '', pen = false;
+      for (var i = 0; i <= n; i++) {
+        var x = x0 + (x1 - x0) * i / n;
+        var y = fn(x);
+        if (!isFinite(y) || y < y0 || y > y1) { pen = false; continue; }
+        var px = (x - x0) / (x1 - x0) * W;
+        var py = H - (y - y0) / (y1 - y0) * H;
+        d += (pen ? 'L' : 'M') + px.toFixed(2) + ' ' + py.toFixed(2) + ' ';
+        pen = true;
+      }
+      return d;
+    }
+    function fmt(v){
+      if (!isFinite(v)) return '&mdash;';
+      if (Math.abs(v) < 5e-7) v = 0;
+      return (Math.abs(v) < 0.001 && v !== 0) ? v.toExponential(3) : v.toFixed(6);
+    }
+
+    function render(){
+      var c = CASES[cur];
+      var t = Number(zoom.value);
+      var w = Math.pow(2, -t);
+      var xr = c.xr(w), yr = c.yr(w);
+      var zeroY = H - (0 - yr[0]) / (yr[1] - yr[0]) * H;
+
+      zLab.textContent = (cur === 3)
+        ? ('x from 1 to ' + (5 / w).toFixed(0))
+        : ('x within ' + w.toFixed(5) + ' of 0');
+
+      plot.innerHTML = '<svg class="v3-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" ' +
+        'aria-label="the function trapped between its two bounds">' +
+        '<line x1="0" y1="' + zeroY.toFixed(1) + '" x2="' + W + '" y2="' + zeroY.toFixed(1) +
+          '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<path d="' + pathOf(c.up, xr[0], xr[1], yr[0], yr[1], 700) + '" fill="none" stroke="var(--viz-violet)" stroke-width="2" stroke-dasharray="5 3"/>' +
+        '<path d="' + pathOf(c.lo, xr[0], xr[1], yr[0], yr[1], 700) + '" fill="none" stroke="var(--viz-violet)" stroke-width="2" stroke-dasharray="5 3"/>' +
+        '<path d="' + pathOf(c.f,  xr[0], xr[1], yr[0], yr[1], 2400) + '" fill="none" stroke="var(--viz-accent)" stroke-width="1.4"/>' +
+        '</svg>';
+
+      legend.innerHTML = '<div class="v3-key">' +
+        '<i style="border-top-style:dashed;border-top-color:var(--viz-violet)"></i>bounds ' + c.loT + ' and ' + c.upT +
+        ' &nbsp;&nbsp;<i style="border-top-style:solid;border-top-color:var(--viz-accent)"></i>f(x) = ' + c.key + '</div>';
+
+      var probe = (cur === 3) ? (5 / w) : w;
+      var lo = c.lo(probe), up = c.up(probe), fv = c.f(probe);
+      var gap = up - lo;
+      var trapped = isFinite(fv) && fv >= lo - 1e-12 && fv <= up + 1e-12;
+
+      nums.innerHTML =
+        '<div class="v3-row"><span>upper bound ' + c.upT + '</span><span>' + fmt(up) + '</span></div>' +
+        '<div class="v3-row"><span>f(x) at x = ' + (probe > 1 ? probe.toFixed(0) : probe.toFixed(5)) + '</span><span>' + fmt(fv) + '</span></div>' +
+        '<div class="v3-row"><span>lower bound ' + c.loT + '</span><span>' + fmt(lo) + '</span></div>' +
+        '<div class="v3-row"><span><b>width of the band</b></span><span><b>' + fmt(gap) + '</b></span></div>' +
+        '<div style="margin-top:7px">' +
+        '<span class="vz-pill" style="color:' + (trapped ? 'var(--viz-green)' : 'var(--viz-amber)') + ';border-color:' +
+          (trapped ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' + (trapped ? 'f IS INSIDE THE BAND' : 'sample outside the band') + '</span>' +
+        '<span class="vz-pill" style="color:' + (c.squeezed ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+          (c.squeezed ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (c.squeezed ? 'BOUNDS SHARE A LIMIT: ' + c.limit : 'BOUNDS DO NOT SHARE A LIMIT') + '</span></div>';
+
+      whyEl.innerHTML = '<b style="color:' + (c.squeezed ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        (c.squeezed
+          ? 'The band is now ' + fmt(gap) + ' wide, so f is pinned to ' + c.limit + ' whether you can evaluate it or not.'
+          : 'The band stays ' + fmt(gap) + ' wide no matter how far you zoom.') + '</b>' + c.why;
+    }
+
+    [].slice.call(segEl.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(segEl.children).forEach(function(o, j){ o.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    zoom.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Small Angle Ratios</h2>
+  <p class="vz-lede">One squeeze — cos(x) &lt; sin(x)/x &lt; 1 — gives sin(x)/x &rarr; 1, and every other elementary
+    trigonometric limit is that fact plus bookkeeping. Change k and m and watch the answer track the ratio of the
+    arguments. <b>Like a gear train: a small angle and its sine turn at the same rate, so only the gear ratios
+    survive.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="vz-lab" for="v4-x">The squeeze engine, at x = <span id="v4-xl">1</span></label>
+    <input type="range" id="v4-x" min="0" max="8" value="0" step="1" aria-label="How close x is to zero">
+    <div id="v4-sq" style="margin-top:8px"></div>
+  </div>
+
+  <div class="vz-seg" id="v4-cases" role="group" aria-label="Expression">
+    <button aria-pressed="true">sin(kx)/x</button>
+    <button aria-pressed="false">sin(kx)/(kx)</button>
+    <button aria-pressed="false">tan(kx)/sin(mx)</button>
+    <button aria-pressed="false">sin(kx)/tan(mx)</button>
+    <button aria-pressed="false">(1-cos x)/x</button>
+    <button aria-pressed="false">(1-cos x)/x^2</button>
+    <button aria-pressed="false">sin(x)/(x-pi)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-k">k = <span id="v4-kl">3</span> <span id="v4-kn"></span></label>
+    <input type="range" id="v4-k" min="1" max="8" value="3" step="1" aria-label="The constant k">
+    <label class="vz-lab" for="v4-m" style="margin-top:8px">m = <span id="v4-ml">5</span> <span id="v4-mn"></span></label>
+    <input type="range" id="v4-m" min="1" max="8" value="5" step="1" aria-label="The constant m">
+    <div class="v4-work vz-mono" id="v4-work" style="margin-top:10px"></div>
+    <div id="v4-out" style="margin-top:9px"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Two facts generate the rest: <b>sin(x)/x &rarr; 1</b> and <b>(1&minus;cos x)/x^2 &rarr; 1/2</b>,
+    the second being the conjugate trick again — multiply by (1+cos x)/(1+cos x) to get sin^2(x)/(x^2(1+cos x)).
+    Away from zero nothing new is needed either: substitute u = x &minus; (the target) and you are back at zero.</p>
+
+  <style>
+    .v4-work{background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:9px;padding:10px 11px;
+      white-space:pre-wrap;overflow-x:auto}
+    .v4-off{color:var(--viz-muted);font-weight:600;font-size:11px;font-family:inherit}
+    .v4-bar{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      padding:4px 0;border-bottom:1px solid var(--viz-line)}
+    .v4-bar span:last-child{margin-left:auto;font-weight:700}
+  </style>
+  <script>
+  (function(){
+    var XS = [1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01, 0.005, 0.001];
+    var CASES = [
+      { name: 'sin(kx)/x', usesK: true, usesM: false,
+        val: function(h, k){ return Math.sin(k * h) / h; },
+        lim: function(k){ return k; }, limT: function(k){ return String(k); },
+        work: function(k){ return ['sin(' + k + 'x)/x  =  ' + k + ' * sin(' + k + 'x)/(' + k + 'x)',
+          'the bracket -> 1, so the limit is ' + k]; },
+        why: 'Forcing the denominator to match the argument is the whole technique. You multiply and divide by k, the bracket becomes the fundamental limit, and k is left standing outside. This is why sin(3x)/x is 3 and not 1.' },
+      { name: 'sin(kx)/(kx)', usesK: true, usesM: false,
+        val: function(h, k){ return Math.sin(k * h) / (k * h); },
+        lim: function(){ return 1; }, limT: function(){ return '1'; },
+        work: function(k){ return ['sin(' + k + 'x)/(' + k + 'x)  is already matched', 'substitute u = ' + k + 'x  ->  sin(u)/u  ->  1']; },
+        why: 'Once the argument and the denominator agree, the value of k is irrelevant - it is the same limit under a renaming. sin(5x)/(5x) is 1, and so is sin(999x)/(999x).' },
+      { name: 'tan(kx)/sin(mx)', usesK: true, usesM: true,
+        val: function(h, k, m){ return Math.tan(k * h) / Math.sin(m * h); },
+        lim: function(k, m){ return k / m; }, limT: function(k, m){ return k + '/' + m; },
+        work: function(k, m){ return ['tan(' + k + 'x)/sin(' + m + 'x)',
+          '= [tan(' + k + 'x)/(' + k + 'x)] * [(' + m + 'x)/sin(' + m + 'x)] * ' + k + 'x/' + m + 'x',
+          '=      1        *        1        *  ' + k + '/' + m]; },
+        why: 'tan(u)/u shares the limit 1 with sin(u)/u, because tan = sin/cos and cos -> 1. So both brackets collapse and only the ratio of the arguments survives: tan(3x)/sin(5x) is 3/5.' },
+      { name: 'sin(kx)/tan(mx)', usesK: true, usesM: true,
+        val: function(h, k, m){ return Math.sin(k * h) / Math.tan(m * h); },
+        lim: function(k, m){ return k / m; }, limT: function(k, m){ return k + '/' + m; },
+        work: function(k, m){ return ['sin(' + k + 'x)/tan(' + m + 'x)',
+          '= [sin(' + k + 'x)/(' + k + 'x)] * [(' + m + 'x)/tan(' + m + 'x)] * ' + k + 'x/' + m + 'x',
+          '=      1        *        1        *  ' + k + '/' + m]; },
+        why: 'Swapping which function is on top changes nothing about the mechanism. sin(4x)/tan(2x) is 4/2 = 2 - a whole number, which is the sort of answer that makes people suspect a trick where there is none.' },
+      { name: '(1-cos x)/x', usesK: false, usesM: false,
+        val: function(h){ return (1 - Math.cos(h)) / h; },
+        lim: function(){ return 0; }, limT: function(){ return '0'; },
+        work: function(){ return ['(1 - cos x)/x  =  x * (1 - cos x)/x^2', '->  0 * 1/2  =  0']; },
+        why: 'This one is 0, not 1/2. Numerator and denominator are BOTH heading to 0, but the numerator does it faster - like x^2 against x - so the ratio collapses rather than settling on a positive number.' },
+      { name: '(1-cos x)/x^2', usesK: false, usesM: false,
+        val: function(h){ return (1 - Math.cos(h)) / (h * h); },
+        lim: function(){ return 0.5; }, limT: function(){ return '1/2'; },
+        work: function(){ return ['multiply by (1+cos x)/(1+cos x):', '(1 - cos^2 x)/(x^2 (1+cos x)) = sin^2(x)/(x^2(1+cos x))',
+          '-> 1^2 * 1/(1+1) = 1/2']; },
+        why: 'The conjugate trick from visual 2, on a trigonometric expression. 1 - cos^2 = sin^2 is the difference of squares, and what is left is (sin x / x)^2 times 1/(1+cos x) - two limits you already have.' },
+      { name: 'sin(x)/(x-pi)', usesK: false, usesM: false, shift: true,
+        val: function(h){ return Math.sin(Math.PI + h) / h; },
+        lim: function(){ return -1; }, limT: function(){ return '-1'; },
+        work: function(){ return ['x -> pi, so substitute u = x - pi:', 'sin(u + pi)/u  =  -sin(u)/u', '->  -1']; },
+        why: 'The limit point is not 0, so move it there. sin(u + pi) = -sin(u) is an identity you already own, and the answer comes out NEGATIVE one - the sign is the entire content of this question.' }
+    ];
+
+    var cur = 0;
+    var segEl = document.getElementById('v4-cases');
+    var xs = document.getElementById('v4-x'), xl = document.getElementById('v4-xl');
+    var ks = document.getElementById('v4-k'), kl = document.getElementById('v4-kl'), kn = document.getElementById('v4-kn');
+    var ms = document.getElementById('v4-m'), ml = document.getElementById('v4-ml'), mn = document.getElementById('v4-mn');
+    var sq = document.getElementById('v4-sq');
+    var workEl = document.getElementById('v4-work');
+    var outEl = document.getElementById('v4-out');
+    var whyEl = document.getElementById('v4-why');
+
+    function fmt(v, d){
+      if (!isFinite(v)) return '&mdash;';
+      return v.toFixed(d === undefined ? 6 : d);
+    }
+
+    function render(){
+      var c = CASES[cur];
+      var h = XS[Number(xs.value)];
+      var k = Number(ks.value), m = Number(ms.value);
+      xl.textContent = String(h);
+      kl.textContent = String(k);
+      ml.textContent = String(m);
+      kn.innerHTML = c.usesK ? '' : '<span class="v4-off">(not used here)</span>';
+      mn.innerHTML = c.usesM ? '' : '<span class="v4-off">(not used here)</span>';
+      ks.disabled = !c.usesK;
+      ms.disabled = !c.usesM;
+
+      var cosv = Math.cos(h), ratio = Math.sin(h) / h;
+      sq.innerHTML =
+        '<div class="v4-bar"><span>cos(x) &nbsp;&lt;</span><span>' + fmt(cosv) + '</span></div>' +
+        '<div class="v4-bar"><span><b>sin(x)/x</b></span><span>' + fmt(ratio) + '</span></div>' +
+        '<div class="v4-bar"><span>&lt;&nbsp; 1</span><span>1.000000</span></div>' +
+        '<div style="margin-top:7px"><span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' +
+        'band width 1 &minus; cos(x) = ' + (1 - cosv).toExponential(2) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">cos(x) &rarr; 1, so sin(x)/x &rarr; 1</span></div>';
+
+      workEl.textContent = c.work(k, m).join('\n');
+
+      var v = c.val(h, k, m);
+      var L = c.lim(k, m);
+      var err = Math.abs(v - L);
+      outEl.innerHTML =
+        '<div class="v4-bar"><span>value at x = ' + (c.shift ? 'pi + ' + h : String(h)) + '</span><span>' + fmt(v) + '</span></div>' +
+        '<div class="v4-bar"><span>exact limit</span><span>' + c.limT(k, m) + ' = ' + fmt(L) + '</span></div>' +
+        '<div style="margin-top:7px"><span class="vz-pill" style="color:' +
+        (err < 0.01 ? 'var(--viz-green)' : 'var(--viz-amber)') + ';border-color:' +
+        (err < 0.01 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">off by ' +
+        (isFinite(err) ? err.toExponential(2) : '&mdash;') + '</span></div>';
+
+      whyEl.innerHTML = '<b>' + c.name + ' &rarr; ' + c.limT(k, m) + '</b>' + c.why;
+    }
+
+    [].slice.call(segEl.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(segEl.children).forEach(function(o, j){ o.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    xs.addEventListener('input', render);
+    ks.addEventListener('input', render);
+    ms.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Breaks And Skipped Values</h2>
+  <p class="vz-lede">Four ways a function can break at a point, classified from left limit, right limit and f(2)
+    alone — and then the reason the Intermediate Value Theorem insists on continuity. Drag the target line and see
+    which values actually get hit. <b>Like a road with a missing bridge: every milepost between the two towns
+    exists on the map, and you can still never drive over that one.</b></p>
+
+  <div class="vz-seg" id="v5-cases" role="group" aria-label="Function on the interval">
+    <button aria-pressed="true">continuous</button>
+    <button aria-pressed="false">removable</button>
+    <button aria-pressed="false">jump</button>
+    <button aria-pressed="false">infinite</button>
+    <button aria-pressed="false">oscillating</button>
+  </div>
+
+  <div class="vz-card">
+    <div id="v5-plot"></div>
+    <label class="vz-lab" for="v5-n" style="margin-top:12px">Target value N = <span id="v5-nl">0.00</span></label>
+    <input type="range" id="v5-n" min="0" max="100" value="50" step="1" aria-label="Target value N">
+    <div id="v5-facts" style="margin-top:9px"></div>
+    <div id="v5-ivt" style="margin-top:10px"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The IVT is <b>pure existence</b>: it never counts the solutions and never locates them, and it
+    is one-directional — a target outside the endpoint values, or a single break anywhere inside, and it simply
+    declines to speak. That silence is not a claim that nothing is attained, which is the trap in most questions
+    written about it.</p>
+
+  <style>
+    .v5-svg{width:100%;height:auto;display:block;border:1px solid var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v5-row{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;
+      font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--viz-line)}
+    .v5-chk{display:flex;gap:8px;align-items:flex-start;font-size:12px;line-height:1.45;padding:4px 0}
+    .v5-chk b{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 170, A = 0, B = 4;
+    var CASES = [
+      { label: 'x^3 - 6x^2 + 9x - 2', brk: null, yr: [-3.4, 3.4],
+        f: function(x){ return x*x*x - 6*x*x + 9*x - 2; },
+        note: 'A continuous cubic. It wanders: up to 2 at x = 1, back down to -2 at x = 3.',
+        why: 'Every hypothesis holds, so every N between f(0) = -2 and f(4) = 2 is guaranteed to be attained. Drag N and watch the crossing count change from 1 to 3 without the guarantee changing at all - <b>the IVT promises at least one and never says how many</b>. Push N above 2 and it goes quiet: the target is outside the endpoint values, so nothing is promised, which is exactly the flaw in "f(1)=3 and f(2)=5 so there is a root".' },
+      { label: '(x^2 - 4)/(x - 2)', brk: 2, yr: [1.2, 6.8],
+        f: function(x){ return x === 2 ? NaN : (x*x - 4) / (x - 2); },
+        note: 'Equals x + 2 everywhere except x = 2, where it is undefined.',
+        why: 'Set N = 4. It sits squarely between f(0) = 2 and f(4) = 6, the function rises steadily from one to the other, and it is <b>never attained</b> - the only input that would give 4 is the hole. One removable discontinuity is enough to let a function skip an intermediate value, which is why the theorem demands continuity on the whole closed interval.' },
+      { label: 'x+1 for x &lt; 2, x+4 for x &ge; 2', brk: 2, yr: [0.3, 8.7],
+        f: function(x){ return x < 2 ? x + 1 : x + 4; },
+        note: 'Both one-sided limits exist and are finite: 3 from the left, 6 from the right.',
+        why: 'Everything strictly between 3 and 6 is skipped in a single step. Both one-sided limits exist here - that is what makes it a <b>jump</b> rather than anything worse - and they are unequal, so the two-sided limit fails. Feeding this through a strictly monotonic continuous function would map those two limits to two other distinct values, so the jump survives the composition.' },
+      { label: '1/(x - 2)', brk: 2, yr: [-2.6, 2.6],
+        f: function(x){ return x === 2 ? NaN : 1 / (x - 2); },
+        note: 'A nonzero numerator over a vanishing denominator: the one-sided limits are infinite.',
+        why: 'N = 0 lies between f(0) = -0.5 and f(4) = 0.5 and is never attained: the function leaves through -infinity and returns from +infinity without passing through anything in between. An <b>infinite discontinuity</b> needs only ONE one-sided limit to be infinite, and note that unbounded means the limit does not exist - infinity is not a value it settles on.' },
+      { label: 'sin(1/(x - 2))', brk: 2, yr: [-1.35, 1.35],
+        f: function(x){ return x === 2 ? 0 : Math.sin(1 / (x - 2)); },
+        note: 'Values fluctuate between -1 and 1 forever without settling on anything.',
+        why: 'Here the conclusion happens to hold - every N in [-1, 1] is attained, infinitely often - and the IVT still guarantees nothing, because its hypothesis fails. <b>A theorem that does not apply is silent, not false.</b> This is also the shape that defeats a table of values: the numbers near x = 2 never converge, they just keep re-visiting the whole band.' }
+    ];
+
+    var cur = 0;
+    var segEl = document.getElementById('v5-cases');
+    var ns = document.getElementById('v5-n'), nl = document.getElementById('v5-nl');
+    var plot = document.getElementById('v5-plot');
+    var facts = document.getElementById('v5-facts');
+    var ivt = document.getElementById('v5-ivt');
+    var whyEl = document.getElementById('v5-why');
+
+    function fmt(v){
+      if (!isFinite(v)) return '&mdash;';
+      if (Math.abs(v) < 5e-5) v = 0;
+      return v.toFixed(3);
+    }
+    // The one-sided limit, read off five nearby samples rather than one, so that
+    // "runs to infinity" and "never settles" are distinguishable instead of both
+    // arriving as a meaningless number.
+    function sideLimit(f, side){
+      var ds = [1e-6, 1.3e-6, 1.7e-6, 2.2e-6, 2.9e-6], vs = [], i;
+      for (i = 0; i < ds.length; i++) vs.push(f(2 + side * ds[i]));
+      for (i = 0; i < vs.length; i++) if (!isFinite(vs[i])) return { kind: 'none', text: 'undefined' };
+      var big = true, sign = vs[0] > 0 ? 1 : -1;
+      for (i = 0; i < vs.length; i++) if (Math.abs(vs[i]) < 1e4 || (vs[i] > 0 ? 1 : -1) !== sign) big = false;
+      if (big) return { kind: 'inf', sign: sign, text: (sign > 0 ? '+infinity' : '-infinity') };
+      var lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs);
+      if (hi - lo > 0.05) return { kind: 'none', text: 'no limit (oscillates)' };
+      var mean = (lo + hi) / 2;
+      return { kind: 'num', v: mean, text: fmt(mean) };
+    }
+    // Crossings are counted with the break EXCLUDED: a sign change that straddles a
+    // hole or a jump is not a crossing, and a naive scan would report one.
+    function crossings(f, N, brk){
+      var n = 8000, hits = 0, prev = null, prevX = null;
+      for (var i = 0; i <= n; i++) {
+        var x = A + (B - A) * i / n;
+        var y = f(x) - N;
+        if (!isFinite(y)) { prev = null; continue; }
+        if (Math.abs(y) < 1e-9) hits += 1;
+        else if (prev !== null && (prev < 0) !== (y < 0)) {
+          var straddles = brk !== null && (prevX - brk) * (x - brk) <= 0;
+          if (!straddles) hits += 1;
+        }
+        prev = y; prevX = x;
+        if (hits > 40) break;
+      }
+      return hits;
+    }
+    function pathOf(f, y0, y1, brk){
+      if (!(y1 > y0)) return '';
+      var n = 1400, d = '', pen = false;
+      for (var i = 0; i <= n; i++) {
+        var x = A + (B - A) * i / n;
+        var y = f(x);
+        if (!isFinite(y) || y < y0 || y > y1) { pen = false; continue; }
+        if (brk !== null && Math.abs(x - brk) < 0.004) { pen = false; continue; }
+        var px = (x - A) / (B - A) * W;
+        var py = H - (y - y0) / (y1 - y0) * H;
+        d += (pen ? 'L' : 'M') + px.toFixed(2) + ' ' + py.toFixed(2) + ' ';
+        pen = true;
+      }
+      return d;
+    }
+
+    function render(){
+      var c = CASES[cur];
+      var y0 = c.yr[0], y1 = c.yr[1];
+      var N = Number(ns.value) / 10;
+      if (N < y0) N = y0;
+      if (N > y1) N = y1;
+      nl.textContent = N.toFixed(1);
+
+      var nY = H - (N - y0) / (y1 - y0) * H;
+      var fa = c.f(A), fb = c.f(B);
+      var pt = function(x, y){
+        return '<circle cx="' + ((x - A) / (B - A) * W).toFixed(1) + '" cy="' +
+          (H - (y - y0) / (y1 - y0) * H).toFixed(1) + '" r="3.5" fill="var(--viz-accent)"/>';
+      };
+      plot.innerHTML = '<svg class="v5-svg" viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none" role="img" ' +
+        'aria-label="the function on the interval 0 to 4 with the target line">' +
+        '<line x1="0" y1="' + nY.toFixed(1) + '" x2="' + W + '" y2="' + nY.toFixed(1) +
+          '" stroke="var(--viz-violet)" stroke-width="2" stroke-dasharray="6 4"/>' +
+        '<path d="' + pathOf(c.f, y0, y1, c.brk) + '" fill="none" stroke="var(--viz-accent)" stroke-width="1.6"/>' +
+        (isFinite(fa) ? pt(A, fa) : '') + (isFinite(fb) ? pt(B, fb) : '') +
+        '<text x="4" y="12" font-size="9" fill="var(--viz-muted)" font-family="monospace">N = ' + N.toFixed(1) + ' (dashed)</text>' +
+        '</svg>';
+
+      var L = sideLimit(c.f, -1), R = sideLimit(c.f, +1);
+      var at = c.f(2);
+      var type, cont = false;
+      if (L.kind === 'inf' || R.kind === 'inf') type = 'INFINITE discontinuity';
+      else if (L.kind === 'none' || R.kind === 'none') type = 'OSCILLATING discontinuity';
+      else if (Math.abs(L.v - R.v) > 1e-4) type = 'JUMP discontinuity';
+      else if (!isFinite(at) || Math.abs(at - L.v) > 1e-4) type = 'REMOVABLE discontinuity';
+      else { type = 'CONTINUOUS at x = 2'; cont = true; }
+
+      facts.innerHTML =
+        '<div class="v5-row"><span>f(x) = ' + c.label + '</span><span></span></div>' +
+        '<div class="v5-row"><span>left limit at 2</span><span>' + L.text + '</span></div>' +
+        '<div class="v5-row"><span>right limit at 2</span><span>' + R.text + '</span></div>' +
+        '<div class="v5-row"><span>f(2)</span><span>' + (isFinite(at) ? fmt(at) : 'undefined') + '</span></div>' +
+        '<div style="margin-top:7px"><span class="vz-pill" style="color:' +
+        (cont ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (cont ? 'var(--viz-green)' : 'var(--viz-red)') +
+        '">' + type + '</span></div>';
+
+      var between = (N >= Math.min(fa, fb) && N <= Math.max(fa, fb));
+      var hits = crossings(c.f, N, c.brk);
+      var mark = function(ok, yes, no){
+        return '<div class="v5-chk"><b style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (ok ? '[YES]' : '[ NO ]') + '</b><span>' + (ok ? yes : no) + '</span></div>';
+      };
+      var guaranteed = cont && between;
+      ivt.innerHTML =
+        mark(cont, 'f is continuous on the closed interval [0, 4].',
+                   'f is NOT continuous on [0, 4] - there is a break at x = 2, so the hypothesis fails.') +
+        mark(between, 'N = ' + N.toFixed(1) + ' lies between f(0) = ' + fmt(fa) + ' and f(4) = ' + fmt(fb) + '.',
+                      'N = ' + N.toFixed(1) + ' is outside [' + fmt(Math.min(fa, fb)) + ', ' + fmt(Math.max(fa, fb)) + '], so the IVT says nothing whatever.') +
+        '<div style="margin-top:6px"><span class="vz-pill" style="color:' +
+          (guaranteed ? 'var(--viz-green)' : 'var(--viz-amber)') + ';border-color:' +
+          (guaranteed ? 'var(--viz-green)' : 'var(--viz-amber)') + '">IVT: ' +
+          (guaranteed ? 'GUARANTEES some c with f(c) = N' : 'GUARANTEES NOTHING here') + '</span>' +
+        '<span class="vz-pill" style="color:' + (hits > 0 ? 'var(--viz-accent)' : 'var(--viz-red)') +
+          ';border-color:' + (hits > 0 ? 'var(--viz-accent)' : 'var(--viz-red)') + '">reality: ' +
+          (hits > 40 ? 'attained many times' : (hits === 0 ? 'NEVER attained' : 'attained ' + hits + ' time' + (hits === 1 ? '' : 's'))) +
+          '</span></div>';
+
+      whyEl.innerHTML = '<b>' + c.note + '</b>' + c.why;
+    }
+
+    [].slice.call(segEl.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(segEl.children).forEach(function(o, j){ o.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    ns.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

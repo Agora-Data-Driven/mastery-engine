@@ -1,0 +1,939 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Reading The RREF</button>
+  <button class="viz-tab" data-viz-tab="2">2. Is It A Subspace</button>
+  <button class="viz-tab" data-viz-tab="3">3. Span Line Or Plane</button>
+  <button class="viz-tab" data-viz-tab="4">4. Pivot Columns Win</button>
+  <button class="viz-tab" data-viz-tab="5">5. Free Variable Machine</button>
+  <button class="viz-tab" data-viz-tab="6">6. Rows That Vanish</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Reading The RREF</h2>
+  <p class="vz-lede">You already run <b>Elementary row operations and Gaussian elimination</b> to reach
+    <b>REF and Reduced Row Echelon Form (RREF)</b>, read the <b>Rank of a matrix</b> off the pivots, and use
+    <b>Linear dependence and independence</b> to say which columns were redundant. That same reduction
+    hands you four subspaces. Edit any entry and watch all four move.
+    <b>Like an X-ray you already take for one broken bone that happens to show the whole skeleton.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side"><b>What you already do</b><span>row operations &rarr; RREF &rarr; pivots &rarr; rank r</span></div>
+    <div class="v1-arrow">&rarr;</div>
+    <div class="v1-side"><b>What it also gives</b><span>row space · null space · column space · left null space</span></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Example matrix" id="v1-seg">
+    <button data-p="0" aria-pressed="true">rank 2</button>
+    <button data-p="1" aria-pressed="false">rank 3</button>
+    <button data-p="2" aria-pressed="false">rank 1</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-lab">A is 3 &times; 4 &nbsp;·&nbsp; every entry is yours to change</div>
+    <div class="v1-grid" id="v1-grid"></div>
+    <div class="v1-lab" style="margin-top:12px">rref(A) &nbsp;·&nbsp; pivot columns marked</div>
+    <div class="vz-mono" id="v1-rref"></div>
+    <div class="v1-bar" id="v1-bar"></div>
+  </div>
+
+  <div class="v1-boxes" id="v1-boxes"></div>
+  <div class="vz-card" style="margin-top:11px"><div class="v1-why" id="v1-why"></div></div>
+
+  <p class="vz-note">Two of the four live in the input space R^n and two in the output space R^m, and one
+    number sets all four sizes: r, n-r, r, m-r. That is why elimination is not just a way to solve a system —
+    it is the one computation that answers every structural question about the matrix at once.</p>
+
+  <style>
+    .v1-bridge{display:flex;align-items:stretch;gap:8px;margin-bottom:13px;flex-wrap:wrap}
+    .v1-side{flex:1 1 132px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:9px 10px;font-size:11.5px;line-height:1.45}
+    .v1-side b{display:block;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);margin-bottom:4px}
+    .v1-side span{color:var(--viz-ink)}
+    .v1-arrow{align-self:center;font-size:19px;font-weight:800;color:var(--viz-accent)}
+    .v1-lab{font-size:12.5px;font-weight:700;margin-bottom:6px}
+    .v1-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:5px}
+    .v1-grid input{width:100%;min-height:44px;box-sizing:border-box;text-align:center;border-radius:8px;
+      border:1.5px solid var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+      font-family:ui-monospace,Consolas,monospace;font-size:14px}
+    .v1-bar{margin-top:13px;display:flex;height:26px;border-radius:8px;overflow:hidden;border:1.5px solid var(--viz-line)}
+    .v1-bar span{display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;
+      color:#fff;white-space:nowrap;overflow:hidden}
+    .v1-boxes{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:11px}
+    .v1-bx{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-surface)}
+    .v1-bx h6{margin:0 0 3px;font-size:11.5px;font-weight:800}
+    .v1-bx .v1-d{font-family:ui-monospace,Consolas,monospace;font-size:15px;font-weight:800}
+    .v1-bx p{margin:3px 0 0;font-size:10.5px;color:var(--viz-muted);line-height:1.4}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PRESETS = [
+      [[1,2,1,0],[2,4,3,1],[3,6,4,1]],
+      [[1,0,0,2],[0,1,0,-1],[0,0,1,3]],
+      [[1,2,3,4],[2,4,6,8],[3,6,9,12]]
+    ];
+    var M = 3, N = 4;
+    var grid = document.getElementById('v1-grid');
+    var out = document.getElementById('v1-rref');
+    var bar = document.getElementById('v1-bar');
+    var boxes = document.getElementById('v1-boxes');
+    var why = document.getElementById('v1-why');
+    var seg = document.getElementById('v1-seg');
+
+    function rref(Min){
+      var A = Min.map(function(r){ return r.slice(); });
+      var rows = A.length, cols = A[0].length, lead = 0, piv = [];
+      for (var r = 0; r < rows && lead < cols;) {
+        var i = r;
+        while (i < rows && Math.abs(A[i][lead]) < 1e-9) i++;
+        if (i === rows) { lead++; continue; }
+        var t = A[i]; A[i] = A[r]; A[r] = t;
+        var lv = A[r][lead];
+        for (var j = 0; j < cols; j++) A[r][j] = A[r][j] / lv;
+        for (var k = 0; k < rows; k++) {
+          if (k === r) continue;
+          var f = A[k][lead];
+          if (Math.abs(f) > 1e-12) for (var q = 0; q < cols; q++) A[k][q] -= f * A[r][q];
+        }
+        piv.push(lead); r++; lead++;
+      }
+      for (var a = 0; a < rows; a++) for (var b = 0; b < cols; b++) {
+        var v = A[a][b];
+        if (!isFinite(v)) v = 0;
+        A[a][b] = Math.abs(v) < 1e-9 ? 0 : Math.round(v * 1e6) / 1e6;
+      }
+      return { R: A, piv: piv };
+    }
+    function fmt(x){ var v = Math.round(x * 1000) / 1000; if (!isFinite(v) || v === 0) v = 0; return String(v); }
+    function pad(s, w){ s = String(s); while (s.length < w) s = ' ' + s; return s; }
+
+    function readMatrix(){
+      var ins = grid.querySelectorAll('input');
+      var A = [];
+      for (var i = 0; i < M; i++) {
+        var row = [];
+        for (var j = 0; j < N; j++) {
+          var v = Number(ins[i * N + j].value);
+          if (!isFinite(v)) v = 0;
+          row.push(Math.max(-9, Math.min(9, v)));
+        }
+        A.push(row);
+      }
+      return A;
+    }
+    function box(title, dim, home, basis, colour){
+      return '<div class="v1-bx" style="border-color:' + colour + '"><h6 style="color:' + colour + '">' + title +
+        '</h6><span class="v1-d">dim ' + dim + '</span> <span style="font-size:11px;color:var(--viz-muted)">in R^' + home +
+        '</span><p>' + basis + '</p></div>';
+    }
+    function render(){
+      var A = readMatrix();
+      var res = rref(A), R = res.R, piv = res.piv, r = piv.length;
+      var isPiv = {};
+      piv.forEach(function(c){ isPiv[c] = true; });
+
+      var lines = [];
+      var head = '     ';
+      for (var c = 0; c < N; c++) head += pad(isPiv[c] ? 'PIV' : 'free', 7);
+      lines.push(head);
+      for (var i = 0; i < M; i++) {
+        var s = '  [ ';
+        for (var j = 0; j < N; j++) s += pad(fmt(R[i][j]), 6) + ' ';
+        s += ']';
+        var zero = R[i].every(function(x){ return Math.abs(x) < 1e-9; });
+        lines.push(s + (zero ? '   <- zero row' : ''));
+      }
+      out.textContent = lines.join('\n');
+
+      var nul = N - r, lnul = M - r;
+      var pr = Math.round(r / N * 100), pf = 100 - pr;
+      bar.innerHTML =
+        '<span style="width:' + pr + '%;background:var(--viz-accent)">' + r + ' pivot col' + (r === 1 ? '' : 's') + ' = rank</span>' +
+        '<span style="width:' + pf + '%;background:var(--viz-amber);color:#1b1b1b">' + nul + ' free col' + (nul === 1 ? '' : 's') + ' = nullity</span>';
+
+      boxes.innerHTML =
+        box('Row space', r, N, 'basis: the ' + r + ' nonzero row' + (r === 1 ? '' : 's') + ' of the RREF', 'var(--viz-violet)') +
+        box('Null space', nul, N, nul ? 'basis: ' + nul + ' special solution' + (nul === 1 ? '' : 's') + ', one per free column' : 'only the zero vector', 'var(--viz-amber)') +
+        box('Column space', r, M, 'basis: columns ' + piv.map(function(c){ return c + 1; }).join(', ') + ' of A itself', 'var(--viz-green)') +
+        box('Left null space', lnul, M, lnul ? 'basis: ' + lnul + ' relationship' + (lnul === 1 ? '' : 's') + ' among the rows' : 'only the zero vector', 'var(--viz-red)');
+
+      why.innerHTML = '<b>rank ' + r + ' &rarr; ' + r + ' + ' + nul + ' = ' + N + ' columns, and ' + r + ' + ' + lnul + ' = ' + M + ' rows.</b>' +
+        'Every column is either a pivot column, which adds one dimension to the column space, or a free column, which adds one special solution to the null space. Nothing is counted twice and nothing is left over — that is the whole content of the Rank-Nullity Theorem, and you can watch it hold as you edit. ' +
+        (r === M
+          ? '<br><br>Right now every ROW has a pivot, so the columns span all of R^' + M + ' and the left null space is just the zero vector: there is no combination of the rows that cancels.'
+          : '<br><br>Right now ' + lnul + ' row' + (lnul === 1 ? '' : 's') + ' of the RREF came out zero, so some combination of the original rows cancels. Those recipes are the left null space, and because r &lt; ' + M + ' the columns do NOT span all of R^' + M + '.');
+    }
+
+    var html = '';
+    for (var i = 0; i < M; i++) for (var j = 0; j < N; j++) {
+      html += '<input type="number" step="1" min="-9" max="9" value="0" aria-label="entry row ' + (i + 1) + ' column ' + (j + 1) + '">';
+    }
+    grid.innerHTML = html;
+    grid.addEventListener('input', render);
+
+    function load(p){
+      var ins = grid.querySelectorAll('input');
+      for (var i = 0; i < M; i++) for (var j = 0; j < N; j++) ins[i * N + j].value = PRESETS[p][i][j];
+      [].slice.call(seg.querySelectorAll('button')).forEach(function(b, k){ b.setAttribute('aria-pressed', k === p ? 'true' : 'false'); });
+      render();
+    }
+    [].slice.call(seg.querySelectorAll('button')).forEach(function(b, k){
+      b.addEventListener('click', function(){ load(k); });
+    });
+    load(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Is It A Subspace</h2>
+  <p class="vz-lede">A subspace has to contain the origin and survive both operations — for <em>every</em>
+    scalar, negatives included. Pick a candidate set, slide the vector along it, then slide the scalar and
+    watch where the result lands. <b>Like a club that must stay a club after every member is doubled,
+    reversed or added to another.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Candidate set" id="v2-sets"></div>
+
+  <div class="vz-card">
+    <div id="v2-plot"></div>
+    <label class="v2-lab" for="v2-t">vector v in the set: <span id="v2-tl">v</span></label>
+    <input type="range" id="v2-t" min="-3" max="3" value="1" step="0.5" aria-label="Move the vector v inside the set">
+    <label class="v2-lab" for="v2-c">scalar c = <span id="v2-cl">1</span></label>
+    <input type="range" id="v2-c" min="-2" max="2" value="1" step="0.25" aria-label="Scalar multiplier c">
+    <div class="v2-tests" id="v2-tests"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">The same three tests decide sets that are not arrows at all. Polynomials of degree at
+    most 2 form a vector space; polynomials of degree <em>exactly</em> 2 do not, because
+    (x^2 + x) + (-x^2 + 1) = x + 1 has degree 1 and the zero polynomial is missing. Closure is the whole
+    definition, whatever the vectors happen to be.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:12px 0 6px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-tests{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v2-t{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.35}
+    .v2-mk{flex:0 0 auto;font-weight:800;font-size:10.5px;letter-spacing:.03em;width:52px}
+    .v2-t code{font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var EPS = 1e-9;
+    var SETS = [
+      { n:'y &ge; 0', full:'the upper half-plane', region:'half',
+        mem:function(p){ return p[1] >= -EPS; }, pt:function(t){ return [t, 2]; }, w:[1, 3] },
+      { n:'y = x + 1', full:'a line that misses the origin', region:'lineoff',
+        mem:function(p){ return Math.abs(p[1] - p[0] - 1) < EPS; }, pt:function(t){ return [t, t + 1]; }, w:[1, 2] },
+      { n:'y = 2x', full:'a line through the origin', region:'line0',
+        mem:function(p){ return Math.abs(p[1] - 2 * p[0]) < EPS; }, pt:function(t){ return [t, 2 * t]; }, w:[1, 2] },
+      { n:'x,y &ge; 0', full:'the first quadrant', region:'quad',
+        mem:function(p){ return p[0] >= -EPS && p[1] >= -EPS; }, pt:function(t){ return [Math.abs(t), 2]; }, w:[1, 1] },
+      { n:'{0}', full:'only the zero vector', region:'dot',
+        mem:function(p){ return Math.abs(p[0]) < EPS && Math.abs(p[1]) < EPS; }, pt:function(){ return [0, 0]; }, w:[0, 0] }
+    ];
+    var cur = 0;
+    var seg = document.getElementById('v2-sets');
+    var plot = document.getElementById('v2-plot');
+    var st = document.getElementById('v2-t'), stl = document.getElementById('v2-tl');
+    var sc = document.getElementById('v2-c'), scl = document.getElementById('v2-cl');
+    var tests = document.getElementById('v2-tests'), why = document.getElementById('v2-why');
+
+    function X(x){ return Math.max(6, Math.min(294, 150 + x * 24)); }
+    function Y(y){ return Math.max(8, Math.min(216, 112 - y * 24)); }
+    function num(x){ var v = Math.round(x * 100) / 100; if (!isFinite(v) || v === 0) v = 0; return String(v); }
+    function vec(p){ return '(' + num(p[0]) + ', ' + num(p[1]) + ')'; }
+
+    function draw(S, v, cv, vw){
+      var g = '';
+      if (S.region === 'half') g += '<rect x="0" y="0" width="300" height="112" fill="var(--viz-accent)" opacity="0.13"></rect>';
+      if (S.region === 'quad') g += '<rect x="150" y="0" width="150" height="112" fill="var(--viz-accent)" opacity="0.13"></rect>';
+      if (S.region === 'line0') g += '<line x1="' + X(-2.3) + '" y1="' + Y(-4.6) + '" x2="' + X(2.3) + '" y2="' + Y(4.6) + '" stroke="var(--viz-accent)" stroke-width="3"></line>';
+      if (S.region === 'lineoff') g += '<line x1="' + X(-4.4) + '" y1="' + Y(-3.4) + '" x2="' + X(3.4) + '" y2="' + Y(4.4) + '" stroke="var(--viz-accent)" stroke-width="3"></line>';
+      if (S.region === 'dot') g += '<circle cx="' + X(0) + '" cy="' + Y(0) + '" r="7" fill="var(--viz-accent)"></circle>';
+      g += '<line x1="0" y1="112" x2="300" y2="112" stroke="var(--viz-line)" stroke-width="1.5"></line>' +
+           '<line x1="150" y1="0" x2="150" y2="224" stroke="var(--viz-line)" stroke-width="1.5"></line>' +
+           '<circle cx="150" cy="112" r="3" fill="var(--viz-ink)"></circle>' +
+           '<text x="155" y="126" font-size="10" fill="var(--viz-muted)">origin</text>';
+      function dot(p, colour, label){
+        return '<circle cx="' + X(p[0]) + '" cy="' + Y(p[1]) + '" r="6" fill="' + colour + '"></circle>' +
+          '<text x="' + (X(p[0]) + 9) + '" y="' + (Y(p[1]) + 4) + '" font-size="11" font-weight="700" fill="' + colour + '">' + label + '</text>';
+      }
+      g += dot(vw, 'var(--viz-amber)', 'v+w');
+      g += dot(cv, 'var(--viz-violet)', 'c&#183;v');
+      g += dot(v, 'var(--viz-green)', 'v');
+      plot.innerHTML = '<svg viewBox="0 0 300 224" width="100%" height="224" role="img" aria-label="the candidate set with v, c times v, and v plus w plotted">' + g + '</svg>';
+    }
+
+    function row(ok, label, detail){
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v2-t" style="border-color:' + col + '"><span class="v2-mk" style="color:' + col + '">' +
+        (ok ? 'PASS' : 'FAIL') + '</span><span><b>' + label + '</b><br>' + detail + '</span></div>';
+    }
+
+    function render(){
+      var S = SETS[cur];
+      var t = Number(st.value), c = Number(sc.value);
+      if (!isFinite(t)) t = 0;
+      if (!isFinite(c)) c = 1;
+      var v = S.pt(t), cv = [c * v[0], c * v[1]], w = S.w, vw = [v[0] + w[0], v[1] + w[1]];
+      stl.textContent = vec(v);
+      scl.textContent = num(c);
+      draw(S, v, cv, vw);
+
+      var zero = S.mem([0, 0]);
+      var add = S.mem(vw);
+      var CS = [-2, -1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2];
+      var badC = null;
+      for (var i = 0; i < CS.length; i++) {
+        if (!S.mem([CS[i] * v[0], CS[i] * v[1]])) { badC = CS[i]; break; }
+      }
+      var scal = badC === null;
+      var nowIn = S.mem(cv);
+
+      tests.innerHTML =
+        row(zero, 'Contains the zero vector?', zero ? '(0, 0) is in the set.' : '(0, 0) is NOT in the set — that alone ends it.') +
+        row(add, 'Closed under addition?', 'v + w = ' + vec(v) + ' + ' + vec(w) + ' = ' + vec(vw) + (add ? ' — still in the set.' : ' — outside the set.')) +
+        row(scal, 'Closed under scalar multiplication?', scal
+          ? 'Every c tested keeps c&#183;v inside, negatives included.'
+          : 'c = ' + num(badC) + ' sends v to ' + vec([badC * v[0], badC * v[1]]) + ', which is outside.') +
+        '<div class="v2-t" style="border-color:' + (nowIn ? 'var(--viz-green)' : 'var(--viz-red)') + '"><span class="v2-mk" style="color:' + (nowIn ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        (nowIn ? 'INSIDE' : 'OUTSIDE') + '</span><span>at c = ' + num(c) + ', c&#183;v = ' + vec(cv) + ' is ' + (nowIn ? 'still in the set' : 'outside the set') + '.</span></div>';
+
+      var isSub = zero && add && scal;
+      why.innerHTML = isSub
+        ? '<b style="color:var(--viz-green)">' + S.full + ' IS a subspace.</b>' +
+          'All three closure tests hold, so this set is a vector space in its own right — and every span you meet in this lesson passes for the same reason: a combination of combinations is still a combination. ' +
+          (S.region === 'dot'
+            ? '<br><br>Note that {0} is not empty, and it is not "nothing": it is the trivial subspace, of dimension 0, and it is exactly what a null space collapses to when the matrix has full column rank.'
+            : '<br><br>Notice how little it took: one line through the origin, closed under both operations, with dimension 1.')
+        : '<b style="color:var(--viz-red)">' + S.full + ' is NOT a vector space.</b>' +
+          (!zero
+            ? 'It fails at the cheapest test of all — no zero vector — so nothing else needs checking. Any set defined by an equation with a nonzero constant on one side is disqualified this way, and shifting a subspace off the origin is the standard trap.'
+            : 'It contains the origin and survives addition, which is exactly why it looks like a subspace at a glance. <b>Negative scalars are what kill it</b>: scaling by ' + num(badC) + ' throws v out. Half-planes, quadrants and cones all fail here, and never on the addition test.') +
+          '<br><br>Closure must hold for <em>every</em> scalar and <em>every</em> pair, not for the ones you happened to try.';
+    }
+
+    SETS.forEach(function(S, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.innerHTML = S.n;
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(seg.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+      seg.appendChild(b);
+    });
+    st.addEventListener('input', render);
+    sc.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Span Line Or Plane</h2>
+  <p class="vz-lede">A span is measured in independent <em>directions</em>, not in vectors. Switch vectors in
+    and out, and slide v's last entry through the moment it stops being a multiple of u.
+    <b>Like torches in a dark room: a second torch pointing the same way lights nothing new.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which vectors are in the set" id="v3-toggles">
+    <button data-i="0" aria-pressed="true">u = (1,2,1)</button>
+    <button data-i="1" aria-pressed="true">v</button>
+    <button data-i="2" aria-pressed="false">w = (0,1,3)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-c">v = (2, 4, <span id="v3-cl">2</span>)</label>
+    <input type="range" id="v3-c" min="0" max="5" value="2" step="0.5" aria-label="Third entry of v">
+    <div id="v3-pic"></div>
+    <div class="v3-out" id="v3-out"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">Every span is a subspace, and the smallest of them is not empty: span{0} = {0}, the
+    trivial subspace of dimension 0. At the other end, a set can span a space perfectly well and still fail
+    to be a basis — {(1,2), (2,4), (3,5)} spans all of R^2, yet three vectors in a 2-dimensional space can
+    never be independent, so the set is not minimal.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-out{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var on = [true, true, false];
+    var seg = document.getElementById('v3-toggles');
+    var sc = document.getElementById('v3-c'), scl = document.getElementById('v3-cl');
+    var pic = document.getElementById('v3-pic'), out = document.getElementById('v3-out'), why = document.getElementById('v3-why');
+
+    function rank(rows){
+      if (!rows.length) return 0;
+      var A = rows.map(function(r){ return r.slice(); });
+      var m = A.length, n = A[0].length, lead = 0, r = 0;
+      for (; r < m && lead < n;) {
+        var i = r;
+        while (i < m && Math.abs(A[i][lead]) < 1e-9) i++;
+        if (i === m) { lead++; continue; }
+        var t = A[i]; A[i] = A[r]; A[r] = t;
+        var lv = A[r][lead];
+        for (var k = r + 1; k < m; k++) {
+          var f = A[k][lead] / lv;
+          if (isFinite(f)) for (var q = 0; q < n; q++) A[k][q] -= f * A[r][q];
+        }
+        r++; lead++;
+      }
+      return r;
+    }
+    function P(v){
+      var x = 150 + 22 * (v[0] - 0.55 * v[2]);
+      var y = 112 - 22 * (v[1] - 0.42 * v[2]);
+      return [Math.max(4, Math.min(296, x)), Math.max(4, Math.min(220, y))];
+    }
+    function line(a, b, colour, wdt, dash){
+      var p = P(a), q = P(b);
+      return '<line x1="' + p[0] + '" y1="' + p[1] + '" x2="' + q[0] + '" y2="' + q[1] + '" stroke="' + colour +
+        '" stroke-width="' + wdt + '"' + (dash ? ' stroke-dasharray="4 3"' : '') + '></line>';
+    }
+    function scale(v, s){ return [v[0] * s, v[1] * s, v[2] * s]; }
+    function add(a, b){ return [a[0] + b[0], a[1] + b[1], a[2] + b[2]]; }
+
+    function render(){
+      var c = Number(sc.value);
+      if (!isFinite(c)) c = 2;
+      scl.textContent = String(c);
+      var V = [[1, 2, 1], [2, 4, c], [0, 1, 3]];
+      var names = ['u', 'v', 'w'];
+      var colours = ['var(--viz-green)', 'var(--viz-amber)', 'var(--viz-violet)'];
+      var chosen = [], chosenI = [];
+      for (var i = 0; i < 3; i++) if (on[i]) { chosen.push(V[i]); chosenI.push(i); }
+      var d = rank(chosen);
+
+      // an actual independent subset, grown greedily — this is the basis it reports
+      var basis = [], basisI = [];
+      for (var j = 0; j < chosen.length; j++) {
+        var trial = basis.concat([chosen[j]]);
+        if (rank(trial) > basis.length) { basis = trial; basisI.push(chosenI[j]); }
+      }
+
+      var g = '';
+      g += line([-3, 0, 0], [3, 0, 0], 'var(--viz-line)', 1.5, false) +
+           line([0, -3, 0], [0, 3, 0], 'var(--viz-line)', 1.5, false) +
+           line([0, 0, -3], [0, 0, 3], 'var(--viz-line)', 1.5, false);
+      if (d === 2) {
+        var a = basis[0], b = basis[1];
+        var pts = [add(scale(a, 1.6), scale(b, 1.6)), add(scale(a, 1.6), scale(b, -1.6)),
+                   add(scale(a, -1.6), scale(b, -1.6)), add(scale(a, -1.6), scale(b, 1.6))];
+        g += '<polygon points="' + pts.map(function(p){ return P(p).join(','); }).join(' ') +
+          '" fill="var(--viz-accent)" opacity="0.20" stroke="var(--viz-accent)" stroke-width="1.5"></polygon>';
+      } else if (d === 1) {
+        g += line(scale(basis[0], -3), scale(basis[0], 3), 'var(--viz-accent)', 3, false);
+      } else if (d === 3) {
+        g += '<rect x="0" y="0" width="300" height="224" fill="var(--viz-accent)" opacity="0.14"></rect>';
+      }
+      for (var k = 0; k < 3; k++) {
+        if (!on[k]) continue;
+        var p = P(V[k]);
+        g += line([0, 0, 0], V[k], colours[k], 3, false) +
+          '<circle cx="' + p[0] + '" cy="' + p[1] + '" r="5" fill="' + colours[k] + '"></circle>' +
+          '<text x="' + (p[0] + 8) + '" y="' + (p[1] - 5) + '" font-size="12" font-weight="800" fill="' + colours[k] + '">' + names[k] + '</text>';
+      }
+      g += '<circle cx="' + P([0, 0, 0])[0] + '" cy="' + P([0, 0, 0])[1] + '" r="3" fill="var(--viz-ink)"></circle>';
+      pic.innerHTML = '<svg viewBox="0 0 300 224" width="100%" height="224" role="img" aria-label="the selected vectors and the region they span">' + g + '</svg>';
+
+      var shape = ['just the origin', 'a line through the origin', 'a plane through the origin', 'all of R^3'][d];
+      var minimal = chosen.length === d && d > 0;
+      var okc = 'var(--viz-green)', badc = 'var(--viz-red)';
+      out.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + chosen.length + ' vector' + (chosen.length === 1 ? '' : 's') + ' listed</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">dimension ' + d + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">span = ' + shape + '</span>' +
+        '<span class="v3-pill" style="color:' + (minimal ? okc : badc) + ';border-color:' + (minimal ? okc : badc) + '">' +
+        (minimal ? 'basis: yes' : 'basis: no') + '</span>';
+
+      var parallel = Math.abs(c - 2) < 1e-9;
+      why.innerHTML = '<b>' + chosen.length + ' vectors, ' + d + ' independent direction' + (d === 1 ? '' : 's') + ' &rarr; ' + shape + '.</b>' +
+        (parallel && on[1]
+          ? 'At this setting v = (2,4,2) = 2u, so v repeats a direction you already had and the span does not grow — the same reason adding w = 2v1 - 3v2 to a spanning set changes nothing. Nudge the slider off 2 and watch the line open into a plane the instant v leaves it. '
+          : 'Each listed vector that adds a genuinely new direction lifts the dimension by exactly one; each one that is already reachable adds nothing at all. ') +
+        (minimal
+          ? '<br><br>Listed vectors = dimension, so this set is independent AND spanning: it is a <b>basis</b>, and its size is the dimension of the space it spans. Every basis of that space has the same size.'
+          : d === 0
+            ? '<br><br>With nothing selected the span is {0}, the trivial subspace: dimension 0, and the empty set is its basis. A single zero vector would span exactly the same thing.'
+            : '<br><br>' + chosen.length + ' vectors spanning a ' + d + '-dimensional space is one too many to be minimal, so this is <b>not a basis</b> — drop the redundant one and the span is unchanged. This is precisely the u, v, w case: dim = 2, and {u, w} is the basis.');
+    }
+    [].slice.call(seg.querySelectorAll('button')).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        on[i] = !on[i];
+        b.setAttribute('aria-pressed', on[i] ? 'true' : 'false');
+        render();
+      });
+    });
+    sc.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Pivot Columns Win</h2>
+  <p class="vz-lede">Row operations keep the row space and wreck the column space. That single asymmetry
+    decides where each basis comes from: rows from the RREF, columns from the original A. Switch sides and
+    check every vector for yourself. <b>Like re-sorting a deck: the set of cards survives, the order of the
+    piles does not.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which side to inspect" id="v4-seg">
+    <button data-s="0" aria-pressed="true">ROW side</button>
+    <button data-s="1" aria-pressed="false">COLUMN side</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-k">bottom-right entry k = <span id="v4-kl">1</span></label>
+    <input type="range" id="v4-k" min="-2" max="3" value="1" step="1" aria-label="The entry k in the corner of A">
+    <div class="vz-mono" id="v4-mat" style="margin-top:10px"></div>
+    <div class="v4-table" id="v4-table"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Consistency is the same question in disguise: b is in Col A exactly when Ax = b is
+    solvable, which the RREF of [A b] shows as <b>no pivot in the last column</b>. And the columns span the
+    whole of R^m only when every <em>row</em> of rref(A) carries a pivot — here a zero row appears, so they
+    never do.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-table{margin-top:13px;display:flex;flex-direction:column;gap:5px}
+    .v4-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.35}
+    .v4-tag{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;font-family:inherit;text-align:right}
+    .v4-head{font-size:11px;font-weight:800;color:var(--viz-muted);letter-spacing:.04em;text-transform:uppercase;margin-top:4px}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var side = 0;
+    var seg = document.getElementById('v4-seg');
+    var sk = document.getElementById('v4-k'), skl = document.getElementById('v4-kl');
+    var mat = document.getElementById('v4-mat'), table = document.getElementById('v4-table'), why = document.getElementById('v4-why');
+
+    function rank(rows){
+      if (!rows.length || !rows[0].length) return 0;
+      var A = rows.map(function(r){ return r.slice(); });
+      var m = A.length, n = A[0].length, lead = 0, r = 0;
+      for (; r < m && lead < n;) {
+        var i = r;
+        while (i < m && Math.abs(A[i][lead]) < 1e-9) i++;
+        if (i === m) { lead++; continue; }
+        var t = A[i]; A[i] = A[r]; A[r] = t;
+        for (var k = r + 1; k < m; k++) {
+          var f = A[k][lead] / A[r][lead];
+          if (isFinite(f)) for (var q = 0; q < n; q++) A[k][q] -= f * A[r][q];
+        }
+        r++; lead++;
+      }
+      return r;
+    }
+    function rref(Min){
+      var A = Min.map(function(r){ return r.slice(); });
+      var rows = A.length, cols = A[0].length, lead = 0, piv = [];
+      for (var r = 0; r < rows && lead < cols;) {
+        var i = r;
+        while (i < rows && Math.abs(A[i][lead]) < 1e-9) i++;
+        if (i === rows) { lead++; continue; }
+        var t = A[i]; A[i] = A[r]; A[r] = t;
+        var lv = A[r][lead];
+        for (var j = 0; j < cols; j++) A[r][j] = A[r][j] / lv;
+        for (var k = 0; k < rows; k++) {
+          if (k === r) continue;
+          var f = A[k][lead];
+          if (Math.abs(f) > 1e-12) for (var q = 0; q < cols; q++) A[k][q] -= f * A[r][q];
+        }
+        piv.push(lead); r++; lead++;
+      }
+      for (var a = 0; a < rows; a++) for (var b = 0; b < cols; b++) {
+        var v = A[a][b];
+        if (!isFinite(v)) v = 0;
+        A[a][b] = Math.abs(v) < 1e-9 ? 0 : Math.round(v * 1e6) / 1e6;
+      }
+      return { R: A, piv: piv };
+    }
+    // b is reachable from `set` exactly when adding it does not raise the rank
+    function inSpan(set, b){ return rank(set.concat([b])) === rank(set); }
+    function fmt(x){ var v = Math.round(x * 1000) / 1000; if (!isFinite(v) || v === 0) v = 0; return String(v); }
+    function pad(s, w){ s = String(s); while (s.length < w) s = ' ' + s; return s; }
+    function vecs(v){ return '(' + v.map(fmt).join(', ') + ')'; }
+    function grid(A, mark){
+      return A.map(function(row, i){
+        return '  [ ' + row.map(function(x, j){ return pad(fmt(x), 5) + (mark && mark[j] ? '*' : ' '); }).join('') + ']';
+      }).join('\n');
+    }
+    function line(txt, ok, tag){
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      return '<div class="v4-r" style="border-color:' + col + '"><span>' + txt + '</span>' +
+        '<span class="v4-tag" style="color:' + col + '">' + tag + '</span></div>';
+    }
+
+    function render(){
+      var k = Number(sk.value);
+      if (!isFinite(k)) k = 1;
+      skl.textContent = String(k);
+      var A = [[1, 2, 1, 0], [2, 4, 3, 1], [3, 6, 4, 1], [1, 2, 2, k]];
+      var res = rref(A), R = res.R, piv = res.piv, r = piv.length;
+      var isP = {};
+      piv.forEach(function(c){ isP[c] = true; });
+      var cols = function(M, j){ return M.map(function(row){ return row[j]; }); };
+
+      mat.textContent = 'A  (4 x 4)\n' + grid(A, null) + '\n\nrref(A)   * marks a pivot column\n' + grid(R, isP);
+
+      var rowsA = A;
+      var rowsR = R.filter(function(row){ return row.some(function(x){ return Math.abs(x) > 1e-9; }); });
+      var colsA = [0, 1, 2, 3].map(function(j){ return cols(A, j); });
+      var colsRpiv = piv.map(function(j){ return cols(R, j); });
+      var colsApiv = piv.map(function(j){ return cols(A, j); });
+
+      var html = '';
+      if (side === 0) {
+        html += '<div class="v4-head">is each row of A reachable from the nonzero rows of R?</div>';
+        rowsA.forEach(function(row, i){
+          var ok = inSpan(rowsR, row);
+          html += line('row ' + (i + 1) + ' of A = ' + vecs(row), ok, ok ? 'YES — in the row space' : 'NO');
+        });
+        html += '<div class="v4-head">and back the other way?</div>';
+        rowsR.forEach(function(row, i){
+          var ok = inSpan(rowsA, row);
+          html += line('row ' + (i + 1) + ' of R = ' + vecs(row), ok, ok ? 'YES — in the row space' : 'NO');
+        });
+        why.innerHTML = '<b style="color:var(--viz-green)">Same subspace, both directions: the row space is unchanged.</b>' +
+          'Every row operation replaces a row by a combination of rows, so a new row can never leave the span of the old ones — and each operation is reversible, which gives the other inclusion. The basis is therefore the <b>' + rowsR.length + ' nonzero row' + (rowsR.length === 1 ? '' : 's') + ' of the RREF</b>, a ' + rowsR.length + '-dimensional subspace of R^4 (four entries per row, so R^4 — not R^' + A.length + ' by coincidence of shape). ' +
+          '<br><br>They are independent for a reason you can see in the matrix above: each pivot sits in a column where <em>every other row holds a zero</em>, so no combination of the others could ever reproduce it. Zero rows are not part of the basis and never count toward the dimension.';
+      } else {
+        html += '<div class="v4-head">is each column of A reachable from the PIVOT COLUMNS OF R?</div>';
+        colsA.forEach(function(col, j){
+          var ok = inSpan(colsRpiv, col);
+          html += line('col ' + (j + 1) + ' of A = ' + vecs(col), ok, ok ? 'yes' : 'NO — outside that span');
+        });
+        html += '<div class="v4-head">is each column of A reachable from the PIVOT COLUMNS OF A?</div>';
+        colsA.forEach(function(col, j){
+          var ok = inSpan(colsApiv, col);
+          html += line('col ' + (j + 1) + ' of A = ' + vecs(col), ok, ok ? 'YES — in Col A' : 'no');
+        });
+        why.innerHTML = '<b style="color:var(--viz-red)">The pivot POSITIONS survive elimination; the columns themselves do not.</b>' +
+          'Pivots landed in column' + (r === 1 ? ' ' : 's ') + piv.map(function(c){ return c + 1; }).join(' and ') + ', so a basis for Col A is those columns <b>of A</b> — dimension ' + r + ' inside R^4. Take the same positions from R and you get a span of coordinate vectors that misses every column of A, as the top block shows. ' +
+          '<br><br>What elimination <em>does</em> preserve is the dependency pattern: a free column is the same combination of the pivot columns before and after. Drag k and watch the pivot set jump — the basis follows the pivots, always taken from A.';
+      }
+      table.innerHTML = html;
+    }
+    [].slice.call(seg.querySelectorAll('button')).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        side = i;
+        [].slice.call(seg.querySelectorAll('button')).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    sk.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Free Variable Machine</h2>
+  <p class="vz-lede">Pivot variables are hostages: the free variables choose, and the pivots are forced.
+    Turn the free dials and watch a whole subspace of solutions appear, with Rx staying exactly zero.
+    <b>Like a recipe where you pick the spices and the flour is then decided for you.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Reduced matrix" id="v5-seg">
+    <button data-p="0" aria-pressed="true">two free</button>
+    <button data-p="1" aria-pressed="false">two free, shifted</button>
+    <button data-p="2" aria-pressed="false">full column rank</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v5-mat"></div>
+    <label class="v5-lab" for="v5-f1"><span id="v5-f1l">free 1</span></label>
+    <input type="range" id="v5-f1" min="-2" max="2" value="1" step="1" aria-label="First free variable">
+    <label class="v5-lab" for="v5-f2"><span id="v5-f2l">free 2</span></label>
+    <input type="range" id="v5-f2" min="-2" max="2" value="0" step="1" aria-label="Second free variable">
+    <div class="v5-out" id="v5-x"></div>
+    <div class="v5-bar" id="v5-bar"></div>
+    <div class="v5-spec" id="v5-spec"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">The dimension of the null space is the number of free variables, so it is n - r by
+    counting alone: a 5 x 7 matrix of rank 3 has nullity 4, whatever its entries are. And the special
+    solutions are independent for a structural reason — each one holds a 1 in a slot where all the others
+    hold 0, so no combination of the rest can imitate it.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:12px 0 6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-out{margin-top:13px;font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7}
+    .v5-out b{font-size:13px}
+    .v5-bar{margin-top:11px;display:flex;height:24px;border-radius:8px;overflow:hidden;border:1.5px solid var(--viz-line)}
+    .v5-bar span{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;overflow:hidden;white-space:nowrap}
+    .v5-spec{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v5-s{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.4}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var PRESETS = [
+      { R:[[1, 2, 0, 3], [0, 0, 1, 4]], piv:[0, 2], free:[1, 3] },
+      { R:[[1, 0, 2, -3], [0, 1, -1, 4]], piv:[0, 1], free:[2, 3] },
+      { R:[[1, 0, 0], [0, 1, 0], [0, 0, 1]], piv:[0, 1, 2], free:[] }
+    ];
+    var cur = 0;
+    var seg = document.getElementById('v5-seg');
+    var mat = document.getElementById('v5-mat');
+    var s1 = document.getElementById('v5-f1'), l1 = document.getElementById('v5-f1l');
+    var s2 = document.getElementById('v5-f2'), l2 = document.getElementById('v5-f2l');
+    var xout = document.getElementById('v5-x'), bar = document.getElementById('v5-bar');
+    var spec = document.getElementById('v5-spec'), why = document.getElementById('v5-why');
+
+    function fmt(x){ var v = Math.round(x * 1000) / 1000; if (!isFinite(v) || v === 0) v = 0; return String(v); }
+    function pad(s, w){ s = String(s); while (s.length < w) s = ' ' + s; return s; }
+    function vecs(v){ return '(' + v.map(fmt).join(', ') + ')'; }
+    function solve(P, vals){
+      var n = P.R[0].length;
+      var x = new Array(n);
+      for (var i = 0; i < n; i++) x[i] = 0;
+      P.free.forEach(function(f, i){ x[f] = vals[i] || 0; });
+      P.piv.forEach(function(p, i){
+        var s = 0;
+        P.free.forEach(function(f){ s += P.R[i][f] * x[f]; });
+        x[p] = -s;
+      });
+      return x;
+    }
+    function mul(R, x){
+      return R.map(function(row){
+        var s = 0;
+        for (var j = 0; j < row.length; j++) s += row[j] * x[j];
+        return Math.abs(s) < 1e-9 ? 0 : Math.round(s * 1000) / 1000;
+      });
+    }
+
+    function render(){
+      var P = PRESETS[cur];
+      var n = P.R[0].length, r = P.piv.length, nf = P.free.length;
+      var vals = [Number(s1.value) || 0, Number(s2.value) || 0];
+
+      s1.disabled = nf < 1;
+      s2.disabled = nf < 2;
+      l1.textContent = nf >= 1 ? 'x' + (P.free[0] + 1) + ' = ' + vals[0] + '   (free)' : 'no free variable';
+      l2.textContent = nf >= 2 ? 'x' + (P.free[1] + 1) + ' = ' + vals[1] + '   (free)' : 'no second free variable';
+
+      var lines = ['R  (already reduced)'];
+      P.R.forEach(function(row){ lines.push('  [ ' + row.map(function(v){ return pad(fmt(v), 4); }).join(' ') + ' ]'); });
+      lines.push('');
+      lines.push('  pivot columns: ' + P.piv.map(function(p){ return p + 1; }).join(', ') +
+        '   free columns: ' + (nf ? P.free.map(function(f){ return f + 1; }).join(', ') : 'none'));
+      mat.textContent = lines.join('\n');
+
+      var x = solve(P, vals);
+      var prod = mul(P.R, x);
+      var zero = prod.every(function(v){ return Math.abs(v) < 1e-9; });
+      var eqs = P.piv.map(function(p, i){
+        var terms = P.free.map(function(f){
+          var co = -P.R[i][f];
+          return (co >= 0 ? '+ ' : '- ') + fmt(Math.abs(co)) + '*x' + (f + 1);
+        }).join(' ');
+        return 'x' + (p + 1) + ' = ' + (terms.replace(/^\+ /, '') || '0');
+      }).join('\n');
+
+      xout.innerHTML = '<b>x = ' + vecs(x) + '</b><br>' +
+        '<span style="color:var(--viz-muted)">' + eqs.split('\n').join('<br>') + '</span><br>' +
+        '<span style="color:' + (zero ? 'var(--viz-green)' : 'var(--viz-red)') + ';font-weight:800">R&#183;x = ' + vecs(prod) +
+        (zero ? '  — zero, so x is in the null space' : '  — not zero') + '</span>';
+
+      var pr = Math.round(r / n * 100);
+      bar.innerHTML =
+        '<span style="width:' + pr + '%;background:var(--viz-accent)">rank ' + r + '</span>' +
+        '<span style="width:' + (100 - pr) + '%;background:var(--viz-amber);color:#1b1b1b">nullity ' + (n - r) + '</span>';
+
+      spec.innerHTML = nf
+        ? P.free.map(function(f, i){
+            var e = P.free.map(function(g){ return g === f ? 1 : 0; });
+            var s = solve(P, e);
+            return '<div class="v5-s">special solution ' + (i + 1) + ': set x' + (f + 1) + ' = 1, other free = 0 &nbsp;&rarr;&nbsp; <b>' + vecs(s) + '</b></div>';
+          }).join('')
+        : '<div class="v5-s">no free variables, so there are no special solutions: the null space is just the zero vector.</div>';
+
+      why.innerHTML = nf
+        ? '<b>' + nf + ' free variable' + (nf === 1 ? '' : 's') + ' &rarr; a ' + nf + '-dimensional null space inside R^' + n + '.</b>' +
+          'Each pivot row is read as one equation for its pivot variable, and moving a coefficient across the equals sign <b>flips its sign</b> — that is where nearly every wrong answer comes from. The vector on screen is exactly ' +
+          P.free.map(function(f, i){ return 'x' + (f + 1) + '&#183;s' + (i + 1); }).join(' + ') +
+          ', so the special solutions do not merely belong to the null space, they are a basis for it. ' +
+          '<br><br>Try setting every dial to 0: you land on the zero vector, which is in every null space. Any other setting gives a nonzero solution to Rx = 0, which is precisely why a matrix with free columns cannot be injective.'
+        : '<b style="color:var(--viz-green)">Full column rank: a pivot in every column, so no free variables at all.</b>' +
+          'There is nothing left to choose, every pivot variable is forced to 0, and the null space collapses to {0} — dimension 0 inside R^' + n + '. ' +
+          '<br><br>This is the shape of an injective map, and it is rank-nullity doing the talking: rank ' + r + ' + nullity 0 = ' + n + ' columns.';
+    }
+    [].slice.call(seg.querySelectorAll('button')).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(seg.querySelectorAll('button')).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    s1.addEventListener('input', render);
+    s2.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. Rows That Vanish</h2>
+  <p class="vz-lede">The left null space is the list of recipes that make the rows cancel — the very
+    combinations elimination used when it produced a zero row. Mix the three rows and hunt for zero.
+    <b>Like three ingredients that, in one exact ratio, taste of nothing at all.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v6-mat"></div>
+    <label class="v6-lab" for="v6-y1">y1 = <span id="v6-y1l">1</span></label>
+    <input type="range" id="v6-y1" min="-2" max="2" value="1" step="0.5" aria-label="Weight on row 1">
+    <label class="v6-lab" for="v6-y2">y2 = <span id="v6-y2l">0</span></label>
+    <input type="range" id="v6-y2" min="-2" max="2" value="0" step="0.5" aria-label="Weight on row 2">
+    <label class="v6-lab" for="v6-y3">y3 = <span id="v6-y3l">0</span></label>
+    <input type="range" id="v6-y3" min="-2" max="2" value="0" step="0.5" aria-label="Weight on row 3">
+    <button class="v6-snap" id="v6-snap">snap to y = (1, 1, -1)</button>
+    <div class="v6-out" id="v6-out"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Right-hand side b" id="v6-bseg" style="margin-top:12px">
+    <button data-b="0" aria-pressed="true">b = (1, 1, 2)</button>
+    <button data-b="1" aria-pressed="false">b = (1, 1, 3)</button>
+  </div>
+  <div class="vz-card"><div class="v6-why" id="v6-why"></div></div>
+
+  <p class="vz-note">Dimension by counting: an m x n matrix of rank r has a left null space of dimension
+    m - r, so a 4 x 3 matrix of rank 2 leaves 2 independent relationships among its 4 rows. It is the
+    Rank-Nullity Theorem applied to A transpose, and the reason the four subspaces come in two matched
+    pairs — r and n - r inside R^n, r and m - r inside R^m.</p>
+
+  <style>
+    .v6-lab{font-size:12.5px;font-weight:700;display:block;margin:11px 0 6px}
+    .v6-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v6-snap{margin-top:12px;width:100%;min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-surface);
+      color:var(--viz-accent);border-radius:10px;font:inherit;font-weight:800;font-size:12.5px}
+    .v6-out{margin-top:13px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7}
+    .v6-row{display:flex;gap:8px;align-items:center;border-top:1px dashed var(--viz-line);padding-top:7px;margin-top:7px}
+    .v6-why{font-size:12.5px;line-height:1.6}
+    .v6-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var A = [[1, 0], [0, 1], [1, 1]];
+    var BS = [[1, 1, 2], [1, 1, 3]];
+    var bi = 0;
+    var mat = document.getElementById('v6-mat');
+    var s = [document.getElementById('v6-y1'), document.getElementById('v6-y2'), document.getElementById('v6-y3')];
+    var l = [document.getElementById('v6-y1l'), document.getElementById('v6-y2l'), document.getElementById('v6-y3l')];
+    var snap = document.getElementById('v6-snap');
+    var out = document.getElementById('v6-out');
+    var bseg = document.getElementById('v6-bseg'), why = document.getElementById('v6-why');
+
+    function fmt(x){ var v = Math.round(x * 1000) / 1000; if (!isFinite(v) || v === 0) v = 0; return String(v); }
+    function vecs(v){ return '(' + v.map(fmt).join(', ') + ')'; }
+    function sign(x){ return x < 0 ? ' - ' + fmt(Math.abs(x)) : ' + ' + fmt(x); }
+
+    mat.textContent = 'A  (3 x 2),  rank r = 2,  m - r = 1\n' +
+      '  [ 1  0 ]   <- row 1\n' +
+      '  [ 0  1 ]   <- row 2\n' +
+      '  [ 1  1 ]   <- row 3';
+
+    function render(){
+      var y = s.map(function(el){ var v = Number(el.value); return isFinite(v) ? v : 0; });
+      y.forEach(function(v, i){ l[i].textContent = fmt(v); });
+      var comb = [0, 0];
+      for (var i = 0; i < 3; i++) for (var j = 0; j < 2; j++) comb[j] += y[i] * A[i][j];
+      comb = comb.map(function(v){ return Math.abs(v) < 1e-9 ? 0 : Math.round(v * 1000) / 1000; });
+      var isNull = comb.every(function(v){ return Math.abs(v) < 1e-9; });
+      var col = isNull ? 'var(--viz-green)' : 'var(--viz-red)';
+      var b = BS[bi];
+      var yb = 0;
+      for (var q = 0; q < 3; q++) yb += y[q] * b[q];
+      yb = Math.abs(yb) < 1e-9 ? 0 : Math.round(yb * 1000) / 1000;
+      var bInCol = Math.abs(b[0] + b[1] - b[2]) < 1e-9;   // Col A is the plane x1 + x2 = x3
+
+      out.innerHTML =
+        '<span>' + fmt(y[0]) + '&#183;(1,0)' + sign(y[1]) + '&#183;(0,1)' + sign(y[2]) + '&#183;(1,1)</span><br>' +
+        '<b style="color:' + col + '">= ' + vecs(comb) + (isNull ? '   — the rows cancel' : '   — not zero yet') + '</b>' +
+        '<div class="v6-row"><span>y &#183; col 1 = ' + fmt(comb[0]) + '</span><span>y &#183; col 2 = ' + fmt(comb[1]) + '</span></div>' +
+        '<div class="v6-row"><span style="color:' + (yb === 0 ? 'var(--viz-green)' : 'var(--viz-red)') + '">y&#183;b = ' + fmt(yb) +
+        ' &nbsp;for&nbsp; b = ' + vecs(b) + '</span></div>';
+
+      why.innerHTML = isNull && (y[0] !== 0 || y[1] !== 0 || y[2] !== 0)
+        ? '<b style="color:var(--viz-green)">y = ' + vecs(y) + ' is in the left null space: y-transpose times A = 0.</b>' +
+          'Written out, that is a relationship among the rows — row 1 + row 2 - row 3 = 0 up to your scaling — and every such y is a multiple of (1, 1, -1), so this left null space is a line: dimension m - r = 3 - 2 = 1. ' +
+          'The two numbers just above are y dotted with each <b>column</b>, and they are the same two numbers, which is the whole reason the left null space is the set of vectors <b>orthogonal to the column space</b> inside R^3. ' +
+          '<br><br>Now read y&#183;b. Any solvable system gives y&#183;b = y&#183;(Ax) = 0, so ' +
+          (bInCol
+            ? 'y&#183;b = 0 here is the consistency you would expect: b = ' + vecs(b) + ' lies in Col A and Ax = b has a solution.'
+            : '<b>y&#183;b = ' + fmt(yb) + ' is a certificate of impossibility</b>: no x whatsoever solves Ax = ' + vecs(b) + ', and one dot product proved it without touching elimination.')
+        : '<b>Not zero yet — keep mixing.</b>' +
+          'y-transpose times A takes the three rows with weights y1, y2, y3 and adds them up; the left null space is exactly the set of weightings that reach the zero row. Here Col A is the plane x1 + x2 = x3 in R^3, so one direction is left over and the recipes form a line. ' +
+          '<br><br>Snap to (1, 1, -1) to land on it. Note what this is NOT: the null space asks for A&#183;x = 0 and lives in R^2 with the columns; this asks for A-transpose&#183;y = 0 and lives in R^3 with the rows. Same matrix, opposite side, different home space.';
+    }
+    s.forEach(function(el){ el.addEventListener('input', render); });
+    snap.addEventListener('click', function(){
+      s[0].value = 1; s[1].value = 1; s[2].value = -1;
+      render();
+    });
+    [].slice.call(bseg.querySelectorAll('button')).forEach(function(btn, i){
+      btn.addEventListener('click', function(){
+        bi = i;
+        [].slice.call(bseg.querySelectorAll('button')).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

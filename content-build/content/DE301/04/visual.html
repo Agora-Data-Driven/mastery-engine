@@ -1,0 +1,643 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Features To Text</button>
+  <button class="viz-tab" data-viz-tab="2">2. Parse Or Quarantine</button>
+  <button class="viz-tab" data-viz-tab="3">3. MinHash And SimHash</button>
+  <button class="viz-tab" data-viz-tab="4">4. Bands And Rows</button>
+  <button class="viz-tab" data-viz-tab="5">5. Funnel With Reasons</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Features To Text</h2>
+  <p class="vz-lede">Everything this course taught about feature pipelines — named stages, versions, "as of
+    when", rebuildable datasets — is the same discipline applied to far messier raw material. Tap a familiar
+    idea and see where it lands in a text pipeline. <b>Like moving from a tidy spreadsheet to a shoebox of
+    receipts: the accounting rules do not change, the inputs just fight back.</b></p>
+
+  <div class="v1-list" id="v1-list"></div>
+
+  <div class="v1-strip" id="v1-strip"></div>
+
+  <div class="vz-card">
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The through-line: <b>each stage changes what downstream models can learn and
+    retrieve.</b> Separating the stages and recording their versions is what makes false removals, parser
+    defects and distribution shifts diagnosable instead of irreversible — which is exactly why you versioned
+    datasets alongside models in the first place.</p>
+
+  <style>
+    .v1-list{display:flex;flex-direction:column;gap:6px;margin-bottom:13px}
+    .v1-b{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v1-b[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-k{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;
+      color:var(--viz-muted);width:56px}
+    .v1-strip{display:flex;flex-wrap:wrap;gap:3px;margin-bottom:13px}
+    .v1-st{flex:1 1 auto;border:1.5px solid var(--viz-line);border-radius:7px;padding:6px 7px;
+      font-family:ui-monospace,Consolas,monospace;font-size:9.5px;letter-spacing:.02em;
+      color:var(--viz-muted);background:var(--viz-bg);text-align:center}
+    .v1-st.is-on{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = ['source bytes','parse + extract','normalize','exact dedupe','near-dedupe','language ID','quality filter','corpus'];
+    var ROWS = [
+      { k:'DE301/01', t:'Feature Pipelines: From Raw Events to Model Inputs', at:1,
+        why:['Raw bytes replace raw events; the staging is identical.',
+          'Parsing converts source formats — HTML, PDF, office documents, email, code — into a structured document representation. Extraction then selects text, headings, tables, links, images, metadata and source locations. ' +
+          '<br><br>And note what is <em>not</em> in that pair: <b>chunking</b>, which chooses retrieval units, is a later stage. Collapse it into parsing and a parser upgrade silently rewrites the units your retriever indexes.'] },
+      { k:'DE301/01', t:'Feature Stores: Offline Training vs Online Serving', at:4,
+        why:['One corpus, two consumers, two different acceptable errors.',
+          'The offline/online split has a direct analogue in near-duplicate policy: <b>deduplication purpose changes the acceptable error</b>. Training may remove repeated pages to reduce memorization; retrieval may retain jurisdiction-specific copies whose wording is identical but whose metadata differs. ' +
+          '<br><br>So define whether the unit is content, source record, document version or permission-scoped artifact <em>before</em> labeling a pair duplicate.'] },
+      { k:'DE301/02', t:'Point-in-Time Correctness and Label Leakage', at:0,
+        why:['"As of when" here means: which parser version, on which bytes.',
+          'Use <b>immutable source bytes</b> as the input boundary. Record content hash, media type, source URI, fetch metadata, parser name, parser version, options and run ID, and output a <em>versioned parsed artifact</em> rather than overwriting the source record. ' +
+          '<br><br>A parser upgrade can then rebuild descendants without pretending the original document changed — which is the same protection point-in-time joins gave a feature row.'] },
+      { k:'DE301/02', t:'Training-Serving Skew', at:2,
+        why:['Skew is caught by measuring distributions. So are parser defects.',
+          'Stage boundaries improve testing: <b>golden fixtures</b> assert extracted headings, page spans, table cells and exact text under each parser version, and <b>corpus-level canaries</b> measure length distributions, language shifts and failure rates before a new parser is promoted. ' +
+          '<br><br>Normalization is part of what they guard — Unicode normalization, whitespace, line endings, hyphenation repair and boilerplate removal can all change code, identifiers or tables.'] },
+      { k:'DE301/03', t:'Versioning Datasets and Snapshots over Live Queries', at:7,
+        why:['The corpus is a dataset, and it gets the same immutability rule.',
+          'Version every decision and retain lineage from a rejected item back to the rule and the measured features. When a threshold changes, <b>rebuild a candidate corpus under a new version</b>, compare distribution and downstream evaluation, then publish immutably. ' +
+          '<br><br>Do not gradually mutate the only corpus. A smaller corpus with explained provenance and measured filters is more useful than a larger opaque one whose missing voices cannot be diagnosed.'] }
+    ];
+    var list = document.getElementById('v1-list');
+    var strip = document.getElementById('v1-strip');
+    var why = document.getElementById('v1-why');
+
+    function show(i){
+      var r = ROWS[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      strip.innerHTML = STAGES.map(function(s, j){
+        return '<div class="v1-st' + (j === r.at ? ' is-on' : '') + '">' + (j === r.at ? '▸ ' : '') + s + '</div>';
+      }).join('');
+      why.innerHTML = '<b>' + r.why[0] + '</b>' + r.why[1];
+    }
+    ROWS.forEach(function(r, i){
+      var b = document.createElement('button');
+      b.className = 'v1-b';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-k">' + r.k + '</span><span>' + r.t + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Parse Or Quarantine</h2>
+  <p class="vz-lede">Extraction fails constantly, and the only question that matters is whether it fails
+    <em>loudly</em>. Pick a format, then choose what the stage does when it cannot parse. <b>Like a courier
+    who either leaves a "we tried" card or quietly drops the parcel in a hedge.</b></p>
+
+  <div class="v2-list" id="v2-list"></div>
+
+  <div class="vz-seg" role="group" aria-label="Failure policy">
+    <button id="v2-silent" aria-pressed="false">✗ silently return empty text</button>
+    <button id="v2-explicit" aria-pressed="true">✓ explicit outcome</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-fail">Failures in this batch: <span id="v2-faill">18</span> of 1,000 documents</label>
+    <input type="range" id="v2-fail" min="0" max="60" value="18" step="1" aria-label="Failed documents per 1,000">
+    <div class="v2-pills" id="v2-pills"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two things the policy cannot fix on its own. <b>Source offsets:</b> normalized character
+    positions may not map to HTML bytes or PDF coordinates, so preserve page and block identifiers, DOM
+    paths, bounding boxes or span mappings — a plain text blob cannot cite its evidence. <b>Resource
+    limits:</b> cap decompressed size, page count, recursion depth, OCR time and memory per artifact, record
+    a specific limit-exceeded outcome instead of retrying forever, and parse untrusted formats in isolated
+    workers with restricted network and filesystem permissions.</p>
+
+  <style>
+    .v2-list{display:flex;flex-direction:column;gap:6px;margin-bottom:13px}
+    .v2-f{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:10px;line-height:1.35}
+    .v2-f[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-tag{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;font-weight:800;
+      color:var(--viz-muted);width:60px}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-hint{font-size:12.5px;line-height:1.6;margin-top:11px}
+    .v2-hint b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var FORMATS = [
+      { tag:'HTML', t:'navigation, scripts, cookie banners, chrome',
+        why:['Extraction here is mostly deletion — carefully.',
+          'Remove navigation, embedded scripts, cookie banners and repeated chrome while <b>preserving meaningful headings and links</b>. Strip too little and every page shares a boilerplate template, which later dominates near-duplicate signatures. Strip too much and the headings that gave the document its structure are gone.'] },
+      { tag:'PDF', t:'reading order, columns, headers, footers, tables',
+        why:['A PDF describes marks on a page, not a document.',
+          'Extraction must reconstruct reading order and handle columns, running headers and footers, page numbers and tables. Get reading order wrong and the text is fluent nonsense: it parses, it is non-empty, and no rule in the pipeline notices.'] },
+      { tag:'SCAN', t:'OCR: model version, confidence, layout errors',
+        why:['OCR adds a second model, and therefore a second version.',
+          'A scanned page has no text layer at all, so OCR supplies one — with <b>its own model version, confidence and layout errors</b>. Record all three next to the artifact, or a later quality rule that rejects "unusual spacing" is silently rejecting your scanned subcorpus rather than bad text.'] },
+      { tag:'CODE', t:'normalization that corrupts identifiers',
+        why:['Aggressive normalization is a parser bug with no error.',
+          'Unicode normalization, whitespace handling, line endings and hyphenation repair are helpful on prose and destructive on code, identifiers and tables. Version normalization policies <b>by document type</b> and retain pre-normalized output, so an audit can tell a parser error from a normalizer error.'] }
+    ];
+    var explicit = true;
+    var list = document.getElementById('v2-list');
+    var bS = document.getElementById('v2-silent'), bE = document.getElementById('v2-explicit');
+    var slider = document.getElementById('v2-fail'), sl = document.getElementById('v2-faill');
+    var pills = document.getElementById('v2-pills'), why = document.getElementById('v2-why');
+    var cur = 0;
+
+    function pill(txt, colour){
+      return '<span class="v2-pill" style="color:' + colour + ';border-color:' + colour + '">' + txt + '</span>';
+    }
+    function render(){
+      var n = Number(slider.value);
+      sl.textContent = n;
+      bS.setAttribute('aria-pressed', explicit ? 'false' : 'true');
+      bE.setAttribute('aria-pressed', explicit ? 'true' : 'false');
+      var rate = (n / 10).toFixed(1);
+
+      pills.innerHTML = explicit
+        ? pill(n + ' quarantine records', 'var(--viz-amber)') +
+          pill('empty rate ' + rate + '% — measured', 'var(--viz-green)') +
+          pill((1000 - n) + ' documents downstream', 'var(--viz-green)')
+        : pill('0 quarantine records', 'var(--viz-red)') +
+          pill('empty rate — invisible', 'var(--viz-red)') +
+          pill('1,000 documents downstream', 'var(--viz-red)');
+
+      var f = FORMATS[cur];
+      why.innerHTML = '<b>' + f.why[0] + '</b>' + f.why[1] +
+        '<div class="v2-hint">' + (explicit
+          ? '<b style="color:var(--viz-green)">Explicit outcome: success, partial with warnings, or quarantine.</b>' +
+            'The ' + n + ' failures leave a <b>quarantine record with an error class and diagnostics</b>, so the batch reports an empty rate of ' + rate + '% and an extracted-to-source-size ratio you can chart by format. ' +
+            'A parser regression now shows up as a distribution shift on the next run, on the day it happens.'
+          : '<b style="color:var(--viz-red)">Silently returning empty text is the dangerous outcome.</b>' +
+            'All ' + n + ' failures enter the corpus as documents of length zero — and <b>an empty document looks exactly like a valid short one</b>, so nothing downstream objects. ' +
+            'They pass chunking, they pass embedding, they land in hot LSH buckets full of "identical" empty text, and the only trace is a number nobody is computing. ' +
+            'The failure is not the parse; it is the report.') +
+        '</div>';
+    }
+    FORMATS.forEach(function(f, i){
+      var b = document.createElement('button');
+      b.className = 'v2-f';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v2-tag">' + f.tag + '</span><span>' + f.t + '</span>';
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(list.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+      list.appendChild(b);
+    });
+    list.children[0].setAttribute('aria-pressed', 'true');
+    slider.addEventListener('input', render);
+    bS.addEventListener('click', function(){ explicit = false; render(); });
+    bE.addEventListener('click', function(){ explicit = true; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. MinHash And SimHash</h2>
+  <p class="vz-lede">Exact hashes only catch byte-identical copies. These two build a compact
+    <em>signature</em> whose agreement estimates a similarity you actually care about. Switch method, then
+    drag the agreement. <b>Like recognising a song from eight bars rather than comparing the whole
+    recording.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Signature method">
+    <button id="v3-min" aria-pressed="true">MinHash → Jaccard</button>
+    <button id="v3-sim" aria-pressed="false">SimHash → Hamming</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-s"><span id="v3-labl">Matching components: 102 of 128</span></label>
+    <input type="range" id="v3-s" min="0" max="128" value="102" step="1" aria-label="Signature agreement">
+    <div class="v3-bits" id="v3-bits"></div>
+    <div class="v3-out" id="v3-out"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <div class="v3-shing" id="v3-shing"></div>
+  <div class="v3-snote" id="v3-snote"></div>
+
+  <p class="vz-note">Neither signature proves <b>semantic equivalence</b> — two contradictory documents
+    sharing a template can look near-duplicate. And <b>containment is not symmetric</b>: a short article
+    copied inside a long compilation has low Jaccard despite substantial reuse, so compare containment
+    ratios or segment the long document, and retain the metric and threshold in pair provenance.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-bits{margin-top:14px;display:grid;grid-template-columns:repeat(16,1fr);gap:2px}
+    .v3-bit{height:9px;border-radius:1.5px;background:var(--viz-line)}
+    .v3-bit.is-hit{background:var(--viz-green)}
+    .v3-bit.is-miss{background:var(--viz-red)}
+    .v3-out{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-shing{display:flex;gap:6px;margin:13px 0 0;flex-wrap:wrap}
+    .v3-shing button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px}
+    .v3-shing button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v3-snote{font-size:12.5px;line-height:1.6;margin-top:11px}
+    .v3-snote b{display:block;font-size:13px;margin-bottom:4px}
+    .v3-bars{display:flex;flex-direction:column;gap:7px;margin-top:9px}
+    .v3-bar h6{margin:0 0 3px;font-size:11px;font-weight:700;display:flex;justify-content:space-between;color:var(--viz-muted)}
+    .v3-track{height:12px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+  </style>
+  <script>
+  (function(){
+    var minhash = true, shing = 1;
+    var SHINGLES = [
+      { l:'3-word', tol:0.90, acc:0.72,
+        why:['Small shingles tolerate edits — and collide by accident.',
+          'Almost any edit leaves most 3-word runs intact, so the estimate stays high through rewriting. The cost is that unrelated documents share short runs constantly, so accidental overlap inflates similarity and the threshold has to move up to compensate.'] },
+      { l:'5-word', tol:0.62, acc:0.30,
+        why:['Normalized word 5-grams are the usual working default.',
+          'Long enough that shared runs mean something, short enough that a reworded sentence does not destroy every shingle it touches. Whatever you pick, it is part of the signature version — change it and existing signatures are no longer comparable.'] },
+      { l:'8-word', tol:0.28, acc:0.09,
+        why:['Large shingles demand longer exact runs.',
+          'Selectivity goes up and near-duplicates with light editing start slipping below threshold. This is also where short documents suffer worst: they have few shingles to begin with, so their similarity estimates are unstable.'] }
+    ];
+    var bMin = document.getElementById('v3-min'), bSim = document.getElementById('v3-sim');
+    var s = document.getElementById('v3-s'), lab = document.getElementById('v3-labl');
+    var bits = document.getElementById('v3-bits'), out = document.getElementById('v3-out'), why = document.getElementById('v3-why');
+    var shBox = document.getElementById('v3-shing'), shNote = document.getElementById('v3-snote');
+
+    function pill(t, c){ return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      bMin.setAttribute('aria-pressed', minhash ? 'true' : 'false');
+      bSim.setAttribute('aria-pressed', minhash ? 'false' : 'true');
+      var N = minhash ? 128 : 64;
+      if (Number(s.max) !== N) { s.max = String(N); s.value = String(minhash ? 102 : 58); }
+      var m = Math.min(Number(s.value), N);
+
+      var cells = '';
+      for (var i = 0; i < N; i++) cells += '<div class="v3-bit ' + (i < m ? 'is-hit' : 'is-miss') + '"></div>';
+      bits.innerHTML = cells;
+
+      if (minhash) {
+        var est = m / N;
+        lab.textContent = 'Matching components: ' + m + ' of 128';
+        out.innerHTML =
+          pill(m + '/128 = ' + est.toFixed(3), 'var(--viz-accent)') +
+          pill('estimated Jaccard', 'var(--viz-muted)') +
+          pill(est >= 0.8 ? 'near-duplicate' : (est >= 0.5 ? 'candidate' : 'distinct'),
+            est >= 0.8 ? 'var(--viz-red)' : (est >= 0.5 ? 'var(--viz-amber)' : 'var(--viz-green)'));
+        why.innerHTML = '<b>The match rate <em>is</em> the estimate.</b>' +
+          'Jaccard similarity is <code>|A intersection B| / |A union B|</code> over the two documents’ shingle sets. For each independent hash permutation you keep the minimum hashed shingle — and <b>the probability that two documents share one component equals their Jaccard similarity</b>. So counting agreements estimates it directly: ' +
+          m + ' of 128 gives <b>' + est.toFixed(3) + '</b>. ' +
+          '<br><br>More components reduce estimator variance and cost storage and comparison time; the reference figure is <code>102/128 = 0.797</code>. Green cells are agreements, red are disagreements — nothing here compares a single byte of the documents themselves.';
+      } else {
+        var d = N - m;
+        lab.textContent = 'Bits differing (Hamming distance): ' + d + ' of 64';
+        out.innerHTML =
+          pill('Hamming distance ' + d, 'var(--viz-accent)') +
+          pill('angular / cosine similarity', 'var(--viz-muted)') +
+          pill(d <= 3 ? 'near-duplicate' : (d <= 12 ? 'candidate' : 'distinct'),
+            d <= 3 ? 'var(--viz-red)' : (d <= 12 ? 'var(--viz-amber)' : 'var(--viz-green)'));
+        why.innerHTML = '<b>SimHash approximates angular similarity over weighted features.</b>' +
+          'Hash each feature to a bit vector, <b>add or subtract its weight in every bit dimension</b> depending on that hash bit, then set each signature bit by the <b>sign of the accumulated coordinate</b>. Similar feature-weight vectors therefore end up with a small Hamming distance: here ' + d + ' of 64 bits differ. ' +
+          '<br><br>Green cells are agreeing bits, red are the differing ones. MinHash is natural for set overlap and containment variants with suitable shingling; SimHash is for weighted bag-of-features similarity and pages that differ by small edits.';
+      }
+
+      [].slice.call(shBox.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === shing ? 'true' : 'false'); });
+      var sh = SHINGLES[shing];
+      shNote.innerHTML = '<b>' + sh.why[0] + '</b>' +
+        '<div class="v3-bars">' +
+        '<div class="v3-bar"><h6><span>edit tolerance</span><span>' + Math.round(sh.tol * 100) + '%</span></h6>' +
+        '<div class="v3-track"><i style="width:' + (sh.tol * 100) + '%;background:var(--viz-green)"></i></div></div>' +
+        '<div class="v3-bar"><h6><span>accidental overlap</span><span>' + Math.round(sh.acc * 100) + '%</span></h6>' +
+        '<div class="v3-track"><i style="width:' + (sh.acc * 100) + '%;background:var(--viz-red)"></i></div></div>' +
+        '</div>' + sh.why[1];
+    }
+
+    SHINGLES.forEach(function(sh, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = sh.l + ' shingles';
+      b.addEventListener('click', function(){ shing = i; render(); });
+      shBox.appendChild(b);
+    });
+    bMin.addEventListener('click', function(){ minhash = true; render(); });
+    bSim.addEventListener('click', function(){ minhash = false; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Bands And Rows</h2>
+  <p class="vz-lede">All-pairs comparison is impossible at corpus scale, so LSH buckets signatures and only
+    compares what collides. Two dials shape the curve that decides what collides. <b>Like a sieve: the mesh
+    size decides what falls through, and you can only pick one mesh.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <div class="v4-nrow" id="v4-nrow"></div>
+    <div class="v4-wall" id="v4-wall"></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-b">Bands <span id="v4-bl">20</span></label>
+    <input type="range" id="v4-b" min="1" max="40" value="20" step="1" aria-label="Number of bands">
+    <label class="v4-lab" for="v4-r">Rows per band <span id="v4-rl">5</span></label>
+    <input type="range" id="v4-r" min="1" max="16" value="5" step="1" aria-label="Rows per band">
+    <div class="v4-plot" id="v4-plot"></div>
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The LSH stage generates <b>candidates only</b> — a verification stage still calculates
+    Jaccard, Hamming distance or another exact criterion. Watch the buckets too: empty documents, common
+    boilerplate and repeated default pages make buckets go hot. Cap or special-case them, never discard them
+    silently — a huge bucket may be a real template family, or a parsing bug producing identical empty text.</p>
+
+  <style>
+    .v4-nrow{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:11px}
+    .v4-nrow button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-nrow button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v4-wall{font-size:12.5px;line-height:1.6}
+    .v4-wall b{display:block;font-size:13px;margin-bottom:4px}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-plot{margin-top:14px}
+    .v4-plot svg{width:100%;height:auto;display:block}
+    .v4-pills{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NS = [10000, 1000000, 100000000];
+    var ni = 1, b = 20, r = 5;
+    var nrow = document.getElementById('v4-nrow'), wall = document.getElementById('v4-wall');
+    var sb = document.getElementById('v4-b'), sr = document.getElementById('v4-r');
+    var bl = document.getElementById('v4-bl'), rl = document.getElementById('v4-rl');
+    var plot = document.getElementById('v4-plot'), pills = document.getElementById('v4-pills'), why = document.getElementById('v4-why');
+
+    function p(s){ return 1 - Math.pow(1 - Math.pow(s, r), b); }
+    function pill(t, c){ return '<span class="v4-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function fmt(x){ return x.toLocaleString('en-US'); }
+
+    function renderWall(){
+      var N = NS[ni];
+      var pairs = N * (N - 1) / 2;
+      [].slice.call(nrow.children).forEach(function(x, j){ x.setAttribute('aria-pressed', j === ni ? 'true' : 'false'); });
+      wall.innerHTML = '<b style="color:var(--viz-red)">' + fmt(N) + ' documents → ' + fmt(pairs) + ' pairs.</b>' +
+        'Comparing every pair of N documents requires roughly <code>N*(N-1)/2</code> comparisons, which is infeasible at corpus scale — this is the wall, and it grows quadratically while your corpus grows linearly. ' +
+        'Locality-sensitive hashing places signatures into buckets so that similar items are <em>likely</em> to collide and become candidate pairs; exact or higher-quality similarity is then computed only for those candidates.';
+    }
+
+    function render(){
+      b = Number(sb.value); r = Number(sr.value);
+      bl.textContent = b; rl.textContent = r;
+
+      var W = 300, H = 150, x0 = 30, y0 = 12, pw = W - x0 - 8, ph = H - y0 - 26;
+      var pts = [];
+      for (var i = 0; i <= 100; i++) {
+        var s = i / 100;
+        pts.push((x0 + s * pw).toFixed(1) + ',' + (y0 + (1 - p(s)) * ph).toFixed(1));
+      }
+      function xat(s){ return x0 + s * pw; }
+      function yat(v){ return y0 + (1 - v) * ph; }
+      var p80 = p(0.8), p30 = p(0.3);
+      plot.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Candidate probability against Jaccard similarity">' +
+        '<line x1="' + x0 + '" y1="' + (y0 + ph) + '" x2="' + (x0 + pw) + '" y2="' + (y0 + ph) + '" style="stroke:var(--viz-line);stroke-width:1"/>' +
+        '<line x1="' + x0 + '" y1="' + y0 + '" x2="' + x0 + '" y2="' + (y0 + ph) + '" style="stroke:var(--viz-line);stroke-width:1"/>' +
+        '<line x1="' + xat(0.3) + '" y1="' + y0 + '" x2="' + xat(0.3) + '" y2="' + (y0 + ph) + '" style="stroke:var(--viz-green);stroke-width:1;stroke-dasharray:3 3"/>' +
+        '<line x1="' + xat(0.8) + '" y1="' + y0 + '" x2="' + xat(0.8) + '" y2="' + (y0 + ph) + '" style="stroke:var(--viz-red);stroke-width:1;stroke-dasharray:3 3"/>' +
+        '<polyline points="' + pts.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2"/>' +
+        '<circle cx="' + xat(0.3) + '" cy="' + yat(p30) + '" r="3.5" style="fill:var(--viz-green)"/>' +
+        '<circle cx="' + xat(0.8) + '" cy="' + yat(p80) + '" r="3.5" style="fill:var(--viz-red)"/>' +
+        '<text x="2" y="' + (y0 + 5) + '" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,Consolas,monospace">1.00</text>' +
+        '<text x="2" y="' + (y0 + ph) + '" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,Consolas,monospace">0.00</text>' +
+        '<text x="' + (xat(0.3) - 10) + '" y="' + (H - 8) + '" style="fill:var(--viz-green);font-size:9px;font-family:ui-monospace,Consolas,monospace">s=0.3</text>' +
+        '<text x="' + (xat(0.8) - 10) + '" y="' + (H - 8) + '" style="fill:var(--viz-red);font-size:9px;font-family:ui-monospace,Consolas,monospace">s=0.8</text>' +
+        '<text x="' + x0 + '" y="' + (H - 8) + '" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,Consolas,monospace">0</text>' +
+        '</svg>';
+
+      pills.innerHTML =
+        pill('signature = ' + (b * r) + ' components', 'var(--viz-muted)') +
+        pill('s=0.8 → ' + p80.toFixed(4), p80 > 0.9 ? 'var(--viz-green)' : 'var(--viz-amber)') +
+        pill('s=0.3 → ' + p30.toFixed(4), p30 < 0.1 ? 'var(--viz-green)' : 'var(--viz-amber)');
+
+      var wide = b >= 24 && r <= 4, tight = r >= 9 || b <= 4;
+      why.innerHTML = '<b>Candidate if all ' + r + ' values match in at least one of ' + b + ' bands: ' +
+        '<code>1 - (1 - s^' + r + ')^' + b + '</code></b>' +
+        'At similarity 0.8 that is <b>' + p80.toFixed(4) + '</b>; at 0.3 it is <b>' + p30.toFixed(4) + '</b>. The reference setting of <b>20 bands of 5 rows</b> gives about 0.9996 and about 0.0475 — an <b>S-shaped threshold</b>, where high similarities collide often and low ones usually do not. ' +
+        '<br><br>' + (wide
+          ? '<b style="color:var(--viz-amber)">More bands, fewer rows: recall up, candidate volume up.</b>' +
+            'The curve has shifted left, so pairs at 0.3 are now colliding as well. Every one of those is a verification you must pay for, and hot buckets get hotter.'
+          : tight
+            ? '<b style="color:var(--viz-amber)">Fewer bands, more rows: selectivity up, true duplicates missed.</b>' +
+              'The curve has shifted right and steepened. Cheap, and quietly lossy — the pairs it drops never reach verification, so nothing downstream reports them as missed.'
+            : '<b style="color:var(--viz-green)">A workable mesh.</b>' +
+              'High similarities collide almost always, low ones almost never, and the candidate volume stays payable.') +
+        ' Tune against labeled pairs <em>and</em> operational budgets — and note that changing b or r changes the signature version, so mixing old and new signatures in one index is meaningless.';
+    }
+
+    NS.forEach(function(n, i){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.textContent = 'N = ' + fmt(n);
+      btn.addEventListener('click', function(){ ni = i; renderWall(); });
+      nrow.appendChild(btn);
+    });
+    sb.addEventListener('input', render);
+    sr.addEventListener('input', render);
+    renderWall();
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Funnel With Reasons</h2>
+  <p class="vz-lede">Every filter encodes a value judgment, so the corpus report is the product. Move the
+    quality threshold and watch which subcorpora survive — then give each document type its own threshold
+    instead. <b>Like one dress code for a wedding, a construction site and a swimming pool.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Threshold policy">
+    <button id="v5-uni" aria-pressed="true">one universal threshold</button>
+    <button id="v5-per" aria-pressed="false">per-type thresholds</button>
+  </div>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v5-lab" for="v5-t">Minimum alphabetic-character ratio: <span id="v5-tl">0.55</span></label>
+    <input type="range" id="v5-t" min="20" max="95" value="55" step="1" aria-label="Alphabetic character threshold">
+    <div class="v5-types" id="v5-types"></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Language identification grain">
+    <button id="v5-doc" aria-pressed="true">language ID: document-level</button>
+    <button id="v5-sec" aria-pressed="false">language ID: section-level</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-funnel" id="v5-funnel"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The final corpus report should state source coverage, parsing success, duplicate rates,
+    language distribution, quality retention, quarantine volume and <b>known blind spots</b>. A smaller
+    corpus with explained provenance and measured filters is often more useful than a larger opaque
+    collection whose missing voices cannot be diagnosed. Appeals need governance too: a trusted source
+    rejected by a generic rule can get a scoped exception — with owner, rationale and expiry recorded —
+    but a global allowlist that bypasses every later safety and quality check is a permanent blind spot.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-types{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+    .v5-t{font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v5-t h6{margin:0 0 3px;font-size:11px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-track{height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+    .v5-funnel{display:flex;flex-direction:column;gap:4px}
+    .v5-row{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v5-row.is-cut{border-color:var(--viz-amber)}
+    .v5-code{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.02em}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Mean alphabetic-character ratio per document type: the reason one universal
+    // threshold cannot serve all four. Shares are of the post-dedupe corpus.
+    var TYPES = [
+      { n:'prose',       ratio:0.93, share:0.60 },
+      { n:'chat',        ratio:0.79, share:0.12 },
+      { n:'OCR text',    ratio:0.72, share:0.08 },
+      { n:'code',        ratio:0.58, share:0.14 },
+      { n:'mathematics', ratio:0.51, share:0.06 }
+    ];
+    var START = 1000000;
+    var universal = true, docLevel = true;
+    var bU = document.getElementById('v5-uni'), bP = document.getElementById('v5-per');
+    var bD = document.getElementById('v5-doc'), bS = document.getElementById('v5-sec');
+    var s = document.getElementById('v5-t'), tl = document.getElementById('v5-tl');
+    var types = document.getElementById('v5-types'), funnel = document.getElementById('v5-funnel'), why = document.getElementById('v5-why');
+
+    function retention(ty, t){
+      var thr = universal ? t : Math.max(0.2, ty.ratio - 0.12);
+      return 1 / (1 + Math.exp((thr - ty.ratio) / 0.045));
+    }
+    function fmt(x){ return Math.round(x).toLocaleString('en-US'); }
+
+    function render(){
+      var t = Number(s.value) / 100;
+      tl.textContent = t.toFixed(2);
+      bU.setAttribute('aria-pressed', universal ? 'true' : 'false');
+      bP.setAttribute('aria-pressed', universal ? 'false' : 'true');
+      bD.setAttribute('aria-pressed', docLevel ? 'true' : 'false');
+      bS.setAttribute('aria-pressed', docLevel ? 'false' : 'true');
+
+      var parsed = START * 0.96;          // 4% quarantined
+      var afterExact = parsed * 0.88;     // 12% byte-identical
+      var afterNear = afterExact * 0.91;  // 9% near-duplicate, canonical kept
+      var mixed = afterNear * 0.08;       // multilingual documents
+      var langLost = docLevel ? mixed * 0.5 : mixed * 0.05;
+      var afterLang = afterNear - langLost;
+
+      var kept = 0, rows = '';
+      TYPES.forEach(function(ty){
+        var pool = afterLang * ty.share;
+        var rt = retention(ty, t);
+        kept += pool * rt;
+        var erased = rt < 0.15;
+        var col = erased ? 'var(--viz-red)' : (rt < 0.6 ? 'var(--viz-amber)' : 'var(--viz-green)');
+        rows += '<div class="v5-t"><h6><span>' + ty.n + ' · mean ratio ' + ty.ratio.toFixed(2) + '</span>' +
+          '<span style="color:' + col + '">' + Math.round(rt * 100) + '% kept' + (erased ? ' · ERASED' : '') + '</span></h6>' +
+          '<div class="v5-track"><i style="width:' + Math.max(1, rt * 100) + '%;background:' + col + '"></i></div></div>';
+      });
+      types.innerHTML = rows;
+
+      function row(label, n, code, cut){
+        return '<div class="v5-row' + (cut ? ' is-cut' : '') + '"><span>' + label + '</span>' +
+          '<span>' + fmt(n) + '</span>' +
+          '<span class="v5-code" style="color:' + (cut ? 'var(--viz-amber)' : 'var(--viz-muted)') + '">' + code + '</span></div>';
+      }
+      funnel.innerHTML =
+        row('source records', START, 'ingested', false) +
+        row('after parsing', parsed, 'PARSE_FAILED · 40,000', true) +
+        row('after exact dedupe', afterExact, 'BYTE_IDENTICAL', true) +
+        row('after near-dedupe', afterNear, 'NEAR_DUP_CANONICAL', true) +
+        row('after language routing', afterLang, docLevel ? 'LANG_OUT_OF_SCOPE' : 'LANG_SECTION_KEPT', true) +
+        row('published corpus', kept, 'QUALITY_RULE', true);
+
+      var langNote = docLevel
+        ? '<br><br><b style="color:var(--viz-amber)">Language ID is document-level.</b>' +
+          'Boilerplate navigation can overwhelm the body language, and an extracted title alone is too short. A document-level majority label misclassifies genuinely multilingual documents, which is where <b>' + fmt(langLost) + '</b> records just went.'
+        : '<br><br><b style="color:var(--viz-green)">Section-level detection keeps multilingual documents.</b>' +
+          'Only <b>' + fmt(langLost) + '</b> records are lost at routing now. Store a language <em>distribution</em> with confidence and model version rather than one label — short text, code, names and mixed-language documents are exactly where a single label is least trustworthy.';
+
+      why.innerHTML = (universal
+        ? '<b style="color:var(--viz-amber)">One universal alphabetic-character threshold can erase valuable subcorpora.</b>' +
+          'Code legitimately has high punctuation, mathematical text has symbols, chat contains short fragments and OCR contains unusual spacing. At <code>' + t.toFixed(2) + '</code> the corpus keeps <b>' + fmt(kept) + '</b> documents — but read the bars, not the total: the loss is not spread evenly, it falls entirely on the types whose mean ratio sits below the line. ' +
+          '<br><br>Evaluate by language, format, source and length bucket instead. And treat any classifier-based quality score the same way: it needs calibration and drift monitoring, because a model trained on polished articles rejects dialect, informal help posts and low-resource languages. It is one signal, not unquestioned truth.'
+        : '<b style="color:var(--viz-green)">Per-type thresholds keep the rule and drop the collateral.</b>' +
+          'Each type is now judged against its own distribution, so the slider barely moves the outcome and the corpus holds <b>' + fmt(kept) + '</b> documents. The filter still works — it still removes empty text, parser garbage, repeated characters, link farms, machine-generated spam and extreme symbol ratios — it simply stopped defining "normal" as "prose". ' +
+          '<br><br>Keep a sampled quarantine or metadata record so reviewers can inspect false positives without exposing rejected content broadly, and audit <b>per-group retention rates</b> rather than the headline number.') + langNote;
+    }
+
+    s.addEventListener('input', render);
+    bU.addEventListener('click', function(){ universal = true; render(); });
+    bP.addEventListener('click', function(){ universal = false; render(); });
+    bD.addEventListener('click', function(){ docLevel = true; render(); });
+    bS.addEventListener('click', function(){ docLevel = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

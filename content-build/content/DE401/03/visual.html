@@ -1,0 +1,615 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Where The Money Sits</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Tiering Ledger</button>
+  <button class="viz-tab" data-viz-tab="3">3. Precompute Break-Even</button>
+  <button class="viz-tab" data-viz-tab="4">4. Recall Per Dollar</button>
+  <button class="viz-tab" data-viz-tab="5">5. Rebuild Payback Math</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Where The Money Sits</h2>
+  <p class="vz-lede">Same backbone as lesson 1, same instruments as lesson 2 — one new question laid over
+    the top. Flip the question, then tap a stage to see what changes about it.
+    <b>Like walking your own house twice: once asking is everything working, once asking what is
+    running the meter.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which question you are asking">
+    <button id="v1-right" aria-pressed="true">Lessons 1–2 · is it right?</button>
+    <button id="v1-cost" aria-pressed="false">Lesson 3 · what does it cost?</button>
+  </div>
+
+  <div class="v1-stages" id="v1-stages"></div>
+  <div class="vz-card"><div class="v1-why" id="v1-why"></div></div>
+
+  <p class="vz-note">Notice that the two questions never disagree about the <b>shape</b> of the system — the
+    truth stays the truth and derived copies stay rebuildable. What changes is which property you are
+    optimising. Every lever in this lesson is applied to a <b>derived copy</b>, and that is exactly why they
+    are safe to pull: a wrong tier, a wrong quantization level or a wrong precompute is recoverable by a
+    rebuild. Pull the same levers on bronze and you have deleted evidence.</p>
+
+  <style>
+    .v1-stages{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v1-s{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-size:12.5px;display:flex;align-items:center;gap:9px;line-height:1.35;flex-wrap:wrap}
+    .v1-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v1-n{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-muted);width:14px}
+    .v1-tag{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+      border:1.5px solid;border-radius:999px;padding:2px 8px}
+    .v1-why{font-size:12.5px;line-height:1.6}
+    .v1-why b.v1-head{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { t:'Sources → ingestion', tag:'CONTRACT', col:'var(--viz-violet)',
+        right:['Where a freshness SLA starts its clock.',
+          'Lesson 1 fixed the interface contract at this boundary and lesson 2 hung a lag metric off it: ingestion lag is measured from the moment the source changed, not from when your job happened to start.'],
+        cost:['Almost no storage. The money is the cadence.',
+          'Nothing accumulates here, so the bill is compute and it is set by how often you run. The batch-versus-streaming choice from lesson 1 is a cost choice as much as a freshness one — a continuous path pays for idle capacity in order to keep lag low.'] },
+      { t:'Lake · bronze and silver', tag:'SOURCE OF TRUTH', col:'var(--viz-green)',
+        right:['The single source of truth. Everything downstream is rebuildable from it.',
+          'Chunks, embeddings and indexes are all derived copies of this. Lose them and you have a rebuild; lose this and you have a data loss.'],
+        cost:['The largest bytes, and they belong in the cheapest tier.',
+          'Raw bronze payloads tolerate object storage — <b>several times cheaper</b> than standard, <b>ten to a hundred times cheaper</b> per gigabyte-month than premium SSD. Two terabytes held hot costs about as much as a small VM every month; the same two terabytes in standard object storage costs less than a team lunch, and in archive class, less than a coffee.' +
+          '<br><br>But the tiering rule here is not a price rule: <b>the truth is never deleted by a lifecycle policy alone.</b> That takes an explicit retention decision under governance.'] },
+      { t:'Chunks + embeddings', tag:'DERIVED COPY', col:'var(--viz-accent)',
+        right:['Derived, versioned, and the thing a quality drop usually implicates.',
+          'Lesson 2 taught the triage: data drift, index defect or model change. Two of those three live at this stage, which is why the generation that produced a vector has to be knowable.'],
+        cost:['Two levers meet here, and one of them prices the whole corpus at once.',
+          '<b>Precompute versus compute-on-read</b> decides what is stored at all — embeddings, chunk text, enrichment summaries and BM25 statistics are precomputed; conversational rewrites are not. And <b>re-embedding cadence</b> reprices everything: an 800-million-token corpus runs to hundreds or thousands of dollars per pass.' +
+          '<br><br>This is also where hot storage quietly becomes a graveyard — six old generations at <b>400 GB each</b>, kept just in case. Visual 2 does that arithmetic.'] },
+      { t:'Vector + inverted index', tag:'DERIVED COPY', col:'var(--viz-accent)',
+        right:['Golden query sets and hit rate / MRR guard every change to it.',
+          'A regression canary exists precisely because an index change can be silently worse. Nothing in this lesson gets to bypass it.'],
+        cost:['Vector memory is the dominant ANN cost driver.',
+          'Ten million chunks at 768 float32 dimensions is <b>3 KB per vector, 30 GB of serving memory</b> — and memory is what sets replica count, so this line is really a fleet-size line. Quantization is the lever, with the same family of trades on the inverted side: variable-byte postings compression, blocked layouts, one-byte learned-sparse weights.' +
+          '<br><br>Because quantization moves recall, it is a <b>retrieval-path change</b> and goes through the lesson-2 canary like any other.'] },
+      { t:'RAG endpoint', tag:'PER REQUEST', col:'var(--viz-amber)',
+        right:['Where hit rate, MRR and reranker scores are actually observed.',
+          'Production metrics are read here, on live traffic, which is what makes them different from the golden set.'],
+        cost:['Some of this can never be precomputed, at any price.',
+          'Reranker scores and conversational rewrites depend on the query, so they are computed on read by definition — that is the first question of the framework, and it is a hard constraint rather than a tradeoff.' +
+          '<br><br>What you <em>can</em> precompute is the head of the distribution: an answer cache for the thousand most frequent questions, with the long tail still computed on read.'] }
+    ];
+    var view = 'right', cur = 0;
+    var bR = document.getElementById('v1-right'), bC = document.getElementById('v1-cost');
+    var list = document.getElementById('v1-stages'), why = document.getElementById('v1-why');
+
+    function show(i){
+      cur = i;
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      var s = STAGES[i], txt = view === 'right' ? s.right : s.cost;
+      why.innerHTML = '<b class="v1-head">' + s.t + ' — ' + txt[0] + '</b>' + txt[1];
+    }
+    STAGES.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.className = 'v1-s';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v1-n">' + (i + 1) + '</span><span>' + s.t + '</span>' +
+        '<span class="v1-tag" style="color:' + s.col + ';border-color:' + s.col + '">' + s.tag + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    function setView(v){
+      view = v;
+      bR.setAttribute('aria-pressed', v === 'right' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', v === 'cost' ? 'true' : 'false');
+      show(cur);
+    }
+    bR.addEventListener('click', function(){ setView('right'); });
+    bC.addEventListener('click', function(){ setView('cost'); });
+    show(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Tiering Ledger</h2>
+  <p class="vz-lede">Six embedding generations, 400 GB each, kept "just in case". Tap a generation to move it
+    hot → warm → cold and watch the line item move with it — then watch what you broke.
+    <b>Like a fridge, a cupboard and a deep freezer: the freezer is nearly free, and it is the wrong place
+    for tonight's dinner.</b></p>
+
+  <div class="v2-rows" id="v2-rows"></div>
+
+  <div class="v2-acts">
+    <button id="v2-allhot">reset · all six hot</button>
+    <button id="v2-policy">apply the rollback-window policy</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-stats" id="v2-stats"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">The judgment: <b>tier by measured access, and test restore time, not just the price
+    list.</b> The bill audit in the scenario found seventy percent of the storage line serving zero queries —
+    but the fix is not "archive everything old", it is a lifecycle policy that follows the rollback window,
+    so that no calendar reminder owns the bill. And note which rule does <em>not</em> apply here: bronze and
+    silver are the truth, and no lifecycle rule may delete them without an explicit retention decision.</p>
+
+  <style>
+    .v2-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:11px}
+    .v2-r{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;display:flex;align-items:center;
+      gap:9px;line-height:1.35;flex-wrap:wrap}
+    .v2-role{color:var(--viz-muted)}
+    .v2-tier{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;
+      border:1.5px solid;border-radius:999px;padding:2px 9px;font-family:inherit}
+    .v2-cost{flex:0 0 auto;width:76px;text-align:right;font-weight:700}
+    .v2-acts{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v2-acts button{flex:1 1 130px;min-height:44px;border:1.5px dashed var(--viz-line);
+      background:var(--viz-bg);color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;
+      font-size:12px;padding:6px 8px}
+    .v2-stats{display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b.v2-head{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // 1 unit = one GB-month of STANDARD object storage. Premium SSD is 10x that
+    // (inside the "ten to a hundred times" band); archive is well under it.
+    var TIERS = [
+      { k:'HOT · premium SSD', unit:10,   col:'var(--viz-red)' },
+      { k:'WARM · standard',   unit:1,    col:'var(--viz-amber)' },
+      { k:'COLD · archive',    unit:0.06, col:'var(--viz-green)' }
+    ];
+    var GB = 400;
+    var GENS = [
+      { l:'gen 8', role:'current · serving', kind:'serving' },
+      { l:'gen 7', role:'previous · inside rollback window', kind:'rollback' },
+      { l:'gen 6', role:'superseded', kind:'old' },
+      { l:'gen 5', role:'superseded', kind:'old' },
+      { l:'gen 4', role:'superseded', kind:'old' },
+      { l:'gen 3', role:'superseded', kind:'old' }
+    ];
+    var state = [0, 0, 0, 0, 0, 0];
+    var BASE = 6 * GB * TIERS[0].unit;   // all six hot = 24,000 units
+
+    var rows = document.getElementById('v2-rows');
+    var stats = document.getElementById('v2-stats'), why = document.getElementById('v2-why');
+    var bAll = document.getElementById('v2-allhot'), bPol = document.getElementById('v2-policy');
+
+    function render(){
+      var total = 0;
+      GENS.forEach(function(g, i){ total += GB * TIERS[state[i]].unit; });
+      var servingCost = GB * TIERS[state[0]].unit;
+      var idle = Math.round((total - servingCost) / total * 100);
+      var cut = Math.round((BASE - total) / BASE * 100);
+
+      [].slice.call(rows.children).forEach(function(b, i){
+        var t = TIERS[state[i]];
+        b.innerHTML = '<span>' + GENS[i].l + '</span><span class="v2-role">' + GENS[i].role + '</span>' +
+          '<span class="v2-tier" style="color:' + t.col + ';border-color:' + t.col + '">' + t.k + '</span>' +
+          '<span class="v2-cost">' + Math.round(GB * t.unit).toLocaleString() + 'u</span>';
+      });
+
+      var cutCol = cut > 50 ? 'var(--viz-green)' : (cut > 0 ? 'var(--viz-amber)' : 'var(--viz-red)');
+      stats.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + total.toLocaleString() + ' units / month</span>' +
+        '<span class="v2-pill" style="color:' + cutCol + ';border-color:' + cutCol + '">' + cut + '% cut vs all-hot</span>' +
+        '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + idle + '% of it answers no query</span>';
+
+      var msgs = '';
+      if (state[0] !== 0) {
+        msgs += '<b class="v2-head" style="color:var(--viz-red)">Broken: the serving path is not hot.</b>' +
+          'The current index and its chunk text are read on every query and need <b>millisecond</b> access. Warm object storage is tens of milliseconds at best and archive is measured in hours, so this is not a cheaper system — it is a slower one that will miss its latency budget. Hot is assigned by <b>access pattern</b>, and this generation has the only access pattern that qualifies.<br><br>';
+      }
+      if (state[1] === 2) {
+        msgs += '<b class="v2-head" style="color:var(--viz-amber)">Careful: the rollback copy is in archive.</b>' +
+          'Archive classes <b>charge for reads and can take hours to restore</b>. The previous generation exists so you can go back inside the rollback window, so parking it there prices away the exact thing you were paying for. <b>Restore time belongs in the tiering test</b>, not just the price list — anything you might need quickly belongs in a tier with minute-scale access.<br><br>';
+      }
+      var oldHot = state.slice(2).filter(function(s){ return s === 0; }).length;
+      if (!msgs && oldHot >= 3) {
+        msgs += '<b class="v2-head" style="color:var(--viz-red)">Hot storage as a graveyard.</b>' +
+          oldHot + ' superseded generations are sitting in premium storage answering nothing at all. This is the bill-audit scenario exactly: kept "just in case", never queried, and quietly ' + idle + '% of this line.<br><br>';
+      }
+      if (!msgs) {
+        msgs += '<b class="v2-head" style="color:var(--viz-green)">A defensible ledger.</b>' +
+          'The serving generation is hot, the rollback copy can be restored in minutes, and everything past the rollback window has fallen to archive. That is the rule stated in one sentence: <b>derived copies go hot, then cold, then deleted</b>, on a lifecycle policy rather than on somebody remembering.<br><br>';
+      }
+      msgs += '<span style="color:var(--viz-muted)">Reference points: 2 TB hot ≈ a small VM every month · 2 TB standard ≈ a team lunch · 2 TB archive ≈ a coffee. Moving the four superseded generations to archive while keeping the current and previous hot cuts this line by about <b>two-thirds</b> — a one-time migration, and the shape of the whole lesson: an order of magnitude per tier step.</span>';
+      why.innerHTML = msgs;
+    }
+
+    GENS.forEach(function(g, i){
+      var b = document.createElement('button');
+      b.className = 'v2-r';
+      b.addEventListener('click', function(){ state[i] = (state[i] + 1) % 3; render(); });
+      rows.appendChild(b);
+    });
+    bAll.addEventListener('click', function(){ state = [0, 0, 0, 0, 0, 0]; render(); });
+    bPol.addEventListener('click', function(){ state = [0, 0, 2, 2, 2, 2]; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Precompute Break-Even</h2>
+  <p class="vz-lede">A per-tenant usage dashboard costs 300 ms of warehouse compute per read. Drag how often
+    it is read and how often you would rebuild it — then flip the four framework questions and watch them
+    overrule the arithmetic. <b>Like cooking to order versus batch-cooking on Sunday: the answer is just how
+    many people are eating, until somebody wants their steak done differently.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v3-lab" for="v3-reads">Read <span id="v3-readsl">40,000</span> times a day</label>
+    <input type="range" id="v3-reads" min="0" max="6" value="5" step="1" aria-label="Reads per day">
+    <label class="v3-lab" for="v3-builds" style="margin-top:12px">Precomputed table refreshed
+      <span id="v3-buildsl">24× (hourly)</span> a day</label>
+    <input type="range" id="v3-builds" min="0" max="3" value="2" step="1" aria-label="Rebuilds per day">
+    <div class="v3-bars" id="v3-bars"></div>
+  </div>
+
+  <div class="v3-chips" id="v3-chips"></div>
+  <div class="vz-card"><div class="v3-why" id="v3-why"></div></div>
+
+  <p class="vz-note">The failure modes are symmetric, and the second one is worse than it looks. Precomputing
+    values whose inputs churn buys <b>invalidation storms and stale outputs</b>; computing on read what most
+    of traffic repeats pays per query forever for what one batch job buys once. The worst outcome is neither:
+    it is a <b>precomputed value with no invalidation contract</b> — lesson 1's contract discipline returning
+    as a cost line, and as a correctness one.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v3-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v3-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v3-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-chips{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v3-c{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;
+      font-size:12.5px;display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v3-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v3-box{flex:0 0 auto;width:20px;font-weight:800;color:var(--viz-muted)}
+    .v3-c[aria-pressed="true"] .v3-box{color:var(--viz-accent)}
+    .v3-why{font-size:12.5px;line-height:1.6}
+    .v3-why b.v3-head{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var READS = [100, 300, 1000, 3000, 10000, 40000, 100000];
+    var BUILDS = [{ n:1, l:'1× (daily)' }, { n:4, l:'4× (every 6 h)' }, { n:24, l:'24× (hourly)' }, { n:96, l:'96× (every 15 min)' }];
+    var PER_READ_S = 0.3, BUILD_MIN = 2;
+    var QS = [
+      { t:'Inputs change per request (query-dependent)', on:false },
+      { t:'Value space is sparse (every user × every document)', on:false },
+      { t:'Value is reused many times between writes', on:true },
+      { t:'Read latency budget is a ~100 ms serving stage', on:false }
+    ];
+
+    var sR = document.getElementById('v3-reads'), lR = document.getElementById('v3-readsl');
+    var sB = document.getElementById('v3-builds'), lB = document.getElementById('v3-buildsl');
+    var bars = document.getElementById('v3-bars'), chips = document.getElementById('v3-chips');
+    var why = document.getElementById('v3-why');
+
+    function render(){
+      var reads = READS[Number(sR.value)], build = BUILDS[Number(sB.value)];
+      lR.textContent = reads.toLocaleString();
+      lB.textContent = build.l;
+
+      var onRead = reads * PER_READ_S / 3600;              // compute-hours per day
+      var pre = build.n * BUILD_MIN / 60;                  // compute-hours per day
+      var cross = Math.round(pre * 3600 / PER_READ_S);     // reads/day where they meet
+      var max = Math.max(onRead, pre, 0.2);
+
+      function bar(t, v, c, sub){
+        return '<div class="v3-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + v.toFixed(2) + ' compute-h/day</b></h6>' +
+          '<div class="v3-track"><i style="width:' + Math.max(2, Math.round(v / max * 100)) + '%;background:' + c + '"></i></div>' +
+          '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('compute-on-read', onRead, 'var(--viz-amber)', reads.toLocaleString() + ' reads × 300 ms of warehouse compute, every day, forever.') +
+        bar('precompute', pre, 'var(--viz-violet)', build.n + ' × a 2-minute build, plus trivial storage — and the invalidation logic you now own.');
+
+      [].slice.call(chips.children).forEach(function(b, i){ b.setAttribute('aria-pressed', QS[i].on ? 'true' : 'false'); });
+
+      var head, body;
+      if (QS[0].on) {
+        head = '<b class="v3-head" style="color:var(--viz-red)">Compute on read. There is no arithmetic to do.</b>';
+        body = 'A value whose inputs change per request <b>cannot be precomputed at all</b>, at any read volume and any price. This is the first question of the framework and it is a constraint, not a tradeoff — it is why <b>reranker scores</b> and conversational rewrites are computed per request while embeddings, chunk text, enrichment summaries and BM25 statistics are precomputed.';
+      } else if (QS[3].on) {
+        head = '<b class="v3-head" style="color:var(--viz-violet)">Precompute — the latency budget already decided.</b>';
+        body = '300 ms does not fit inside a hundred-millisecond serving stage, so volume never gets a vote: the only way to serve this value on the read path is to have computed it earlier. Note the asymmetry with the volume argument — here precompute is not the cheaper option, it is the <b>only</b> option, and you pay for it because the budget says so.';
+      } else if (QS[1].on && reads < 10000) {
+        head = '<b class="v3-head" style="color:var(--viz-amber)">Compute on read — the value space is sparse.</b>';
+        body = 'Precomputing a join of every user with every document materialises <b>mostly unread rows</b>. At ' + reads.toLocaleString() + ' reads a day you would be building an enormous table to serve a thin slice of it, and paying storage and invalidation on all of it. Sparsity beats the raw read count until the reads get large enough to cover the materialisation.';
+      } else if (reads >= cross) {
+        head = '<b class="v3-head" style="color:var(--viz-green)">Precompute wins — ' + (onRead / Math.max(pre, 0.001)).toFixed(1) + '× less compute.</b>';
+        body = 'Break-even sits at about <b>' + cross.toLocaleString() + ' reads a day</b> at this refresh rate, and you are above it. The canonical case: a dashboard read <b>40,000 times a day</b> costs about <b>3.3 hours</b> of warehouse compute daily, while an hourly rebuild is <b>under an hour</b> in total plus trivial storage.' +
+          '<br><br>Materialized views in the warehouse are the database’s managed version of exactly this trade — precomputed joins refreshed on a schedule.';
+      } else {
+        head = '<b class="v3-head" style="color:var(--viz-amber)">Compute on read — you are below break-even.</b>';
+        body = 'Break-even is about <b>' + cross.toLocaleString() + ' reads a day</b> at this refresh rate, and at ' + reads.toLocaleString() + ' the build and its invalidation logic cost more than they save. Cheap on-demand reads are the right answer, and the long tail of an answer cache stays here for the same reason: only the thousand most frequent questions earn a precomputed response.';
+      }
+      why.innerHTML = head + body +
+        '<br><br><span style="color:var(--viz-muted)">Watch the second slider carefully: the crossover is <b>' + cross.toLocaleString() + '</b> reads a day here and moves to ' + (400).toLocaleString() + ' at a daily rebuild and ' + (38400).toLocaleString() + ' at a 15-minute one. Break-even is not a constant to memorise — it is set by how fresh you promised the value would be.</span>';
+    }
+
+    QS.forEach(function(q, i){
+      var b = document.createElement('button');
+      b.className = 'v3-c';
+      b.setAttribute('aria-pressed', q.on ? 'true' : 'false');
+      b.innerHTML = '<span class="v3-box">[ ]</span><span>' + q.t + '</span>';
+      b.addEventListener('click', function(){ QS[i].on = !QS[i].on; render(); });
+      chips.appendChild(b);
+    });
+    sR.addEventListener('input', render);
+    sB.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Recall Per Dollar</h2>
+  <p class="vz-lede">Every configuration is a point on a frontier of recall against memory — and memory is
+    really replica count. Set your recall floor, grow the corpus, and read off the cheapest configuration
+    that still clears it. <b>Like buying tyres: you do not want the cheapest, you want the cheapest that
+    passes the wet-braking test.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="v4-lab" for="v4-floor">Recall floor: <span id="v4-floorl">99.0%</span></label>
+    <input type="range" id="v4-floor" min="90" max="100" value="99" step="0.5" aria-label="Recall floor">
+    <div class="vz-seg" id="v4-sizes" role="group" aria-label="Corpus size" style="margin:14px 0 0">
+      <button data-m="5" aria-pressed="false">5M vectors</button>
+      <button data-m="10" aria-pressed="true">10M vectors</button>
+      <button data-m="12" aria-pressed="false">12M vectors</button>
+    </div>
+  </div>
+
+  <div class="v4-rows" id="v4-rows"></div>
+  <div class="vz-card"><div class="v4-why" id="v4-why"></div></div>
+
+  <p class="vz-note">Two expert habits. <b>Quantization interacts with the embedding model</b> — some are
+    trained to quantize well — so any change here is a retrieval-path change and goes through the golden-set
+    canary before cutover. And compression compounds with index structure: an IVF index with PQ codes has
+    <b>two</b> knobs, probe depth and quantization level, that trade recall against latency together. Sweep
+    them as a pair on the golden queries; tuning either alone finds a local optimum and reports it as the
+    frontier.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-rows{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v4-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:10px;
+      padding:9px 11px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      flex-wrap:wrap;line-height:1.35}
+    .v4-r.is-pick{border-color:var(--viz-green);border-width:2px}
+    .v4-r.is-out{opacity:.45;border-style:dashed}
+    .v4-nm{flex:1 1 150px;font-family:inherit}
+    .v4-num{flex:0 0 auto;font-weight:700}
+    .v4-mark{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;font-family:inherit;
+      margin-left:auto;text-align:right}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b.v4-head{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // 768 dims float32 = 3 KB/vector. Everything else is a multiple of that.
+    var CFG = [
+      { n:'float32 (exact, no compression)', kb:3,     r:100,  d:'the baseline the others are measured against' },
+      { n:'int8 scalar quantization',        kb:0.75,  r:99,   d:'4× smaller, a typical 1–2 point loss at top-10' },
+      { n:'PQ16 product quantization',       kb:0.19,  r:95,   d:'8–32× smaller, a 3–10 point loss unassisted' },
+      { n:'PQ16 + full-precision rescore',   kb:0.2,   r:99.3, d:'compressed index recalls, exact vectors rescore the top few hundred · +5% latency' },
+      { n:'binary quantization',             kb:0.094, r:null, d:'32× smaller and unusable without overfetch + rescore — recall not measured here' }
+    ];
+    var REPLICA_GB = 20;
+    var mil = 10;
+    var s = document.getElementById('v4-floor'), lab = document.getElementById('v4-floorl');
+    var sizes = document.getElementById('v4-sizes'), rows = document.getElementById('v4-rows');
+    var why = document.getElementById('v4-why');
+
+    function reps(gb){ return Math.max(1, Math.ceil(gb / REPLICA_GB)); }
+
+    function render(){
+      var floor = Number(s.value);
+      lab.textContent = floor.toFixed(1) + '%';
+      [].slice.call(sizes.children).forEach(function(b){
+        b.setAttribute('aria-pressed', Number(b.getAttribute('data-m')) === mil ? 'true' : 'false');
+      });
+
+      var pick = null;
+      CFG.forEach(function(c){
+        c.gb = c.kb * mil;
+        c.reps = reps(c.gb);
+        c.pass = c.r !== null && c.r >= floor;
+        if (c.pass && (!pick || c.gb < pick.gb)) pick = c;
+      });
+
+      rows.innerHTML = CFG.map(function(c){
+        var cls = c === pick ? 'is-pick' : (c.pass ? '' : 'is-out');
+        var mark = c.r === null ? 'UNMEASURED — not on the frontier'
+          : (c === pick ? 'CHEAPEST ABOVE THE FLOOR' : (c.pass ? 'clears the floor' : 'below the floor'));
+        var col = c.r === null ? 'var(--viz-muted)'
+          : (c === pick ? 'var(--viz-green)' : (c.pass ? 'var(--viz-accent)' : 'var(--viz-red)'));
+        return '<div class="v4-r ' + cls + '"><span class="v4-nm">' + c.n + '</span>' +
+          '<span class="v4-num" style="color:' + col + '">' + (c.r === null ? 'recall ?' : 'recall ' + c.r + '%') + '</span>' +
+          '<span class="v4-num">' + c.gb.toFixed(2) + ' GB</span>' +
+          '<span class="v4-num" style="color:var(--viz-muted)">' + c.reps + ' replica' + (c.reps === 1 ? '' : 's') + '</span>' +
+          '<span class="v4-mark" style="color:' + col + '">' + mark + '</span>' +
+          '<span style="flex:1 1 100%;color:var(--viz-muted);font-family:inherit">' + c.d + '</span></div>';
+      }).join('');
+
+      var exact = CFG[0], int8 = CFG[1];
+      var head, body;
+      if (!pick) {
+        head = '<b class="v4-head" style="color:var(--viz-red)">Nothing clears the floor — including exact search.</b>';
+        body = 'A recall floor above 100% is not a floor, it is a wish. Floors come from what the product actually needs, measured on your golden set, not from wanting a round number.';
+      } else {
+        head = '<b class="v4-head" style="color:var(--viz-green)">Pick ' + pick.n + ' — ' + pick.gb.toFixed(2) + ' GB, ' + pick.reps + ' replica' + (pick.reps === 1 ? '' : 's') + '.</b>';
+        body = 'It is the cheapest configuration whose <b>measured</b> recall sits above ' + floor.toFixed(1) + '%. Against exact search that is <b>' + (exact.gb / pick.gb).toFixed(1) + '× less serving memory</b> for ' + (100 - pick.r).toFixed(1) + ' points of recall — and the number that matters is on the right: ' + exact.reps + ' replicas become ' + pick.reps + '.' +
+          '<br><br><b>Memory saved is replicas saved.</b> Dropping a working set from 30 GB to 8 GB can halve a serving fleet, which is why this is a finance discussion conducted in retrieval metrics.';
+      }
+      if (mil === 12) {
+        body += '<br><br><b style="color:var(--viz-amber)">The growth scenario:</b> going from five to twelve million vectors takes float32 from ' + reps(exact.kb * 5).toFixed(0) + ' replica to ' + exact.reps + ' — a <b>fleet doubling</b> bought with nothing but corpus growth. int8 with rescore holds the fleet flat at ' + int8.reps + ', with recall@10 within half a point of exact and verified on the golden set before cutover.';
+      }
+      body += '<br><br><span style="color:var(--viz-muted)">Note the row that never wins: binary quantization is the smallest thing on the page and it has <b>no measured recall</b>, so it is not on the frontier at all — it is a guess with a number attached. Note also what <b>rescore</b> does: PQ16 alone loses five points, PQ16 rescored by <b>full-precision vectors kept once</b> loses 0.7 for about 5% latency. That rescore copy is never itself quantized.</span>';
+      why.innerHTML = head + body;
+    }
+
+    [].slice.call(sizes.children).forEach(function(b){
+      b.addEventListener('click', function(){ mil = Number(b.getAttribute('data-m')); render(); });
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Rebuild Payback Math</h2>
+  <p class="vz-lede">A vendor announces eight points. Your golden set says something else. Pick the evidence,
+    then drag the gain and the slice of traffic it applies to, and read the payback.
+    <b>Like a kitchen refit: the question is never "is the new one better", it is "better by how much, for
+    whom, and paid back in how long".</b></p>
+
+  <div class="v5-presets" id="v5-presets"></div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-gain">Golden-set gain: <span id="v5-gainl">1.2</span> nDCG points</label>
+    <input type="range" id="v5-gain" min="0" max="8" value="1.2" step="0.2" aria-label="Golden-set gain in nDCG points">
+    <label class="v5-lab" for="v5-share" style="margin-top:12px">Applies to
+      <span id="v5-sharel">100%</span> of traffic — re-embed only that slice</label>
+    <input type="range" id="v5-share" min="10" max="100" value="100" step="1" aria-label="Share of traffic the gain applies to">
+    <div class="v5-stats" id="v5-stats"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">The triggers are evidence: a <b>measurably better model</b> on your queries, <b>drift</b>
+    in the live score distributions, a <b>corpus shape change</b> the current model was never evaluated on,
+    and <b>generation hygiene</b> — the quarter where three model generations coexist and "which model
+    produced this vector" takes an afternoon to answer. That last rebuild is not buying quality; it is buying
+    back the ability to reason about the system. The anti-triggers are benchmark hype, one loud incident (fix
+    the incident, not the model), and the calendar.</p>
+
+  <style>
+    .v5-presets{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v5-p{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);
+      background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;
+      font-size:12.5px;display:flex;align-items:center;gap:9px;line-height:1.35;flex-wrap:wrap}
+    .v5-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v5-src{margin-left:auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+      border:1.5px solid;border-radius:999px;padding:2px 8px}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-stats{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b.v5-head{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TRAFFIC = 100000;        // queries per day
+    var VALUE = 0.60;            // your business's value per better answer
+    var FULL_REBUILD = 2000;     // 800M tokens, one full pass
+    var ENGINEERING = 800;       // a day of engineering, whatever the slice
+    var THRESHOLD = 1.0;         // your golden-set threshold for "measurably better"
+
+    var PRESETS = [
+      { t:'Vendor launch: 8 points on public benchmarks', gain:8, share:100, src:'NOT YOUR QUERIES', col:'var(--viz-red)', vendor:true },
+      { t:'Your golden set, overall: 1.2 points', gain:1.2, share:100, src:'EVIDENCE', col:'var(--viz-green)', vendor:false },
+      { t:'Your golden set, multilingual class: 5 points on 18% of traffic', gain:5, share:18, src:'EVIDENCE, PER CLASS', col:'var(--viz-green)', vendor:false },
+      { t:'A marginal reading: 0.4 points', gain:0.4, share:100, src:'BELOW THRESHOLD', col:'var(--viz-amber)', vendor:false }
+    ];
+    var vendor = false, cur = -1;
+    var presets = document.getElementById('v5-presets');
+    var sG = document.getElementById('v5-gain'), lG = document.getElementById('v5-gainl');
+    var sS = document.getElementById('v5-share'), lS = document.getElementById('v5-sharel');
+    var stats = document.getElementById('v5-stats'), why = document.getElementById('v5-why');
+
+    function render(){
+      var gain = Number(sG.value), share = Number(sS.value);
+      lG.textContent = gain.toFixed(1);
+      lS.textContent = share + '%';
+      [].slice.call(presets.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var queries = Math.round(TRAFFIC * share / 100);
+      var lift = gain * 0.5;                                   // 3 points lifted hit rate 1.5%
+      var better = Math.round(queries * lift / 100);
+      var perDay = better * VALUE;
+      var cost = FULL_REBUILD * share / 100 + ENGINEERING;
+      var days = perDay > 0 ? cost / perDay : Infinity;
+      var ok = !vendor && gain >= THRESHOLD && days <= 30;
+
+      var col = vendor ? 'var(--viz-red)' : (ok ? 'var(--viz-green)' : 'var(--viz-amber)');
+      stats.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + better.toLocaleString() + ' better answers/day</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">rebuild $' + Math.round(cost).toLocaleString() + '</span>' +
+        '<span class="v5-pill" style="color:' + col + ';border-color:' + col + '">' + (perDay > 0 && isFinite(days) ? 'payback ' + days.toFixed(1) + ' days' : 'never pays back') + '</span>';
+
+      var head, body;
+      if (vendor) {
+        head = '<b class="v5-head" style="color:var(--viz-red)">Anti-trigger: benchmark hype without golden-set confirmation.</b>';
+        body = 'Eight points on a public benchmark is a number about <em>somebody else’s</em> queries. Until it is measured on your golden set, <b>per class and paired</b>, there is no gain to put into the value math at all — the arithmetic below is running on a number that has not been established. Drag either slider to replace it with something you measured.';
+      } else if (gain < THRESHOLD) {
+        head = '<b class="v5-head" style="color:var(--viz-amber)">Below your golden-set threshold — decline politely.</b>';
+        body = 'A ' + gain.toFixed(1) + '-point gain is not "measurably better"; it is a reading inside the band where you cannot tell a real improvement from measurement noise on your query set. Even taken at face value it is ' + better.toLocaleString() + ' better answers a day against a $' + Math.round(cost).toLocaleString() + ' rebuild — ' + (isFinite(days) ? days.toFixed(0) + ' days of payback' : 'a payback that never arrives') + ', before the cutover risk that does not appear in that number at all.';
+      } else if (ok) {
+        head = '<b class="v5-head" style="color:var(--viz-green)">Worth it — paid back in ' + days.toFixed(1) + ' days.</b>';
+        body = 'Expected gain × traffic × value per better answer, minus rebuild cost, minus risk cost. ' + gain.toFixed(1) + ' points lifts hit rate about ' + lift.toFixed(1) + '% on ' + queries.toLocaleString() + ' daily queries, which is <b>' + better.toLocaleString() + ' better answers a day</b>. The canonical figure: three nDCG points on 100,000 queries lifting hit rate 1.5% is 1,500 better answers a day, and a two-thousand-dollar rebuild plus a day of engineering pays back within days.';
+        if (share < 50) {
+          body += '<br><br><b style="color:var(--viz-violet)">And this is why the decision is made from segments.</b> Re-embedding only the slice that gains costs $' + Math.round(cost).toLocaleString() + ' rather than $' + (FULL_REBUILD + ENGINEERING).toLocaleString() + ', so a class-gated pass pays back fastest — new and changed documents embed on the new model immediately, the backfill goes in query-log priority order (ten percent of chunks serve seventy percent of traffic), and the alias swaps only when coverage and golden-set gates pass.';
+        }
+      } else {
+        head = '<b class="v5-head" style="color:var(--viz-amber)">Real, but it does not pay for itself yet.</b>';
+        body = better.toLocaleString() + ' better answers a day against a $' + Math.round(cost).toLocaleString() + ' rebuild is ' + days.toFixed(0) + ' days of payback. Narrow the scope: find the <b>class</b> where the gain is concentrated and re-embed that corpus slice first — the same gain over a smaller rebuild is a different decision.';
+      }
+      why.innerHTML = head + body +
+        '<br><br><span style="color:var(--viz-muted)">Assumptions on screen, so you can argue with them: 100,000 queries a day, $0.60 of value per better answer, a $2,000 full pass over an 800-million-token corpus plus $800 of engineering, and a golden-set threshold of 1.0 points. The threshold is yours to set — it is what the phrase <b>measurably better</b> actually means.</span>';
+    }
+
+    PRESETS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.className = 'v5-p';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span>' + p.t + '</span><span class="v5-src" style="color:' + p.col + ';border-color:' + p.col + '">' + p.src + '</span>';
+      b.addEventListener('click', function(){
+        cur = i; vendor = p.vendor; sG.value = String(p.gain); sS.value = String(p.share); render();
+      });
+      presets.appendChild(b);
+    });
+    sG.addEventListener('input', function(){ vendor = false; cur = -1; render(); });
+    sS.addEventListener('input', function(){ vendor = false; cur = -1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

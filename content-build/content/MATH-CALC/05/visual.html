@@ -1,0 +1,820 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:10px 0 4px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px;margin-top:12px}
+.vz-plot svg{display:block;width:100%;height:auto}
+.vz-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Gradient To Step</button>
+  <button class="viz-tab" data-viz-tab="2">2. Why Squares Not Signs</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Learning Rate Dial</button>
+  <button class="viz-tab" data-viz-tab="4">4. Valleys And Restarts</button>
+  <button class="viz-tab" data-viz-tab="5">5. Newton Versus Descent</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Gradient To Step</h2>
+  <p class="vz-lede"><b>Partial derivatives and the Gradient vector</b> already hand you an arrow pointing
+    straight uphill, and <b>Directional derivatives</b> already say its length is the fastest rate of increase
+    available at that point. This lesson adds one minus sign and one number. Drag the point, then drag the
+    learning rate, and watch the direction and the distance come from two different places.
+    <b>Like a hiker in fog who can only feel the slope under their boots: turn to face downhill, then decide
+    how far to walk before feeling again.</b></p>
+
+  <div class="vz-card vz-mono" id="v1-fam" style="margin-bottom:12px"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-x">x = <span id="v1-xl">2.00</span></label>
+    <input class="vz-range" type="range" id="v1-x" min="-3" max="3" step="0.05" value="2" aria-label="current x">
+    <label class="vz-lab" for="v1-y">y = <span id="v1-yl">1.00</span></label>
+    <input class="vz-range" type="range" id="v1-y" min="-2" max="2" step="0.05" value="1" aria-label="current y">
+    <label class="vz-lab" for="v1-a">learning rate alpha = <span id="v1-alab">0.10</span></label>
+    <input class="vz-range" type="range" id="v1-a" min="0" max="0.4" step="0.01" value="0.1" aria-label="learning rate alpha">
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="vz-read vz-mono" id="v1-read"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Notice what the minus sign is doing and what it is not. It flips <em>direction</em> only —
+    the gradient still has to be recomputed at the new point, because it is a function of where you stand and
+    not a constant you may cache. Flip the sign back to a plus and the identical machinery becomes gradient
+    <b>ascent</b> and climbs the surface, which is how the same code maximises a likelihood.</p>
+
+  <style>
+    .v1-arrowlab{font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var x = document.getElementById('v1-x'), y = document.getElementById('v1-y'), a = document.getElementById('v1-a');
+    var xl = document.getElementById('v1-xl'), yl = document.getElementById('v1-yl'), al = document.getElementById('v1-alab');
+    var plot = document.getElementById('v1-plot'), read = document.getElementById('v1-read');
+    var why = document.getElementById('v1-why'), fam = document.getElementById('v1-fam');
+
+    fam.textContent =
+      'FAMILIAR                                THIS LESSON\n' +
+      'grad J = (dJ/dx, dJ/dy)                 new point = old point - alpha * grad J\n' +
+      'points UPHILL, length = fastest rate    direction from the gradient, distance from alpha';
+
+    var PW = 320, PH = 180;
+    function px(v){ return (v + 3) / 6 * PW; }
+    function py(v){ return PH - (v + 2) / 4 * PH; }
+    function n2(v){ return (isFinite(v) ? v : 0).toFixed(2); }
+    function n3(v){ return (isFinite(v) ? v : 0).toFixed(3); }
+
+    function arrow(x1, y1, x2, y2, col, dash){
+      var dx = x2 - x1, dy = y2 - y1, len = Math.sqrt(dx * dx + dy * dy);
+      if (!isFinite(len) || len < 0.5) return '';
+      var ux = dx / len, uy = dy / len, h = Math.min(9, len * 0.5);
+      var hx = x2 - ux * h, hy = y2 - uy * h;
+      return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + hx.toFixed(1) + '" y2="' + hy.toFixed(1) +
+        '" stroke="' + col + '" stroke-width="2.5"' + (dash ? ' stroke-dasharray="5 4"' : '') + '/>' +
+        '<polygon points="' + x2.toFixed(1) + ',' + y2.toFixed(1) + ' ' +
+        (hx - uy * 4.2).toFixed(1) + ',' + (hy + ux * 4.2).toFixed(1) + ' ' +
+        (hx + uy * 4.2).toFixed(1) + ',' + (hy - ux * 4.2).toFixed(1) + '" fill="' + col + '"/>';
+    }
+
+    function render(){
+      var X = Number(x.value), Y = Number(y.value), A = Number(a.value);
+      xl.textContent = X.toFixed(2); yl.textContent = Y.toFixed(2); al.textContent = A.toFixed(2);
+
+      var J = X * X + 3 * Y * Y;
+      var gx = 2 * X, gy = 6 * Y;
+      var mag = Math.sqrt(gx * gx + gy * gy);
+      var ux = mag > 1e-9 ? gx / mag : 0, uy = mag > 1e-9 ? gy / mag : 0;
+      var nx = X - A * gx, ny = Y - A * gy;
+      var Jn = nx * nx + 3 * ny * ny;
+
+      var levels = [0.5, 1.5, 3, 6, 10, 16, 24];
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="contours of the bowl with the uphill gradient and the descent step drawn">';
+      for (var i = 0; i < levels.length; i++) {
+        svg += '<ellipse cx="' + px(0).toFixed(1) + '" cy="' + py(0).toFixed(1) +
+          '" rx="' + (Math.sqrt(levels[i]) * PW / 6).toFixed(1) +
+          '" ry="' + (Math.sqrt(levels[i] / 3) * PH / 4).toFixed(1) +
+          '" fill="none" stroke="var(--viz-line)" stroke-width="1"/>';
+      }
+      svg += '<line x1="0" y1="' + py(0).toFixed(1) + '" x2="' + PW + '" y2="' + py(0).toFixed(1) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      svg += '<line x1="' + px(0).toFixed(1) + '" y1="0" x2="' + px(0).toFixed(1) + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>';
+
+      if (mag > 1e-9) {
+        svg += arrow(px(X), py(Y), px(X + ux * 0.85), py(Y + uy * 0.85), 'var(--viz-red)', true);
+        svg += arrow(px(X), py(Y), px(nx), py(ny), 'var(--viz-green)', false);
+      }
+      svg += '<circle cx="' + px(X).toFixed(1) + '" cy="' + py(Y).toFixed(1) + '" r="4.5" fill="var(--viz-accent)"/>';
+      svg += '<circle cx="' + px(nx).toFixed(1) + '" cy="' + py(ny).toFixed(1) + '" r="3.5" fill="none" stroke="var(--viz-green)" stroke-width="2"/>';
+      svg += '<text class="v1-arrowlab" x="4" y="12" font-size="9.5" fill="var(--viz-red)">dashed: uphill, grad J</text>';
+      svg += '<text class="v1-arrowlab" x="4" y="25" font-size="9.5" fill="var(--viz-green)">solid: the step, -alpha grad J</text>';
+      svg += '<text class="v1-arrowlab" x="4" y="' + (PH - 5) + '" font-size="9.5" fill="var(--viz-muted)">J(x,y) = x^2 + 3y^2</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      read.textContent =
+        'dJ/dx = 2x   = ' + n3(gx) + '        dJ/dy = 6y = ' + n3(gy) + '\n' +
+        '|grad J|     = ' + n3(mag) + '   <- the largest directional derivative at this point\n' +
+        'step         = -alpha * grad J = (' + n3(-A * gx) + ', ' + n3(-A * gy) + ')\n' +
+        'new point    = (' + n3(nx) + ', ' + n3(ny) + ')\n' +
+        'J: ' + n3(J) + '  ->  ' + n3(Jn);
+
+      var yFactor = 1 - 6 * A;
+      if (A === 0) {
+        why.innerHTML = '<b>alpha = 0: the direction is known and nothing moves.</b>' +
+          'The dashed arrow still points uphill and |grad J| is still ' + n3(mag) + ', so the calculus is intact &mdash; ' +
+          'but a step of zero length uses none of it. That is the cleanest statement of the division of labour: ' +
+          'the gradient supplies the <em>direction</em>, alpha supplies the <em>distance</em>, and neither can do the ' +
+          'other\'s job.';
+      } else if (mag <= 1e-9) {
+        why.innerHTML = '<b>You are standing at the minimum: grad J = 0, so the step is zero.</b>' +
+          'This is the fixed point of the whole method and the reason convergence looks the way it does &mdash; ' +
+          'as the gradient shrinks the step shrinks with it, so progress nearly stops all by itself. Nothing ' +
+          'switches the algorithm off; it simply stops moving.';
+      } else if (Jn > J) {
+        why.innerHTML = '<b style="color:var(--viz-red)">Overshoot: J went UP, from ' + n3(J) + ' to ' + n3(Jn) + '.</b>' +
+          'The direction was right and the distance was wrong. Along y the update is y &larr; (1 - 6&alpha;)y, and ' +
+          '&alpha; = ' + n2(A) + ' makes that factor ' + n2(yFactor) + ' &mdash; magnitude bigger than 1, so each step ' +
+          'lands further out than it started. Note the surface is steeper in y than in x (coefficient 3 versus 1), so a ' +
+          'single &alpha; is already too big for one direction while still being timid in the other. That is visual 3.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">J fell from ' + n3(J) + ' to ' + n3(Jn) + '.</b>' +
+          'The dashed arrow is pure calculus you already own: grad J points along the steepest <em>increase</em>, and ' +
+          'the directional derivative in that direction equals |grad J| = ' + n3(mag) + '. The solid arrow is the entire ' +
+          'new idea &mdash; the same arrow, negated and scaled by &alpha;. ' +
+          '<br><br>Drag &alpha; past 0.33 and watch the y-component start to overshoot while x is still crawling: the ' +
+          'update in y is y &larr; (1 - 6&alpha;)y, so it flips sign once &alpha; &gt; 1/6 and diverges past 1/3.';
+      }
+    }
+    x.addEventListener('input', render);
+    y.addEventListener('input', render);
+    a.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Why Squares Not Signs</h2>
+  <p class="vz-lede">Three points, one line, two candidate costs. Press the two preset lines and read the
+    signed total on both: it cannot tell a good fit from a terrible one, because the residuals cancel. Then
+    take gradient steps and watch <em>m</em> and <em>b</em> &mdash; not the data &mdash; move.
+    <b>Like a bank statement that only shows your net change: minus 500 and plus 500 reads as a quiet month.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="preset lines">
+    <button id="v2-mean" aria-pressed="false">flat line at mean y</button>
+    <button id="v2-fit" aria-pressed="false">least-squares fit</button>
+    <button id="v2-reset" aria-pressed="true">reset to m=1, b=0.5</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-m">slope m = <span id="v2-ml">1.00</span></label>
+    <input class="vz-range" type="range" id="v2-m" min="-4" max="6" step="0.01" value="1" aria-label="slope m">
+    <label class="vz-lab" for="v2-b">intercept b = <span id="v2-bl">0.50</span></label>
+    <input class="vz-range" type="range" id="v2-b" min="-6" max="8" step="0.01" value="0.5" aria-label="intercept b">
+    <label class="vz-lab" for="v2-a">learning rate alpha = <span id="v2-al">0.10</span></label>
+    <input class="vz-range" type="range" id="v2-a" min="0.01" max="0.3" step="0.005" value="0.1" aria-label="learning rate alpha">
+    <div class="vz-seg" role="group" aria-label="run gradient descent">
+      <button id="v2-step" aria-pressed="false">take 1 step</button>
+      <button id="v2-step10" aria-pressed="false">take 10 steps</button>
+    </div>
+    <div class="vz-plot" id="v2-plot"></div>
+    <div class="vz-read vz-mono" id="v2-read"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Both preset lines score a signed total of exactly zero, and that is not a coincidence:
+    whenever the intercept is free to move, the least-squares fit drives the signed residuals to zero anyway.
+    A cost that both lines satisfy equally cannot rank them, which is the real argument for squaring &mdash;
+    not that squaring is convenient, but that the signed sum carries no information about size at all.</p>
+
+  <style>
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace;display:inline-block;margin:4px 6px 0 0}
+  </style>
+  <script>
+  (function(){
+    var DATA = [[1, 2], [2, 3], [3, 5]];
+    var m = document.getElementById('v2-m'), b = document.getElementById('v2-b'), a = document.getElementById('v2-a');
+    var ml = document.getElementById('v2-ml'), bl = document.getElementById('v2-bl'), al = document.getElementById('v2-al');
+    var plot = document.getElementById('v2-plot'), read = document.getElementById('v2-read'), why = document.getElementById('v2-why');
+    var bMean = document.getElementById('v2-mean'), bFit = document.getElementById('v2-fit'), bReset = document.getElementById('v2-reset');
+    var b1 = document.getElementById('v2-step'), b10 = document.getElementById('v2-step10');
+    var preset = 'reset', clamped = false, steps = 0;
+
+    var PW = 320, PH = 175;
+    function px(v){ return (v + 0.2) / 4.2 * PW; }
+    function py(v){ return PH - (v + 0.5) / 6.5 * PH; }
+    function n3(v){ return (isFinite(v) ? v : 0).toFixed(3); }
+    function n4(v){ return (isFinite(v) ? v : 0).toFixed(4); }
+
+    function stats(M, B){
+      var signed = 0, sq = 0, gm = 0, gb = 0, n = DATA.length;
+      for (var i = 0; i < n; i++) {
+        var r = M * DATA[i][0] + B - DATA[i][1];
+        signed += r; sq += r * r; gm += 2 * r * DATA[i][0]; gb += 2 * r;
+      }
+      return { signed: signed, sse: sq, mse: sq / n, gm: gm / n, gb: gb / n };
+    }
+    function setMB(M, B){
+      var lo = Number(m.min), hi = Number(m.max), lo2 = Number(b.min), hi2 = Number(b.max);
+      clamped = (M < lo || M > hi || B < lo2 || B > hi2);
+      m.value = Math.max(lo, Math.min(hi, M));
+      b.value = Math.max(lo2, Math.min(hi2, B));
+    }
+    function step(k){
+      for (var i = 0; i < k; i++) {
+        var M = Number(m.value), B = Number(b.value), A = Number(a.value);
+        var s = stats(M, B);
+        if (!isFinite(s.gm) || !isFinite(s.gb)) break;
+        setMB(M - A * s.gm, B - A * s.gb);
+        steps += 1;
+        if (clamped) break;
+      }
+      preset = 'run';
+      render();
+    }
+
+    function render(){
+      var M = Number(m.value), B = Number(b.value), A = Number(a.value);
+      ml.textContent = M.toFixed(2); bl.textContent = B.toFixed(2); al.textContent = A.toFixed(2);
+      bMean.setAttribute('aria-pressed', preset === 'mean' ? 'true' : 'false');
+      bFit.setAttribute('aria-pressed', preset === 'fit' ? 'true' : 'false');
+      bReset.setAttribute('aria-pressed', preset === 'reset' ? 'true' : 'false');
+      var s = stats(M, B);
+
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="three data points, the candidate line, and the residual for each point">';
+      svg += '<line x1="0" y1="' + py(0).toFixed(1) + '" x2="' + PW + '" y2="' + py(0).toFixed(1) + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      svg += '<line x1="' + px(0).toFixed(1) + '" y1="0" x2="' + px(0).toFixed(1) + '" y2="' + PH + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      svg += '<line x1="' + px(0).toFixed(1) + '" y1="' + py(B).toFixed(1) + '" x2="' + px(4).toFixed(1) + '" y2="' + py(M * 4 + B).toFixed(1) +
+        '" stroke="var(--viz-accent)" stroke-width="2.5"/>';
+      for (var i = 0; i < DATA.length; i++) {
+        var xv = DATA[i][0], yv = DATA[i][1], pv = M * xv + B, r = pv - yv;
+        var col = r >= 0 ? 'var(--viz-amber)' : 'var(--viz-violet)';
+        svg += '<line x1="' + px(xv).toFixed(1) + '" y1="' + py(yv).toFixed(1) + '" x2="' + px(xv).toFixed(1) + '" y2="' + py(pv).toFixed(1) +
+          '" stroke="' + col + '" stroke-width="2.5" stroke-dasharray="4 3"/>';
+        svg += '<circle cx="' + px(xv).toFixed(1) + '" cy="' + py(yv).toFixed(1) + '" r="4" fill="var(--viz-ink)"/>';
+        svg += '<text x="' + (px(xv) + 6).toFixed(1) + '" y="' + ((py(yv) + py(pv)) / 2).toFixed(1) +
+          '" font-size="9.5" fill="' + col + '" font-family="ui-monospace,Consolas,monospace">' +
+          (r >= 0 ? '+' : '') + r.toFixed(2) + '</text>';
+      }
+      svg += '<text x="4" y="12" font-size="9.5" fill="var(--viz-muted)">points (1,2) (2,3) (3,5) &middot; dashes are residuals, signed</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      read.textContent =
+        'residual_i = m*x_i + b - y_i        (prediction MINUS observed)\n' +
+        'sum of SIGNED residuals   = ' + n4(s.signed) + '\n' +
+        'sum of SQUARED residuals  = ' + n4(s.sse) + '     MSE = ' + n4(s.mse) + '\n' +
+        'dJ/dm = (2/n) sum r_i x_i = ' + n4(s.gm) + '\n' +
+        'dJ/db = (2/n) sum r_i     = ' + n4(s.gb) + '\n' +
+        'steps taken = ' + steps;
+
+      var pills = '<span class="v2-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">signed total ' + n3(s.signed) + '</span>' +
+        '<span class="v2-pill" style="color:' + (s.mse < 0.2 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+        (s.mse < 0.2 ? 'var(--viz-green)' : 'var(--viz-red)') + '">MSE ' + n3(s.mse) + (s.mse < 0.2 ? ' &mdash; good fit' : ' &mdash; poor fit') + '</span>';
+
+      if (clamped) {
+        why.innerHTML = '<b style="color:var(--viz-red)">The step left the visible range &mdash; that is divergence.</b>' +
+          pills + '<br>&alpha; = ' + A.toFixed(3) + ' is past the stable limit for this data (about 0.18 here), so each ' +
+          'update overshoots further than the last and the parameters run away. Lower &alpha; and press reset.';
+      } else if (Math.abs(s.signed) < 1e-6 && s.mse > 0.2) {
+        why.innerHTML = '<b style="color:var(--viz-red)">Signed total = 0.000, and the fit is still bad.</b>' + pills +
+          '<br>The positive and negative residuals cancel exactly, so a cost built from signed errors calls this line ' +
+          'flawless while the squared cost sees MSE = ' + n3(s.mse) + '. <b>Positive and negative errors cancel, hiding ' +
+          'large mistakes</b> &mdash; that is the whole reason least squares squares. Now press the least-squares fit: its ' +
+          'signed total is also 0, so signed error cannot even rank the two.';
+      } else if (s.mse < 0.06) {
+        why.innerHTML = '<b style="color:var(--viz-green)">At the least-squares solution: m = 1.5, b = 0.333, MSE = 0.0556.</b>' + pills +
+          '<br>Both partial derivatives are essentially zero, so the update dJ/dm, dJ/db barely moves anything &mdash; ' +
+          '<b>the steps shrink and progress nearly stops</b>, which is exactly the signal that you have arrived. ' +
+          'Nothing here is special to a line: the same loop runs on any cost you can differentiate.';
+      } else {
+        why.innerHTML = '<b>What moves and what does not.</b>' + pills +
+          '<br>The update is m &larr; m - &alpha;&middot;dJ/dm and b &larr; b - &alpha;&middot;dJ/db. The inputs x_i, the ' +
+          'observed y_i and the count n never change &mdash; they are data. From m = 1, b = 0.5 with &alpha; = 0.1 one step ' +
+          'gives m = 1.4, b = 0.667 and drops the MSE from 0.9167 to 0.0800. ' +
+          '<br><br>Least squares also has an exact formula for this fit; iterating wins not because no solution exists but ' +
+          'because solving the system directly grows costly once there are thousands of parameters instead of two.';
+      }
+    }
+
+    m.addEventListener('input', function(){ preset = 'run'; clamped = false; render(); });
+    b.addEventListener('input', function(){ preset = 'run'; clamped = false; render(); });
+    a.addEventListener('input', render);
+    bMean.addEventListener('click', function(){ clamped = false; steps = 0; setMB(0, 10 / 3); preset = 'mean'; render(); });
+    bFit.addEventListener('click', function(){ clamped = false; steps = 0; setMB(1.5, 1 / 3); preset = 'fit'; render(); });
+    bReset.addEventListener('click', function(){ clamped = false; steps = 0; setMB(1, 0.5); preset = 'reset'; render(); });
+    b1.addEventListener('click', function(){ step(1); });
+    b10.addEventListener('click', function(){ step(10); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Learning Rate Dial</h2>
+  <p class="vz-lede">One cost, J(theta) = a&middot;theta^2, and the entire update collapses to
+    theta &larr; (1 - 2a&middot;alpha)&middot;theta. Drag alpha to walk through all four regimes, then drag the
+    curvature and watch the same alpha change verdict &mdash; which is why no formula picks it for you.
+    <b>Like the hot tap in an unfamiliar shower: the right quarter-turn here scalds you in the next hotel.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-a">learning rate alpha = <span id="v3-al">0.10</span></label>
+    <input class="vz-range" type="range" id="v3-a" min="0.01" max="1.2" step="0.01" value="0.1" aria-label="learning rate alpha">
+    <label class="vz-lab" for="v3-c">curvature a = <span id="v3-cl">1.0</span> &nbsp;(J = a&middot;theta^2)</label>
+    <input class="vz-range" type="range" id="v3-c" min="0.2" max="4" step="0.1" value="1" aria-label="curvature a">
+    <div class="vz-plot" id="v3-plot"></div>
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="vz-read vz-mono" id="v3-read"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The stable window is alpha &lt; 1/a and the perfect step is alpha = 1/(2a) &mdash; both
+    written in terms of the <b>curvature</b>, which you can rarely measure and which changes from point to point
+    on a real surface. That is the honest form of "no single method is guaranteed to work for every problem":
+    the ideal rate exists, it is just not something you get to know in advance.</p>
+
+  <style>
+    .v3-bars{display:flex;gap:3px;align-items:flex-end;height:78px;margin-top:12px}
+    .v3-b{flex:1;display:flex;flex-direction:column;justify-content:flex-end;height:100%}
+    .v3-b i{display:block;border-radius:2px 2px 0 0;min-height:2px}
+    .v3-b u{display:block;text-decoration:none;font-size:8.5px;text-align:center;color:var(--viz-muted);margin-top:3px}
+  </style>
+  <script>
+  (function(){
+    var a = document.getElementById('v3-a'), c = document.getElementById('v3-c');
+    var al = document.getElementById('v3-al'), cl = document.getElementById('v3-cl');
+    var plot = document.getElementById('v3-plot'), bars = document.getElementById('v3-bars');
+    var read = document.getElementById('v3-read'), why = document.getElementById('v3-why');
+    var N = 14;
+
+    function fmt(v){
+      if (!isFinite(v)) return 'overflow';
+      if (Math.abs(v) >= 1e5 || (v !== 0 && Math.abs(v) < 1e-4)) return v.toExponential(2);
+      return v.toFixed(4);
+    }
+
+    function render(){
+      var A = Number(a.value), C = Number(c.value);
+      al.textContent = A.toFixed(2); cl.textContent = C.toFixed(1);
+      var f = 1 - 2 * C * A;
+
+      var th = [1], cost = [C];
+      for (var k = 1; k <= N; k++) {
+        var t = th[k - 1] * f;
+        if (!isFinite(t) || Math.abs(t) > 1e12) t = Math.sign(t || 1) * 1e12;
+        th.push(t);
+        var jv = C * t * t;
+        cost.push(isFinite(jv) ? jv : 1e24);
+      }
+
+      var PW = 320, PH = 150, LO = -1.8, HI = 1.8;
+      var jmax = C * LO * LO;
+      function px(t){ return (Math.max(LO, Math.min(HI, t)) - LO) / (HI - LO) * PW; }
+      function py(j){ return PH - Math.max(0, Math.min(1, j / jmax)) * (PH - 12) - 6; }
+      var pts = '';
+      for (var i = 0; i <= 120; i++) {
+        var tv = LO + (HI - LO) * i / 120;
+        pts += px(tv).toFixed(1) + ',' + py(C * tv * tv).toFixed(1) + ' ';
+      }
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the parabola with the first iterates joined in order">';
+      svg += '<polyline points="' + pts + '" fill="none" stroke="var(--viz-line)" stroke-width="2"/>';
+      var shown = Math.min(8, N);
+      for (var k2 = 0; k2 < shown; k2++) {
+        var x1 = px(th[k2]), y1 = py(C * th[k2] * th[k2]), x2 = px(th[k2 + 1]), y2 = py(C * th[k2 + 1] * th[k2 + 1]);
+        svg += '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) + '" y2="' + y2.toFixed(1) +
+          '" stroke="var(--viz-accent)" stroke-width="1.5" stroke-dasharray="3 3"/>';
+        svg += '<circle cx="' + x1.toFixed(1) + '" cy="' + y1.toFixed(1) + '" r="3.2" fill="var(--viz-accent)"/>';
+      }
+      svg += '<text x="4" y="12" font-size="9.5" fill="var(--viz-muted)">iterates 0 to ' + shown + ', joined in order &middot; theta_0 = 1</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var cmax = 0;
+      for (var i2 = 0; i2 <= N; i2++) if (isFinite(cost[i2]) && cost[i2] > cmax) cmax = cost[i2];
+      if (!(cmax > 0)) cmax = 1;
+      var html = '';
+      for (var i3 = 0; i3 <= N; i3++) {
+        var hgt = Math.max(2, Math.round(Math.min(1, cost[i3] / cmax) * 62));
+        var up = i3 > 0 && cost[i3] > cost[i3 - 1] + 1e-12;
+        html += '<div class="v3-b" title="iteration ' + i3 + ', cost ' + fmt(cost[i3]) + '"><i style="height:' + hgt +
+          'px;background:' + (up ? 'var(--viz-red)' : 'var(--viz-accent)') + '"></i><u>' + (i3 % 2 === 0 ? i3 : '') + '</u></div>';
+      }
+      bars.innerHTML = html;
+
+      read.textContent =
+        'update      theta <- (1 - 2*a*alpha) * theta   with factor ' + f.toFixed(3) + '\n' +
+        'theta:      ' + th.slice(0, 6).map(function(v){ return fmt(v); }).join('  ') + '\n' +
+        'J(theta):   ' + cost.slice(0, 6).map(function(v){ return fmt(v); }).join('  ') + '\n' +
+        'after ' + N + ' steps  theta = ' + fmt(th[N]) + '   J = ' + fmt(cost[N]) + '\n' +
+        'stable while alpha < 1/a = ' + (1 / C).toFixed(3) + ';  exact in one step at alpha = ' + (1 / (2 * C)).toFixed(3);
+
+      var head, body;
+      if (Math.abs(f) < 1e-9) {
+        head = '<b style="color:var(--viz-green)">alpha = 1/(2a) exactly: one step lands on the minimum.</b>';
+        body = 'The factor is 0, so theta_1 = 0 and every later step does nothing. This is the step Newton\'s method ' +
+          'computes for itself from the curvature &mdash; visual 5 &mdash; and it is why Newton needs no learning rate.';
+      } else if (f > 0 && f < 1) {
+        head = (f > 0.85 ? '<b style="color:var(--viz-amber)">Too small: monotone, smooth, and crawling.</b>'
+                         : '<b style="color:var(--viz-green)">A workable rate: smooth monotone decrease.</b>');
+        body = 'Every step shrinks theta by the same factor ' + f.toFixed(3) + ', so the cost falls without ever rising. ' +
+          (f > 0.85 ? 'After ' + N + ' steps theta is still ' + fmt(th[N]) + '. A slow monotone curve is the signature of ' +
+            'alpha too small &mdash; note it never zig-zags, which is how you tell it apart from the opposite fault.'
+                    : 'Notice the bars getting shorter and the dots bunching up near the bottom: as the gradient shrinks, ' +
+            'the step alpha&middot;grad J shrinks with it and progress nearly stops. That stalling is the practical ' +
+            'signal that you are close.');
+      } else if (f <= -1 || f >= 1) {
+        head = '<b style="color:var(--viz-red)">Diverging: |1 - 2a&middot;alpha| = ' + Math.abs(f).toFixed(2) + ' &ge; 1.</b>';
+        body = 'Each step lands further from the minimum than the last, so the cost grows without bound &mdash; ' +
+          'theta reaches ' + fmt(th[N]) + ' after ' + N + ' steps. Read the bar chart carefully: the swings here get ' +
+          '<b>bigger</b>. Oscillation with swings that <b>shrink</b> is a different diagnosis, one slider notch to the left.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">Too large: overshooting, oscillating &mdash; but still converging.</b>';
+        body = 'The factor is negative (' + f.toFixed(3) + '), so theta flips sign every step and the iterate jumps back ' +
+          'and forth across the minimum: ' + th.slice(0, 5).map(function(v){ return v.toFixed(3); }).join(', ') + '. ' +
+          'The cost therefore rises on some iterations while trending downward overall &mdash; exactly the pattern ' +
+          '2.5, 1.2, 1.8, 0.9, 1.4, 0.7. The verdict for that pattern is <b>alpha too large</b>, not "unstable and will ' +
+          'diverge" and certainly not "too small": a magnitude below 1 still converges, just wastefully.';
+      }
+      why.innerHTML = head + body +
+        '<br><br>Now drag the curvature a. The same alpha that behaved perfectly at a = 1 can diverge at a = 4, because ' +
+        'the safe window 1/a shrank underneath it. The learning rate scales the step; the surface decides what scale is safe.';
+    }
+    a.addEventListener('input', render);
+    c.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Valleys And Restarts</h2>
+  <p class="vz-lede">The same algorithm, the same learning rate, one thing changed: where it started. On
+    f(x) = x^4 - 4x^2 + 0.5x descent is a purely local rule, so it falls into whichever valley it woke up in.
+    Drag the start, then press restart-many and watch the strategy do what a single run cannot.
+    <b>Like dropping a marble on a mountain range in the dark: it always finds a low point, never the lowest.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-x0">start point x0 = <span id="v4-x0l">1.00</span></label>
+    <input class="vz-range" type="range" id="v4-x0" min="-2.1" max="2.1" step="0.02" value="1" aria-label="start point">
+    <div class="vz-seg" role="group" aria-label="restarts">
+      <button id="v4-many" aria-pressed="false">restart from 12 random points</button>
+      <button id="v4-clear" aria-pressed="true">single run only</button>
+    </div>
+    <div class="vz-plot" id="v4-plot"></div>
+    <div class="vz-read vz-mono" id="v4-read"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Restarts are a bet, not a proof. Twelve runs raise the chance of meeting the global
+    minimum; nothing here can certify that you have found it, because gradient descent never sees more of the
+    surface than the point it is standing on. On a <b>convex</b> cost the question disappears &mdash; there is
+    only one basin &mdash; which is exactly why convexity is worth so much.</p>
+
+  <style>
+    .v4-dot{font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var x0 = document.getElementById('v4-x0'), x0l = document.getElementById('v4-x0l');
+    var plot = document.getElementById('v4-plot'), read = document.getElementById('v4-read'), why = document.getElementById('v4-why');
+    var many = document.getElementById('v4-many'), clear = document.getElementById('v4-clear');
+    var restarts = null;
+    var GLOBAL_X = -1.4445, GLOBAL_F = -4.7148, LOCAL_X = 1.3819, LOCAL_F = -3.3009;
+
+    function f(x){ return x * x * x * x - 4 * x * x + 0.5 * x; }
+    function fp(x){ return 4 * x * x * x - 8 * x + 0.5; }
+    function run(start){
+      var x = start, path = [x];
+      for (var k = 0; k < 400; k++) {
+        var g = fp(x);
+        if (!isFinite(g)) break;
+        var nx = x - 0.02 * g;
+        if (!isFinite(nx) || Math.abs(nx) > 50) break;
+        x = nx;
+        if (k % 8 === 0 && path.length < 50) path.push(x);
+      }
+      path.push(x);
+      return { x: x, f: f(x), path: path, global: x < 0 };
+    }
+    function n3(v){ return (isFinite(v) ? v : 0).toFixed(3); }
+
+    function render(){
+      var S = Number(x0.value);
+      x0l.textContent = S.toFixed(2);
+      many.setAttribute('aria-pressed', restarts ? 'true' : 'false');
+      clear.setAttribute('aria-pressed', restarts ? 'false' : 'true');
+      var r = run(S);
+
+      var PW = 320, PH = 175, LO = -2.3, HI = 2.3, FLO = -5.6, FHI = 2.2;
+      function px(v){ return (v - LO) / (HI - LO) * PW; }
+      function py(v){ return PH - (Math.max(FLO, Math.min(FHI, v)) - FLO) / (FHI - FLO) * PH; }
+      var pts = '';
+      for (var i = 0; i <= 200; i++) {
+        var xv = LO + (HI - LO) * i / 200;
+        pts += px(xv).toFixed(1) + ',' + py(f(xv)).toFixed(1) + ' ';
+      }
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the double-well curve with the descent path from the chosen start">';
+      svg += '<polyline points="' + pts + '" fill="none" stroke="var(--viz-line)" stroke-width="2"/>';
+      svg += '<circle cx="' + px(GLOBAL_X).toFixed(1) + '" cy="' + py(GLOBAL_F).toFixed(1) + '" r="5" fill="none" stroke="var(--viz-green)" stroke-width="2"/>';
+      svg += '<text x="' + (px(GLOBAL_X) - 4).toFixed(1) + '" y="' + (py(GLOBAL_F) + 16).toFixed(1) + '" font-size="9" fill="var(--viz-green)">global</text>';
+      svg += '<circle cx="' + px(LOCAL_X).toFixed(1) + '" cy="' + py(LOCAL_F).toFixed(1) + '" r="5" fill="none" stroke="var(--viz-amber)" stroke-width="2"/>';
+      svg += '<text x="' + (px(LOCAL_X) - 8).toFixed(1) + '" y="' + (py(LOCAL_F) + 16).toFixed(1) + '" font-size="9" fill="var(--viz-amber)">local</text>';
+
+      if (restarts) {
+        for (var j = 0; j < restarts.length; j++) {
+          var rr = restarts[j];
+          svg += '<line x1="' + px(rr.start).toFixed(1) + '" y1="' + py(f(rr.start)).toFixed(1) + '" x2="' + px(rr.x).toFixed(1) +
+            '" y2="' + py(rr.f).toFixed(1) + '" stroke="' + (rr.global ? 'var(--viz-green)' : 'var(--viz-amber)') +
+            '" stroke-width="1" stroke-dasharray="2 3"/>';
+          svg += '<circle cx="' + px(rr.start).toFixed(1) + '" cy="' + py(f(rr.start)).toFixed(1) + '" r="2.6" fill="' +
+            (rr.global ? 'var(--viz-green)' : 'var(--viz-amber)') + '"/>';
+        }
+      } else {
+        for (var k = 0; k < r.path.length; k++) {
+          svg += '<circle cx="' + px(r.path[k]).toFixed(1) + '" cy="' + py(f(r.path[k])).toFixed(1) + '" r="2.4" fill="var(--viz-accent)"/>';
+        }
+        svg += '<circle cx="' + px(S).toFixed(1) + '" cy="' + py(f(S)).toFixed(1) + '" r="4.5" fill="var(--viz-accent)"/>';
+        svg += '<text x="' + (px(S) - 10).toFixed(1) + '" y="' + (py(f(S)) - 8).toFixed(1) + '" font-size="9" fill="var(--viz-accent)">start</text>';
+      }
+      svg += '<text x="4" y="12" font-size="9.5" fill="var(--viz-muted)">f(x) = x^4 - 4x^2 + 0.5x &middot; alpha = 0.02</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      if (restarts) {
+        var best = restarts[0], hits = 0;
+        for (var q = 0; q < restarts.length; q++) {
+          if (restarts[q].f < best.f) best = restarts[q];
+          if (restarts[q].global) hits += 1;
+        }
+        read.textContent =
+          '12 runs, identical algorithm and alpha, different starts\n' +
+          'reached the GLOBAL minimum : ' + hits + ' of 12\n' +
+          'reached the LOCAL minimum  : ' + (12 - hits) + ' of 12\n' +
+          'best value found           : f = ' + n3(best.f) + '  at x = ' + n3(best.x);
+        why.innerHTML = '<b>' + hits + ' of 12 runs found the deeper valley.</b>' +
+          'Nothing was tuned between runs &mdash; same gradient, same learning rate, same number of iterations. The only ' +
+          'variable was the starting point, and it decided the answer. <b>Restarting the search from many different ' +
+          'points</b> is therefore the practical way to improve your chances on a surface with many local minima, and the ' +
+          'reason it works is that a start in the deeper basin is all that is required. ' +
+          '<br><br>Press it again: the count changes. That is the honest character of the method &mdash; a better chance, ' +
+          'never a guarantee.';
+      } else {
+        var landed = r.global ? 'GLOBAL' : 'local';
+        read.textContent =
+          'start x0     = ' + n3(S) + '\n' +
+          'converged to x = ' + n3(r.x) + '   f = ' + n3(r.f) + '\n' +
+          'that is the ' + landed + ' minimum\n' +
+          'global minimum: x = -1.445, f = -4.715\n' +
+          'local  minimum: x =  1.382, f = -3.301';
+        why.innerHTML = r.global
+          ? '<b style="color:var(--viz-green)">This start reached the global minimum, f = -4.715.</b>' +
+            'Now drag the start to the right of about x = 0.06 and press nothing else. The identical algorithm converges ' +
+            'to f = -3.301 instead and reports success just as confidently, because it can only see the gradient at the ' +
+            'point it occupies. <b>Two runs from different points may settle into different local minima.</b>'
+          : '<b style="color:var(--viz-amber)">Trapped in the local minimum, f = -3.301.</b>' +
+            'The deeper valley at f = -4.715 is 43% lower and the run never learns it exists: every gradient it evaluated ' +
+            'pointed into this basin. This is <b>the</b> well-known limitation of gradient descent on a non-convex ' +
+            'function &mdash; not that it fails to use partial derivatives, and not that it only works in one dimension, ' +
+            'but that it can get trapped. Drag left past about x = 0.06 to cross the watershed.';
+      }
+    }
+    x0.addEventListener('input', function(){ restarts = null; render(); });
+    many.addEventListener('click', function(){
+      var out = [];
+      for (var i = 0; i < 12; i++) {
+        var s = -2.1 + Math.random() * 4.2;
+        var rr = run(s);
+        rr.start = s;
+        out.push(rr);
+      }
+      restarts = out;
+      render();
+    });
+    clear.addEventListener('click', function(){ restarts = null; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Newton Versus Descent</h2>
+  <p class="vz-lede">Newton's method fits a parabola through the local slope and curvature and jumps to its
+    vertex: x - g'(x)/g''(x). Pick a function, drag the start, and compare iteration counts &mdash; then try the
+    double well from near the origin and watch what "chases critical points" really means.
+    <b>Like judging a hill by feeling both the slope and how sharply it curves, instead of taking fixed paces.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="function">
+    <button id="v5-fq" aria-pressed="true">g = 2x^2 - 4x + 5</button>
+    <button id="v5-f4" aria-pressed="false">g = x^4 - 4x</button>
+    <button id="v5-fw" aria-pressed="false">g = x^4 - 4x^2 + 0.5x</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-x0">start x0 = <span id="v5-x0l">2.00</span></label>
+    <input class="vz-range" type="range" id="v5-x0" min="-2" max="3" step="0.05" value="2" aria-label="start point">
+    <label class="vz-lab" for="v5-a">gradient-descent alpha = <span id="v5-al">0.02</span></label>
+    <input class="vz-range" type="range" id="v5-a" min="0.005" max="0.12" step="0.005" value="0.02" aria-label="learning rate for gradient descent">
+    <div class="vz-plot" id="v5-plot"></div>
+    <div class="vz-read vz-mono" id="v5-read"></div>
+    <div class="vz-seg" role="group" aria-label="order of the multivariable product">
+      <button id="v5-ord1" aria-pressed="true">step = H^-1 grad g</button>
+      <button id="v5-ord2" aria-pressed="false">step = grad g H^-1</button>
+    </div>
+    <div class="vz-read vz-mono" id="v5-shape"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Everything Newton buys is paid for by the second derivative. In n dimensions that is the
+    Hessian: about n^2 numbers to store and n^3 work to invert every step, so at a million parameters it is not
+    merely slow but impossible &mdash; which is why large models stay first-order and settle for tuning a
+    learning rate instead.</p>
+
+  <style>
+    .v5-row{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;margin-top:5px}
+    .v5-row.is-good{border-color:var(--viz-green)}
+    .v5-row.is-bad{border-color:var(--viz-red);border-style:dashed}
+    .v5-row i{font-style:normal;margin-left:auto;font-weight:800}
+  </style>
+  <script>
+  (function(){
+    var FN = {
+      q:  { g:function(x){ return 2*x*x - 4*x + 5; }, d1:function(x){ return 4*x - 4; }, d2:function(){ return 4; },
+            lo:-1.2, hi:3.2, name:'2x^2 - 4x + 5', min:1 },
+      k4: { g:function(x){ return x*x*x*x - 4*x; }, d1:function(x){ return 4*x*x*x - 4; }, d2:function(x){ return 12*x*x; },
+            lo:-0.8, hi:2.6, name:'x^4 - 4x', min:1 },
+      w:  { g:function(x){ return x*x*x*x - 4*x*x + 0.5*x; }, d1:function(x){ return 4*x*x*x - 8*x + 0.5; }, d2:function(x){ return 12*x*x - 8; },
+            lo:-2.3, hi:2.3, name:'x^4 - 4x^2 + 0.5x', min:-1.4445 }
+    };
+    var key = 'q', order = 1;
+    var bq = document.getElementById('v5-fq'), b4 = document.getElementById('v5-f4'), bw = document.getElementById('v5-fw');
+    var x0 = document.getElementById('v5-x0'), x0l = document.getElementById('v5-x0l');
+    var a = document.getElementById('v5-a'), al = document.getElementById('v5-al');
+    var plot = document.getElementById('v5-plot'), read = document.getElementById('v5-read');
+    var shape = document.getElementById('v5-shape'), why = document.getElementById('v5-why');
+    var o1 = document.getElementById('v5-ord1'), o2 = document.getElementById('v5-ord2');
+
+    function n4(v){ return (isFinite(v) ? v : 0).toFixed(4); }
+    function n2(v){ return (isFinite(v) ? v : 0).toFixed(2); }
+
+    function newton(F, start){
+      var x = start, rows = [], stopped = '';
+      for (var k = 0; k < 6; k++) {
+        var g1 = F.d1(x), g2 = F.d2(x);
+        rows.push({ k: k, x: x, g1: g1, g2: g2 });
+        if (!isFinite(g2) || Math.abs(g2) < 1e-9) { stopped = 'zero curvature'; break; }
+        var nx = x - g1 / g2;
+        if (!isFinite(nx) || Math.abs(nx) > 1e6) { stopped = 'step blew up'; break; }
+        x = nx;
+      }
+      return { x: x, rows: rows, stopped: stopped };
+    }
+    function descent(F, start, A){
+      var x = start, k = 0, settled = false;
+      for (; k < 4000; k++) {
+        var g1 = F.d1(x);
+        if (!isFinite(g1)) break;
+        var nx = x - A * g1;
+        if (!isFinite(nx) || Math.abs(nx) > 1e6) return { x: x, steps: k, diverged: true, settled: false };
+        if (Math.abs(nx - x) < 1e-6) { x = nx; k += 1; settled = true; break; }
+        x = nx;
+      }
+      return { x: x, steps: k, diverged: false, settled: settled };
+    }
+    function gdWord(gd){
+      if (gd.diverged) return 'diverged &mdash; alpha is past the stable window here';
+      if (!gd.settled) return 'still had not settled after 4000 iterations';
+      return gd.steps + ' iterations';
+    }
+
+    function render(){
+      bq.setAttribute('aria-pressed', key === 'q' ? 'true' : 'false');
+      b4.setAttribute('aria-pressed', key === 'k4' ? 'true' : 'false');
+      bw.setAttribute('aria-pressed', key === 'w' ? 'true' : 'false');
+      o1.setAttribute('aria-pressed', order === 1 ? 'true' : 'false');
+      o2.setAttribute('aria-pressed', order === 2 ? 'true' : 'false');
+      var F = FN[key], S = Number(x0.value), A = Number(a.value);
+      x0l.textContent = S.toFixed(2); al.textContent = A.toFixed(3);
+
+      var nw = newton(F, S), gd = descent(F, S, A);
+      var g1 = F.d1(S), g2 = F.d2(S);
+
+      var PW = 320, PH = 175, LO = F.lo, HI = F.hi;
+      var glo = Infinity, ghi = -Infinity, i, xv;
+      for (i = 0; i <= 160; i++) { xv = LO + (HI - LO) * i / 160; var gv = F.g(xv); if (gv < glo) glo = gv; if (gv > ghi) ghi = gv; }
+      if (!isFinite(glo) || !isFinite(ghi) || ghi - glo < 1e-6) { glo = 0; ghi = 1; }
+      var pad = (ghi - glo) * 0.12; glo -= pad; ghi += pad;
+      function px(v){ return (v - LO) / (HI - LO) * PW; }
+      function py(v){ return PH - (Math.max(glo, Math.min(ghi, v)) - glo) / (ghi - glo) * PH; }
+
+      var pts = '', mod = '';
+      for (i = 0; i <= 160; i++) { xv = LO + (HI - LO) * i / 160; pts += px(xv).toFixed(1) + ',' + py(F.g(xv)).toFixed(1) + ' '; }
+      for (i = 0; i <= 80; i++) {
+        xv = LO + (HI - LO) * i / 80;
+        mod += px(xv).toFixed(1) + ',' + py(F.g(S) + g1 * (xv - S) + 0.5 * g2 * (xv - S) * (xv - S)).toFixed(1) + ' ';
+      }
+      var step1 = (isFinite(g2) && Math.abs(g2) > 1e-9) ? S - g1 / g2 : S;
+      var svg = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="the function, the fitted parabola at the start point, and the first Newton step">';
+      svg += '<polyline points="' + pts + '" fill="none" stroke="var(--viz-line)" stroke-width="2"/>';
+      svg += '<polyline points="' + mod + '" fill="none" stroke="var(--viz-violet)" stroke-width="2" stroke-dasharray="5 4"/>';
+      svg += '<circle cx="' + px(S).toFixed(1) + '" cy="' + py(F.g(S)).toFixed(1) + '" r="4.5" fill="var(--viz-accent)"/>';
+      svg += '<line x1="' + px(step1).toFixed(1) + '" y1="0" x2="' + px(step1).toFixed(1) + '" y2="' + PH +
+        '" stroke="var(--viz-green)" stroke-width="1.5" stroke-dasharray="3 3"/>';
+      svg += '<text x="4" y="12" font-size="9.5" fill="var(--viz-violet)">dashed: the parabola model q(x) at x0</text>';
+      svg += '<text x="4" y="25" font-size="9.5" fill="var(--viz-green)">vertical: its vertex = the first Newton step</text>';
+      svg += '<text x="4" y="' + (PH - 5) + '" font-size="9.5" fill="var(--viz-muted)">g(x) = ' + F.name + '</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var tbl = 'NEWTON   x_{k+1} = x_k - g\'(x_k)/g\'\'(x_k)\n';
+      for (i = 0; i < nw.rows.length; i++) {
+        var r = nw.rows[i];
+        tbl += '  k=' + r.k + '  x=' + n4(r.x) + '   g\'=' + n4(r.g1) + '   g\'\'=' + n4(r.g2) + '\n';
+      }
+      tbl += (nw.stopped ? '  stopped: ' + nw.stopped + '\n' : '') +
+        'GRADIENT DESCENT  x <- x - alpha*g\'(x),  alpha = ' + A.toFixed(3) + '\n' +
+        (gd.diverged ? '  diverged: alpha is past the stable window here'
+                     : '  ' + (gd.settled ? gd.steps + ' iterations to settle at x = ' + n4(gd.x)
+                                          : 'not settled after 4000 iterations; x = ' + n4(gd.x)));
+      read.textContent = tbl;
+
+      shape.textContent = order === 1
+        ? 'H^-1 (n x n)  *  grad g (n x 1)  ->  (n x 1)   VALID\n' +
+          'inner dimensions n and n agree, and the result is a column you can subtract from a point'
+        : 'grad g (n x 1)  *  H^-1 (n x n)  ->  UNDEFINED\n' +
+          'inner dimensions 1 and n disagree: a column gradient cannot left-multiply the inverse Hessian';
+
+      var head, body;
+      if (key === 'q') {
+        head = '<b style="color:var(--viz-green)">One step, exact &mdash; from any start you drag to.</b>';
+        body = 'g is a parabola, so the second-order model <em>is</em> the function and its vertex is the true minimum: ' +
+          'x1 = ' + n4(nw.rows.length > 1 ? nw.rows[1].x : 1) + '. Gradient descent needs ' + gdWord(gd) +
+          ' to get to the same place, because it only ever knew the slope. The update uses g\' and g\'\' rather than g ' +
+          'itself because <b>minima occur where g\'(x) = 0, and g\'\' confirms the type</b>.';
+      } else if (key === 'k4') {
+        var errs = [];
+        for (i = 0; i < nw.rows.length; i++) errs.push(Math.abs(nw.rows[i].x - 1).toExponential(1));
+        head = '<b style="color:var(--viz-green)">A near-exact answer in only a few iterations.</b>';
+        body = 'The distance to the true minimum x = 1 runs ' + errs.join(', ') + ' &mdash; each roughly the <em>square</em> ' +
+          'of the one before, so the correct digits double every step. Gradient descent at alpha = ' + A.toFixed(3) + ' needs ' +
+          gdWord(gd) + ' for the same accuracy. The parabola model is no longer exact here, which is why it takes four ' +
+          'steps rather than one, but it still carries curvature and that is what sizes the step correctly &mdash; no ' +
+          'learning rate required.';
+      } else {
+        var conv = nw.x;
+        var curv = F.d2(conv);
+        head = curv > 0
+          ? '<b style="color:var(--viz-green)">Newton settled at x = ' + n4(conv) + ', a minimum (g\'\' &gt; 0).</b>'
+          : '<b style="color:var(--viz-red)">Newton settled at x = ' + n4(conv) + ' &mdash; a MAXIMUM (g\'\' &lt; 0).</b>';
+        body = (curv > 0
+          ? 'Fine here. Now drag the start to about 0.3, where the curvature g\'\' = 12x^2 - 8 is negative. '
+          : 'At the start you chose g\'\'(x0) = ' + n2(g2) + ' is negative, so the fitted parabola opens <em>downward</em> and ' +
+            'its vertex is a peak. Newton walked confidently to it. ') +
+          'Newton solves g\'(x) = 0, and that equation is satisfied by minima, maxima and saddles alike &mdash; only a ' +
+          'positive g\'\' (in n dimensions, a positive-definite Hessian) makes the step a descent direction. Gradient ' +
+          'descent from the same start ' + (gd.diverged ? 'diverged at this alpha' : 'went to x = ' + n4(gd.x) + ' instead') +
+          ', because the sign of g\' alone always points downhill.';
+      }
+      why.innerHTML = head + body +
+        '<br><br><b>' + (order === 1 ? 'The order above is the correct one.' : 'The order above is the reversed, invalid one.') + '</b>' +
+        'In several variables the <b>Hessian matrix</b> takes the place of g\'\', and the step is H^-1 times the gradient ' +
+        'in that order. Matrix multiplication is not commutative, so this is not a stylistic choice: reversed, the shapes ' +
+        'do not even line up.';
+    }
+    bq.addEventListener('click', function(){ key = 'q'; render(); });
+    b4.addEventListener('click', function(){ key = 'k4'; render(); });
+    bw.addEventListener('click', function(){ key = 'w'; render(); });
+    o1.addEventListener('click', function(){ order = 1; render(); });
+    o2.addEventListener('click', function(){ order = 2; render(); });
+    x0.addEventListener('input', render);
+    a.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

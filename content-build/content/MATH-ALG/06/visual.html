@@ -1,0 +1,656 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, sliders, the segmented control. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour —
+   each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment:
+   canSwapVisualPanel scans for tags textually and would read it as a real
+   page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:34px}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-pills{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.vz-plot svg{display:block;width:100%;height:auto}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Roots That Vanish</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Powers Cycle</button>
+  <button class="viz-tab" data-viz-tab="3">3. Parts Stay Apart</button>
+  <button class="viz-tab" data-viz-tab="4">4. Foil Then Fold</button>
+  <button class="viz-tab" data-viz-tab="5">5. Conjugate Clears i</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Roots That Vanish</h2>
+  <p class="vz-lede"><b>The Quadratic Formula</b> and <b>Vertex form and features of quadratic graphs</b>
+    have always agreed with each other: lift a parabola off the x-axis and the crossings disappear, and at
+    exactly that moment the formula asks for the square root of a negative number. <b>Number of solutions to
+    equations</b> called that "no solution". Drag the constant term through the moment it happens.
+    <b>Like a thermometer reading below zero: the temperature did not stop existing — you needed a number
+    line that goes further.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-c">y = x^2 &minus; 4x + <span id="v1-cl">0</span></label>
+    <input class="vz-range" type="range" id="v1-c" min="0" max="16" step="1" value="0"
+      aria-label="constant term c">
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="vz-pills" id="v1-pills"></div>
+    <div class="vz-mono v1-work" id="v1-work"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Nothing about the parabola changed when the roots went complex — it is the same smooth
+    curve, and it still has a vertex, an axis of symmetry and a y-intercept. What changed is the
+    <b>number system you are allowed to answer in</b>. Complex numbers were not invented to describe a new
+    picture; they were invented so that one old formula never has to say "no answer".</p>
+
+  <style>
+    .v1-work{margin-top:12px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var A = 1, B = -4;
+    var X0 = -2, X1 = 6, Y0 = -6, Y1 = 20, W = 320, H = 215;
+    var s = document.getElementById('v1-c'), cl = document.getElementById('v1-cl');
+    var plot = document.getElementById('v1-plot'), pills = document.getElementById('v1-pills');
+    var work = document.getElementById('v1-work'), why = document.getElementById('v1-why');
+
+    function px(x){ return (x - X0) / (X1 - X0) * W; }
+    function py(y){ return H - (y - Y0) / (Y1 - Y0) * H; }
+    function fy(x, c){ return A * x * x + B * x + c; }
+    function n2(v){
+      if (!isFinite(v)) return '?';
+      var r = Math.round(v * 100) / 100;
+      return String(r);
+    }
+
+    function draw(c, D){
+      var g = '';
+      g += '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="10" style="fill:var(--viz-bg);stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<line x1="6" y1="' + py(0).toFixed(1) + '" x2="' + (W - 6) + '" y2="' + py(0).toFixed(1) + '" style="stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<line x1="' + px(0).toFixed(1) + '" y1="6" x2="' + px(0).toFixed(1) + '" y2="' + (H - 6) + '" style="stroke:var(--viz-line);stroke-width:1.5"/>';
+      var d = '';
+      for (var i = 0; i <= 90; i++) {
+        var x = X0 + (X1 - X0) * i / 90;
+        d += (i ? 'L' : 'M') + px(x).toFixed(1) + ' ' + py(fy(x, c)).toFixed(1) + ' ';
+      }
+      var curve = D < 0 ? 'var(--viz-violet)' : 'var(--viz-accent)';
+      g += '<path d="' + d + '" style="fill:none;stroke:' + curve + ';stroke-width:2.5"/>';
+      // vertex is always at x = 2 for this family
+      g += '<circle cx="' + px(2).toFixed(1) + '" cy="' + py(fy(2, c)).toFixed(1) + '" r="3.5" style="fill:var(--viz-muted)"/>';
+      g += '<text x="' + (px(2) + 7).toFixed(1) + '" y="' + (py(fy(2, c)) + 4).toFixed(1) + '" style="fill:var(--viz-muted);font-size:10px;font-family:ui-monospace,monospace">vertex</text>';
+      if (D >= 0) {
+        var r = Math.sqrt(D);
+        var xs = D === 0 ? [2] : [(4 - r) / 2, (4 + r) / 2];
+        for (var k = 0; k < xs.length; k++) {
+          g += '<circle cx="' + px(xs[k]).toFixed(1) + '" cy="' + py(0).toFixed(1) + '" r="5" style="fill:var(--viz-green)"/>';
+        }
+        g += '<text x="10" y="18" style="fill:var(--viz-green);font-size:11px;font-weight:700">' +
+          (D === 0 ? 'touches the axis once' : 'crosses the axis twice') + '</text>';
+      } else {
+        g += '<line x1="' + px(2).toFixed(1) + '" y1="' + py(0).toFixed(1) + '" x2="' + px(2).toFixed(1) + '" y2="' + py(fy(2, c)).toFixed(1) + '" style="stroke:var(--viz-red);stroke-width:2;stroke-dasharray:4 3"/>';
+        g += '<text x="10" y="18" style="fill:var(--viz-red);font-size:11px;font-weight:700">no crossing &mdash; gap of ' + n2(fy(2, c)) + '</text>';
+      }
+      plot.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="parabola and its x-axis crossings">' + g + '</svg>';
+    }
+
+    function render(){
+      var c = Number(s.value);
+      cl.textContent = c;
+      var D = B * B - 4 * A * c;
+      draw(c, D);
+
+      var kind = D > 0 ? 'two real roots' : (D === 0 ? 'one repeated real root' : 'two complex conjugate roots');
+      var col = D > 0 ? 'var(--viz-green)' : (D === 0 ? 'var(--viz-amber)' : 'var(--viz-violet)');
+      var sign = D > 0 ? 'positive' : (D === 0 ? 'zero' : 'negative');
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">discriminant = ' + D + ' (' + sign + ')</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + (D > 0 ? 2 : (D === 0 ? 1 : 0)) + ' x-intercepts</span>' +
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + kind + '</span>';
+
+      var L = [];
+      L.push('b^2 - 4ac  =  (-4)^2 - 4(1)(' + c + ')  =  16 - ' + (4 * c) + '  =  ' + D);
+      if (D >= 0) {
+        var r = Math.sqrt(D);
+        L.push('sqrt(' + D + ')  =  ' + n2(r) + '        a real number, so nothing new is needed');
+        L.push('x  =  (4 +/- ' + n2(r) + ') / 2  =  ' + n2((4 + r) / 2) + '   and   ' + n2((4 - r) / 2));
+      } else {
+        var m = Math.sqrt(-D);
+        L.push('sqrt(' + D + ')  =  sqrt(' + (-D) + ') * sqrt(-1)  =  ' + n2(m) + 'i      <-- this is the new step');
+        L.push('x  =  (4 +/- ' + n2(m) + 'i) / 2  =  2 + ' + n2(m / 2) + 'i   and   2 - ' + n2(m / 2) + 'i');
+        L.push('check:  (2 + ' + n2(m / 2) + 'i)(2 - ' + n2(m / 2) + 'i)  =  4 + ' + n2(m * m / 4) + '  =  ' + n2(4 + m * m / 4) + '  =  c');
+      }
+      work.textContent = L.join('\n');
+
+      why.innerHTML = D >= 0
+        ? '<b style="color:var(--viz-green)">Real roots: the square root lands on familiar ground.</b>' +
+          'The quantity under the root, <b>b^2 - 4ac</b>, is ' + D + '. Because it is not negative, the formula returns ' +
+          (D === 0 ? 'a single repeated value where the vertex sits exactly on the axis' : 'two ordinary real numbers, and they are exactly the two green crossings above') + '. ' +
+          'Keep dragging: the moment the vertex lifts past the axis, the discriminant goes negative and the formula asks you for something no real number can supply.'
+        : '<b style="color:var(--viz-violet)">Negative discriminant: sqrt(-1) has to mean something.</b>' +
+          'The parabola misses the axis by ' + n2(fy(2, c)) + ', so there is genuinely nothing to see &mdash; and yet the formula still produces two answers, ' +
+          '<b>2 + ' + n2(Math.sqrt(-D) / 2) + 'i</b> and <b>2 - ' + n2(Math.sqrt(-D) / 2) + 'i</b>. The whole lesson is the price of that: one new symbol, ' +
+          '<b>i</b>, defined by the single rule <b>i^2 = -1</b>, so that sqrt(-1) = i and sqrt(-k) = i*sqrt(k).' +
+          '<br><br>Notice the two answers differ only in the sign in front of the root. That is why complex roots of a real quadratic always arrive as a <b>matched pair</b>, and the last visual shows what that pairing is good for.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Powers Cycle</h2>
+  <p class="vz-lede">One rule &mdash; i^2 = -1 &mdash; forces every other power, and the answers walk round a
+    four-stop loop forever. Slide the exponent and watch where it lands.
+    <b>Like the hours on a clock face: hour 15 is hour 3, because only the remainder ever matters.</b></p>
+
+  <div class="vz-mono v2-ladder" id="v2-ladder"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-n">exponent n = <span id="v2-nl">1</span></label>
+    <input class="vz-range" type="range" id="v2-n" min="0" max="24" step="1" value="1" aria-label="exponent n">
+    <div class="v2-row">
+      <div class="vz-plot v2-wheel" id="v2-wheel"></div>
+      <div class="vz-mono v2-work" id="v2-work"></div>
+    </div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The period is <b>4, not 2</b>. It is tempting to say "the sign just alternates", but the
+    four stops are four different values &mdash; 1, i, -1, -i &mdash; and only every fourth step returns you
+    to where you started. Two of them are real and two are imaginary, which is the quiet reason multiplying
+    complex numbers can move a quantity from the imaginary part into the real part at all.</p>
+
+  <style>
+    .v2-ladder{border:1.5px solid var(--viz-line);border-radius:12px;padding:11px 12px;margin-bottom:12px;
+      background:var(--viz-surface)}
+    .v2-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-top:6px}
+    .v2-wheel{flex:1 1 160px;max-width:210px}
+    .v2-work{flex:2 1 190px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v2-n'), nl = document.getElementById('v2-nl');
+    var wheel = document.getElementById('v2-wheel'), work = document.getElementById('v2-work');
+    var why = document.getElementById('v2-why'), ladder = document.getElementById('v2-ladder');
+
+    ladder.textContent =
+      'i^0  =  1                        the empty product, as always\n' +
+      'i^1  =  i                        the symbol itself\n' +
+      'i^2  =  -1                       THE defining rule\n' +
+      'i^3  =  i^2 * i  =  -1 * i = -i  derived, not memorised\n' +
+      'i^4  =  (i^2)^2  =  (-1)^2 = 1   back to the start -> period 4';
+
+    var STOPS = [
+      { r:0, lab:'1',  ang:0,   col:'var(--viz-green)' },
+      { r:1, lab:'i',  ang:-90, col:'var(--viz-accent)' },
+      { r:2, lab:'-1', ang:180, col:'var(--viz-green)' },
+      { r:3, lab:'-i', ang:90,  col:'var(--viz-accent)' }
+    ];
+
+    function draw(rem){
+      var S = 200, C = S / 2, R = 66;
+      var g = '<rect x="0" y="0" width="' + S + '" height="' + S + '" rx="10" style="fill:var(--viz-bg);stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<circle cx="' + C + '" cy="' + C + '" r="' + R + '" style="fill:none;stroke:var(--viz-line);stroke-width:1.5;stroke-dasharray:3 4"/>';
+      for (var k = 0; k < STOPS.length; k++) {
+        var st = STOPS[k];
+        var a = st.ang * Math.PI / 180;
+        var x = C + R * Math.cos(a), y = C + R * Math.sin(a);
+        var on = st.r === rem;
+        if (on) {
+          g += '<line x1="' + C + '" y1="' + C + '" x2="' + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" style="stroke:var(--viz-accent);stroke-width:2.5"/>';
+        }
+        g += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + (on ? 15 : 11) + '" style="fill:' + (on ? 'var(--viz-accent)' : 'var(--viz-surface)') + ';stroke:' + st.col + ';stroke-width:2"/>';
+        g += '<text x="' + x.toFixed(1) + '" y="' + (y + 4).toFixed(1) + '" text-anchor="middle" style="fill:' + (on ? 'var(--viz-bg)' : 'var(--viz-ink)') + ';font-size:12px;font-weight:800;font-family:ui-monospace,monospace">' + st.lab + '</text>';
+        g += '<text x="' + x.toFixed(1) + '" y="' + (y + (st.ang === 90 ? 34 : -22)).toFixed(1) + '" text-anchor="middle" style="fill:var(--viz-muted);font-size:9.5px;font-family:ui-monospace,monospace">rem ' + st.r + '</text>';
+      }
+      g += '<text x="' + C + '" y="' + (C + 4) + '" text-anchor="middle" style="fill:var(--viz-muted);font-size:10px;font-family:ui-monospace,monospace">n mod 4 = ' + rem + '</text>';
+      wheel.innerHTML = '<svg viewBox="0 0 ' + S + ' ' + S + '" role="img" aria-label="four stop cycle of the powers of i">' + g + '</svg>';
+    }
+
+    function render(){
+      var n = Number(s.value);
+      if (!isFinite(n)) n = 0;
+      nl.textContent = n;
+      var q = Math.floor(n / 4), r = n - 4 * q;
+      var val = STOPS[r].lab;
+      draw(r);
+
+      work.textContent =
+        'n  =  ' + n + '\n' +
+        n + '  =  4 x ' + q + ' + ' + r + '            <- divide by 4, keep the remainder\n' +
+        'i^' + n + '  =  (i^4)^' + q + ' * i^' + r + '\n' +
+        '      =  1^' + q + ' * i^' + r + '            because i^4 = 1\n' +
+        'i^' + n + '  =  ' + val + '\n\n' +
+        'remainder 0 -> 1      remainder 1 -> i\n' +
+        'remainder 2 -> -1     remainder 3 -> -i';
+
+      why.innerHTML = '<b>i^' + n + ' = ' + val + ', and you never multiplied ' + n + ' things together.</b>' +
+        'Raising to the fourth power is multiplying by 1, so any block of four disappears without trace. ' +
+        (r === 0
+          ? 'Remainder 0 puts you back at the start: <b>every multiple of 4 gives 1</b>, which is the fact the whole shortcut rests on.'
+          : 'Remainder ' + r + ' means you take ' + r + ' more step' + (r === 1 ? '' : 's') + ' round the loop from 1, landing on <b>' + val + '</b>.') +
+        '<br><br>The four answers are the <em>only</em> answers: no power of i is ever 2, or 0.5, or 1 + i. If a multiple-choice option for a power of i is anything other than 1, i, -1 or -i, it is wrong before you compute anything.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Parts Stay Apart</h2>
+  <p class="vz-lede">Adding and subtracting complex numbers is combining like terms and nothing else: real
+    with real, imaginary with imaginary. Move the four coefficients and watch the two columns stay sealed off
+    from one another. <b>Like adding up a shopping list of apples and oranges: you get a count of each, never
+    a single number of fruit.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="operation">
+    <button id="v3-add" aria-pressed="true">add</button>
+    <button id="v3-sub" aria-pressed="false">subtract</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-a">first number: real part a = <span id="v3-al">3</span></label>
+    <input class="vz-range" type="range" id="v3-a" min="-6" max="6" step="1" value="3" aria-label="a, real part of the first number">
+    <label class="vz-lab" for="v3-b">first number: imaginary part b = <span id="v3-bl">2</span></label>
+    <input class="vz-range" type="range" id="v3-b" min="-6" max="6" step="1" value="2" aria-label="b, imaginary part of the first number">
+    <label class="vz-lab" for="v3-c">second number: real part c = <span id="v3-cl">1</span></label>
+    <input class="vz-range" type="range" id="v3-c" min="-6" max="6" step="1" value="1" aria-label="c, real part of the second number">
+    <label class="vz-lab" for="v3-d">second number: imaginary part d = <span id="v3-dl">-5</span></label>
+    <input class="vz-range" type="range" id="v3-d" min="-6" max="6" step="1" value="-5" aria-label="d, imaginary part of the second number">
+
+    <div class="v3-row">
+      <div class="v3-ledger" id="v3-ledger"></div>
+      <div class="vz-plot v3-plane" id="v3-plane"></div>
+    </div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Because the two columns never interact, addition and subtraction of complex numbers is
+    exactly vector addition on the plane you can see on the right &mdash; the arrows go tip to tail. That is
+    the last operation for which this is true. The moment you multiply, the two columns start feeding each
+    other, which is the whole subject of the next visual.</p>
+
+  <style>
+    .v3-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start;margin-top:14px}
+    .v3-ledger{flex:2 1 200px}
+    .v3-plane{flex:1 1 170px;max-width:250px}
+    .v3-t{width:100%;border-collapse:collapse;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-t th{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      text-align:right;padding:0 6px 5px;font-weight:800}
+    .v3-t th.v3-lft{text-align:left}
+    .v3-t td{padding:5px 6px;border-top:1px solid var(--viz-line);text-align:right}
+    .v3-t td.v3-lft{text-align:left;color:var(--viz-muted)}
+    .v3-t tr.v3-out td{border-top:2px solid var(--viz-accent);font-weight:800;font-size:12.5px}
+    .v3-t tr.v3-err td{border-top:1px dashed var(--viz-red);color:var(--viz-red)}
+    .v3-badge{margin-top:9px;font-size:11.5px;font-weight:700;font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var ids = ['v3-a', 'v3-b', 'v3-c', 'v3-d'];
+    var S = {};
+    for (var k = 0; k < ids.length; k++) S[ids[k]] = document.getElementById(ids[k]);
+    var al = document.getElementById('v3-al'), bl = document.getElementById('v3-bl');
+    var cl = document.getElementById('v3-cl'), dl = document.getElementById('v3-dl');
+    var bAdd = document.getElementById('v3-add'), bSub = document.getElementById('v3-sub');
+    var ledger = document.getElementById('v3-ledger'), plane = document.getElementById('v3-plane');
+    var why = document.getElementById('v3-why');
+    var adding = true;
+
+    function cx(re, im){
+      if (!isFinite(re) || !isFinite(im)) return '--';
+      re = Math.round(re * 1000) / 1000; im = Math.round(im * 1000) / 1000;
+      var mag = Math.abs(im), t = (mag === 1 ? 'i' : mag + 'i');
+      if (im === 0) return String(re);
+      if (re === 0) return (im < 0 ? '-' : '') + t;
+      return re + (im < 0 ? ' - ' : ' + ') + t;
+    }
+    function sgn(v){ return (v < 0 ? '- ' : '+ ') + Math.abs(v); }
+
+    function drawPlane(a, b, c, d, ra, rb){
+      var S2 = 210, C = S2 / 2, LIM = 13, K = (S2 / 2 - 12) / LIM;
+      function X(v){ return C + v * K; }
+      function Y(v){ return C - v * K; }
+      var g = '<rect x="0" y="0" width="' + S2 + '" height="' + S2 + '" rx="10" style="fill:var(--viz-bg);stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<line x1="6" y1="' + C + '" x2="' + (S2 - 6) + '" y2="' + C + '" style="stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<line x1="' + C + '" y1="6" x2="' + C + '" y2="' + (S2 - 6) + '" style="stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<text x="' + (S2 - 10) + '" y="' + (C - 6) + '" text-anchor="end" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,monospace">real</text>';
+      g += '<text x="' + (C + 5) + '" y="14" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,monospace">imaginary</text>';
+      function arrow(x0, y0, x1, y1, col, dash){
+        return '<line x1="' + X(x0).toFixed(1) + '" y1="' + Y(y0).toFixed(1) + '" x2="' + X(x1).toFixed(1) + '" y2="' + Y(y1).toFixed(1) +
+          '" style="stroke:' + col + ';stroke-width:2.5' + (dash ? ';stroke-dasharray:4 3' : '') + '"/>';
+      }
+      function dot(x, y, col, lab){
+        return '<circle cx="' + X(x).toFixed(1) + '" cy="' + Y(y).toFixed(1) + '" r="4.5" style="fill:' + col + '"/>' +
+          '<text x="' + (X(x) + 7).toFixed(1) + '" y="' + (Y(y) - 6).toFixed(1) + '" style="fill:' + col + ';font-size:10px;font-weight:800;font-family:ui-monospace,monospace">' + lab + '</text>';
+      }
+      var sc = adding ? c : -c, sd = adding ? d : -d;
+      g += arrow(0, 0, a, b, 'var(--viz-accent)');
+      g += arrow(a, b, ra, rb, 'var(--viz-amber)', true);
+      g += arrow(0, 0, ra, rb, 'var(--viz-green)');
+      g += dot(a, b, 'var(--viz-accent)', 'z1');
+      g += dot(ra, rb, 'var(--viz-green)', 'sum');
+      g += '<text x="10" y="' + (S2 - 10) + '" style="fill:var(--viz-amber);font-size:9.5px;font-family:ui-monospace,monospace">dashed = ' + cx(sc, sd) + ' laid tip to tail</text>';
+      plane.innerHTML = '<svg viewBox="0 0 ' + S2 + ' ' + S2 + '" role="img" aria-label="complex plane with the two numbers and their sum">' + g + '</svg>';
+    }
+
+    function render(){
+      var a = Number(S['v3-a'].value), b = Number(S['v3-b'].value);
+      var c = Number(S['v3-c'].value), d = Number(S['v3-d'].value);
+      al.textContent = a; bl.textContent = b; cl.textContent = c; dl.textContent = d;
+      bAdd.setAttribute('aria-pressed', adding ? 'true' : 'false');
+      bSub.setAttribute('aria-pressed', adding ? 'false' : 'true');
+
+      var op = adding ? 1 : -1;
+      var ra = a + op * c, rb = b + op * d;
+      var wrongB = b + d;   // the classic slip: the minus never reaches the imaginary part
+
+      var rows =
+        '<table class="v3-t"><tr><th class="v3-lft">term</th><th>real column</th><th>imaginary column</th></tr>' +
+        '<tr><td class="v3-lft">' + cx(a, b) + '</td><td>' + a + '</td><td>' + b + 'i</td></tr>' +
+        '<tr><td class="v3-lft">' + (adding ? '+ (' : '- (') + cx(c, d) + ')</td><td>' + sgn(op * c) + '</td><td>' + sgn(op * d) + 'i</td></tr>' +
+        '<tr class="v3-out"><td class="v3-lft">result</td><td>' + ra + '</td><td>' + rb + 'i</td></tr>';
+      if (!adding && d !== 0) {
+        rows += '<tr class="v3-err"><td class="v3-lft">minus applied to the real part only</td><td>' + ra + '</td><td>' + wrongB + 'i &mdash; WRONG</td></tr>';
+      }
+      rows += '</table>' +
+        '<div class="v3-badge" style="color:var(--viz-green)">' + cx(a, b) + (adding ? '  +  ' : '  -  ') + '(' + cx(c, d) + ')  =  ' + cx(ra, rb) + '</div>';
+      ledger.innerHTML = rows;
+      drawPlane(a, b, c, d, ra, rb);
+
+      why.innerHTML = adding
+        ? '<b>Two independent running totals, never one.</b>' +
+          'The real column carries ' + a + ' ' + sgn(c) + ' = <b>' + ra + '</b> and the imaginary column carries ' + b + 'i ' + sgn(d) + 'i = <b>' + rb + 'i</b>. ' +
+          'Nothing crosses between them, because i is not a real number and <b>' + a + ' + ' + b + 'i can no more be collapsed into one number than 3 + 2*sqrt(2) can</b>. ' +
+          'Any answer that merges all four coefficients into a single real term, or drops one of the two parts, has thrown away half the information.'
+        : '<b>The minus sign has to reach both parts.</b>' +
+          'Subtracting means adding ' + cx(-c, -d) + ', so the real column becomes <b>' + ra + '</b> and the imaginary column becomes <b>' + rb + 'i</b>. ' +
+          (d !== 0
+            ? 'Stop the minus at the real part and you would report <b style="color:var(--viz-red)">' + cx(ra, wrongB) + '</b> instead of <b style="color:var(--viz-green)">' + cx(ra, rb) + '</b> &mdash; the red row above. That single slip is the most common wrong answer on the whole topic, and it survives a check of the real part, so check both.'
+            : 'With d = 0 the second number is purely real, so this is the one case where the slip is invisible. Move the d slider off zero to see it appear.');
+    }
+    for (var j = 0; j < ids.length; j++) S[ids[j]].addEventListener('input', render);
+    bAdd.addEventListener('click', function(){ adding = true; render(); });
+    bSub.addEventListener('click', function(){ adding = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Foil Then Fold</h2>
+  <p class="vz-lede">Multiplying complex numbers is the binomial expansion you already do, plus exactly one
+    extra move: the i^2 term folds into the real part with its sign flipped. Toggle the fold on and off and
+    watch which digit changes. <b>Like a receipt where one line is in a foreign currency: three lines add up
+    normally, and the fourth has to be converted before it can join them.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-a">(a + bi) &middot; (c + di) &nbsp;&nbsp; a = <span id="v4-al">2</span></label>
+    <input class="vz-range" type="range" id="v4-a" min="-5" max="5" step="1" value="2" aria-label="a">
+    <label class="vz-lab" for="v4-b">b = <span id="v4-bl">1</span></label>
+    <input class="vz-range" type="range" id="v4-b" min="-5" max="5" step="1" value="1" aria-label="b">
+    <label class="vz-lab" for="v4-c">c = <span id="v4-cl">3</span></label>
+    <input class="vz-range" type="range" id="v4-c" min="-5" max="5" step="1" value="3" aria-label="c">
+    <label class="vz-lab" for="v4-d">d = <span id="v4-dl">-1</span></label>
+    <input class="vz-range" type="range" id="v4-d" min="-5" max="5" step="1" value="-1" aria-label="d">
+
+    <div class="vz-seg" role="group" aria-label="what i squared is worth">
+      <button id="v4-ok" aria-pressed="true">fold i^2 = -1</button>
+      <button id="v4-bad" aria-pressed="false">pretend i^2 = +1</button>
+    </div>
+
+    <div class="v4-grid" id="v4-grid"></div>
+    <div class="vz-mono v4-out" id="v4-out"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Read the general result off the grid: <b>(a + bi)(c + di) = (ac - bd) + (ad + bc)i</b>.
+    The minus sign in <b>ac - bd</b> is not a convention to memorise &mdash; it is i^2 arriving from the
+    fourth cell. Every distractor on a multiplication question is one of two things: that cell ignored, or
+    that cell added instead of subtracted.</p>
+
+  <style>
+    .v4-grid{display:grid;grid-template-columns:46px 1fr 1fr;gap:5px;margin-top:6px}
+    .v4-cap{font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      font-weight:800;display:flex;align-items:center;justify-content:center;text-align:center}
+    .v4-cell{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 7px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;min-height:52px}
+    .v4-cell u{display:block;text-decoration:none;color:var(--viz-muted);font-size:10px}
+    .v4-cell b{display:block;font-size:13px;margin-top:3px}
+    .v4-cell.is-fold{border-color:var(--viz-amber);border-width:2px}
+    .v4-out{margin-top:12px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var ids = ['v4-a', 'v4-b', 'v4-c', 'v4-d'];
+    var S = {};
+    for (var k = 0; k < ids.length; k++) S[ids[k]] = document.getElementById(ids[k]);
+    var al = document.getElementById('v4-al'), bl = document.getElementById('v4-bl');
+    var cl = document.getElementById('v4-cl'), dl = document.getElementById('v4-dl');
+    var bOk = document.getElementById('v4-ok'), bBad = document.getElementById('v4-bad');
+    var grid = document.getElementById('v4-grid'), out = document.getElementById('v4-out');
+    var why = document.getElementById('v4-why');
+    var fold = true;
+
+    function cx(re, im){
+      if (!isFinite(re) || !isFinite(im)) return '--';
+      re = Math.round(re * 1000) / 1000; im = Math.round(im * 1000) / 1000;
+      var mag = Math.abs(im), t = (mag === 1 ? 'i' : mag + 'i');
+      if (im === 0) return String(re);
+      if (re === 0) return (im < 0 ? '-' : '') + t;
+      return re + (im < 0 ? ' - ' : ' + ') + t;
+    }
+    function sg(v){ return (v < 0 ? ' - ' : ' + ') + Math.abs(v); }
+
+    function cell(tag, expr, val, cls){
+      return '<div class="v4-cell ' + (cls || '') + '"><u>' + tag + '</u>' + expr + '<b>' + val + '</b></div>';
+    }
+
+    function render(){
+      var a = Number(S['v4-a'].value), b = Number(S['v4-b'].value);
+      var c = Number(S['v4-c'].value), d = Number(S['v4-d'].value);
+      al.textContent = a; bl.textContent = b; cl.textContent = c; dl.textContent = d;
+      bOk.setAttribute('aria-pressed', fold ? 'true' : 'false');
+      bBad.setAttribute('aria-pressed', fold ? 'false' : 'true');
+
+      var i2 = fold ? -1 : 1;
+      var re = a * c + b * d * i2, im = a * d + b * c;
+      var reTrue = a * c - b * d, imTrue = a * d + b * c;
+
+      grid.innerHTML =
+        '<div class="v4-cap"></div><div class="v4-cap">' + c + '</div><div class="v4-cap">' + d + 'i</div>' +
+        '<div class="v4-cap">' + a + '</div>' +
+        cell('first', 'a*c', a * c) +
+        cell('outer', 'a*d i', (a * d) + 'i') +
+        '<div class="v4-cap">' + b + 'i</div>' +
+        cell('inner', 'b*c i', (b * c) + 'i') +
+        cell('last &mdash; the fold', 'b*d i^2', (b * d) + ' * (' + i2 + ') = ' + (b * d * i2), 'is-fold');
+
+      out.textContent =
+        '(' + cx(a, b) + ')(' + cx(c, d) + ')\n' +
+        '  =  ' + (a * c) + sg(a * d) + 'i' + sg(b * c) + 'i' + sg(b * d) + 'i^2\n' +
+        '  =  (' + (a * c) + sg(b * d * i2) + ')  +  (' + (a * d) + sg(b * c) + ')i        i^2 = ' + i2 + '\n' +
+        '  =  ' + cx(re, im);
+
+      why.innerHTML = fold
+        ? '<b style="color:var(--viz-green)">The fourth cell is real, so it lands in the real part.</b>' +
+          'Three of the four products behave like ordinary binomial terms. The fourth, <b>' + (b * d) + 'i^2</b>, is not imaginary at all &mdash; i^2 is the real number -1, so it becomes <b>' + (-b * d) + '</b> and joins ' + (a * c) + ' in the real column. ' +
+          'The answer is <b>' + cx(reTrue, imTrue) + '</b>.' +
+          '<br><br>This is the first operation where the two parts feed each other: with a = ' + a + ', b = ' + b + ', c = ' + c + ', d = ' + d + ', an imaginary times an imaginary produced a <em>real</em> contribution. Flip the toggle to see exactly how much of the answer that one rule is responsible for.'
+        : '<b style="color:var(--viz-red)">Pretend i^2 = +1 and the real part is wrong by 2bd.</b>' +
+          'This branch reports <b>' + cx(re, im) + '</b> where the truth is <b>' + cx(reTrue, imTrue) + '</b> &mdash; the imaginary part is untouched, and the real part is off by ' + Math.abs(2 * b * d) + '. ' +
+          'That is not a random slip: it is the single most common error in the whole lesson, and it is why so many wrong options differ from the right one only in the real part.' +
+          '<br><br>The self-check is always the same. Substitute your value for i^2 and square it: if i were 1 or -1, then i^2 would be +1, and the definition <b>i^2 = -1</b> would be contradicted one line later.';
+    }
+    for (var j = 0; j < ids.length; j++) S[ids[j]].addEventListener('input', render);
+    bOk.addEventListener('click', function(){ fold = true; render(); });
+    bBad.addEventListener('click', function(){ fold = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Conjugate Clears i</h2>
+  <p class="vz-lede">A fraction is not in standard form while an i sits downstairs. Multiplying top and
+    bottom by the conjugate of the <em>denominator</em> is the one move that clears it &mdash; try the other
+    conjugate and watch it fail. <b>Like rationalising a denominator: same trick, same reason, one new
+    sign.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-p">numerator (p + qi) &nbsp;&nbsp; p = <span id="v5-pl">1</span></label>
+    <input class="vz-range" type="range" id="v5-p" min="-6" max="6" step="1" value="1" aria-label="p">
+    <label class="vz-lab" for="v5-q">q = <span id="v5-ql">1</span></label>
+    <input class="vz-range" type="range" id="v5-q" min="-6" max="6" step="1" value="1" aria-label="q">
+    <label class="vz-lab" for="v5-a">denominator (a + bi) &nbsp;&nbsp; a = <span id="v5-alab">1</span></label>
+    <input class="vz-range" type="range" id="v5-a" min="-6" max="6" step="1" value="1" aria-label="a">
+    <label class="vz-lab" for="v5-b">b = <span id="v5-blab">-1</span></label>
+    <input class="vz-range" type="range" id="v5-b" min="-6" max="6" step="1" value="-1" aria-label="b">
+
+    <div class="v5-conj vz-mono" id="v5-conj"></div>
+
+    <div class="vz-seg" role="group" aria-label="which conjugate to multiply by">
+      <button id="v5-den" aria-pressed="true">use conj of denominator</button>
+      <button id="v5-num" aria-pressed="false">use conj of numerator</button>
+    </div>
+
+    <div class="vz-mono v5-work" id="v5-work"></div>
+    <div class="vz-pills" id="v5-pills"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two facts carry this whole visual, and both come from the difference of squares you
+    already factor. <b>(a + bi)(a - bi) = a^2 + b^2</b> is always real and never negative, and
+    <b>(a - bi)/(a - bi) = 1</b>, so multiplying by it changes the form and not the value. Every division
+    question is those two facts applied in that order.</p>
+
+  <style>
+    .v5-conj{margin:12px 0 4px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+    .v5-work{border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var ids = ['v5-p', 'v5-q', 'v5-a', 'v5-b'];
+    var S = {};
+    for (var k = 0; k < ids.length; k++) S[ids[k]] = document.getElementById(ids[k]);
+    var pl = document.getElementById('v5-pl'), ql = document.getElementById('v5-ql');
+    var alab = document.getElementById('v5-alab'), blab = document.getElementById('v5-blab');
+    var bDen = document.getElementById('v5-den'), bNum = document.getElementById('v5-num');
+    var conj = document.getElementById('v5-conj'), work = document.getElementById('v5-work');
+    var pills = document.getElementById('v5-pills'), why = document.getElementById('v5-why');
+    var useDen = true;
+
+    function cx(re, im){
+      if (!isFinite(re) || !isFinite(im)) return '--';
+      re = Math.round(re * 1000) / 1000; im = Math.round(im * 1000) / 1000;
+      var mag = Math.abs(im), t = (mag === 1 ? 'i' : mag + 'i');
+      if (im === 0) return String(re);
+      if (re === 0) return (im < 0 ? '-' : '') + t;
+      return re + (im < 0 ? ' - ' : ' + ') + t;
+    }
+    function frac(v){
+      if (!isFinite(v)) return '?';
+      var r = Math.round(v * 1000) / 1000;
+      return String(r);
+    }
+    function mul(x1, y1, x2, y2){ return [x1 * x2 - y1 * y2, x1 * y2 + y1 * x2]; }
+
+    function render(){
+      var p = Number(S['v5-p'].value), q = Number(S['v5-q'].value);
+      var a = Number(S['v5-a'].value), b = Number(S['v5-b'].value);
+      pl.textContent = p; ql.textContent = q; alab.textContent = a; blab.textContent = b;
+      bDen.setAttribute('aria-pressed', useDen ? 'true' : 'false');
+      bNum.setAttribute('aria-pressed', useDen ? 'false' : 'true');
+
+      var mod = a * a + b * b;
+      conj.textContent =
+        'conjugate of ' + cx(a, b) + '  is  ' + cx(a, -b) + '        only the imaginary sign flips\n' +
+        '(' + cx(a, b) + ')(' + cx(a, -b) + ')  =  a^2 - (bi)^2  =  ' + (a * a) + ' + ' + (b * b) + '  =  ' + mod + '\n' +
+        'the cross terms ' + (a * b >= 0 ? '+' : '-') + Math.abs(a * b) + 'i and ' + (a * b >= 0 ? '-' : '+') + Math.abs(a * b) + 'i cancel, so the product is REAL';
+
+      if (mod === 0) {
+        work.textContent =
+          'denominator is 0 + 0i\n\n' +
+          'Dividing by zero has no answer here, for exactly the reason it\n' +
+          'has none for real numbers. Move a or b off zero.';
+        pills.innerHTML = '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">no quotient &mdash; denominator is 0</span>';
+        why.innerHTML = '<b style="color:var(--viz-red)">Zero has no conjugate trick.</b>' +
+          'a^2 + b^2 = 0 happens only when a and b are both 0, so the conjugate you would multiply by is 0 as well &mdash; and 0/0 is not 1, so the move is not even legal. Complex numbers change what a square root can mean; they change nothing about dividing by zero.';
+        return;
+      }
+
+      var trueRe = (p * a + q * b) / mod, trueIm = (q * a - p * b) / mod;
+
+      if (useDen) {
+        var n = mul(p, q, a, -b);
+        work.textContent =
+          '(' + cx(p, q) + ') / (' + cx(a, b) + ')\n' +
+          '  multiply top and bottom by ' + cx(a, -b) + ' , which is 1\n\n' +
+          'top    (' + cx(p, q) + ')(' + cx(a, -b) + ')  =  ' + cx(n[0], n[1]) + '\n' +
+          'bottom (' + cx(a, b) + ')(' + cx(a, -b) + ')  =  ' + mod + '        REAL\n\n' +
+          '  =  (' + cx(n[0], n[1]) + ') / ' + mod + '\n' +
+          '  =  ' + frac(trueRe) + ' + ' + frac(trueIm) + 'i      -> ' + cx(trueRe, trueIm);
+        pills.innerHTML =
+          '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">denominator ' + mod + ' &mdash; real</span>' +
+          '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">answer ' + cx(trueRe, trueIm) + '</span>';
+        why.innerHTML = '<b style="color:var(--viz-green)">The denominator became the real number ' + mod + '.</b>' +
+          'That is the entire goal &mdash; not to reverse the sign of i, not to square anything, and certainly not to make the numerator imaginary. Once the bottom is real you simply divide both coordinates by it and read off standard form.' +
+          '<br><br>Check it the honest way: multiply the answer back by the denominator. (' + cx(trueRe, trueIm) + ')(' + cx(a, b) + ') = ' + cx(trueRe * a - trueIm * b, trueRe * b + trueIm * a) + ', which is the numerator you started with.' +
+          '<br><br>And watch for the trap the question banks love: the top expansion contains an i^2 term too. Leave it as i^2, or treat it as +1, and both parts of your answer come out wrong.';
+      } else {
+        var nb = mul(a, b, p, -q);
+        work.textContent =
+          '(' + cx(p, q) + ') / (' + cx(a, b) + ')\n' +
+          '  multiply top and bottom by ' + cx(p, -q) + ' , the WRONG conjugate\n\n' +
+          'top    (' + cx(p, q) + ')(' + cx(p, -q) + ')  =  ' + (p * p + q * q) + '        real, but it was already fine\n' +
+          'bottom (' + cx(a, b) + ')(' + cx(p, -q) + ')  =  ' + cx(nb[0], nb[1]) + (nb[1] === 0 ? '' : '        STILL has an i') + '\n\n' +
+          'the i is still downstairs, so this is not standard form';
+        pills.innerHTML =
+          '<span class="vz-pill" style="color:' + (nb[1] === 0 ? 'var(--viz-amber)' : 'var(--viz-red)') + ';border-color:' + (nb[1] === 0 ? 'var(--viz-amber)' : 'var(--viz-red)') + '">denominator ' + cx(nb[0], nb[1]) + (nb[1] === 0 ? ' &mdash; real by luck' : ' &mdash; still complex') + '</span>' +
+          '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">correct answer is ' + cx(trueRe, trueIm) + '</span>';
+        why.innerHTML = '<b style="color:var(--viz-red)">Wrong conjugate: the problem moves, it does not go away.</b>' +
+          'Multiplying by the numerator’s conjugate makes the <em>top</em> real &mdash; ' + (p * p + q * q) + ' &mdash; and leaves the bottom as ' + cx(nb[0], nb[1]) + '. ' +
+          (p === 0 && q === 0
+            ? 'Worse here: the numerator is 0, so its conjugate is 0 too, and multiplying top and bottom by 0/0 is not multiplying by 1 at all.'
+            : nb[1] === 0
+              ? 'These particular sliders make it real by coincidence, because the two numbers happen to be proportional &mdash; b*p equals a*q. Move p or q and it breaks.'
+              : 'The i you needed to remove is exactly where it always was, so nothing has been achieved.') +
+          '<br><br>Say the goal out loud before you move a symbol: <b>make the denominator real</b>. That sentence picks the conjugate for you every time, and it also explains why the conjugate product a^2 + b^2 is worth knowing on sight.';
+      }
+    }
+    for (var j = 0; j < ids.length; j++) S[ids[j]].addEventListener('input', render);
+    bDen.addEventListener('click', function(){ useDen = true; render(); });
+    bNum.addEventListener('click', function(){ useDen = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

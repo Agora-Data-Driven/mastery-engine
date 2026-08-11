@@ -1,0 +1,783 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 110px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 130px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Stack By Degree</button>
+  <button class="viz-tab" data-viz-tab="2">2. Why Cubes Cancel</button>
+  <button class="viz-tab" data-viz-tab="3">3. Factor Until It Stops</button>
+  <button class="viz-tab" data-viz-tab="4">4. Slide The Secant</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Stack By Degree</h2>
+  <p class="vz-lede">Adding and subtracting quadratics was already column bookkeeping: like terms merge and
+    nothing else moves. Raise the degree and that rule does not change at all, because an exponent is only the
+    name of the column an amount is filed under. Slide the six coefficients and watch the columns total.
+    <b>Like a receipt that keeps euros and yen on separate lines: you can add within a line forever, but no
+    amount of adding ever turns a euro into a yen.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already taught — degree 2</h5><div class="vz-mono">(2x^2 + 3x) + (5x^2 - x)
+= 7x^2 + 2x</div></div>
+    <div class="v1-half"><h5>this lesson — any degree</h5><div class="vz-mono">(3x^3 + 2x - 1) + (x^3 - 5x + 4)
+= 4x^3 - 3x + 3</div></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Operation">
+    <button id="v1-add" type="button" aria-pressed="true">A + B</button>
+    <button id="v1-sub" type="button" aria-pressed="false">A - B</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-a3">A = <b><span id="v1-astr">3x^3 + 2x - 1</span></b></label>
+    <input class="vz-range" type="range" id="v1-a3" min="-5" max="5" value="3" step="1" aria-label="A: coefficient of x cubed">
+    <input class="vz-range" type="range" id="v1-a1" min="-5" max="5" value="2" step="1" aria-label="A: coefficient of x">
+    <input class="vz-range" type="range" id="v1-a0" min="-5" max="5" value="-1" step="1" aria-label="A: constant term">
+
+    <label class="vz-lab" for="v1-b3">B = <b><span id="v1-bstr">x^3 - 5x + 4</span></b></label>
+    <input class="vz-range" type="range" id="v1-b3" min="-5" max="5" value="1" step="1" aria-label="B: coefficient of x cubed">
+    <input class="vz-range" type="range" id="v1-b1" min="-5" max="5" value="-5" step="1" aria-label="B: coefficient of x">
+    <input class="vz-range" type="range" id="v1-b0" min="-5" max="5" value="4" step="1" aria-label="B: constant term">
+
+    <div class="vz-mono" id="v1-ledger" style="margin-top:12px"></div>
+    <div class="v1-out" id="v1-out"></div>
+    <div class="v1-trap" id="v1-trap"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-presets"></div>
+  </div>
+
+  <p class="vz-note">Notice the <b>x^2 column</b>, which never leaves zero here. A missing term is not a missing
+    column — it is a coefficient of 0, and writing it in is what keeps the arithmetic in line. That habit pays
+    later: the moment you divide polynomials or read off a leading coefficient, the invisible zeros are exactly
+    the ones that get miscounted.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+    .v1-out{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+    .v1-trap{margin-top:9px;border:1.5px dashed var(--viz-red);border-radius:10px;padding:8px 11px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5}
+  </style>
+  <script>
+  (function(){
+    var A3 = document.getElementById('v1-a3'), A1 = document.getElementById('v1-a1'), A0 = document.getElementById('v1-a0');
+    var B3 = document.getElementById('v1-b3'), B1 = document.getElementById('v1-b1'), B0 = document.getElementById('v1-b0');
+    var astr = document.getElementById('v1-astr'), bstr = document.getElementById('v1-bstr');
+    var bAdd = document.getElementById('v1-add'), bSub = document.getElementById('v1-sub');
+    var ledger = document.getElementById('v1-ledger'), out = document.getElementById('v1-out');
+    var trap = document.getElementById('v1-trap'), why = document.getElementById('v1-why');
+    var pres = document.getElementById('v1-presets');
+    var adding = true;
+
+    function num(el, fallback){ var v = Number(el.value); return isFinite(v) ? v : fallback; }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    // c is indexed BY DEGREE: c[0] is the constant, c[3] the x^3 coefficient.
+    function body(mag, d){
+      if (d === 0) return String(mag);
+      return (mag === 1 ? '' : String(mag)) + (d === 1 ? 'x' : 'x^' + d);
+    }
+    function polyStr(c){
+      var s = '';
+      for (var d = c.length - 1; d >= 0; d--) {
+        var v = c[d];
+        if (!v) continue;
+        if (s === '') s = (v < 0 ? '-' : '') + body(Math.abs(v), d);
+        else s += (v < 0 ? ' - ' : ' + ') + body(Math.abs(v), d);
+      }
+      return s === '' ? '0' : s;
+    }
+    function pad(v){ return String(v).length >= 7 ? String(v) : new Array(8 - String(v).length).join(' ') + v; }
+
+    function render(){
+      var a = [num(A0, 0), num(A1, 0), 0, num(A3, 0)];
+      var b = [num(B0, 0), num(B1, 0), 0, num(B3, 0)];
+      var sign = adding ? 1 : -1;
+      var r = [a[0] + sign * b[0], a[1] + sign * b[1], 0, a[3] + sign * b[3]];
+
+      bAdd.setAttribute('aria-pressed', adding ? 'true' : 'false');
+      bSub.setAttribute('aria-pressed', adding ? 'false' : 'true');
+      astr.textContent = polyStr(a);
+      bstr.textContent = polyStr(b);
+
+      var op = adding ? 'A + B' : 'A - B';
+      ledger.textContent =
+        '          ' + pad('x^3') + pad('x^2') + pad('x') + pad('1') + '\n' +
+        'A         ' + pad(a[3]) + pad(a[2]) + pad(a[1]) + pad(a[0]) + '\n' +
+        (adding ? 'B         ' : '-B        ') + pad(sign * b[3]) + pad(sign * b[2]) + pad(sign * b[1]) + pad(sign * b[0]) + '\n' +
+        '          ' + '  -----  -----  -----  -----' + '\n' +
+        op + '     ' + pad(r[3]) + pad(r[2]) + pad(r[1]) + pad(r[0]);
+
+      var degR = 0;
+      for (var d = 0; d < r.length; d++) if (r[d]) degR = d;
+      out.innerHTML =
+        pill(op + ' = ' + polyStr(r), 'var(--viz-green)') +
+        pill('degree ' + (polyStr(r) === '0' ? 'none (the zero polynomial)' : degR), 'var(--viz-muted)');
+
+      if (r[3]) {
+        var bogus = [r[0], r[1], 0, 0, 0, 0, r[3]];
+        trap.style.display = 'block';
+        trap.innerHTML = '<span style="color:var(--viz-red);font-weight:800">WRONG — </span>' +
+          'adding the exponents too: <span style="color:var(--viz-red)">' + polyStr(bogus) + '</span><br>' +
+          'x^3 + x^3 = 2x^3. It is <b>multiplication</b> that adds exponents: x^3 &middot; x^3 = x^6.';
+      } else {
+        trap.style.display = 'none';
+        trap.innerHTML = '';
+      }
+
+      var negTerms = [];
+      for (var k = b.length - 1; k >= 0; k--) if (b[k]) negTerms.push((-b[k] < 0 ? '- ' : '+ ') + body(Math.abs(b[k]), k));
+
+      if (r[3] === 0 && (a[3] || b[3])) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">The leading terms cancelled, so the degree dropped.</b>' +
+          'The x^3 column totals ' + a[3] + ' ' + (sign > 0 ? '+ ' + b[3] : '- ' + b[3]) + ' = 0, and a column that totals zero ' +
+          'simply is not there any more: the answer is <b>' + polyStr(r) + '</b>, degree ' + degR + '. ' +
+          '<br><br>Adding or subtracting can never push the degree <em>above</em> the larger input, and this is the one way it goes ' +
+          'the other direction. Multiplication is the opposite story — degrees add there, which is why (x^3)(x^3) reaches x^6 and no ' +
+          'amount of adding ever does.';
+      } else if (!adding) {
+        why.innerHTML = '<b style="color:var(--viz-accent)">Subtracting distributes the minus over every term of B.</b>' +
+          'Written out: A - B = ' + polyStr(a) + ' ' + (negTerms.length ? negTerms.join(' ') : '- 0') + '. ' +
+          'Every sign in B flipped, not just the first — that single omission is the most common arithmetic error in this whole topic. ' +
+          '<br><br>Then it is ordinary column addition again, giving <b>' + polyStr(r) + '</b>. Watch the -B row above as you drag: it is ' +
+          'B with every entry negated before anything is totalled.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">One column at a time, and the exponents never move.</b>' +
+          'The x^3 column gives ' + a[3] + ' + ' + b[3] + ' = ' + r[3] + ', the x column gives ' + a[1] + ' + ' + b[1] + ' = ' + r[1] +
+          ', and the constants give ' + a[0] + ' + ' + b[0] + ' = ' + r[0] + ' — so the answer is <b>' + polyStr(r) + '</b>. ' +
+          '<br><br>This is the distributive property read right to left: a&middot;x^n + b&middot;x^n = (a + b)&middot;x^n. It only works ' +
+          'when the powers already match, which is the entire content of the phrase <em>like terms</em>.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'(3x^3+2x-1)+(x^3-5x+4)', v:[3, 2, -1, 1, -5, 4], add:true },
+      { t:'same pair, subtracted',   v:[3, 2, -1, 1, -5, 4], add:false },
+      { t:'leading terms cancel',    v:[1, 2, 0, 1, 0, -5], add:false },
+      { t:'a term doubles',          v:[1, 0, 0, 1, 0, 0], add:true }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        A3.value = p.v[0]; A1.value = p.v[1]; A0.value = p.v[2];
+        B3.value = p.v[3]; B1.value = p.v[4]; B0.value = p.v[5];
+        adding = p.add;
+        render();
+      });
+      pres.appendChild(btn);
+    });
+    bAdd.addEventListener('click', function(){ adding = true; render(); });
+    bSub.addEventListener('click', function(){ adding = false; render(); });
+    [A3, A1, A0, B3, B1, B0].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Why Cubes Cancel</h2>
+  <p class="vz-lede">The cube patterns are not two more formulas to memorise — they are one multiplication whose
+    middle four terms destroy each other in pairs. Change the number being cubed, flip the sign, and watch which
+    candidate factorization survives being multiplied back out.
+    <b>Like a tug-of-war where the two inner teams are exactly matched: whatever they pull, only the outer two
+    ever move the rope.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which cube pattern">
+    <button id="v2-diff" type="button" aria-pressed="true">x^3 - b^3</button>
+    <button id="v2-sum" type="button" aria-pressed="false">x^3 + b^3</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-b">b = <b><span id="v2-bl">3</span></b> &nbsp;so the target is&nbsp;
+      <b><span id="v2-target">x^3 - 27</span></b></label>
+    <input class="vz-range" type="range" id="v2-b" min="1" max="6" value="3" step="1" aria-label="The number being cubed">
+
+    <div class="v2-strat" id="v2-strat"></div>
+    <div class="vz-mono" id="v2-grid" style="margin-top:12px"></div>
+    <div class="v2-cands" id="v2-cands"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">The trinomial that comes out of a cube pattern <b>never factors again</b>, and you can see
+    why without trying: its discriminant is b^2 - 4b^2 = -3b^2, negative for every b except 0. So a correctly
+    factored cube is already completely factored — which is exactly the judgment visual 3 is about.</p>
+
+  <style>
+    .v2-strat{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v2-s{display:flex;align-items:flex-start;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-size:11.5px;line-height:1.45}
+    .v2-mk{flex:0 0 auto;font-weight:800;font-size:11px;width:46px}
+    .v2-cands{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+    .v2-c{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5}
+    .v2-c[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-tag{display:block;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em;margin-top:3px}
+  </style>
+  <script>
+  (function(){
+    var bS = document.getElementById('v2-b'), bl = document.getElementById('v2-bl');
+    var bDiff = document.getElementById('v2-diff'), bSum = document.getElementById('v2-sum');
+    var target = document.getElementById('v2-target'), strat = document.getElementById('v2-strat');
+    var grid = document.getElementById('v2-grid'), cands = document.getElementById('v2-cands');
+    var why = document.getElementById('v2-why');
+    var isDiff = true, picked = -1;
+
+    function coef(v, sym){
+      var m = Math.abs(v);
+      return (m === 1 ? '' : String(m)) + sym;
+    }
+    function lin(p){ return '(x ' + (p < 0 ? '- ' + (-p) : '+ ' + p) + ')'; }
+    function quad(q, r){
+      var qs = q === 0 ? '' : (q < 0 ? ' - ' + coef(q, 'x') : ' + ' + coef(q, 'x'));
+      var rs = r === 0 ? '' : (r < 0 ? ' - ' + (-r) : ' + ' + r);
+      return '(x^2' + qs + rs + ')';
+    }
+    // (x + p)(x^2 + qx + r) = x^3 + (q+p)x^2 + (r+pq)x + pr — indexed by degree.
+    function expand(p, q, r){ return [p * r, r + p * q, q + p, 1]; }
+    function polyStr(c){
+      var s = '';
+      for (var d = c.length - 1; d >= 0; d--) {
+        var v = c[d];
+        if (!v) continue;
+        var mag = Math.abs(v);
+        var bd = d === 0 ? String(mag) : ((mag === 1 ? '' : String(mag)) + (d === 1 ? 'x' : 'x^' + d));
+        if (s === '') s = (v < 0 ? '-' : '') + bd; else s += (v < 0 ? ' - ' : ' + ') + bd;
+      }
+      return s === '' ? '0' : s;
+    }
+
+    function render(){
+      var b = Number(bS.value);
+      if (!isFinite(b) || b < 1) b = 1;
+      bl.textContent = b;
+      bDiff.setAttribute('aria-pressed', isDiff ? 'true' : 'false');
+      bSum.setAttribute('aria-pressed', isDiff ? 'false' : 'true');
+
+      var cube = b * b * b;
+      var tgt = [isDiff ? -cube : cube, 0, 0, 1];
+      target.textContent = polyStr(tgt);
+
+      var name = isDiff ? 'Difference of cubes' : 'Sum of cubes';
+      strat.innerHTML =
+        '<div class="v2-s"><span class="v2-mk" style="color:var(--viz-green)">FITS</span><span><b>' + name + '</b> — two terms, ' +
+          'and both of them are perfect cubes: x^3 and ' + b + '^3 = ' + cube + '.</span></div>' +
+        '<div class="v2-s"><span class="v2-mk" style="color:var(--viz-red)">NO</span><span>Difference of squares — x^3 has an ' +
+          '<b>odd</b> exponent, so it is not the square of anything.</span></div>' +
+        '<div class="v2-s"><span class="v2-mk" style="color:var(--viz-red)">NO</span><span>Perfect-square trinomial — that pattern ' +
+          'needs <b>three</b> terms and this has two.</span></div>' +
+        '<div class="v2-s"><span class="v2-mk" style="color:var(--viz-red)">NO</span><span>The quadratic formula — it solves degree ' +
+          '<b>2</b>, and this is degree 3.</span></div>';
+
+      var cp = isDiff ? -b : b, cq = isDiff ? b : -b, cr = b * b;
+      var rows = [
+        ['x &middot; x^2', 'x^3', 'survives', 'var(--viz-green)'],
+        ['x &middot; ' + coef(cq, 'x'), polyStr([0, 0, cq, 0]), 'cancels with the row below it', 'var(--viz-amber)'],
+        ['x &middot; ' + cr, polyStr([0, cr, 0, 0]), 'cancels with the row below it', 'var(--viz-amber)'],
+        [(cp < 0 ? '-' + (-cp) : cp) + ' &middot; x^2', polyStr([0, 0, cp, 0]), 'cancels the 2nd row', 'var(--viz-amber)'],
+        [(cp < 0 ? '-' + (-cp) : cp) + ' &middot; ' + coef(cq, 'x'), polyStr([0, cp * cq, 0, 0]), 'cancels the 3rd row', 'var(--viz-amber)'],
+        [(cp < 0 ? '-' + (-cp) : cp) + ' &middot; ' + cr, polyStr([cp * cr, 0, 0, 0]), 'survives', 'var(--viz-green)']
+      ];
+      var g = lin(cp) + quad(cq, cr) + ', multiplied out term by term:\n';
+      rows.forEach(function(row){
+        var lhs = '  ' + row[0];
+        while (lhs.length < 16) lhs += ' ';
+        var mid = '= ' + row[1];
+        while (mid.length < 10) mid += ' ';
+        g += lhs + mid + '<span style="color:' + row[3] + '">' + row[2] + '</span>\n';
+      });
+      g += '  ' + polyStr(tgt) + '  <span style="color:var(--viz-green)">&#10003; the two survivors are the whole answer</span>';
+      grid.innerHTML = g;
+
+      var LIST = isDiff
+        ? [{ p: -b, q: b, r: b * b }, { p: -b, q: -b, r: b * b }, { p: b, q: -b, r: b * b }, { p: -b * b, q: b, r: b }]
+        : [{ p: b, q: -b, r: b * b }, { p: b, q: b, r: b * b }, { p: -b, q: b, r: b * b }, { p: b * b, q: -b, r: b }];
+
+      cands.innerHTML = '';
+      LIST.forEach(function(c, i){
+        var got = expand(c.p, c.q, c.r);
+        var ok = got[0] === tgt[0] && got[1] === tgt[1] && got[2] === tgt[2] && got[3] === tgt[3];
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'v2-c';
+        btn.setAttribute('aria-pressed', picked === i ? 'true' : 'false');
+        btn.innerHTML = lin(c.p) + quad(c.q, c.r) +
+          '<span class="v2-tag" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (ok ? 'MATCHES — expands to ' + polyStr(got) : 'WRONG — expands to ' + polyStr(got)) + '</span>';
+        btn.addEventListener('click', function(){ picked = i; render(); });
+        cands.appendChild(btn);
+      });
+
+      if (picked < 0 || picked >= LIST.length) {
+        why.innerHTML = '<b style="color:var(--viz-accent)">The middle sign is opposite, and that is not arbitrary.</b>' +
+          'Look at rows 2 and 4 of the expansion: they are ' + polyStr([0, 0, cq, 0]) + ' and ' + polyStr([0, 0, cp, 0]) +
+          ', which sum to zero precisely because the binomial contributes ' + cp + ' and the trinomial contributes ' + cq +
+          '. Rows 3 and 5 cancel for the same reason. Give the trinomial the <em>same</em> middle sign as the binomial and ' +
+          'nothing cancels at all. ' +
+          '<br><br>Tap any candidate below to see exactly where it goes wrong. The last term is worth watching too: it is ' +
+          'b^2 = ' + (b * b) + ', not b = ' + b + '.';
+      } else {
+        var c = LIST[picked];
+        var got2 = expand(c.p, c.q, c.r);
+        var okAll = got2[0] === tgt[0] && got2[1] === tgt[1] && got2[2] === tgt[2];
+        if (okAll) {
+          why.innerHTML = '<b style="color:var(--viz-green)">' + lin(c.p) + quad(c.q, c.r) + ' is the one that works.</b>' +
+            'Multiplying it out gives ' + polyStr(got2) + ', which is the target exactly. Every other candidate leaves an x^2 ' +
+            'or an x term standing, and a leftover middle term is the signature of a wrong sign somewhere. ' +
+            '<br><br>Check it by the three parts: the binomial takes the sign of the original (' + lin(c.p) + '), the trinomial ' +
+            'takes the opposite middle sign, and its constant is b^2 = ' + (b * b) + '.';
+        } else {
+          var deg = got2[1] !== tgt[1] ? 1 : (got2[2] !== tgt[2] ? 2 : 0);
+          var namePart = deg === 2 ? 'an x^2 term' : (deg === 1 ? 'an x term' : 'a constant');
+          var mineTxt = deg === 2 ? polyStr([0, 0, got2[2], 0]) : (deg === 1 ? polyStr([0, got2[1], 0, 0]) : String(got2[0]));
+          why.innerHTML = '<b style="color:var(--viz-red)">' + lin(c.p) + quad(c.q, c.r) + ' leaves ' + namePart + ' behind.</b>' +
+            'Multiplied out it is ' + polyStr(got2) + ', and the target is ' + polyStr(tgt) + '. The survivor that should have ' +
+            'cancelled is ' + mineTxt + '. ' +
+            '<br><br>A cube pattern is correct only when <b>all four</b> middle products annihilate in two pairs. Any leftover x^2 ' +
+            'or x means the signs or the constant were not set up to cancel — so multiplying back is a complete check, not a ' +
+            'nervous habit.';
+        }
+      }
+    }
+    bDiff.addEventListener('click', function(){ isDiff = true; picked = -1; render(); });
+    bSum.addEventListener('click', function(){ isDiff = false; picked = -1; render(); });
+    bS.addEventListener('input', function(){ picked = -1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Factor Until It Stops</h2>
+  <p class="vz-lede">"Factor completely" is an instruction with a stopping rule, and most lost marks are one step
+    short of it. Pick an expression and keep pressing the button: every press applies one real pattern to one
+    factor, and the roots appear by the zero-product property as the linear factors fall out.
+    <b>Like splitting logs — you keep swinging until every piece is too small to split, not until the first
+    piece comes off.</b></p>
+
+  <div class="vz-pre" id="v3-presets"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab">factoring <b><span id="v3-expr">x^4 - 16</span></b></label>
+    <div class="v3-chain" id="v3-chain"></div>
+    <div class="v3-btns">
+      <button class="v3-go" id="v3-more" type="button">Factor once more</button>
+      <button class="v3-go v3-alt" id="v3-reset" type="button">Start over</button>
+    </div>
+    <div class="vz-mono" id="v3-step" style="margin-top:11px"></div>
+    <div class="v3-row" id="v3-check"></div>
+    <div class="v3-row" id="v3-roots"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">The zero-product property is the reason any of this is worth doing, and it has a
+    precondition people skip: the equation must read <b>something = 0</b>. From (x - 2)(x + 2) = 5 you may
+    conclude nothing at all about either factor, because plenty of pairs of numbers multiply to 5. Set it to
+    zero first, then factor, then read the roots off one bracket at a time.</p>
+
+  <style>
+    .v3-chain{display:flex;flex-wrap:wrap;gap:6px;align-items:stretch;margin-top:6px}
+    .v3-f{border:1.5px solid var(--viz-line);border-radius:10px;padding:7px 10px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.4}
+    .v3-f.is-open{border-color:var(--viz-accent);border-style:dashed}
+    .v3-f.is-done{border-color:var(--viz-green)}
+    .v3-f.is-stop{border-color:var(--viz-violet)}
+    .v3-t{display:block;font-family:inherit;font-size:9.5px;font-weight:800;letter-spacing:.03em;margin-top:3px}
+    .v3-btns{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+    .v3-go{flex:1 1 150px;min-height:44px;border:1.5px solid var(--viz-accent);background:var(--viz-accent);
+      color:var(--viz-bg);border-radius:10px;font:inherit;font-weight:800;font-size:12.5px}
+    .v3-go[disabled]{background:var(--viz-surface);border-color:var(--viz-line);color:var(--viz-muted)}
+    .v3-alt{background:var(--viz-surface);border-color:var(--viz-line);color:var(--viz-muted)}
+    .v3-row{margin-top:9px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var pres = document.getElementById('v3-presets'), exprEl = document.getElementById('v3-expr');
+    var chain = document.getElementById('v3-chain'), stepEl = document.getElementById('v3-step');
+    var check = document.getElementById('v3-check'), rootsEl = document.getElementById('v3-roots');
+    var more = document.getElementById('v3-more'), reset = document.getElementById('v3-reset');
+    var why = document.getElementById('v3-why');
+
+    // Coefficient arrays indexed BY DEGREE: [constant, x, x^2, ...].
+    var START = [
+      { t:'x^4 - 16', c:[-16, 0, 0, 0, 1] },
+      { t:'x^4 - 81', c:[-81, 0, 0, 0, 1] },
+      { t:'x^3 - 27', c:[-27, 0, 0, 1] },
+      { t:'x^3 - 8',  c:[-8, 0, 0, 1] },
+      { t:'x^3 + 8',  c:[8, 0, 0, 1] },
+      { t:'x^3 - 4x', c:[0, -4, 0, 1] },
+      { t:'x^2 + 4',  c:[4, 0, 1] }
+    ];
+    var cur = 0, parts = [], log = [];
+
+    function deg(c){ var d = 0; for (var i = 0; i < c.length; i++) if (c[i]) d = i; return d; }
+    function polyStr(c){
+      var s = '';
+      for (var d = c.length - 1; d >= 0; d--) {
+        var v = c[d];
+        if (!v) continue;
+        var mag = Math.abs(v);
+        var bd = d === 0 ? String(mag) : ((mag === 1 ? '' : String(mag)) + (d === 1 ? 'x' : 'x^' + d));
+        if (s === '') s = (v < 0 ? '-' : '') + bd; else s += (v < 0 ? ' - ' : ' + ') + bd;
+      }
+      return s === '' ? '0' : s;
+    }
+    function intSqrt(n){ if (n < 0) return 0; var r = Math.round(Math.sqrt(n)); return r * r === n ? r : 0; }
+    function intCbrt(n){ if (n < 0) return 0; var r = Math.round(Math.pow(n, 1 / 3)); return r * r * r === n ? r : 0; }
+
+    function factorOnce(c){
+      var d = deg(c);
+      if (d >= 2 && c[0] === 0) return { parts: [[0, 1], c.slice(1)], rule: 'common factor of x' };
+      if (d === 4 && !c[1] && !c[2] && !c[3] && c[0] < 0) {
+        var m = intSqrt(-c[0]);
+        if (m) return { parts: [[-m, 0, 1], [m, 0, 1]], rule: 'difference of squares, with x^2 playing the role of a' };
+      }
+      if (d === 2 && !c[1] && c[0] < 0) {
+        var m2 = intSqrt(-c[0]);
+        if (m2) return { parts: [[-m2, 1], [m2, 1]], rule: 'difference of squares' };
+      }
+      if (d === 3 && !c[1] && !c[2]) {
+        if (c[0] < 0) { var m3 = intCbrt(-c[0]); if (m3) return { parts: [[-m3, 1], [m3 * m3, m3, 1]], rule: 'difference of cubes' }; }
+        if (c[0] > 0) { var m4 = intCbrt(c[0]); if (m4) return { parts: [[m4, 1], [m4 * m4, -m4, 1]], rule: 'sum of cubes' }; }
+      }
+      return null;
+    }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      exprEl.textContent = START[cur].t;
+      var openIdx = -1;
+      for (var i = 0; i < parts.length; i++) { if (factorOnce(parts[i])) { openIdx = i; break; } }
+
+      chain.innerHTML = parts.map(function(c, i){
+        var d = deg(c);
+        var can = !!factorOnce(c);
+        var cls = can ? 'is-open' : (d === 1 ? 'is-done' : 'is-stop');
+        var tag, col;
+        if (can) { tag = i === openIdx ? 'can still factor - next' : 'can still factor'; col = 'var(--viz-accent)'; }
+        else if (d === 1) { tag = 'linear - gives root x = ' + (-c[0] / c[1]); col = 'var(--viz-green)'; }
+        else {
+          var disc = c[1] * c[1] - 4 * c[2] * c[0];
+          tag = isFinite(disc) && disc < 0 ? 'irreducible - discriminant ' + disc : 'no pattern left to apply';
+          col = 'var(--viz-violet)';
+        }
+        return '<span class="v3-f ' + cls + '">' + polyStr(c) +
+          '<span class="v3-t" style="color:' + col + '">' + tag + '</span></span>';
+      }).join('');
+
+      more.disabled = openIdx < 0;
+      more.textContent = openIdx < 0 ? 'Nothing left to factor' : 'Factor once more';
+
+      stepEl.textContent = START[cur].t + ' = ' + parts.map(polyStr).join(')(').replace(/^/, '(') + ')' +
+        (log.length ? '\n\n' + log.map(function(l, i){ return (i + 1) + '. ' + l; }).join('\n') : '\n\nno steps taken yet');
+
+      var sum = 0;
+      parts.forEach(function(c){ sum += deg(c); });
+      var d0 = deg(START[cur].c);
+      check.innerHTML = pill('degrees ' + parts.map(deg).join(' + ') + ' = ' + sum + ' of ' + d0,
+        sum === d0 ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      var rs = [];
+      parts.forEach(function(c){
+        if (deg(c) === 1 && c[1]) { var r = -c[0] / c[1]; if (isFinite(r) && rs.indexOf(r) === -1) rs.push(r); }
+      });
+      rs.sort(function(a, b){ return a - b; });
+      rootsEl.innerHTML = openIdx >= 0
+        ? pill('roots so far: ' + (rs.length ? rs.join(', ') : 'none yet'), 'var(--viz-muted)')
+        : pill('set = 0, zero-product gives x = ' + (rs.length ? rs.join(', ') : 'no real roots'), 'var(--viz-green)');
+
+      if (openIdx >= 0) {
+        var nxt = factorOnce(parts[openIdx]);
+        why.innerHTML = '<b style="color:var(--viz-accent)">Not finished: ' + polyStr(parts[openIdx]) + ' still matches a pattern.</b>' +
+          'The next press applies <b>' + nxt.rule + '</b> to it. Stopping here would give a factorization that is perfectly true and ' +
+          'still not the answer to "factor completely" — which is exactly how the tempting wrong option is built. ' +
+          '<br><br>A factor is finished only when it is linear, or a quadratic with no real roots. Everything else is another swing.';
+      } else {
+        var stops = parts.filter(function(c){ return deg(c) >= 2; }).map(polyStr);
+        why.innerHTML = '<b style="color:var(--viz-green)">Completely factored: ' + parts.map(polyStr).join(')(').replace(/^/, '(') + ').</b>' +
+          (stops.length
+            ? 'It stopped at <b>' + stops.join(' and ') + '</b>. A sum of squares needs two real numbers that multiply to a positive ' +
+              'number and add to zero, which cannot happen; a cube trinomial has discriminant -3b^2. Over the complex numbers these ' +
+              'do split — that is where the imaginary unit i would come in — but "completely" in this course means over the reals. '
+            : 'Every factor is linear, so this one goes all the way down to real roots. ') +
+          '<br><br>Two checks before you commit: the factors\' degrees sum to ' + d0 + ' &#10003;, and multiplying back reproduces ' +
+          START[cur].t + '. Degree accounting catches a <em>missing</em> factor; only multiplying back catches a <em>wrong</em> one. ' +
+          (rs.length
+            ? 'Setting the product to zero, the zero-product property then reads the roots straight off: x = ' + rs.join(', ') + '.'
+            : 'With no linear factors, the equation set to zero has no real solutions at all.');
+      }
+    }
+
+    function load(i){
+      cur = i;
+      parts = [START[i].c.slice()];
+      log = [];
+      render();
+    }
+    START.forEach(function(p, i){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ load(i); });
+      pres.appendChild(btn);
+    });
+    more.addEventListener('click', function(){
+      for (var i = 0; i < parts.length; i++) {
+        var f = factorOnce(parts[i]);
+        if (f) {
+          log.push(polyStr(parts[i]) + '  ->  (' + polyStr(f.parts[0]) + ')(' + polyStr(f.parts[1]) + ')   [' + f.rule + ']');
+          parts.splice(i, 1, f.parts[0], f.parts[1]);
+          break;
+        }
+      }
+      render();
+    });
+    reset.addEventListener('click', function(){ load(cur); });
+    load(0);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Slide The Secant</h2>
+  <p class="vz-lede">Average rate of change is the slope you already know, measured between two points that
+    happen to sit on a curve instead of a line. Drag the endpoints and watch the secant tilt, the arithmetic
+    rewrite itself, and the three tempting near-misses stay stubbornly different numbers.
+    <b>Like a road trip: your average speed is the whole distance over the whole time, and it says nothing
+    about the speedometer at any single moment.</b></p>
+
+  <div class="vz-seg" id="v4-fns" role="group" aria-label="Which polynomial"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-a">a = <b><span id="v4-al">1</span></b> &nbsp;&nbsp; b = <b><span id="v4-bl">3</span></b></label>
+    <input class="vz-range" type="range" id="v4-a" min="-3" max="3" value="1" step="0.5" aria-label="Left endpoint a">
+    <input class="vz-range" type="range" id="v4-b" min="-3" max="3" value="3" step="0.5" aria-label="Right endpoint b">
+
+    <div class="vz-plot" id="v4-plot"></div>
+    <div class="vz-mono" id="v4-work" style="margin-top:10px"></div>
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="vz-why" id="v4-why"></div>
+    <div class="vz-pre" id="v4-presets"></div>
+  </div>
+
+  <p class="vz-note">Push b towards a and watch the secant lie down on the tangent: the average rate of change
+    over a shrinking interval is what the instantaneous rate is <em>defined</em> as the limit of. They are the
+    same construction at two scales — which is why answering a secant question with f'(a) is not a random error
+    but the right idea one limit too early.</p>
+
+  <style>
+    .v4-pills{margin-top:11px;display:flex;flex-direction:column;gap:6px}
+    .v4-p{border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.45}
+    .v4-t{display:block;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em;margin-top:3px}
+  </style>
+  <script>
+  (function(){
+    var fns = document.getElementById('v4-fns');
+    var A = document.getElementById('v4-a'), B = document.getElementById('v4-b');
+    var al = document.getElementById('v4-al'), bl = document.getElementById('v4-bl');
+    var plot = document.getElementById('v4-plot'), work = document.getElementById('v4-work');
+    var pills = document.getElementById('v4-pills'), why = document.getElementById('v4-why');
+    var pres = document.getElementById('v4-presets');
+
+    var FNS = [
+      { s:'x^2',      quad:true,  f:function(x){ return x * x; },             d:function(x){ return 2 * x; } },
+      { s:'x^3 - 1',  quad:false, f:function(x){ return x * x * x - 1; },     d:function(x){ return 3 * x * x; } },
+      { s:'2x^2 + x', quad:true,  f:function(x){ return 2 * x * x + x; },     d:function(x){ return 4 * x + 1; } },
+      { s:'x^3 - 3x', quad:false, f:function(x){ return x * x * x - 3 * x; }, d:function(x){ return 3 * x * x - 3; } }
+    ];
+    var cur = 0;
+    var btns = [];
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : '—'; }
+    function par(v){ return v < 0 ? '(' + n(v) + ')' : n(v); }
+    function fin(v){ return isFinite(v) ? v : 0; }
+
+    function render(){
+      var F = FNS[cur];
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var a = Number(A.value), b = Number(B.value);
+      if (!isFinite(a)) a = 0;
+      if (!isFinite(b)) b = 0;
+      al.textContent = n(a); bl.textContent = n(b);
+
+      var fa = F.f(a), fb = F.f(b);
+      var dx = b - a, dy = fb - fa;
+      var ok = dx !== 0 && isFinite(dy / dx);
+      var m = ok ? dy / dx : NaN;
+      var ta = F.d(a);
+
+      var LO = -3.4, HI = 3.4, W = 320, H = 250;
+      var ys = [];
+      for (var t = 0; t <= 90; t++) {
+        var xv = LO + (HI - LO) * t / 90;
+        var yv = F.f(xv);
+        if (isFinite(yv)) ys.push(yv);
+      }
+      if (isFinite(fa)) ys.push(fa);
+      if (isFinite(fb)) ys.push(fb);
+      var ymin = ys.length ? Math.min.apply(null, ys) : -1;
+      var ymax = ys.length ? Math.max.apply(null, ys) : 1;
+      if (!isFinite(ymin) || !isFinite(ymax) || ymax - ymin < 1e-9) { ymin = -1; ymax = 1; }
+      var padY = (ymax - ymin) * 0.14;
+      ymin -= padY; ymax += padY;
+
+      function px(v){ return fin((v - LO) / (HI - LO) * W); }
+      function py(v){ return fin(H - (v - ymin) / (ymax - ymin) * H); }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The polynomial with the secant line through its two endpoints">';
+      for (var g = -3; g <= 3; g++) {
+        svg += '<line x1="' + px(g) + '" y1="0" x2="' + px(g) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:.6;opacity:.6"></line>';
+      }
+      if (ymin < 0 && ymax > 0) {
+        svg += '<line x1="0" y1="' + py(0) + '" x2="' + W + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+      }
+      svg += '<line x1="' + px(0) + '" y1="0" x2="' + px(0) + '" y2="' + H + '" style="stroke:var(--viz-line);stroke-width:1.8"></line>';
+
+      var pts = [];
+      for (var t2 = 0; t2 <= 120; t2++) {
+        var xc = LO + (HI - LO) * t2 / 120;
+        var yc = F.f(xc);
+        if (isFinite(yc)) pts.push(px(xc) + ',' + py(yc));
+      }
+      svg += '<polyline points="' + pts.join(' ') + '" style="fill:none;stroke:var(--viz-ink);stroke-width:2.2"></polyline>';
+
+      if (isFinite(ta)) {
+        svg += '<line x1="' + px(LO) + '" y1="' + py(fa + ta * (LO - a)) + '" x2="' + px(HI) + '" y2="' + py(fa + ta * (HI - a)) +
+          '" style="stroke:var(--viz-violet);stroke-width:1.6;stroke-dasharray:3 4"></line>';
+        svg += '<text x="6" y="14" style="font-size:10px;fill:var(--viz-violet);font-weight:700">tangent at a (dashed)</text>';
+      }
+      if (ok) {
+        svg += '<line x1="' + px(LO) + '" y1="' + py(fa + m * (LO - a)) + '" x2="' + px(HI) + '" y2="' + py(fa + m * (HI - a)) +
+          '" style="stroke:var(--viz-accent);stroke-width:2.6"></line>';
+        svg += '<line x1="' + px(a) + '" y1="' + py(fa) + '" x2="' + px(b) + '" y2="' + py(fa) +
+          '" style="stroke:var(--viz-amber);stroke-width:1.8;stroke-dasharray:5 4"></line>';
+        svg += '<line x1="' + px(b) + '" y1="' + py(fa) + '" x2="' + px(b) + '" y2="' + py(fb) +
+          '" style="stroke:var(--viz-amber);stroke-width:1.8;stroke-dasharray:5 4"></line>';
+        svg += '<text x="' + ((px(a) + px(b)) / 2) + '" y="' + (py(fa) + 13) + '" text-anchor="middle" style="font-size:10.5px;fill:var(--viz-amber);font-weight:700">b - a = ' + n(dx) + '</text>';
+        svg += '<text x="' + (px(b) + 5) + '" y="' + ((py(fa) + py(fb)) / 2) + '" style="font-size:10.5px;fill:var(--viz-amber);font-weight:700">' + n(dy) + '</text>';
+      }
+      svg += '<circle cx="' + px(a) + '" cy="' + py(fa) + '" r="5" style="fill:var(--viz-green)"></circle>';
+      svg += '<circle cx="' + px(b) + '" cy="' + py(fb) + '" r="5" style="fill:var(--viz-green)"></circle>';
+      svg += '<text x="' + (px(a) + 7) + '" y="' + (py(fa) - 7) + '" style="font-size:10px;fill:var(--viz-green)">(' + n(a) + ', ' + n(fa) + ')</text>';
+      svg += '<text x="' + (px(b) + 7) + '" y="' + (py(fb) - 7) + '" style="font-size:10px;fill:var(--viz-green)">(' + n(b) + ', ' + n(fb) + ')</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      work.textContent =
+        'f(x) = ' + F.s + '\n' +
+        'f(b) = f(' + n(b) + ') = ' + n(fb) + '\n' +
+        'f(a) = f(' + n(a) + ') = ' + n(fa) + '\n' +
+        'rate = (' + n(fb) + ' - ' + par(fa) + ') / (' + n(b) + ' - ' + par(a) + ')\n' +
+        '     = ' + n(dy) + ' / ' + n(dx) + ' = ' + (ok ? n(m) : 'undefined');
+
+      var sumAB = a + b;
+      var bogus = sumAB === 0 ? null : (fa - fb) / sumAB;
+      function row(txt, tag, col){
+        return '<div class="v4-p">' + txt + '<span class="v4-t" style="color:' + col + '">' + tag + '</span></div>';
+      }
+      pills.innerHTML =
+        row('(f(b) - f(a)) / (b - a) = ' + (ok ? n(m) : 'undefined'), ok ? 'CORRECT - the secant slope' : 'undefined - the interval has no width', ok ? 'var(--viz-green)' : 'var(--viz-red)') +
+        row('f(b) - f(a) = ' + n(dy), 'total change, not a rate - never divided by anything', 'var(--viz-amber)') +
+        row("f'(a) = " + n(ta), 'tangent slope at a - one point, not an interval', 'var(--viz-violet)') +
+        row('(f(a) - f(b)) / (a + b) = ' + (bogus === null ? 'undefined' : n(bogus)), 'wrong shape - the denominator must be a difference', 'var(--viz-red)');
+
+      if (!ok) {
+        why.innerHTML = '<b style="color:var(--viz-red)">a = b, so there is no interval and no rate.</b>' +
+          'The denominator b - a is 0 and the quotient is undefined — not zero, not infinite, undefined. Two coincident points ' +
+          'determine no line, so there is no secant to take the slope of. ' +
+          '<br><br>This is the one place the formula can fail, and it is also the doorway to calculus: the instantaneous rate is ' +
+          'what this quotient <em>approaches</em> as b slides towards a, which is a limit rather than a value at a. Nudge b one step ' +
+          'away and watch the answer reappear near f\'(a) = ' + n(ta) + '.';
+      } else if (m === 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Zero average rate of change does not mean the curve stood still.</b>' +
+          'f(' + n(a) + ') and f(' + n(b) + ') are both ' + n(fa) + ', so the secant is horizontal and the net change is 0 — while the ' +
+          'curve between them plainly moves. A secant sees two points and nothing in between. ' +
+          '<br><br>That is precisely why a higher-degree polynomial, which can turn several times, has to be measured interval by ' +
+          'interval: one number over one wide interval hides every turn inside it.';
+      } else {
+        var mid = (a + b) / 2;
+        why.innerHTML = '<b style="color:var(--viz-green)">Slope, unchanged: rise over run between two points.</b>' +
+          'The dashed legs are the run b - a = ' + n(dx) + ' and the rise f(b) - f(a) = ' + n(dy) + ', and their quotient ' + n(m) +
+          ' is the slope of the solid secant. Nothing about the formula noticed that the points sit on a curve — but the <em>answer</em> ' +
+          'did, because it now depends on which interval you chose. ' +
+          '<br><br>Compare the dashed tangent: f\'(' + n(a) + ') = ' + n(ta) + ', a different line through the same left-hand point. ' +
+          (F.quad
+            ? 'For this quadratic the average rate does equal f\' at the midpoint, f\'(' + n(mid) + ') = ' + n(F.d(mid)) +
+              ' — a property of parabolas, not a definition, and it fails for the cubics in this picker.'
+            : 'For this cubic the average rate matches no endpoint tangent at all, which is the honest general case.');
+      }
+    }
+
+    FNS.forEach(function(F, i){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      btn.textContent = 'f(x) = ' + F.s;
+      btn.addEventListener('click', function(){ cur = i; render(); });
+      btns.push(btn);
+      fns.appendChild(btn);
+    });
+    var PRESETS = [
+      { t:'x^2 on [1,3]',      i:0, a:1,  b:3 },
+      { t:'x^3-1 on [0,2]',    i:1, a:0,  b:2 },
+      { t:'2x^2+x on [-1,1]',  i:2, a:-1, b:1 },
+      { t:'x^2 on [-2,2]',     i:0, a:-2, b:2 },
+      { t:'squeeze b onto a',  i:3, a:1,  b:1.5 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ cur = p.i; A.value = p.a; B.value = p.b; render(); });
+      pres.appendChild(btn);
+    });
+    A.addEventListener('input', render);
+    B.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,592 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. The Recall Ceiling</button>
+  <button class="viz-tab" data-viz-tab="2">2. Contract At Each Stage</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Depth Frontier</button>
+  <button class="viz-tab" data-viz-tab="4">4. What Eats The Budget</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. The Recall Ceiling</h2>
+  <p class="vz-lede">IR 201 left you tuning an ANN index on <b>The Recall-Latency-Memory Triangle</b>, with a
+    <b>bi-encoder</b> supplying the vectors; IR 104 gave you <b>Precision@k and Recall@k</b>. Here those meet:
+    that retrieval recall is not a score, it is a <em>ceiling</em>. Tap the five relevant chunks to decide which
+    the recall stage found, then change how good the reranker is.
+    <b>Like auditions — whoever is not called back cannot win the part, however careful the final judging is.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-side">
+      <h5>you already know</h5>
+      <ul>
+        <li>ANN recall@k, traded against latency and memory</li>
+        <li>bi-encoder towers, compared by dot product</li>
+        <li>precision@k and recall@k, always with a cutoff</li>
+      </ul>
+    </div>
+    <div class="v1-side v1-new">
+      <h5>this lesson</h5>
+      <ul>
+        <li>that retriever is <b>stage one</b>: candidate generation</li>
+        <li>its recall <b>caps</b> every stage after it</li>
+        <li>the precision stage reorders C — it cannot enlarge C</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-lab">Corpus 1,000,000 chunks · 5 labelled relevant · candidate set C = 200</div>
+    <div class="v1-chunks" id="v1-chunks"></div>
+    <div class="v1-lab" style="margin-top:12px">How good is the precision stage?</div>
+    <div class="vz-seg" id="v1-quality" role="group" aria-label="Reranker quality"></div>
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">This is also why <code>recall stage has high recall</code> is not a claim. The measurable
+    version names the cutoff and the population — <b>candidate recall@200 is 0.96 on adjudicated support
+    queries</b> — because recall rises as more documents are admitted, and exact identifiers, paraphrases and
+    multilingual queries each favour a different retriever.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-side{flex:1 1 158px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+    .v1-side.v1-new{border-color:var(--viz-accent)}
+    .v1-side h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-side.v1-new h5{color:var(--viz-accent)}
+    .v1-side ul{margin:0;padding-left:16px}
+    .v1-side li{font-size:11.5px;line-height:1.5;margin-bottom:3px}
+    .v1-lab{font-size:12.5px;font-weight:700}
+    .v1-chunks{display:flex;flex-direction:column;gap:5px;margin-top:9px}
+    .v1-c{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35;width:100%}
+    .v1-c[data-in="yes"]{border-color:var(--viz-green)}
+    .v1-c[data-in="no"]{border-style:dashed;opacity:.72}
+    .v1-mark{font-family:ui-monospace,Consolas,monospace;font-weight:800;font-size:11px;flex:0 0 auto}
+    .v1-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var R = 5, K = 10;
+    var found = [true, true, true, true, false];   // the doc's worked example: 4 of 5 enter C
+    var QUAL = [
+      { id:'perfect', label:'perfect', lift:function(r){ return r; } },
+      { id:'good',    label:'ordinary', lift:function(r){ return Math.max(0, r - 1); } },
+      { id:'weak',    label:'weak', lift:function(r){ return Math.floor(r / 2); } }
+    ];
+    var q = 0;
+    var chunks = document.getElementById('v1-chunks');
+    var seg = document.getElementById('v1-quality');
+    var bars = document.getElementById('v1-bars');
+    var why = document.getElementById('v1-why');
+
+    seg.innerHTML = QUAL.map(function(o, i){
+      return '<button type="button" data-q="' + i + '" aria-pressed="' + (i === 0 ? 'true' : 'false') + '">' + o.label + ' reranker</button>';
+    }).join('');
+
+    function render(){
+      var r = found.filter(Boolean).length;
+      var placed = Math.min(r, QUAL[q].lift(r));
+
+      chunks.innerHTML = found.map(function(inC, i){
+        return '<button type="button" class="v1-c" data-i="' + i + '" data-in="' + (inC ? 'yes' : 'no') + '">' +
+          '<span class="v1-mark" style="color:' + (inC ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (inC ? '[in]' : '[ - ]') + '</span>' +
+          '<span>relevant chunk ' + (i + 1) + '</span>' +
+          '<span class="v1-tag" style="color:' + (inC ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (inC ? 'IN the candidate set' : 'NEVER RETRIEVED') + '</span></button>';
+      }).join('');
+      [].slice.call(seg.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === q ? 'true' : 'false'); });
+
+      var candRecall = r / R, ceiling = candRecall;
+      var recallK = placed / R, precK = placed / K;
+      function bar(t, v, txt, c){
+        return '<div class="v1-b"><h6><span>' + t + '</span><b style="color:' + c + '">' + txt + '</b></h6>' +
+          '<div class="v1-track"><i style="width:' + Math.max(1, Math.round(v * 100)) + '%;background:' + c + '"></i></div></div>';
+      }
+      bars.innerHTML =
+        bar('candidate recall@200 = r / R = ' + r + ' / ' + R, candRecall, candRecall.toFixed(2), 'var(--viz-accent)') +
+        bar('recall@10 achieved', recallK, recallK.toFixed(2) + ' (ceiling ' + ceiling.toFixed(2) + ')', recallK >= ceiling - 1e-9 ? 'var(--viz-green)' : 'var(--viz-amber)') +
+        bar('precision@10 = ' + placed + ' / ' + K, precK, precK.toFixed(2), 'var(--viz-violet)');
+
+      var lost = R - r;
+      var head, body;
+      if (lost === 0) {
+        head = '<b style="color:var(--viz-green)">Nothing is lost upstream, so the ceiling is 1.00.</b>';
+        body = 'Every relevant chunk is inside C, so the funnel can in principle reach perfect recall and all the remaining risk lives in the <b>precision stage</b>. That is the good case, and it is the only case where buying a better reranker is the right purchase.';
+      } else {
+        head = '<b style="color:var(--viz-red)">' + lost + ' relevant chunk' + (lost === 1 ? '' : 's') +
+          ' never entered C, so recall@k can never exceed ' + ceiling.toFixed(2) + ' at any k.</b>';
+        body = 'Derivation: the final list is a subset of C, so if only r of R relevant items are in C then recall@k is at most r/R for every later cutoff. ' +
+          'No reranker, at any price, can move a document it was never shown. <b>Early false negatives are permanent; early false positives can be removed later</b> — that asymmetry is the entire reason the cheap stage is tuned for recall and tolerates junk.';
+      }
+      var gap = (QUAL[q].id === 'perfect')
+        ? 'With a perfect precision stage the achieved recall@10 sits exactly on the ceiling, so the gap you see is <em>all</em> candidate generation.'
+        : 'The gap between the ceiling and the achieved bar is what the precision stage is losing. Only that gap is buyable with a better reranker — the rest is upstream, forever.';
+      why.innerHTML = head + body + '<br><br>' + gap +
+        '<br><br>This is why a team reports <b>candidate coverage and final ordering quality as two numbers</b>. One number cannot tell missing evidence from bad ordering.';
+    }
+
+    chunks.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-i]') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-i'));
+      if (!isFinite(i)) return;
+      found[i] = !found[i];
+      render();
+    });
+    seg.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-q]') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-q'));
+      if (!isFinite(i) || !QUAL[i]) return;
+      q = i;
+      render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Contract At Each Stage</h2>
+  <p class="vz-lede">A real funnel is five stages, not two, and each arrow between them is a contract: input
+    width, output width, score meaning, timeout, fallback, filters, IDs. Tap a stage to read its contract and
+    what a lost document looks like there. Then turn off the diagnostic trace and watch attribution die.
+    <b>Like a relay handover — the baton has to be passed the same way every lap, or nobody can say who dropped it.</b></p>
+
+  <div class="v2-stages" id="v2-stages"></div>
+
+  <div class="vz-card">
+    <div class="vz-seg" id="v2-trace" role="group" aria-label="Diagnostic trace"></div>
+    <div class="v2-detail" id="v2-detail"></div>
+  </div>
+  <p class="vz-note">Two rules run the whole strip. <b>Authorization belongs before expensive scoring</b> — a
+    reranker handed unauthorized text has already crossed a security boundary even if the interface hides the
+    result — and <b>a fallback is a mode, not an exception handler</b>: it is separately evaluated, it logs
+    which path served, and it still enforces the same access rules.</p>
+
+  <style>
+    .v2-stages{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+    .v2-s{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:8px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35;width:100%}
+    .v2-s[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-n{flex:0 0 auto;font-weight:800;font-size:11px;color:var(--viz-muted);width:14px}
+    .v2-w{flex:0 0 auto;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-accent);width:74px}
+    .v2-bar{margin-left:auto;height:11px;border-radius:3px;background:var(--viz-accent);opacity:.75;flex:0 0 auto}
+    .v2-detail{font-size:12.5px;line-height:1.6}
+    .v2-detail b.v2-hd{display:block;font-size:13px;margin-bottom:4px}
+    .v2-con{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.65;white-space:pre-wrap;
+      border:1px dashed var(--viz-line);border-radius:8px;padding:9px 10px;margin:9px 0}
+  </style>
+  <script>
+  (function(){
+    var STAGES = [
+      { n:'candidate generation', out:1000,
+        con:'in     1,000,000 corpus chunks\nout    1,000 (BM25 + dense, ACL applied INSIDE retrieval)\nscore  BM25 and cosine — different scales, NOT comparable\nlimit  40 ms, fallback = lexical only\nids    stable doc ids + per-source rank',
+        hd:'Cheap, wide, and the only stage that can add evidence.',
+        lost:'no source found it',
+        fix:'another retriever, more depth, or a better recall model. <b>Not the reranker</b> — tuning a reranker cannot repair candidate recall.' },
+      { n:'fuse + deduplicate', out:300,
+        con:'in     1,000 from 2 sources (overlapping)\nout    300 unique\nscore  merge on RANK or a calibrated rule, never raw score\nfilter dedupe by stable source / content signature\nkeep   every source original rank AND score',
+        hd:'Where scales are reconciled and near-duplicates collapse.',
+        lost:'fusion discarded it, or dedup collapsed it into a sibling chunk',
+        fix:'the fusion rule or the dedup point. Chunking makes many near-identical passages from one document, and admitting all of them crowds real evidence out of a fixed budget.' },
+      { n:'lightweight scorer', out:100,
+        con:'in     300\nout    100\nscore  calibrated, cheap features only\nlimit  15 ms, fallback = pass the fused order through',
+        hd:'A cheap filter that buys the expensive stage a smaller input.',
+        lost:'the cheap model ranked it below the cut',
+        fix:'widen this stage output, or improve the cheap model. Every extra item here is paid for again by the stage below.' },
+      { n:'expensive relevance model', out:30,
+        con:'in     100\nout    30\nscore  pairs scored independently, cost grows with depth\nlimit  max sequence length L, deterministic truncation\nlimit  p95 60 ms at depth 50, fallback = fused order',
+        hd:'The precision stage. It reorders; it never adds.',
+        lost:'misordered here, or its evidence was truncated past L',
+        fix:'a better precision model, or upstream chunking so the relevant span survives truncation. Measure how often evidence falls outside the retained window.' },
+      { n:'diversity + display', out:10,
+        con:'in     30\nout    10\nfilter collapse duplicate sources, business constraints\nauth   RE-CHECK at the serving boundary\nlog    which path served this response',
+        hd:'The last place a document can quietly disappear.',
+        lost:'a display or business rule removed it',
+        fix:'the rule itself — and this is the stage where an unevaluated fallback silently changes what is allowed to be shown.' }
+    ];
+    var cur = 0, trace = true;
+    var strip = document.getElementById('v2-stages');
+    var seg = document.getElementById('v2-trace');
+    var detail = document.getElementById('v2-detail');
+
+    seg.innerHTML =
+      '<button type="button" data-t="1" aria-pressed="true">source ranks kept</button>' +
+      '<button type="button" data-t="0" aria-pressed="false">only the fused score</button>';
+
+    function render(){
+      strip.innerHTML = STAGES.map(function(s, i){
+        var w = Math.max(10, Math.round(Math.log(s.out) / Math.log(1000) * 96));
+        return '<button type="button" class="v2-s" data-i="' + i + '" aria-pressed="' + (i === cur ? 'true' : 'false') + '">' +
+          '<span class="v2-n">' + (i + 1) + '</span>' +
+          '<span class="v2-w">' + s.out.toLocaleString() + ' out</span>' +
+          '<span>' + s.n + '</span>' +
+          '<span class="v2-bar" style="width:' + w + 'px"></span></button>';
+      }).join('');
+      [].slice.call(seg.children).forEach(function(b){
+        b.setAttribute('aria-pressed', (b.getAttribute('data-t') === '1') === trace ? 'true' : 'false');
+      });
+
+      var s = STAGES[cur];
+      var attribution = trace
+        ? '<b style="color:var(--viz-green)">Trace on:</b> because every source rank and score was carried forward, a fallen document can be told apart — it either entered low from <em>every</em> source, or it entered high somewhere and was damaged during fusion. That distinction is the whole of stage-wise attribution.'
+        : '<b style="color:var(--viz-red)">Trace off:</b> only the fused score survives, so a fallen document looks identical whether no source found it or fusion damaged it. You can still see that quality dropped; you can no longer see <em>where</em>, and the usual response is to spend compute at the wrong stage.';
+      detail.innerHTML =
+        '<b class="v2-hd">' + (cur + 1) + '. ' + s.n + ' — ' + s.hd + '</b>' +
+        '<div class="v2-con">' + s.con + '</div>' +
+        '<b style="color:var(--viz-amber)">A relevant document missing from the final top 10 because ' + s.lost + ':</b> ' + s.fix +
+        '<br><br>' + attribution;
+    }
+
+    strip.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-i]') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-i'));
+      if (!STAGES[i]) return;
+      cur = i;
+      render();
+    });
+    seg.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-t]') : null;
+      if (!b) return;
+      trace = b.getAttribute('data-t') === '1';
+      render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Depth Frontier</h2>
+  <p class="vz-lede">Budgeting candidates per stage means working backward from the objective: pick the quality
+    floor, pick the latency allocation, then take the <em>smallest</em> depth that clears both. Drag the
+    allocation and watch which rows survive — and watch what each extra candidate is actually buying.
+    <b>Like packing for a flight: the answer is the lightest bag that still holds everything you need.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-budget">Rerank latency allocation: <span id="v3-budgetl">60 ms</span> p95</label>
+    <input type="range" id="v3-budget" min="20" max="200" value="60" step="1" aria-label="Rerank latency allocation in milliseconds">
+    <div class="v3-lab" style="margin-top:12px">Quality floor — candidate success@k</div>
+    <div class="vz-seg" id="v3-floor" role="group" aria-label="Quality floor"></div>
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-stat" id="v3-stat"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Depth is not the only budget in this stage. A reranker with maximum sequence length L must
+    split tokens between query and document, so <b>fifty 2,000-token documents are not fifty 200-token
+    passages</b> — truncation and batching differ, and relevance evidence can sit outside the retained span.
+    Chunk upstream, truncate deterministically, and measure how often that happens.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-rows{margin-top:14px;display:flex;flex-direction:column;gap:4px}
+    .v3-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      flex-wrap:wrap}
+    .v3-r.is-pick{border-color:var(--viz-green)}
+    .v3-r.is-out{opacity:.5;border-style:dashed}
+    .v3-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v3-stat{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The measured sweep from the lesson: candidate success@k against rerank p95.
+    var ROWS = [
+      { d:20,  s:0.900, ms:22  },
+      { d:50,  s:0.950, ms:47  },
+      { d:100, s:0.968, ms:88  },
+      { d:200, s:0.973, ms:169 }
+    ];
+    var FLOORS = [0.95, 0.97];
+    var fi = 0;
+    var budgetEl = document.getElementById('v3-budget');
+    var budgetL = document.getElementById('v3-budgetl');
+    var floorSeg = document.getElementById('v3-floor');
+    var rowsEl = document.getElementById('v3-rows');
+    var statEl = document.getElementById('v3-stat');
+    var whyEl = document.getElementById('v3-why');
+
+    floorSeg.innerHTML = FLOORS.map(function(f, i){
+      return '<button type="button" data-f="' + i + '" aria-pressed="' + (i === 0 ? 'true' : 'false') + '">' + f.toFixed(2) + ' floor</button>';
+    }).join('');
+
+    function marginal(i){
+      if (i === 0) return null;
+      var dd = ROWS[i].d - ROWS[i - 1].d;
+      if (!dd) return null;                       // never divide by a zero step
+      return (ROWS[i].s - ROWS[i - 1].s) / dd;
+    }
+
+    function render(){
+      var budget = Number(budgetEl.value) || 0;
+      var floor = FLOORS[fi];
+      budgetL.textContent = budget + ' ms';
+      [].slice.call(floorSeg.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === fi ? 'true' : 'false'); });
+
+      var pick = -1;
+      ROWS.forEach(function(r, i){ if (pick === -1 && r.s >= floor && r.ms <= budget) pick = i; });
+
+      rowsEl.innerHTML = ROWS.map(function(r, i){
+        var okQ = r.s >= floor, okL = r.ms <= budget, ok = okQ && okL;
+        var cls = i === pick ? 'is-pick' : (ok ? '' : 'is-out');
+        var tag = i === pick ? 'CHOSEN — smallest that clears both'
+          : (!okQ && !okL ? 'out — quality AND latency'
+            : (!okQ ? 'out — below the quality floor' : (!okL ? 'out — over the latency allocation' : 'clears both, but larger')));
+        var col = i === pick ? 'var(--viz-green)' : (ok ? 'var(--viz-muted)' : 'var(--viz-red)');
+        var mg = marginal(i);
+        return '<div class="v3-r ' + cls + '">' +
+          '<span style="color:var(--viz-accent)">depth ' + String(r.d).padStart(3, ' ') + '</span>' +
+          '<span>success ' + r.s.toFixed(3) + '</span>' +
+          '<span>p95 ' + String(r.ms).padStart(3, ' ') + ' ms</span>' +
+          '<span style="color:var(--viz-muted)">gain/candidate ' + (mg === null ? '—' : mg.toFixed(5)) + '</span>' +
+          '<span class="v3-tag" style="color:' + col + '">' + tag + '</span></div>';
+      }).join('');
+
+      var pickRow = pick === -1 ? null : ROWS[pick];
+      statEl.innerHTML =
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">floor ' + floor.toFixed(2) + ' · budget ' + budget + ' ms</span>' +
+        (pickRow
+          ? '<span class="v3-pill" style="color:var(--viz-green);border-color:var(--viz-green)">answer: depth ' + pickRow.d + '</span>' +
+            '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + (budget - pickRow.ms) + ' ms headroom</span>'
+          : '<span class="v3-pill" style="color:var(--viz-red);border-color:var(--viz-red)">answer: no depth clears both</span>');
+
+      var head, body;
+      if (!pickRow) {
+        head = '<b style="color:var(--viz-red)">Nothing on this frontier satisfies both constraints.</b>';
+        body = 'That is a real answer, not a failure to choose: the fix is a faster or smaller precision model, a larger latency allocation, or better candidate generation that reaches the floor at a shallower depth. Raising depth alone cannot help, because the constraint that binds is the one depth makes worse.';
+      } else if (pick < ROWS.length - 1) {
+        var nxt = ROWS[pick + 1];
+        var mg = marginal(pick + 1);
+        head = '<b style="color:var(--viz-green)">Depth ' + pickRow.d + ' — the smallest configuration that clears both.</b>';
+        body = 'Going one step deeper to ' + nxt.d + ' buys +' + (nxt.s - pickRow.s).toFixed(3) +
+          ' success across ' + (nxt.d - pickRow.d) + ' extra candidates — about <b>' + (mg === null ? '—' : mg.toFixed(5)) +
+          ' per candidate</b> — and costs ' + (nxt.ms - pickRow.ms) + ' ms more p95. ' +
+          (nxt.ms <= budget
+            ? 'It fits your current allocation, so this is genuinely a judgment call about headroom rather than a violation.'
+            : 'It does <b>not</b> fit your current allocation, so it is not available at this budget however attractive the quality looks.') +
+          '<br><br>Read the gain column downward: 0.0017 per candidate, then 0.00036, then 0.00005. <b>A flat marginal curve is wasted compute</b>, and if the tail ever rises instead, that is a query segment asking for its own policy.';
+      } else {
+        head = '<b style="color:var(--viz-amber)">You are at the deepest measured point.</b>';
+        body = 'The last 100 candidates bought +0.005 success — roughly 0.00005 per candidate — for 81 ms of extra p95. Depth is doing almost nothing here, and the correct budget is <b>never the largest affordable number on a quiet benchmark</b>.';
+      }
+      whyEl.innerHTML = head + body +
+        '<br><br>Note which way the reasoning ran: <b>from the objective backward</b>. Fix the final requirement — a relevant answer in the top ten for 95% of answerable queries — then measure candidate success@k, then pick depth. Choosing depth first and hoping is how a funnel ends up paying for candidates nobody reads.';
+    }
+
+    budgetEl.addEventListener('input', render);
+    floorSeg.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-f]') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-f'));
+      if (FLOORS[i] === undefined) return;
+      fi = i;
+      render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. What Eats The Budget</h2>
+  <p class="vz-lede">A budget written on a diagram is not the budget you get. Three things bend it: sources
+    overlap, filters run late, and per-request depth multiplies into fleet size. Switch between them and move
+    the dials. <b>Like a shopping list that survives contact with the shop — two aisles sell the same thing,
+    half the shelf is out of stock, and everything is per person.</b></p>
+
+  <div class="vz-seg" id="v4-seg" role="group" aria-label="Which budget pressure"></div>
+
+  <div class="vz-card">
+    <div id="v4-sub1">
+      <label class="v4-lab" for="v4-ov">BM25 depth 100 · dense depth 100 · overlapping on <span id="v4-ovl">60</span></label>
+      <input type="range" id="v4-ov" min="0" max="100" value="60" step="1" aria-label="Documents both sources return">
+      <div class="v4-out" id="v4-out1"></div>
+    </div>
+    <div id="v4-sub2" class="v4-hide">
+      <label class="v4-lab" for="v4-p">Post-filter eligibility rate p = <span id="v4-pl">10%</span> · retrieved n = 50</label>
+      <input type="range" id="v4-p" min="1" max="100" value="10" step="1" aria-label="Eligibility rate after filtering, percent">
+      <div class="v4-out" id="v4-out2"></div>
+    </div>
+    <div id="v4-sub3" class="v4-hide">
+      <label class="v4-lab" for="v4-qps">Traffic <span id="v4-qpsl">200</span> queries/sec</label>
+      <input type="range" id="v4-qps" min="25" max="400" value="200" step="25" aria-label="Queries per second">
+      <label class="v4-lab" for="v4-dep" style="margin-top:10px">Rerank depth <span id="v4-depl">50</span></label>
+      <input type="range" id="v4-dep" min="10" max="200" value="50" step="10" aria-label="Rerank depth">
+      <div class="v4-out" id="v4-out3"></div>
+    </div>
+  </div>
+  <p class="vz-note">All three are reasons the offline sweep is only the start. Online, log requested and actual
+    depth, source contribution, unique union size, filter attrition, tokens, batch count, model time and queue
+    time — then <b>revisit the budget whenever the corpus, the retrievers, the filters, the hardware or the
+    precision model changes</b>, because every one of those moves the funnel's operating point.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-hide{display:none}
+    .v4-out{margin-top:14px;font-size:12.5px;line-height:1.6}
+    .v4-out b.v4-hd{display:block;font-size:13px;margin-bottom:4px}
+    .v4-pills{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:11px}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-venn{display:flex;align-items:center;gap:3px;margin-bottom:11px;flex-wrap:wrap}
+    .v4-seg-bar{height:17px;border-radius:4px;flex:0 0 auto}
+    .v4-key{font-size:10.5px;color:var(--viz-muted);margin-bottom:11px;line-height:1.5}
+  </style>
+  <script>
+  (function(){
+    var SUBS = ['source overlap', 'filter attrition', 'fleet capacity'];
+    var cur = 0;
+    var seg = document.getElementById('v4-seg');
+    var subs = [document.getElementById('v4-sub1'), document.getElementById('v4-sub2'), document.getElementById('v4-sub3')];
+    var ov = document.getElementById('v4-ov'), ovl = document.getElementById('v4-ovl'), out1 = document.getElementById('v4-out1');
+    var p = document.getElementById('v4-p'), pl = document.getElementById('v4-pl'), out2 = document.getElementById('v4-out2');
+    var qps = document.getElementById('v4-qps'), qpsl = document.getElementById('v4-qpsl');
+    var dep = document.getElementById('v4-dep'), depl = document.getElementById('v4-depl'), out3 = document.getElementById('v4-out3');
+
+    seg.innerHTML = SUBS.map(function(s, i){
+      return '<button type="button" data-s="' + i + '" aria-pressed="' + (i === 0 ? 'true' : 'false') + '">' + s + '</button>';
+    }).join('');
+
+    function pill(txt, col){
+      return '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+
+    function renderOverlap(){
+      var o = Number(ov.value) || 0;
+      ovl.textContent = o;
+      var union = 200 - o, uniqB = 100 - o, uniqD = 100 - o;
+      var w = function(n){ return Math.max(2, Math.round(n * 1.35)); };
+      out1.innerHTML =
+        '<div class="v4-venn">' +
+          '<span class="v4-seg-bar" style="width:' + w(uniqB) + 'px;background:var(--viz-accent)"></span>' +
+          '<span class="v4-seg-bar" style="width:' + w(o) + 'px;background:var(--viz-violet)"></span>' +
+          '<span class="v4-seg-bar" style="width:' + w(uniqD) + 'px;background:var(--viz-green)"></span>' +
+        '</div>' +
+        '<div class="v4-key">left bar = BM25 only (' + uniqB + ') · middle = found by BOTH (' + o + ') · right = dense only (' + uniqD + ')</div>' +
+        '<div class="v4-pills">' +
+          pill('allocated 100 + 100', 'var(--viz-muted)') +
+          pill('unique union = ' + union, union >= 160 ? 'var(--viz-green)' : (union >= 130 ? 'var(--viz-amber)' : 'var(--viz-red)')) +
+        '</div>' +
+        '<b class="v4-hd">Per-source budgets do not add up.</b>' +
+        'Allocating 100 results each to BM25 and dense search does not guarantee 200 unique candidates. At an overlap of ' + o +
+        ' the union is <b>' + union + '</b>, so the stage below receives ' + union + ' pairs to score, not 200. ' +
+        (o >= 70
+          ? 'At this much agreement you are paying twice for nearly the same set — but the agreement is itself a signal that the obvious candidates are strong.'
+          : (o <= 20
+            ? 'At this little agreement the two retrievers are seeing almost different worlds, which is exactly the complementary recall hybrid retrieval exists to buy — and a warning that one of them may be misconfigured.'
+            : 'The overlap is informative in both directions: agreement suggests strong obvious candidates, and each source unique tail supplies complementary recall.')) +
+        '<br><br>Budget at the source <em>and</em> after the merge. The number that costs money is the union, and the number you configured is not it.';
+    }
+
+    function renderFilter(){
+      var pct = Math.max(1, Number(p.value) || 1);       // min=1 keeps this away from a zero divide
+      pl.textContent = pct + '%';
+      var frac = pct / 100;
+      var eligible = Math.round(50 * frac);
+      var need = Math.ceil(50 / frac);
+      out2.innerHTML =
+        '<div class="v4-pills">' +
+          pill('retrieved 50', 'var(--viz-accent)') +
+          pill('expected eligible ' + eligible, eligible >= 40 ? 'var(--viz-green)' : (eligible >= 20 ? 'var(--viz-amber)' : 'var(--viz-red)')) +
+          pill('over-fetch ~' + need + ' for 50', need > 200 ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        '</div>' +
+        '<b class="v4-hd">' + (eligible >= 45
+          ? 'Barely filtered — the budget you configured is roughly the budget you get.'
+          : 'Retrieve 50, rerank ' + eligible + '. That is not the experiment you designed.') + '</b>' +
+        'Expected eligible count is n×p = 50 × ' + frac.toFixed(2) + ' = <b>' + eligible + '</b>, so reranking ' + eligible +
+        ' survivors is not the same experiment as reranking 50 eligible candidates. To expect 50 eligible you would fetch about <b>' + need +
+        '</b> — which is a different latency, a different cost and possibly a different stage design.' +
+        '<br><br><b>And n×p is an expectation, not a guarantee.</b> It assumes candidates are independent draws, and tenant distributions and vector neighbourhoods break that badly — one tenant clusters in one region of the space. Use observed percentiles of the eligible count, cap the work, and prefer <b>filter-aware retrieval</b> so the constraint runs inside candidate generation rather than after it.';
+    }
+
+    function renderCapacity(){
+      var q = Number(qps.value) || 0, d = Number(dep.value) || 0;
+      qpsl.textContent = q;
+      depl.textContent = d;
+      var pairs = q * d;
+      var perReplica = 2500;
+      var replicas = perReplica > 0 ? Math.ceil(pairs / perReplica) : 0;
+      out3.innerHTML =
+        '<div class="v4-pills">' +
+          pill(q + ' qps × depth ' + d, 'var(--viz-accent)') +
+          pill(pairs.toLocaleString() + ' pairs/sec', pairs > 20000 ? 'var(--viz-red)' : (pairs > 10000 ? 'var(--viz-amber)' : 'var(--viz-green)')) +
+          pill('≥ ' + replicas + ' replica' + (replicas === 1 ? '' : 's'), replicas > 8 ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        '</div>' +
+        '<b class="v4-hd">Depth is a per-request number that arrives as a fleet bill.</b>' +
+        'At ' + q + ' queries per second and depth ' + d + ', the precision service must sustain ' + q + ' × ' + d + ' = <b>' + pairs.toLocaleString() +
+        '</b> pair evaluations per second, before retries or shadow traffic. A model server good for ' + perReplica.toLocaleString() +
+        ' pairs per second at that token length needs at least ' + pairs.toLocaleString() + ' / ' + perReplica.toLocaleString() + ' = <b>' + replicas +
+        '</b> fully utilised replicas in the ideal case — headroom, uneven batches, failures and p95 objectives all require more.' +
+        '<br><br>Doubling depth doubles the arrival rate even though retrieval latency has not moved. And note what parallelism does and does not do: scoring 100 pairs in batches of 25 is four batch steps, so concurrency can shorten the wall clock but never reduces the total work. Under overload, a deliberately smaller depth or a cheaper fallback is safer than unbounded queueing that makes <em>every</em> request miss its deadline.';
+    }
+
+    function render(){
+      [].slice.call(seg.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+      subs.forEach(function(el, i){ el.className = i === cur ? '' : 'v4-hide'; });
+      if (cur === 0) renderOverlap();
+      else if (cur === 1) renderFilter();
+      else renderCapacity();
+    }
+
+    seg.addEventListener('click', function(e){
+      var b = e.target.closest ? e.target.closest('[data-s]') : null;
+      if (!b) return;
+      var i = Number(b.getAttribute('data-s'));
+      if (!SUBS[i]) return;
+      cur = i;
+      render();
+    });
+    ov.addEventListener('input', renderOverlap);
+    p.addEventListener('input', renderFilter);
+    qps.addEventListener('input', renderCapacity);
+    dep.addEventListener('input', renderCapacity);
+    renderOverlap(); renderFilter(); renderCapacity();
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

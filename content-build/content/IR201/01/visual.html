@@ -1,0 +1,611 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Words Versus Meaning</button>
+  <button class="viz-tab" data-viz-tab="2">2. Kinds Of Mismatch</button>
+  <button class="viz-tab" data-viz-tab="3">3. Truncating The Matrix</button>
+  <button class="viz-tab" data-viz-tab="4">4. Rotate The Query</button>
+  <button class="viz-tab" data-viz-tab="5">5. One Vector Per Chunk</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Words Versus Meaning</h2>
+  <p class="vz-lede">Everything you built in <b>BM25</b> and the <b>inverted index</b> scores a document by the
+    terms it literally contains, weighted by <b>idf</b>. Here is what that costs. Query: <code>car mechanic</code>.
+    Drag how rare <code>car</code> is, and switch the mechanism.
+    <b>Like matching people by the exact words on their business card, rather than by what they do.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Retrieval mechanism">
+    <button id="v1-m0" aria-pressed="true">exact term overlap</button>
+    <button id="v1-m1" aria-pressed="false">+ synonym rule</button>
+    <button id="v1-m2" aria-pressed="false">dense vectors</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-df">df(<code>car</code>) = <span id="v1-dfl">25</span> of 50 documents
+      &nbsp;·&nbsp; df(<code>mechanic</code>) = 10 &nbsp;·&nbsp; <span id="v1-dfn">idf drives the score</span></label>
+    <input type="range" id="v1-df" min="1" max="45" value="25" step="1" aria-label="Document frequency of the term car">
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Sparse retrieval is not being done badly here — it is being done perfectly. A coordinate
+    exists for <code>car</code> and a different one for <code>automobile</code>, so their dot product is
+    <b>exactly zero</b> whatever weighting you choose. Dense retrieval does not weight the terms better; it
+    stops using terms as coordinates at all.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.6}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-rows{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    .v1-r h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v1-r h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;flex:0 0 auto}
+    .v1-doc{font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-sub{font-size:11px;color:var(--viz-muted);margin-top:4px}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 50, DF_MECH = 10;           // a 50-document toy corpus; only the ratio matters
+    var seg = [document.getElementById('v1-m0'), document.getElementById('v1-m1'), document.getElementById('v1-m2')];
+    var s = document.getElementById('v1-df'), lab = document.getElementById('v1-dfl');
+    var dfn = document.getElementById('v1-dfn');
+    var rows = document.getElementById('v1-rows'), why = document.getElementById('v1-why');
+    var mode = 0;
+
+    function idf(df){                    // the BM25 idf the learner already knows
+      var d = Math.max(1, Math.min(N - 1, df));
+      return Math.log(1 + (N - d + 0.5) / (d + 0.5));
+    }
+    function fmt(x){ return (isFinite(x) ? x : 0).toFixed(3); }
+
+    function build(){
+      var df = Number(s.value), ic = idf(df), im = idf(DF_MECH);
+      if (mode === 2) {
+        return [
+          { d:'automobile repair shop', v:0.864, m:'paraphrase of the intent — no shared word but <code>shop</code>' },
+          { d:'bicycle repair shop',    v:0.693, m:'shares repair intent, wrong vehicle' },
+          { d:'car insurance policy',   v:0.405, m:'shares the word <code>car</code>, not the intent' }
+        ];
+      }
+      if (mode === 1) {
+        return [
+          { d:'automobile mechanic repairs engines', v:ic + im, m:'matches <code>automobile</code> (rule) + <code>mechanic</code> = ' + fmt(ic) + ' + ' + fmt(im) },
+          { d:'car insurance claim form',            v:ic,      m:'matches <code>car</code> only = ' + fmt(ic) },
+          { d:'bicycle mechanic replaces chains',    v:im,      m:'matches <code>mechanic</code> only = ' + fmt(im) }
+        ];
+      }
+      return [
+        { d:'automobile mechanic repairs engines', v:im, m:'matches <code>mechanic</code> only = ' + fmt(im) },
+        { d:'car insurance claim form',            v:ic, m:'matches <code>car</code> only = ' + fmt(ic) },
+        { d:'bicycle mechanic replaces chains',    v:im, m:'matches <code>mechanic</code> only = ' + fmt(im) }
+      ];
+    }
+
+    function render(){
+      seg.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      lab.textContent = s.value;
+      dfn.textContent = mode === 2 ? 'not used — no term coordinates left' : 'idf drives the score';
+
+      var data = build();
+      var max = 0.001;
+      data.forEach(function(r){ if (r.v > max) max = r.v; });
+      var order = data.slice().sort(function(a, b){ return b.v - a.v; });
+      var topV = order[0].v, tied = order.filter(function(r){ return Math.abs(r.v - topV) < 1e-9; }).length;
+
+      rows.innerHTML = data.map(function(r){
+        var isTop = Math.abs(r.v - topV) < 1e-9;
+        var col = isTop ? 'var(--viz-green)' : 'var(--viz-muted)';
+        var tag = isTop ? (tied > 1 ? 'TIED FOR RANK 1' : 'RANK 1') : 'below';
+        return '<div class="v1-r"><h6><span class="v1-doc">' + r.d + '</span>' +
+          '<b style="color:' + col + '">' + fmt(r.v) + '</b></h6>' +
+          '<div class="v1-track"><i style="width:' + Math.max(2, Math.round(r.v / max * 100)) + '%;background:' + col + '"></i></div>' +
+          '<div class="v1-sub"><b style="color:' + col + '">' + tag + '</b> · ' + r.m + '</div></div>';
+      }).join('');
+
+      var ic = idf(Number(s.value)), im = idf(DF_MECH);
+      if (mode === 0) {
+        why.innerHTML = ic > im
+          ? '<b style="color:var(--viz-red)">The insurance form wins.</b>' +
+            '<code>car</code> is now the rarer term, so its idf (' + fmt(ic) + ') beats <code>mechanic</code> (' + fmt(im) + ') and a claim form outranks the one document that answers the query. ' +
+            'Nothing has gone wrong: each document has independent evidence for exactly one query term, and idf decided which term is worth more.'
+          : (Math.abs(ic - im) < 1e-9
+            ? '<b style="color:var(--viz-amber)">A three-way stalemate.</b>' +
+              'Both terms carry idf ' + fmt(im) + ', so every document scores on one term and the ranking is arbitrary. The system cannot express the one fact that would settle it.'
+            : '<b style="color:var(--viz-amber)">A bicycle mechanic ties with an automobile one.</b>' +
+              'Both match <code>mechanic</code> (idf ' + fmt(im) + ') and neither matches <code>car</code>, so they are indistinguishable. ' +
+              'The scorer has independent evidence for two query terms and <b>no learned knowledge that <code>car</code> and <code>automobile</code> are related</b>.') +
+          '<br><br>Vocabulary mismatch is wider than synonyms: <code>ACL</code> versus <code>access control list</code>, <code>database outage</code> versus <code>primary replica unavailable</code>, a symptom described where the document names the cause. Visual 2 sorts them.'
+        ;
+      } else if (mode === 1) {
+        why.innerHTML = '<b style="color:var(--viz-green)">One curated rule fixes this query completely.</b>' +
+          'Rewriting to <code>(car OR automobile) AND mechanic</code> gives the right document credit for <em>both</em> query terms — ' + fmt(ic) + ' + ' + fmt(im) + ' — so it wins at every rarity setting. Expansion is transparent, precise, and auditable. ' +
+          '<br><br>It is also a maintenance bill. Every paraphrase has to be enumerated by hand, and a broad synonym set can <b>destroy</b> intent: treat <code>java</code> as both a language and a beverage and you have expanded ambiguity rather than resolved it. ' +
+          'Relevance feedback and learned sparse methods are other bridges over the same gap — but token identity is still not semantic identity.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">Geometry, not term identity.</b>' +
+          'These are the lesson’s two-dimensional teaching numbers on the analogous trio. The <b>paraphrase</b> scores 0.864 with no shared content word at all, while the exact-word distractor <code>car insurance policy</code> — which does contain <code>car</code> — falls to 0.405. ' +
+          'Document frequency plays no part: the coordinates are learned features, not vocabulary terms, so <em>every</em> dimension contributes a little soft match instead of a binary hit on a named term. ' +
+          '<br><br>Note the third row. <code>bicycle repair shop</code> holds 0.693 because it genuinely shares repair intent — <b>semantic similarity is graded, not logically exact</b>. Visual 4 rotates the query and shows how easily that becomes the top result.';
+      }
+    }
+    seg.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Kinds Of Mismatch</h2>
+  <p class="vz-lede">"Vocabulary mismatch" is six different problems wearing one name, and the right fix is
+    different for each — including the ones where an embedding is the <em>wrong</em> answer. Tap a pair.
+    <b>Like a lost-property desk: some things are found by the label, some by the description, and some only
+    by the serial number.</b></p>
+
+  <div class="v2-list" id="v2-list"></div>
+
+  <div class="vz-card">
+    <div class="v2-grid" id="v2-grid"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">This is why experts <b>diagnose the query distribution before replacing anything</b>.
+    Segment real queries into exact identifiers, natural-language descriptions, abbreviations and paraphrases,
+    then compare recall at a candidate cutoff per segment. If relevant documents keep failing to enter the
+    sparse candidate set for descriptive queries, semantic retrieval has a clear job. If the failures are bad
+    filters, stale content or missing documents, embeddings solve none of it.</p>
+
+  <style>
+    .v2-list{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-p{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:11.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.45;flex-wrap:wrap}
+    .v2-p[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-k{font-size:9.5px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted);flex:0 0 auto}
+    .v2-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+    .v2-c{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 9px;background:var(--viz-bg)}
+    .v2-c h6{margin:0 0 3px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted);font-weight:800}
+    .v2-v{font-size:12px;font-weight:800;display:flex;align-items:center;gap:5px}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // verdicts: [mark, word, token] — the mark and the word carry the meaning, never the colour alone
+    var OK   = ['✓', 'solves',  'var(--viz-green)'];
+    var PART = ['~', 'partial', 'var(--viz-amber)'];
+    var NO   = ['✗', 'fails',   'var(--viz-red)'];
+    var HARM = ['✗', 'harms',   'var(--viz-red)'];
+
+    var CASES = [
+      { k:'SURFACE', q:'indexes', d:'index',
+        v:[OK, OK, OK, OK],
+        why:['Not a semantic problem at all.',
+          'Morphological normalization and analyzers exist precisely for this: case, accents, stemming, equivalence classes. They fix <b>surface variation</b> reliably and cheaply. Reaching for an embedding here buys nothing and costs an encoder call — and it is the one row where the analyzer column is a tick.'] },
+      { k:'SYNONYM', q:'car mechanic', d:'automobile mechanic repairs engines',
+        v:[NO, OK, OK, OK],
+        why:['The textbook case, and the only one a rule really nails.',
+          'The analyzer cannot help — <code>car</code> and <code>automobile</code> are not surface variants of each other, they are different words. A curated rule <code>(car OR automobile)</code> is exact and auditable. A learned encoder gets it without being told, which is the whole appeal: <b>you do not have to have anticipated the pair</b>.'] },
+      { k:'ABBREVIATION', q:'ACL', d:'access control list',
+        v:[NO, OK, PART, OK],
+        why:['An expansion is not a synonym, and a domain acronym may be outside the model.',
+          'Expansion handles it exactly when someone has curated the entry. A general encoder handles it when the pair was well represented in training — and embedding quality is <b>task and domain dependent</b>, so an in-house acronym can simply be absent from the geometry. This is a segment to measure, not to assume.'] },
+      { k:'SPECIFICITY', q:'database outage', d:'primary replica unavailable',
+        v:[NO, NO, OK, OK],
+        why:['Symptom versus cause — where curated rules run out.',
+          'No synonym list enumerates every way a failure can be described, because this is not a word-for-word substitution: the query names what the user experienced and the document names the mechanism. Geometry can carry that relation because it was learned from how such texts co-occur, not from a mapping someone wrote down. <b>This row is the argument for dense retrieval.</b>'] },
+      { k:'AMBIGUITY', q:'java', d:'the language, not the beverage',
+        v:[NO, HARM, PART, PART],
+        why:['The case where expansion makes things actively worse.',
+          'Broad synonym sets treat <code>java</code> as language <em>and</em> beverage, so expansion <b>expands the ambiguity rather than resolving it</b> — recall rises where it does not matter and precision falls where it does. An encoder does better only when the query has enough surrounding context to disambiguate; a one-word query gives it none.'] },
+      { k:'IDENTIFIER', q:'ERR_CONNECTION_RESET, invoice A19-884', d:'the exact string, nothing near it',
+        v:[OK, NO, NO, OK],
+        why:['Where dense retrieval loses, and it loses badly.',
+          'A semantic encoder <b>underweights exact identifiers, product codes, negation, dates and rare names</b> — it is built to generalise, and here generalising is the failure. It may also collapse important distinctions, returning <code>bicycle mechanic</code> because both texts concern repair work. Sparse retrieval is simply superior for these, which is why <b>hybrid retrieval</b> is the mature answer: keep exact-match strength, add semantic candidates.'] }
+    ];
+    var COLS = ['analyzer / normalization', 'curated expansion', 'dense encoder', 'hybrid'];
+
+    var list = document.getElementById('v2-list'), grid = document.getElementById('v2-grid'), why = document.getElementById('v2-why');
+    function show(i){
+      var c = CASES[i];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+      grid.innerHTML = COLS.map(function(name, j){
+        var v = c.v[j] || NO;
+        return '<div class="v2-c"><h6>' + name + '</h6>' +
+          '<div class="v2-v" style="color:' + v[2] + '"><span>' + v[0] + '</span><span>' + v[1] + '</span></div></div>';
+      }).join('');
+      why.innerHTML = '<b>' + c.why[0] + '</b>' + c.why[1];
+    }
+    CASES.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.className = 'v2-p';
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = '<span class="v2-k">' + c.k + '</span>' +
+        '<span style="font-family:ui-monospace,Consolas,monospace">' + c.q + '</span>' +
+        '<span style="color:var(--viz-muted)">→</span>' +
+        '<span style="font-family:ui-monospace,Consolas,monospace">' + c.d + '</span>';
+      b.addEventListener('click', function(){ show(i); });
+      list.appendChild(b);
+    });
+    show(1);
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Truncating The Matrix</h2>
+  <p class="vz-lede">LSA takes the term-document matrix and throws singular values away. Watch what
+    truncation actually <em>does</em> to the numbers: it fills zeros in. Vocabulary
+    <code>[car, automobile, engine, policy]</code>, three documents, drag the rank.
+    <b>Like squinting at a mosaic until the picture appears and the individual tiles stop mattering.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-k">Keep the top <span id="v3-kl">2</span> of 3 singular values
+      &nbsp;·&nbsp; <span id="v3-en">90.2%</span> of the structure retained</label>
+    <input type="range" id="v3-k" min="1" max="3" value="2" step="1" aria-label="Rank k of the approximation">
+    <div class="v3-sig" id="v3-sig"></div>
+    <div class="v3-mat" id="v3-mat"></div>
+    <div class="v3-cos" id="v3-cos"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">A query lives in the original weighted term space and must be <b>folded into the same
+    latent space</b> with the same weighting and the same decomposition — one common convention places
+    documents in Sigma_k V_k transpose and the compatible query coordinate at q transpose U_k. The library's
+    exact convention matters far less than the rule: never compare vectors produced under different weighting
+    or scaling. And the decomposition is <b>global</b> — add a large batch of documents and every coordinate
+    on this screen moves, which is why LSA coordinates are not stable independent encodings.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.6}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-sig{margin-top:14px;display:flex;gap:6px;flex-wrap:wrap}
+    .v3-s{flex:1 1 78px;border:1.5px solid var(--viz-line);border-radius:9px;padding:6px 8px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v3-s b{display:block;font-size:13px}
+    .v3-mat{margin-top:13px;display:grid;grid-template-columns:88px 1fr 1fr 1fr;gap:3px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v3-hd{color:var(--viz-muted);font-weight:800;text-align:center;padding:3px 0}
+    .v3-rl{color:var(--viz-muted);padding:5px 4px}
+    .v3-cell{border:1.5px solid var(--viz-line);border-radius:6px;padding:5px 2px;text-align:center;background:var(--viz-bg)}
+    .v3-cell.is-new{border-color:var(--viz-violet);border-style:dashed}
+    .v3-cell small{display:block;font-size:8.5px;letter-spacing:.03em;color:var(--viz-violet);font-family:inherit}
+    .v3-cos{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // The exact SVD of the lesson's matrix. Rows of A are terms, columns are documents:
+    // D1 'car engine', D2 'automobile engine', D3 'car policy'.
+    var TERMS = ['car', 'automobile', 'engine', 'policy'];
+    var DOCS = ['D1', 'D2', 'D3'];
+    var A = [[1,0,1],[0,1,0],[1,1,0],[0,0,1]];
+    var SIG = [1.847759, 1.414214, 0.765367];
+    var U = [[0.653281,-0.5,0.270598],[0.270598,0.5,-0.653281],[0.653281,0.5,0.270598],[0.270598,-0.5,-0.653281]];
+    var V = [[0.707107,0,0.707107],[0.5,0.707107,-0.5],[0.5,-0.707107,-0.5]];
+    var TOTAL = SIG.reduce(function(a, x){ return a + x * x; }, 0);   // = 6, the count of ones
+
+    var s = document.getElementById('v3-k'), kl = document.getElementById('v3-kl'), en = document.getElementById('v3-en');
+    var sig = document.getElementById('v3-sig'), mat = document.getElementById('v3-mat');
+    var cos = document.getElementById('v3-cos'), why = document.getElementById('v3-why');
+
+    function z(x){ return Math.abs(x) < 5e-4 ? 0 : x; }             // kill -0.000
+    function cosine(a, b){
+      var d = 0, na = 0, nb = 0;
+      for (var i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+      var den = Math.sqrt(na) * Math.sqrt(nb);
+      return den < 1e-9 ? 0 : d / den;                                // divide-by-zero guard
+    }
+    function coords(rowsOfFactor, k){
+      return rowsOfFactor.map(function(r){
+        return r.slice(0, k).map(function(x, i){ return x * SIG[i]; });
+      });
+    }
+
+    function render(){
+      var k = Math.max(1, Math.min(3, Number(s.value)));
+      kl.textContent = k;
+      var kept = 0;
+      for (var i = 0; i < k; i++) kept += SIG[i] * SIG[i];
+      en.textContent = (TOTAL > 0 ? (kept / TOTAL * 100).toFixed(1) : '0.0') + '%';
+
+      sig.innerHTML = SIG.map(function(v, i){
+        var on = i < k;
+        var c = on ? 'var(--viz-accent)' : 'var(--viz-muted)';
+        return '<div class="v3-s" style="border-color:' + c + ';' + (on ? '' : 'border-style:dashed;opacity:.6') + '">' +
+          '<b style="color:' + c + '">' + v.toFixed(3) + '</b>sigma ' + (i + 1) + ' · ' + (on ? 'kept' : 'dropped') + '</div>';
+      }).join('');
+
+      var cells = '<div></div>' + DOCS.map(function(d){ return '<div class="v3-hd">' + d + '</div>'; }).join('');
+      for (var t = 0; t < 4; t++) {
+        cells += '<div class="v3-rl">' + TERMS[t] + '</div>';
+        for (var d = 0; d < 3; d++) {
+          var val = 0;
+          for (var i2 = 0; i2 < k; i2++) val += U[t][i2] * SIG[i2] * V[d][i2];
+          val = z(val);
+          var isNew = A[t][d] === 0 && Math.abs(val) >= 0.05;
+          cells += '<div class="v3-cell' + (isNew ? ' is-new' : '') + '">' + val.toFixed(3) +
+            (isNew ? '<small>WAS 0</small>' : '') + '</div>';
+        }
+      }
+      mat.innerHTML = cells;
+
+      var dc = coords(V, k), tc = coords(U, k);
+      var d12 = cosine(dc[0], dc[1]), carAuto = cosine(tc[0], tc[1]), carPol = cosine(tc[0], tc[3]);
+      // Every pill states its direction in words as well as colour: raw = the full-rank value.
+      function pill(label, vRaw, raw){
+        var v = z(vRaw), up = v - raw, word, c;
+        if (Math.abs(up) < 5e-4) { word = '= raw ' + raw.toFixed(3); c = 'var(--viz-muted)'; }
+        else if (up > 0) { word = 'up from raw ' + raw.toFixed(3); c = 'var(--viz-green)'; }
+        else { word = 'down from raw ' + raw.toFixed(3); c = 'var(--viz-amber)'; }
+        return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' +
+          label + ' ' + v.toFixed(3) + ' · ' + word + '</span>';
+      }
+      cos.innerHTML =
+        pill('cos(D1,D2)', d12, 0.5) +
+        pill('cos(car,automobile)', carAuto, 0) +
+        pill('cos(car,policy)', carPol, 0.707107);
+
+      why.innerHTML = k === 1
+        ? '<b style="color:var(--viz-red)">One direction: everything is the same thing.</b>' +
+          'A single latent direction puts every document on one ray, so <b>every</b> pairwise cosine is 1.000 — <code>automobile engine</code> and <code>car policy</code> are now indistinguishable, and so are <code>car</code> and <code>policy</code>. ' +
+          'Only ' + (kept / TOTAL * 100).toFixed(1) + '% of the structure survives. This is the small-k failure exactly: <b>unrelated senses merged into one broad theme, rare distinctions gone.</b>'
+        : k === 2
+          ? '<b style="color:var(--viz-green)">Truncation manufactures soft matching.</b>' +
+            'Look at the dashed cell: the row for <code>car</code> now carries <b>0.104</b> in D2 — a document that never contained the word <code>car</code>. That weight was created by co-occurrence structure alone. ' +
+            'Cosine between D1 and D2 rises from 0.500 raw to <b>' + d12.toFixed(3) + '</b>, and <code>car</code>/<code>automobile</code>, which never appear together anywhere, rise from exactly 0 to <b>' + carAuto.toFixed(3) + '</b>. ' +
+            '<br><br>This is the same low-rank idea as principal component methods: instead of preserving every independent word coordinate, keep the directions that explain strong co-occurrence. 90.2% of the structure, and the automotive direction is now supported by <code>car</code>, <code>automobile</code> and <code>engine</code> together.'
+          : '<b style="color:var(--viz-amber)">Full rank: you are back where you started.</b>' +
+            'A_3 reproduces A exactly — every entry is the original 1 or 0, and cos(<code>car</code>,<code>automobile</code>) returns to <b>0.000</b>. Nothing was denoised and nothing generalises; the approximation preserves the noise along with the signal. ' +
+            '<br><br>Choosing k is a bias-variance tradeoff with a bad end in both directions, and no universally correct value. ' +
+            'Two limits survive every choice of k: each term has <b>one</b> vector, so <code>bank</code> blends its financial and river senses, and the model learns only from the indexed corpus.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Rotate The Query</h2>
+  <p class="vz-lede">The lesson's two-dimensional teaching model, live. Three documents sit fixed in the
+    space; swing the query vector and watch the ranking change — because a dot product is just a projection.
+    <b>Like pointing a torch in a dark room: what lights up depends entirely on which way you aim.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-a">Query direction: <span id="v4-al">18.4</span>&deg;
+      &nbsp;·&nbsp; q = <span id="v4-q">[0.900, 0.300]</span></label>
+    <input type="range" id="v4-a" min="-550" max="800" value="184" step="1" aria-label="Query angle in tenths of a degree">
+    <div class="v4-plot" id="v4-plot"></div>
+    <div class="v4-rank" id="v4-rank"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Nothing here is a metaphor: this is what a bi-encoder does, at 768 dimensions instead of
+    two. Which is also the warning — a few plotted points build intuition and <b>cannot demonstrate
+    neighbourhood quality in hundreds of dimensions</b>. Measure recall at k, ranking metrics, latency and
+    per-segment performance on representative queries, and inspect the cases where dense and lexical
+    <em>disagree</em>. That is where the information is.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.6}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-plot{margin-top:12px}
+    .v4-plot svg{width:100%;height:auto;display:block}
+    .v4-rank{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v4-row{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v4-row.is-top{border-color:var(--viz-green)}
+    .v4-sc{margin-left:auto;font-weight:800}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DOCS = [
+      { n:'d1', t:'automobile repair shop', v:[0.84, 0.36],  c:'var(--viz-green)',  note:'the paraphrase' },
+      { n:'d2', t:'car insurance policy',   v:[0.55, -0.30], c:'var(--viz-red)',    note:'shares the word, not the intent' },
+      { n:'d3', t:'bicycle repair shop',    v:[0.62, 0.45],  c:'var(--viz-amber)',  note:'shares repair intent' }
+    ];
+    var QLEN = Math.sqrt(0.9 * 0.9 + 0.3 * 0.3);       // 0.9487 — magnitude held fixed, only direction moves
+    var OX = 42, OY = 200, SC = 120;                    // origin and pixels-per-unit inside the viewBox
+    var s = document.getElementById('v4-a'), al = document.getElementById('v4-al'), ql = document.getElementById('v4-q');
+    var plot = document.getElementById('v4-plot'), rank = document.getElementById('v4-rank'), why = document.getElementById('v4-why');
+
+    function px(v){ return [OX + v[0] * SC, OY - v[1] * SC]; }
+    function arrow(v, col, w){
+      var p = px(v);
+      return '<line x1="' + OX + '" y1="' + OY + '" x2="' + p[0].toFixed(1) + '" y2="' + p[1].toFixed(1) +
+        '" stroke="' + col + '" stroke-width="' + w + '" stroke-linecap="round"/>' +
+        '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) + '" r="3.5" fill="' + col + '"/>';
+    }
+    function label(v, text, col, dy){
+      var p = px(v);
+      return '<text x="' + (p[0] + 7).toFixed(1) + '" y="' + (p[1] + dy).toFixed(1) +
+        '" fill="' + col + '" font-size="10" font-family="ui-monospace,Consolas,monospace">' + text + '</text>';
+    }
+
+    function render(){
+      var deg = Number(s.value) / 10, rad = deg * Math.PI / 180;
+      var q = [QLEN * Math.cos(rad), QLEN * Math.sin(rad)];
+      al.textContent = deg.toFixed(1);
+      ql.textContent = '[' + q[0].toFixed(3) + ', ' + q[1].toFixed(3) + ']';
+
+      var svg = '<svg viewBox="0 0 300 300" role="img" aria-label="Query and document vectors in two dimensions">' +
+        '<line x1="8" y1="' + OY + '" x2="292" y2="' + OY + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<line x1="' + OX + '" y1="60" x2="' + OX + '" y2="292" stroke="var(--viz-line)" stroke-width="1"/>';
+      DOCS.forEach(function(d, i){ svg += arrow(d.v, d.c, 2) + label(d.v, d.n, d.c, i === 2 ? -6 : 12); });
+      svg += arrow(q, 'var(--viz-violet)', 3.2) + label(q, 'q', 'var(--viz-violet)', -6) + '</svg>';
+      plot.innerHTML = svg;
+
+      var scored = DOCS.map(function(d){
+        return { d:d, s:q[0] * d.v[0] + q[1] * d.v[1] };
+      }).sort(function(a, b){ return b.s - a.s; });
+
+      rank.innerHTML = scored.map(function(r, i){
+        var top = i === 0;
+        return '<div class="v4-row' + (top ? ' is-top' : '') + '">' +
+          '<span style="color:' + r.d.c + ';font-weight:800">' + (i + 1) + '. ' + r.d.n + '</span>' +
+          '<span style="color:var(--viz-muted)">' + r.d.t + '</span>' +
+          '<span class="v4-sc" style="color:' + (top ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+          (isFinite(r.s) ? r.s.toFixed(3) : '0.000') + '</span></div>';
+      }).join('');
+
+      var top = scored[0].d.n;
+      var base = deg > 18.3 && deg < 18.5
+        ? '<br><br><b>These are the lesson’s numbers exactly:</b> 0.90&times;0.84 + 0.30&times;0.36 = 0.864 for d1, 0.405 for d2, 0.693 for d3.'
+        : '';
+      why.innerHTML = top === 'd1'
+        ? '<b style="color:var(--viz-green)">The paraphrase wins — with no shared content word.</b>' +
+          'd1 outranks the exact-word distractor d2 because direction, not vocabulary, decides. But look at how little separates it from the runner-up: <b>' +
+          (scored[0].s - scored[1].s).toFixed(3) + '</b>, on a scale where no document ever scores a clean zero. ' +
+          'Semantic similarity is graded, so a metadata filter or a later scoring stage may still be needed to enforce vehicle type.' + base
+        : top === 'd2'
+          ? '<b style="color:var(--viz-red)">Below about −24° the insurance policy takes the top.</b>' +
+            'Nothing broke — the query now points toward the policy direction, and the score follows. The lesson is that this ranking is <b>a property of the geometry, not of the words</b>: you cannot debug it by looking at term overlap, and you cannot fix it by reweighting a term. ' +
+            'Model version, training objective, formatting and truncation all move these coordinates, which is why query and document vectors must come from compatible model versions.'
+          : '<b style="color:var(--viz-amber)">Past about 68° the bicycle shop wins.</b>' +
+            'This is the encoder’s characteristic failure: <b>collapsing an important distinction</b> because both texts concern repair work. It is the same machinery that got the paraphrase right, doing exactly what it was trained to do. ' +
+            'Contain it with filters, hybrid scoring or a reranking stage — not by hoping a better embedding will draw the line for you.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. One Vector Per Chunk</h2>
+  <p class="vz-lede">A document embedding is a single point, so chunking decides what that point actually
+    <em>means</em>. Take a 100-page manual (call a page 500 words) and drag the chunk size.
+    <b>Like summarising a book in one sentence versus one sentence per paragraph — one hides everything, the
+    other forgets what chapter you were in.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-c">Chunk size: <span id="v5-cl">800 words</span>
+      &nbsp;·&nbsp; <span id="v5-pp">1.6 pages</span> per vector</label>
+    <input type="range" id="v5-c" min="0" max="7" value="3" step="1" aria-label="Chunk size in words">
+    <div class="v5-strip" id="v5-strip"></div>
+    <div class="v5-stats" id="v5-stats"></div>
+    <div class="v5-seg2" role="group" aria-label="Section path">
+      <button id="v5-path" aria-pressed="true">carry the section path into the encoded text</button>
+    </div>
+    <div class="v5-text" id="v5-text"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two judgments the numbers never show. <b>Similarity is not authorization</b>: embeddings
+    can leak through overly broad retrieval, so access filters must run before results reach the user, the
+    indexing pipeline must carry current ACL metadata, and deleting a source must remove or invalidate its
+    chunks and vectors. And <b>chunk size is chosen with end-to-end retrieval labels</b>, never by eye — the
+    same discipline as evaluating the mismatch itself.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px;line-height:1.6}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-strip{margin-top:14px;display:flex;gap:2px;flex-wrap:wrap;min-height:26px;align-items:center}
+    .v5-b{height:22px;border-radius:3px;background:var(--viz-accent);opacity:.8;flex:0 0 auto}
+    .v5-more{font-size:11px;color:var(--viz-muted);margin-left:6px}
+    .v5-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-seg2{margin-top:14px}
+    .v5-seg2 button{width:100%;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:8px}
+    .v5-seg2 button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+    .v5-text{margin-top:9px;border:1.5px dashed var(--viz-line);border-radius:9px;padding:9px 10px;
+      background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.6}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var WORDS = 50000, PAGE = 500;                 // a 100-page manual, a page taken as 500 words
+    var SIZES = [40, 120, 300, 800, 2000, 6000, 20000, 50000];
+    var s = document.getElementById('v5-c'), cl = document.getElementById('v5-cl'), pp = document.getElementById('v5-pp');
+    var strip = document.getElementById('v5-strip'), stats = document.getElementById('v5-stats');
+    var pathBtn = document.getElementById('v5-path'), text = document.getElementById('v5-text');
+    var why = document.getElementById('v5-why');
+    var withPath = true;
+
+    function render(){
+      var size = SIZES[Math.max(0, Math.min(SIZES.length - 1, Number(s.value)))];
+      var vectors = Math.max(1, Math.ceil(WORDS / Math.max(1, size)));
+      var pages = size / PAGE;
+      cl.textContent = size.toLocaleString() + ' words';
+      pp.textContent = (pages >= 1 ? pages.toFixed(1) + ' pages' : (size / PAGE * 100).toFixed(0) + '% of a page');
+
+      var shown = Math.min(vectors, 90);
+      var w = Math.max(3, Math.round(270 / Math.max(1, shown)));
+      strip.innerHTML = Array.from({ length: shown }, function(){
+        return '<div class="v5-b" style="width:' + w + 'px"></div>';
+      }).join('') + (vectors > shown ? '<span class="v5-more">… ' + (vectors - shown).toLocaleString() + ' more vectors</span>' : '');
+
+      var tooBig = size >= 20000, tooSmall = size <= 120;
+      function pill(txt, bad){
+        var c = bad ? 'var(--viz-red)' : 'var(--viz-green)';
+        return '<span class="v5-pill" style="color:' + c + ';border-color:' + c + '">' + txt + '</span>';
+      }
+      stats.innerHTML =
+        pill(vectors.toLocaleString() + ' vectors in the index', tooSmall) +
+        pill(tooBig ? 'many subjects per vector' : 'focused vector', tooBig) +
+        pill(tooSmall ? 'context lost' : 'context retained', tooSmall);
+
+      pathBtn.setAttribute('aria-pressed', withPath ? 'true' : 'false');
+      var body = '… set the retry interval to 30 seconds …';
+      text.innerHTML = withPath
+        ? '<span style="color:var(--viz-violet)">Networking &gt; Timeouts &gt; Retry policy — </span>' + body +
+          '<div style="color:var(--viz-muted);margin-top:5px;font-family:inherit">the title and section path are part of what gets encoded, so the vector knows what the paragraph is about</div>'
+        : body +
+          '<div style="color:var(--viz-muted);margin-top:5px;font-family:inherit">encoded bare: geometrically this could be any product, any protocol, any manual</div>';
+
+      why.innerHTML = tooBig
+        ? '<b style="color:var(--viz-red)">One vector for the whole manual blends every subject in it.</b>' +
+          'Averaged over ' + pages.toFixed(0) + ' pages, the point lands somewhere in the middle of every topic the manual covers and is strongly similar to none of them. The relevant paragraph is in there and can never surface, because it never had a coordinate of its own. ' +
+          '<br><br>This is the failure mode people mistake for "the embedding model is bad".'
+        : tooSmall
+          ? '<b style="color:var(--viz-red)">Focused, context-free, and ' + vectors.toLocaleString() + ' vectors to store.</b>' +
+            'Each chunk is sharp about its own sentence and has lost the thing that made it interpretable — which product, which procedure, which section. Index size and query cost rise with the count, and every one of these needs somewhere to live. ' +
+            '<br><br>Small chunks preserve focus but lose context. That is the trade, and it runs the opposite way to the one above.'
+          : '<b style="color:var(--viz-green)">The practical design.</b>' +
+            'Chunk at <b>semantic boundaries</b> rather than a fixed word count, carry titles or section paths into the encoded text, and keep source metadata so the original passage can be reconstructed for the reader. ' +
+            vectors.toLocaleString() + ' vectors at ' + pages.toFixed(1) + ' pages each keeps a chunk about one thing while it still says what that thing belongs to. ' +
+            '<br><br>Toggle the section path above and read what actually reaches the encoder — that one decision changes the vector more than most model choices will.';
+    }
+    pathBtn.addEventListener('click', function(){ withPath = !withPath; render(); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

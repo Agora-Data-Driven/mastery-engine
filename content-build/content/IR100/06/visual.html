@@ -1,0 +1,853 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Postings To Adjacency</button>
+  <button class="viz-tab" data-viz-tab="2">2. Walk To The Query</button>
+  <button class="viz-tab" data-viz-tab="3">3. Scan Or Walk</button>
+  <button class="viz-tab" data-viz-tab="4">4. Trapped At Four</button>
+  <button class="viz-tab" data-viz-tab="5">5. Highways Then Streets</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Postings To Adjacency</h2>
+  <p class="vz-lede">You already store, per term, only the documents that contain it — <b>Linked Lists as
+    Postings</b> and <b>Arrays vs Linked Lists for Postings Storage</b>. A proximity graph stores, per vector,
+    only the few vectors near it. Same shape, different query: one gets intersected, one gets walked. Switch
+    the representation and drag the corpus size. <b>Like a contacts app that keeps each person's handful of
+    friends, instead of a yes/no table of everyone against everyone.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half">
+      <h5>already yours · postings list</h5>
+      <div class="vz-mono">cat → [3, 17, 42]
+dog → [3, 8]</div>
+      <p>term → the documents containing it</p>
+    </div>
+    <div class="v1-half">
+      <h5>this lesson · adjacency list</h5>
+      <div class="vz-mono">A → [B, D]
+B → [A, C, D]</div>
+      <p>vertex → the vectors near it</p>
+    </div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Representation">
+    <button id="v1-m" aria-pressed="false">adjacency matrix</button>
+    <button id="v1-l" aria-pressed="true">adjacency list</button>
+    <button id="v1-c" aria-pressed="false">CSR arrays</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="vz-mono" id="v1-view"></div>
+    <label class="v1-lab" for="v1-n">Now scale it: <span id="v1-nl">1,000,000</span> vectors × 32 neighbors</label>
+    <input type="range" id="v1-n" min="0" max="4" value="3" step="1" aria-label="Number of vectors in the corpus">
+    <div class="v1-stats" id="v1-stats"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Flat arrays are excellent to traverse and expensive to edit — an insert in the middle
+    shifts everything after it — so builders reserve fixed neighbor capacity or rebuild immutable segments,
+    and deletion leaves a <b>tombstone</b> until compaction. All of it needs <b>stable integer vertex IDs</b>,
+    with an external map from document ID to integer.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;margin-bottom:12px;flex-wrap:wrap}
+    .v1-half{flex:1 1 148px;border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg)}
+    .v1-half h5{margin:0 0 6px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half p{margin:6px 0 0;font-size:11.5px;color:var(--viz-muted);line-height:1.4}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin:14px 0 6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-stats{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var V = ['A', 'B', 'C', 'D', 'E'];
+    var ADJ = { A:['B','D'], B:['A','C','D'], C:['B'], D:['A','B','E'], E:['D'] };
+    var SIZES = [1e3, 1e4, 1e5, 1e6, 1e7];
+    var M = 32;
+    var mode = 'list';
+
+    var bM = document.getElementById('v1-m'), bL = document.getElementById('v1-l'), bC = document.getElementById('v1-c');
+    var view = document.getElementById('v1-view'), sl = document.getElementById('v1-n');
+    var nl = document.getElementById('v1-nl'), stats = document.getElementById('v1-stats'), why = document.getElementById('v1-why');
+
+    function num(x){ return Math.round(x).toLocaleString('en-US'); }
+    function sig(x){ return x >= 100 ? Math.round(x) : (x >= 10 ? Math.round(x * 10) / 10 : Math.round(x * 100) / 100); }
+    function bytes(b){
+      if (!isFinite(b) || b < 0) return '—';
+      var u = [['TB', 1e12], ['GB', 1e9], ['MB', 1e6], ['kB', 1e3]];
+      for (var i = 0; i < u.length; i++) { if (b >= u[i][1]) return sig(b / u[i][1]) + ' ' + u[i][0]; }
+      return Math.round(b) + ' B';
+    }
+
+    function matrixText(){
+      var out = '        ' + V.join(' ') + '\n';
+      var ones = 0;
+      V.forEach(function(u){
+        var row = '   ' + u + '    ';
+        V.forEach(function(w){
+          var has = ADJ[u].indexOf(w) >= 0;
+          if (has) ones += 1;
+          row += (has ? '1' : '·') + ' ';
+        });
+        out += row + '\n';
+      });
+      return out + '\n' + (V.length * V.length) + ' cells stored, ' + ones + ' of them are edges.\n1 = edge exists · · = no edge (and there are 15 of those)';
+    }
+    function listText(){
+      var n = 0, out = '';
+      V.forEach(function(u){ n += ADJ[u].length; out += u + ' → [' + ADJ[u].join(', ') + ']\n'; });
+      return out + '\n' + n + ' directed adjacency entries. Undirected would store\neach logical edge twice, once from each endpoint.';
+    }
+    function csrText(){
+      var deg = V.map(function(u){ return ADJ[u].length; });
+      var off = [0];
+      deg.forEach(function(d){ off.push(off[off.length - 1] + d); });
+      var flat = [];
+      V.forEach(function(u){ ADJ[u].forEach(function(w){ flat.push(V.indexOf(w)); }); });
+      var i = 3;                                   // vertex D, the worked lookup
+      var slice = flat.slice(off[i], off[i + 1]);
+      return 'degrees   [' + deg.join(', ') + ']\n' +
+        'offsets   [' + off.join(', ') + ']   ← |V|+1 entries, ends at |E|\n' +
+        'neighbors [' + flat.join(', ') + ']\n\n' +
+        'vertex ' + i + ' (' + V[i] + ') = neighbors[' + off[i] + '..' + off[i + 1] + ') = ' +
+        slice.join(', ') + '  =  ' + slice.map(function(k){ return V[k]; }).join(', ') + '\n' +
+        'One flat array of 32-bit IDs. Weights ride in a parallel array.';
+    }
+
+    function render(){
+      bM.setAttribute('aria-pressed', mode === 'matrix' ? 'true' : 'false');
+      bL.setAttribute('aria-pressed', mode === 'list' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', mode === 'csr' ? 'true' : 'false');
+      view.textContent = mode === 'matrix' ? matrixText() : (mode === 'list' ? listText() : csrText());
+
+      var n = SIZES[Number(sl.value)];
+      nl.textContent = num(n);
+      var cells = n * n;
+      var edges = n * M;
+      var mat = cells / 8;                          // one bit per possible edge
+      var csr = 4 * (n + 1) + 4 * edges;            // 32-bit IDs, offsets + neighbors
+      var ratio = csr > 0 ? mat / csr : 0;
+
+      var matCol = 'var(--viz-red)', csrCol = 'var(--viz-green)';
+      stats.innerHTML =
+        '<span class="v1-pill" style="color:' + matCol + ';border-color:' + matCol + '">matrix: ' + num(cells) + ' cells = ' + bytes(mat) + '</span>' +
+        '<span class="v1-pill" style="color:' + csrCol + ';border-color:' + csrCol + '">list/CSR: ' + num(edges) + ' edges = ' + bytes(csr) + '</span>' +
+        '<span class="v1-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' +
+          (isFinite(ratio) && ratio > 0 ? sig(ratio) + '× less memory' : '—') + '</span>';
+
+      var common = '<br><br>Space is the whole argument: the matrix is <b>O(n²)</b>, the list is ' +
+        '<b>O(|V|+|E|)</b>. At 1,000,000 vectors one bit per possible edge is 10<sup>12</sup> bits — about ' +
+        '<b>125 GB</b> — while a 32-neighbor proximity graph has only ~32 million edges. That matrix would ' +
+        'spend essentially all 125 GB representing a trillion <em>absent</em> edges.';
+
+      why.innerHTML = mode === 'matrix'
+        ? '<b style="color:var(--viz-red)">O(1) edge tests, O(n²) space.</b>' +
+          '"Is there an edge u→v?" is one cell lookup — genuinely the fastest answer available. It is also a ' +
+          'question retrieval traversal almost never asks: the walk enumerates <em>which few neighbors can I ' +
+          'visit?</em>, and the matrix answers that by scanning a whole row of mostly nothing.' + common
+        : mode === 'list'
+          ? '<b style="color:var(--viz-green)">Enumeration is O(deg(v)), and enumeration is the workload.</b>' +
+            'Testing one specific edge costs O(deg(v)) with a plain array, expected O(1) if each neighbor set ' +
+            'is hashed, or O(log deg(v)) sorted and binary-searched — the same three-way choice as <b>linear ' +
+            'scan vs binary search vs hash probe</b>, one level up. Since traversal enumerates, compact arrays ' +
+            'beat per-vertex hash tables: you would trade a cache-friendly run of IDs for pointer chasing.' + common
+          : '<b style="color:var(--viz-green)">CSR: two arrays, no per-vertex objects.</b>' +
+            'An object per vertex holding a JS array is convenient to build and pays object and pointer ' +
+            'overhead on every one of them. Compressed sparse row packs the same graph into one ' +
+            '<code>offsets</code> array and one flat <code>neighbors</code> array, so a vertex\'s neighbors are ' +
+            'a contiguous run of 32-bit IDs — <b>Memory Hierarchy: Why Sequential Access Beats Random ' +
+            'Access</b>, applied to a graph. It also serialises straight to disk.' + common;
+    }
+
+    bM.addEventListener('click', function(){ mode = 'matrix'; render(); });
+    bL.addEventListener('click', function(){ mode = 'list'; render(); });
+    bC.addEventListener('click', function(){ mode = 'csr'; render(); });
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Walk To The Query</h2>
+  <p class="vz-lede">Enter somewhere, score the neighbors, move to the best one <em>if it improves</em>, repeat.
+    Step the worked traversal and watch every distance get computed. <b>Like asking for directions door to
+    door: each neighbour points you one street closer, and you stop when nobody can.</b></p>
+
+  <div class="v2-plotwrap"><div id="v2-plot"></div></div>
+
+  <div class="vz-seg" role="group" aria-label="Traversal controls">
+    <button id="v2-back">◀ back</button>
+    <button id="v2-step">step ▶</button>
+    <button id="v2-reset">reset</button>
+    <button id="v2-all" aria-pressed="false">score all 6</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-rows" id="v2-rows"></div>
+    <div class="v2-stat" id="v2-stat"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Keep a <b>visited</b> set or a cycle re-does work forever. And note what greedy never
+    did: prove that some unvisited vertex is farther than its answer. That is the whole reason graph search
+    is called <b>approximate</b> — it is a navigation result, not a proof.</p>
+
+  <style>
+    .v2-plotwrap{border:1.5px solid var(--viz-line);border-radius:12px;background:var(--viz-bg);padding:6px;margin-bottom:12px}
+    .v2-plotwrap svg{display:block;width:100%;height:auto}
+    .v2-rows{display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.35}
+    .v2-r.is-pick{border-color:var(--viz-green)}
+    .v2-r.is-drop{opacity:.55;border-style:dashed}
+    .v2-tag{margin-left:auto;font-size:10px;font-weight:800;font-family:inherit;text-align:right}
+    .v2-stat{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var P = { A:[0,0], B:[4,3], C:[2,5], D:[7,7], E:[6,4], F:[9,8] };
+    var ADJ = { A:['B','C'], B:['D','E'], C:[], D:['F'], E:[], F:[] };
+    var EDGES = [['A','B'], ['A','C'], ['B','D'], ['B','E'], ['D','F']];
+    var Q = [9, 9];
+    var idx = 0, showAll = false;
+
+    function dist(k){
+      var p = P[k], dx = Q[0] - p[0], dy = Q[1] - p[1];
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+    function sq(k){
+      var p = P[k], dx = Q[0] - p[0], dy = Q[1] - p[1];
+      return dx * dx + dy * dy;
+    }
+    function d2(x){ return (Math.round(x * 100) / 100).toFixed(2); }
+
+    // Build the whole traversal once: move only on strict improvement.
+    var STEPS = [], cur = 'A', guard = 0;
+    while (guard++ < 12) {
+      var cands = ADJ[cur].map(function(k){ return { k:k, d:dist(k) }; });
+      var best = null;
+      cands.forEach(function(c){ if (!best || c.d < best.d) best = c; });
+      var moves = !!(best && best.d < dist(cur));
+      STEPS.push({ at:cur, cands:cands, best:best, moves:moves });
+      if (!moves) break;
+      cur = best.k;
+    }
+
+    var plot = document.getElementById('v2-plot'), rows = document.getElementById('v2-rows');
+    var stat = document.getElementById('v2-stat'), why = document.getElementById('v2-why');
+    var bBack = document.getElementById('v2-back'), bStep = document.getElementById('v2-step');
+    var bReset = document.getElementById('v2-reset'), bAll = document.getElementById('v2-all');
+
+    function X(x){ return 20 + (x / 10) * 280; }
+    function Y(y){ return 200 - (y / 10) * 180; }
+
+    function draw(){
+      var path = STEPS.slice(0, idx + 1).map(function(s){ return s.at; });
+      var at = STEPS[idx].at;
+      var onPath = {};
+      path.forEach(function(k){ onPath[k] = true; });
+      var cand = {};
+      STEPS[idx].cands.forEach(function(c){ cand[c.k] = true; });
+
+      var s = '<svg viewBox="0 0 320 220" role="img" aria-label="Six vectors, their edges, and the greedy path toward the query">';
+      EDGES.forEach(function(e){
+        var hot = onPath[e[0]] && onPath[e[1]];
+        s += '<line x1="' + X(P[e[0]][0]) + '" y1="' + Y(P[e[0]][1]) + '" x2="' + X(P[e[1]][0]) + '" y2="' + Y(P[e[1]][1]) +
+          '" style="stroke:' + (hot ? 'var(--viz-accent)' : 'var(--viz-line)') + ';stroke-width:' + (hot ? 2.6 : 1.6) + '"/>';
+      });
+      // query marker: a cross, so it is not colour alone
+      s += '<line x1="' + (X(Q[0]) - 6) + '" y1="' + (Y(Q[1]) - 6) + '" x2="' + (X(Q[0]) + 6) + '" y2="' + (Y(Q[1]) + 6) + '" style="stroke:var(--viz-violet);stroke-width:2.4"/>';
+      s += '<line x1="' + (X(Q[0]) - 6) + '" y1="' + (Y(Q[1]) + 6) + '" x2="' + (X(Q[0]) + 6) + '" y2="' + (Y(Q[1]) - 6) + '" style="stroke:var(--viz-violet);stroke-width:2.4"/>';
+      s += '<text x="' + (X(Q[0]) - 4) + '" y="' + (Y(Q[1]) - 11) + '" text-anchor="end" style="fill:var(--viz-violet);font-size:10px;font-weight:800">query (9,9)</text>';
+
+      Object.keys(P).forEach(function(k){
+        var isAt = k === at, isPath = onPath[k], isCand = cand[k];
+        var col = isAt ? 'var(--viz-green)' : (isPath ? 'var(--viz-accent)' : (isCand ? 'var(--viz-amber)' : 'var(--viz-muted)'));
+        s += '<circle cx="' + X(P[k][0]) + '" cy="' + Y(P[k][1]) + '" r="' + (isAt ? 8.5 : 6) + '" style="fill:' + col + '"/>';
+        if (isAt) s += '<circle cx="' + X(P[k][0]) + '" cy="' + Y(P[k][1]) + '" r="13" style="fill:none;stroke:var(--viz-green);stroke-width:2"/>';
+        s += '<text x="' + (X(P[k][0]) + 11) + '" y="' + (Y(P[k][1]) + 4) + '" style="fill:var(--viz-ink);font-size:11px;font-weight:800">' + k +
+          '<tspan style="fill:var(--viz-muted);font-weight:600"> ' + d2(dist(k)) + '</tspan></text>';
+      });
+      s += '<text x="20" y="215" style="fill:var(--viz-muted);font-size:9.5px">● here  ● on path  ● candidate now  ✕ query</text>';
+      s += '</svg>';
+      plot.innerHTML = s;
+    }
+
+    function render(){
+      draw();
+      var st = STEPS[idx];
+      var html = '';
+      if (showAll) {
+        html += Object.keys(P).map(function(k){ return { k:k, d:dist(k) }; })
+          .sort(function(a, b){ return a.d - b.d; })
+          .map(function(c, i){
+            return '<div class="v2-r ' + (i === 0 ? 'is-pick' : '') + '"><span>' + c.k + ' (' + P[c.k][0] + ',' + P[c.k][1] + ')</span>' +
+              '<span>√' + sq(c.k) + ' ≈ ' + d2(c.d) + '</span>' +
+              '<span class="v2-tag" style="color:' + (i === 0 ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+              (i === 0 ? 'TRUE NEAREST' : 'rank ' + (i + 1)) + '</span></div>';
+          }).join('');
+      } else {
+        html += '<div class="v2-r"><span>at ' + st.at + ' (' + P[st.at][0] + ',' + P[st.at][1] + ')</span>' +
+          '<span>√' + sq(st.at) + ' ≈ ' + d2(dist(st.at)) + '</span>' +
+          '<span class="v2-tag" style="color:var(--viz-green)">CURRENT</span></div>';
+        if (!st.cands.length) {
+          html += '<div class="v2-r is-drop"><span>no outgoing neighbors left to score</span>' +
+            '<span class="v2-tag" style="color:var(--viz-amber)">STOP</span></div>';
+        }
+        st.cands.forEach(function(c){
+          var pick = st.best && c.k === st.best.k && st.moves;
+          html += '<div class="v2-r ' + (pick ? 'is-pick' : 'is-drop') + '"><span>' + c.k + ' (' + P[c.k][0] + ',' + P[c.k][1] + ')</span>' +
+            '<span>√' + sq(c.k) + ' ≈ ' + d2(c.d) + '</span>' +
+            '<span class="v2-tag" style="color:' + (pick ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' +
+            (pick ? '✓ MOVE ' + d2(dist(st.at)) + ' → ' + d2(c.d) : (c.d < dist(st.at) ? 'improves, but not best' : '✕ worse')) +
+            '</span></div>';
+        });
+      }
+      rows.innerHTML = html;
+
+      var scored = 1;
+      for (var i = 0; i <= idx; i++) scored += STEPS[i].cands.length;
+      var done = idx === STEPS.length - 1;
+      stat.innerHTML =
+        '<span class="v2-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">hop ' + idx + ' of ' + (STEPS.length - 1) + '</span>' +
+        '<span class="v2-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + scored + ' distances computed</span>' +
+        '<span class="v2-pill" style="color:' + (done ? 'var(--viz-green)' : 'var(--viz-muted)') + ';border-color:' + (done ? 'var(--viz-green)' : 'var(--viz-line)') + '">' +
+          (done ? 'returns ' + STEPS[idx].at + ' at ' + d2(dist(STEPS[idx].at)) : 'walking…') + '</span>';
+
+      why.innerHTML = showAll
+        ? '<b style="color:var(--viz-violet)">The exact answer, for comparison.</b>' +
+          'Exact linear k-nearest-neighbor search computes all six query distances — <b>O(nd)</b> for n vectors ' +
+          'of dimension d. Greedy scored ' + scored + ' and landed on the same vertex, F. It got lucky in the ' +
+          'sense that matters: <em>it never checked</em>. Nothing in the walk rules out an unvisited vertex ' +
+          'being closer, which is exactly the guarantee visual 4 takes away.'
+        : done
+          ? '<b style="color:var(--viz-green)">No neighbor of F improves on 1.00, so greedy stops and returns F.</b>' +
+            'Four neighborhoods were expanded instead of the corpus. With cosine-normalised embeddings you would ' +
+            'maximise dot product rather than minimise Euclidean distance — the comparison flips direction, the ' +
+            'mechanism does not.<br><br>Six vectors is far too small a toy to actually win: the graph scored ' + scored +
+            ' and a full scan scores 6. Visual 3 does that arithmetic at corpus scale, where the ratio is the point.'
+          : '<b style="color:var(--viz-accent)">Move only on strict improvement.</b>' +
+            'From ' + st.at + ' at ' + d2(dist(st.at)) + ', every neighbor is scored and the best one is taken only ' +
+            'if it beats where you already stand. That single rule <em>is</em> the algorithm — and it is also the ' +
+            'entire failure mode, because a step that must first get worse is not available to it.';
+    }
+
+    bStep.addEventListener('click', function(){ if (idx < STEPS.length - 1) idx += 1; showAll = false; bAll.setAttribute('aria-pressed', 'false'); render(); });
+    bBack.addEventListener('click', function(){ if (idx > 0) idx -= 1; showAll = false; bAll.setAttribute('aria-pressed', 'false'); render(); });
+    bReset.addEventListener('click', function(){ idx = 0; showAll = false; bAll.setAttribute('aria-pressed', 'false'); render(); });
+    bAll.addEventListener('click', function(){ showAll = !showAll; bAll.setAttribute('aria-pressed', showAll ? 'true' : 'false'); render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Scan Or Walk</h2>
+  <p class="vz-lede">A graph does not delete search effort, it exposes a dial between exhaustive scoring and
+    one fragile path. Move the corpus, the visit budget, the degree and the dimension, and watch the two costs
+    cross. <b>Like ringing every flat in the city versus following three sets of directions — the second only
+    wins while the city is big.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-n">corpus n = <span id="v3-nl">1,000,000</span> vectors</label>
+    <input type="range" id="v3-n" min="0" max="4" value="2" step="1" aria-label="Corpus size">
+    <label class="v3-lab" for="v3-v">vertices visited v = <span id="v3-vl">120</span></label>
+    <input type="range" id="v3-v" min="10" max="2000" value="120" step="10" aria-label="Vertices visited">
+    <label class="v3-lab" for="v3-m">degree M = <span id="v3-ml">32</span> neighbors</label>
+    <input type="range" id="v3-m" min="4" max="64" value="32" step="4" aria-label="Out-degree per vertex">
+    <label class="v3-lab" for="v3-d">dimension d = <span id="v3-dl">768</span></label>
+    <input type="range" id="v3-d" min="0" max="3" value="2" step="1" aria-label="Vector dimension">
+    <div class="v3-bars" id="v3-bars"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Bytes matter as much as arithmetic: a 768-dimensional float32 vector is <b>3,072 bytes</b>,
+    so 10,000 scattered vectors is about <b>30 MB</b> of movement before any graph metadata. Batching neighbor
+    vectors contiguously and using SIMD dot products raises throughput. Graph navigation cuts the <em>number</em>
+    of vectors touched; quantisation, later, cuts the bytes per touch. They compose.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 5px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-bars{margin-top:16px;display:flex;flex-direction:column;gap:11px}
+    .v3-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v3-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12px}
+    .v3-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v3-track i{display:block;height:100%}
+    .v3-sub{font-size:11px;color:var(--viz-muted);margin-top:4px;line-height:1.45}
+    .v3-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var NS = [1e4, 1e5, 1e6, 1e7, 1e8], DS = [128, 384, 768, 1536];
+    var sN = document.getElementById('v3-n'), sV = document.getElementById('v3-v');
+    var sM = document.getElementById('v3-m'), sD = document.getElementById('v3-d');
+    var lN = document.getElementById('v3-nl'), lV = document.getElementById('v3-vl');
+    var lM = document.getElementById('v3-ml'), lD = document.getElementById('v3-dl');
+    var bars = document.getElementById('v3-bars'), why = document.getElementById('v3-why');
+
+    function num(x){ return Math.round(x).toLocaleString('en-US'); }
+    function sig(x){ return x >= 100 ? Math.round(x) : (x >= 10 ? Math.round(x * 10) / 10 : Math.round(x * 100) / 100); }
+    function big(x){
+      if (!isFinite(x) || x < 0) return '—';
+      var u = [['T', 1e12], ['G', 1e9], ['M', 1e6], ['k', 1e3]];
+      for (var i = 0; i < u.length; i++) { if (x >= u[i][1]) return sig(x / u[i][1]) + ' ' + u[i][0]; }
+      return String(Math.round(x));
+    }
+    function bytes(b){
+      if (!isFinite(b) || b < 0) return '—';
+      var u = [['TB', 1e12], ['GB', 1e9], ['MB', 1e6], ['kB', 1e3]];
+      for (var i = 0; i < u.length; i++) { if (b >= u[i][1]) return sig(b / u[i][1]) + ' ' + u[i][0]; }
+      return Math.round(b) + ' B';
+    }
+
+    function render(){
+      var n = NS[Number(sN.value)], v = Number(sV.value), M = Number(sM.value), d = DS[Number(sD.value)];
+      lN.textContent = num(n); lV.textContent = num(v); lM.textContent = M; lD.textContent = d;
+
+      var touchedGraph = Math.min(n, v * M);          // cannot score more vectors than exist
+      var exactOps = n * d, graphOps = touchedGraph * d;
+      var vecBytes = d * 4;
+      var speed = touchedGraph > 0 ? n / touchedGraph : 0;
+      var capped = v * M >= n;
+
+      function bar(t, ops, touched, col, sub){
+        var w = exactOps > 0 ? Math.max(0.6, (ops / exactOps) * 100) : 0;
+        return '<div class="v3-b"><h6><span>' + t + '</span><b style="color:' + col + '">' + big(ops) + ' mul-adds</b></h6>' +
+          '<div class="v3-track"><i style="width:' + Math.min(100, w) + '%;background:' + col + '"></i></div>' +
+          '<div class="v3-sub">' + num(touched) + ' vectors scored × ' + num(vecBytes) + ' bytes = <b>' + bytes(touched * vecBytes) + '</b> moved. ' + sub + '</div></div>';
+      }
+      bars.innerHTML =
+        bar('exact scan · O(nd)', exactOps, n, 'var(--viz-red)', 'Every vector, every query.') +
+        bar('graph walk · O(vMd)', graphOps, touchedGraph, capped ? 'var(--viz-amber)' : 'var(--viz-green)',
+          capped ? 'v×M = ' + num(v * M) + ' already exceeds the corpus, so it is capped at n.' : 'Only the neighbors of visited vertices.');
+
+      why.innerHTML = capped
+        ? '<b style="color:var(--viz-amber)">v × M = ' + num(v * M) + ' ≥ n. There is no advantage left.</b>' +
+          'The graph wins <b>exactly when v·M ≪ n</b>, and this budget has grown to corpus scale — you are now ' +
+          'paying for adjacency data and random access to do a scan the hard way. Shrink the visit budget or the ' +
+          'degree, or grow the corpus, and the arithmetic reverses.<br><br>This is the honest reading of the ' +
+          'formula: the win is a ratio, not a property of graphs.'
+        : '<b style="color:var(--viz-green)">' + sig(speed) + '× fewer vectors scored — while v·M ≪ n holds.</b>' +
+          'Exact search is O(nd); the walk scores only the neighbors of visited vertices, roughly O(vMd). ' +
+          'Raising <b>M</b> buys escape routes and recall and costs one distance computation per extra neighbor ' +
+          'at <em>every</em> expansion; raising <b>v</b> — a wider candidate frontier, or more entry points — buys ' +
+          'recall and costs latency directly.<br><br>A bounded result queue plus a stopping rule is what turns ' +
+          'those two into the latency-versus-recall dial, and a <b>visit budget</b> rather than wall-clock is what ' +
+          'keeps latency reproducible under load.';
+    }
+
+    [sN, sV, sM, sD].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Trapped At Four</h2>
+  <p class="vz-lede">A local minimum is a vertex closer to the query than all of its stored neighbors — and
+    still not the nearest. Widen the candidate queue, or add one bridge edge, and watch the same graph stop
+    lying. <b>Like walking downhill in fog: you reach the bottom of a dip and every direction is uphill, so
+    you stop, one valley short of the sea.</b></p>
+
+  <div class="v4-plotwrap"><div id="v4-plot"></div></div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-k">candidate queue width k = <span id="v4-kl">1</span>
+      <span class="v4-hint" id="v4-hint">(k = 1 is pure greedy)</span></label>
+    <input type="range" id="v4-k" min="1" max="4" value="1" step="1" aria-label="Candidate queue width">
+    <div class="vz-seg" role="group" aria-label="Graph construction">
+      <button id="v4-bridge" aria-pressed="false">add bridge edge B↔D</button>
+    </div>
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-stat" id="v4-stat"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Diagnose a recall miss by naming the mechanism: was the true component <b>unreachable</b>
+    (construction), did greedy stop at a <b>local minimum</b> (breadth, restarts, bridges), did the
+    <b>candidate budget</b> end early (search parameters), or were the <b>distances distorted</b> by the
+    representation? The remedies differ. "Increase the ANN parameter" is not a diagnosis.</p>
+
+  <style>
+    .v4-plotwrap{border:1.5px solid var(--viz-line);border-radius:12px;background:var(--viz-bg);padding:6px;margin-bottom:12px}
+    .v4-plotwrap svg{display:block;width:100%;height:auto}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-hint{color:var(--viz-muted) !important;font-weight:600;font-family:inherit;font-size:11.5px}
+    .v4-rows{display:flex;flex-direction:column;gap:5px;margin-top:4px}
+    .v4-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.35}
+    .v4-r.is-good{border-color:var(--viz-green)}
+    .v4-r.is-stop{border-color:var(--viz-red)}
+    .v4-tag{margin-left:auto;font-size:10px;font-weight:800;font-family:inherit;text-align:right}
+    .v4-stat{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var POS = { A:0, C:4, B:6, D:9.8 };
+    var BASE = { A:['B'], B:['A','C'], C:['B','D'], D:['C'] };
+    var QUERY = 10;
+    var bridge = false;
+
+    var sK = document.getElementById('v4-k'), lK = document.getElementById('v4-kl'), hint = document.getElementById('v4-hint');
+    var bBridge = document.getElementById('v4-bridge');
+    var plot = document.getElementById('v4-plot'), rows = document.getElementById('v4-rows');
+    var stat = document.getElementById('v4-stat'), why = document.getElementById('v4-why');
+
+    function d(k){ return Math.abs(QUERY - POS[k]); }
+    function d1(x){ return (Math.round(x * 10) / 10).toFixed(1); }
+    function adj(k){
+      var out = BASE[k].slice();
+      if (bridge) {
+        if (k === 'B' && out.indexOf('D') < 0) out.push('D');
+        if (k === 'D' && out.indexOf('B') < 0) out.push('B');
+      }
+      return out;
+    }
+
+    // Best-first with a result set of size k. k = 1 reproduces pure greedy exactly:
+    // a neighbor that does not beat the single held result is never even queued.
+    function search(k){
+      var W = [{ n:'A', d:d('A') }], C = [{ n:'A', d:d('A') }], seen = { A:true }, trace = [], guard = 0;
+      function worst(){ return W[W.length - 1].d; }
+      while (C.length && guard++ < 20) {
+        C.sort(function(a, b){ return a.d - b.d; });
+        var c = C.shift();
+        if (c.d > worst() && W.length >= k) {
+          trace.push({ kind:'stop', n:c.n, d:c.d, w:worst() });
+          break;
+        }
+        var added = [];
+        adj(c.n).forEach(function(nb){
+          if (seen[nb]) return;
+          seen[nb] = true;
+          var dd = d(nb);
+          if (dd < worst() || W.length < k) {
+            C.push({ n:nb, d:dd });
+            W.push({ n:nb, d:dd });
+            W.sort(function(a, b){ return a.d - b.d; });
+            while (W.length > k) W.pop();
+            added.push({ n:nb, d:dd, kept:true });
+          } else {
+            added.push({ n:nb, d:dd, kept:false });
+          }
+        });
+        trace.push({ kind:'expand', n:c.n, d:c.d, added:added });
+      }
+      // Ran the queue dry: with k = 1 a worse neighbor is never even queued, which is
+      // precisely how "no legal move improves" shows up in a best-first implementation.
+      if (!C.length && !trace.some(function(t){ return t.kind === 'stop'; })) {
+        trace.push({ kind:'empty', w:worst() });
+      }
+      return { best:W[0], trace:trace, visited:Object.keys(seen).length };
+    }
+
+    function X(p){ return 22 + (p / 10) * 272; }
+
+    function draw(res){
+      var path = res.trace.filter(function(t){ return t.kind === 'expand'; }).map(function(t){ return t.n; });
+      var on = {};
+      path.forEach(function(n){ on[n] = true; });
+      var s = '<svg viewBox="0 0 320 120" role="img" aria-label="Four vertices on a number line with the query at ten">';
+      s += '<line x1="20" y1="86" x2="300" y2="86" style="stroke:var(--viz-line);stroke-width:2"/>';
+      // edges as arcs above the line
+      var E = [['A','B'], ['B','C'], ['C','D']];
+      if (bridge) E.push(['B','D']);
+      E.forEach(function(e, i){
+        var x1 = X(POS[e[0]]), x2 = X(POS[e[1]]), mid = (x1 + x2) / 2;
+        var lift = e[0] === 'B' && e[1] === 'D' ? 44 : 26;
+        var hot = on[e[0]] && on[e[1]];
+        var col = (e[0] === 'B' && e[1] === 'D') ? 'var(--viz-violet)' : (hot ? 'var(--viz-accent)' : 'var(--viz-line)');
+        s += '<path d="M ' + x1 + ' 86 Q ' + mid + ' ' + (86 - lift) + ' ' + x2 + ' 86" style="fill:none;stroke:' + col +
+          ';stroke-width:' + (hot ? 2.6 : 1.8) + ';stroke-dasharray:' + ((e[0] === 'B' && e[1] === 'D') ? '5 3' : 'none') + '"/>';
+      });
+      Object.keys(POS).forEach(function(n){
+        var isBest = res.best && res.best.n === n;
+        var col = isBest ? 'var(--viz-green)' : (on[n] ? 'var(--viz-accent)' : 'var(--viz-muted)');
+        s += '<circle cx="' + X(POS[n]) + '" cy="86" r="' + (isBest ? 8 : 6) + '" style="fill:' + col + '"/>';
+        s += '<text x="' + X(POS[n]) + '" y="106" text-anchor="middle" style="fill:var(--viz-ink);font-size:11px;font-weight:800">' + n + '</text>';
+        s += '<text x="' + X(POS[n]) + '" y="118" text-anchor="middle" style="fill:var(--viz-muted);font-size:9px">at ' + POS[n] + ' · d ' + d1(d(n)) + '</text>';
+      });
+      s += '<line x1="' + (X(QUERY) - 6) + '" y1="80" x2="' + (X(QUERY) + 6) + '" y2="92" style="stroke:var(--viz-violet);stroke-width:2.4"/>';
+      s += '<line x1="' + (X(QUERY) - 6) + '" y1="92" x2="' + (X(QUERY) + 6) + '" y2="80" style="stroke:var(--viz-violet);stroke-width:2.4"/>';
+      s += '<text x="' + X(QUERY) + '" y="70" text-anchor="middle" style="fill:var(--viz-violet);font-size:10px;font-weight:800">query 10</text>';
+      s += '<text x="20" y="16" style="fill:var(--viz-muted);font-size:9.5px">✕ query   ● returned   ● expanded   ⋯ bridge edge</text>';
+      s += '</svg>';
+      plot.innerHTML = s;
+    }
+
+    function render(){
+      var k = Number(sK.value);
+      lK.textContent = k;
+      hint.textContent = k === 1 ? '(k = 1 is pure greedy)' : '(best-first: keeps ' + k + ' alternatives alive)';
+      bBridge.setAttribute('aria-pressed', bridge ? 'true' : 'false');
+
+      var res = search(k);
+      draw(res);
+
+      rows.innerHTML = res.trace.map(function(t){
+        if (t.kind === 'stop') {
+          return '<div class="v4-r is-stop"><span>halt at ' + t.n + '</span><span>best candidate ' + d1(t.d) +
+            ' &gt; held result ' + d1(t.w) + '</span><span class="v4-tag" style="color:var(--viz-red)">NOTHING IMPROVES</span></div>';
+        }
+        if (t.kind === 'empty') {
+          return '<div class="v4-r is-stop"><span>queue empty</span><span>no unvisited vertex beat the held ' +
+            d1(t.w) + '</span><span class="v4-tag" style="color:var(--viz-red)">NOTHING IMPROVES</span></div>';
+        }
+        var adds = t.added.length
+          ? t.added.map(function(a){ return a.n + ' d=' + d1(a.d) + (a.kept ? ' ✓kept' : ' ✕dropped'); }).join('  ·  ')
+          : 'no unvisited neighbors';
+        return '<div class="v4-r"><span>expand ' + t.n + ' (d ' + d1(t.d) + ')</span><span>' + adds + '</span></div>';
+      }).join('') +
+        '<div class="v4-r ' + (res.best.n === 'D' ? 'is-good' : 'is-stop') + '"><span>returns ' + res.best.n + '</span>' +
+        '<span>distance ' + d1(res.best.d) + '</span><span class="v4-tag" style="color:' +
+        (res.best.n === 'D' ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        (res.best.n === 'D' ? 'CORRECT — true nearest' : 'WRONG — D at 9.8 was never reached') + '</span></div>';
+
+      stat.innerHTML =
+        '<span class="v4-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + res.visited + ' vertices scored</span>' +
+        '<span class="v4-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">k = ' + k + (bridge ? ' · bridge on' : ' · bridge off') + '</span>' +
+        '<span class="v4-pill" style="color:' + (res.best.n === 'D' ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+          (res.best.n === 'D' ? 'var(--viz-green)' : 'var(--viz-red)') + '">recall ' + (res.best.n === 'D' ? '1 of 1' : '0 of 1') + '</span>';
+
+      why.innerHTML = res.best.n !== 'D'
+        ? '<b style="color:var(--viz-red)">B is a local minimum, and the metric is innocent.</b>' +
+          'Greedy moves A → B because the distance falls from 10 to 4. From B, A is at 10 and C at 6 — both worse ' +
+          'than 4 — so it halts. Reaching D at 9.8 requires first moving <em>away</em>, 4 → 6, through C, and pure ' +
+          'greedy forbids that step. Every distance computed here was correct; <b>the failure is a property of the ' +
+          'graph, not of the metric</b>.<br><br>The extreme form is a disconnected component, where no edge sequence ' +
+          'reaches the true region at all. High dimensions make all of this worse: distance contrast weakens and ' +
+          'neighbor relations get noisy.'
+        : bridge
+          ? '<b style="color:var(--viz-green)">One bridge edge, and the valley disappears.</b>' +
+            'B↔D is a construction fix: better neighbor selection spends a scarce adjacency slot on a long link ' +
+            'instead of another near-duplicate local one. Now the improving step exists and even k = 1 finds D. ' +
+            'Degree is the dial behind this — more edges mean more escape routes, and one extra distance computation ' +
+            'per neighbor at <em>every</em> expansion, plus the memory.<br><br>Which is precisely the idea visual 5 ' +
+            'turns into a second layer: long links, but only where they pay.'
+          : '<b style="color:var(--viz-green)">Breadth crosses the valley.</b>' +
+            'With k = ' + Number(sK.value) + ' the result set still holds C at distance 6 even though B at 4 is better, ' +
+            'so C is expanded rather than discarded — and C is the only vertex that knows about D. Best-first buys ' +
+            'recall with distance computations: ' + res.visited + ' vertices scored here versus the greedy path\'s ' +
+            'shorter, wronger walk.<br><br>Restarts and multiple entry points do the same job by sampling different ' +
+            'basins. All of these spend work at the <em>same scale</em> as the trap, which is their ceiling.';
+    }
+
+    sK.addEventListener('input', render);
+    bBridge.addEventListener('click', function(){ bridge = !bridge; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Highways Then Streets</h2>
+  <p class="vz-lede">Ten clusters along a line, target at 9.8. A base-only walk crawls and can be trapped by a
+    weak bridge; a sparse upper layer of long links crosses the corpus first, then descends to refine. Stretch
+    the long links and watch the path collapse. <b>Like driving cross-country: motorway until you're in the
+    right town, then local streets to the door.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Layers">
+    <button id="v5-base" aria-pressed="false">base layer only</button>
+    <button id="v5-lay" aria-pressed="true">with upper layer</button>
+    <button id="v5-weak" aria-pressed="true">weak bridge 3–4</button>
+  </div>
+
+  <div class="v5-plotwrap"><div id="v5-plot"></div></div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-span">upper-layer link reach = <span id="v5-spanl">4</span> clusters</label>
+    <input type="range" id="v5-span" min="1" max="7" value="4" step="1" aria-label="Upper layer link reach">
+    <div class="v5-stat" id="v5-stat"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Layering does not make search exact. Poor upper links can still route into the wrong
+    region, and weak base connectivity is not repaired by descending. More layers, degree, candidate breadth
+    and construction effort all improve navigability and all cost memory and latency — so <b>recall must be
+    measured</b> against exact neighbors on representative queries, never assumed from the structure.</p>
+
+  <style>
+    .v5-plotwrap{border:1.5px solid var(--viz-line);border-radius:12px;background:var(--viz-bg);padding:6px;margin-bottom:12px}
+    .v5-plotwrap svg{display:block;width:100%;height:auto}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-stat{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CLUSTERS = 10, TARGET = 9.8, REPS = [1, 3, 5, 8];   // the upper layer holds a SUBSET of vertices
+    var layered = true, weak = true;
+
+    var bBase = document.getElementById('v5-base'), bLay = document.getElementById('v5-lay'), bWeak = document.getElementById('v5-weak');
+    var sSpan = document.getElementById('v5-span'), lSpan = document.getElementById('v5-spanl');
+    var plot = document.getElementById('v5-plot'), stat = document.getElementById('v5-stat'), why = document.getElementById('v5-why');
+
+    function dist(c){ return Math.abs(c - TARGET); }
+
+    function upperPath(span){
+      var cur = REPS[0], path = [cur], guard = 0;
+      while (guard++ < 12) {
+        var best = null;
+        REPS.forEach(function(r){
+          if (r === cur || Math.abs(r - cur) > span) return;
+          if (!best || dist(r) < dist(best)) best = r;
+        });
+        if (!best || dist(best) >= dist(cur)) break;
+        cur = best;
+        path.push(cur);
+      }
+      return path;
+    }
+
+    function run(){
+      var span = Number(sSpan.value);
+      if (!layered) {
+        var trapped = weak;                       // the base walk meets the weak bridge between 3 and 4
+        var end = trapped ? 3 : CLUSTERS - 1;
+        return { upper:[], entry:1, base:end - 1, end:end, hops:end - 1, trapped:trapped, span:span };
+      }
+      var up = upperPath(span);
+      var entry = up[up.length - 1];
+      // Descending past the weak bridge means the base walk never has to cross it.
+      var trappedL = weak && entry <= 3;
+      var endL = trappedL ? 3 : CLUSTERS - 1;
+      var baseHops = Math.max(0, endL - entry);
+      return { upper:up, entry:entry, base:baseHops, end:endL, hops:(up.length - 1) + baseHops, trapped:trappedL, span:span };
+    }
+
+    function X(c){ return 22 + ((c - 1) / (CLUSTERS - 1)) * 272; }
+
+    function draw(r){
+      var onUp = {};
+      r.upper.forEach(function(c){ onUp[c] = true; });
+      var s = '<svg viewBox="0 0 320 132" role="img" aria-label="An upper layer of four representatives above ten base clusters">';
+      s += '<text x="20" y="14" style="fill:var(--viz-muted);font-size:9.5px">UPPER LAYER — a subset, long links</text>';
+      if (layered) {
+        REPS.forEach(function(a){
+          REPS.forEach(function(b){
+            if (b <= a || Math.abs(b - a) > r.span) return;
+            var hot = onUp[a] && onUp[b] && Math.abs(r.upper.indexOf(a) - r.upper.indexOf(b)) === 1;
+            s += '<path d="M ' + X(a) + ' 34 Q ' + ((X(a) + X(b)) / 2) + ' 8 ' + X(b) + ' 34" style="fill:none;stroke:' +
+              (hot ? 'var(--viz-violet)' : 'var(--viz-line)') + ';stroke-width:' + (hot ? 2.8 : 1.4) + '"/>';
+          });
+        });
+        REPS.forEach(function(c){
+          s += '<circle cx="' + X(c) + '" cy="34" r="' + (onUp[c] ? 7 : 5) + '" style="fill:' + (onUp[c] ? 'var(--viz-violet)' : 'var(--viz-muted)') + '"/>';
+          s += '<text x="' + X(c) + '" y="26" text-anchor="middle" style="fill:var(--viz-muted);font-size:8.5px;font-weight:800">' + c + '</text>';
+        });
+        s += '<line x1="' + X(r.entry) + '" y1="42" x2="' + X(r.entry) + '" y2="70" style="stroke:var(--viz-violet);stroke-width:2;stroke-dasharray:4 3"/>';
+        s += '<text x="' + (X(r.entry) + 5) + '" y="58" style="fill:var(--viz-violet);font-size:8.5px;font-weight:800">descend</text>';
+      } else {
+        s += '<text x="20" y="34" style="fill:var(--viz-muted);font-size:10px">(switched off — every hop is a local one)</text>';
+      }
+
+      s += '<text x="20" y="90" style="fill:var(--viz-muted);font-size:9.5px">BASE LAYER — every vertex, short links</text>';
+      for (var c = 1; c <= CLUSTERS; c++) {
+        var walked = c >= (layered ? r.entry : 1) && c <= r.end;
+        var col = c === r.end ? (r.trapped ? 'var(--viz-red)' : 'var(--viz-green)') : (walked ? 'var(--viz-accent)' : 'var(--viz-muted)');
+        s += '<rect x="' + (X(c) - 9) + '" y="98" width="18" height="16" rx="4" style="fill:' + col + '"/>';
+        s += '<text x="' + X(c) + '" y="110" text-anchor="middle" style="fill:var(--viz-bg);font-size:9px;font-weight:800">' + c + '</text>';
+      }
+      if (weak) {
+        var mid = (X(3) + X(4)) / 2;
+        s += '<line x1="' + mid + '" y1="94" x2="' + mid + '" y2="120" style="stroke:var(--viz-red);stroke-width:2;stroke-dasharray:3 3"/>';
+        s += '<text x="' + mid + '" y="130" text-anchor="middle" style="fill:var(--viz-red);font-size:8.5px;font-weight:800">weak bridge</text>';
+      }
+      s += '<text x="' + X(10) + '" y="130" text-anchor="end" style="fill:var(--viz-muted);font-size:8.5px">target 9.8 ▸</text>';
+      s += '</svg>';
+      plot.innerHTML = s;
+    }
+
+    function render(){
+      lSpan.textContent = sSpan.value;
+      bBase.setAttribute('aria-pressed', layered ? 'false' : 'true');
+      bLay.setAttribute('aria-pressed', layered ? 'true' : 'false');
+      bWeak.setAttribute('aria-pressed', weak ? 'true' : 'false');
+
+      var r = run();
+      draw(r);
+
+      var route = layered
+        ? (r.upper.join(' → ') + ' ⇣ descend ⇣ ' + (r.base > 0 ? 'walk ' + r.base + ' local hop' + (r.base === 1 ? '' : 's') : 'already there'))
+        : '1 → ' + r.end + ' one cluster at a time';
+      stat.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' + route + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + r.hops + ' hops total</span>' +
+        '<span class="v5-pill" style="color:' + (r.trapped ? 'var(--viz-red)' : 'var(--viz-green)') + ';border-color:' +
+          (r.trapped ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+          (r.trapped ? 'TRAPPED at cluster 3' : 'reached 9.8') + '</span>';
+
+      why.innerHTML = !layered
+        ? '<b style="color:' + (r.trapped ? 'var(--viz-red)' : 'var(--viz-amber)') + '">' +
+            (r.trapped ? 'Base-only: trapped at the weak bridge, ' + r.hops + ' hops in.' : 'Base-only: ' + r.hops + ' hops of purely local movement.') + '</b>' +
+          'Local nearest-neighbor edges are exactly right once you are already near the query and inefficient for ' +
+          'crossing the corpus — every hop advances one cluster. And a single weak bridge is enough to stop the ' +
+          'walk entirely, because greedy will not take the worsening step needed to force through it.' +
+          '<br><br>Turn the upper layer on: it does not fix the bridge, it <em>enters past it</em>.'
+        : '<b style="color:' + (r.trapped ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+            (r.trapped
+              ? 'Reach ' + r.span + ' is too short — the search descends at cluster ' + r.entry + ', before the bridge.'
+              : 'Jump ' + r.upper.join(' → ') + ', descend at ' + r.entry + ', then ' + r.base + ' local hop' + (r.base === 1 ? '' : 's') + '.') + '</b>' +
+          'The upper graph holds a <b>subset</b> of vertices — representatives — with links that span several ' +
+          'clusters, so each greedy move up there covers a large geometric distance. When no upper neighbor ' +
+          'improves, the search descends at that vertex and refines with short links. <b>Scale matching</b>: long ' +
+          'links give reach, local edges give precision, and neither does the other\'s job.' +
+          '<br><br>Stretch the reach and the upper path shortens; shrink it to 1 and the representatives are ' +
+          'disconnected, so the layer contributes nothing and you are back to a base-only crawl. This is the ' +
+          'conceptual seed of hierarchical navigable small-world indexes — the construction rules and guarantees ' +
+          'come later, and are not free with the shape.';
+    }
+
+    bBase.addEventListener('click', function(){ layered = false; render(); });
+    bLay.addEventListener('click', function(){ layered = true; render(); });
+    bWeak.addEventListener('click', function(){ weak = !weak; render(); });
+    sSpan.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

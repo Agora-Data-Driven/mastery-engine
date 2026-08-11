@@ -1,0 +1,754 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two Retrievers, One Funnel</button>
+  <button class="viz-tab" data-viz-tab="2">2. Three Query Autopsies</button>
+  <button class="viz-tab" data-viz-tab="3">3. The RRF Ledger</button>
+  <button class="viz-tab" data-viz-tab="4">4. Normalize Or Rank</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Atrium Path</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two Retrievers, One Funnel</h2>
+  <p class="vz-lede"><b>Recall Stage vs Precision Stage</b> gave the funnel one mouth; <b>Budgeting Candidates
+    per Stage</b> and <b>Rerank Depth</b> sized the rest of it. Nothing below the recall stage changes here —
+    the mouth simply gets two sources. Drag how <em>independently</em> the two retrievers fail and watch the
+    ceiling on everything downstream move. <b>Like two witnesses to the same accident: what matters is not how
+    good each one is, but how differently they were standing.</b></p>
+
+  <div class="v1-funnel">
+    <div class="v1-stage">
+      <div class="v1-tag">recall stage — WAS one source</div>
+      <div class="v1-boxes">
+        <div class="v1-box">BM25 · top 100<br><span>recall@100 = 0.85</span></div>
+        <div class="v1-box v1-new">+ dense vectors · top 100<br><span>recall@100 = 0.82</span></div>
+      </div>
+    </div>
+    <div class="v1-arrow">fuse ▾</div>
+    <div class="v1-stage">
+      <div class="v1-tag">candidate set handed on</div>
+      <div class="v1-box v1-fused" id="v1-fused"></div>
+    </div>
+    <div class="v1-arrow">▾</div>
+    <div class="v1-stage">
+      <div class="v1-tag">precision stage — UNCHANGED</div>
+      <div class="v1-box">cross-encoder · rerank depth 50<br><span>joint attention, same budget as before</span></div>
+    </div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="v1-lab" for="v1-ind">Share of the two systems' misses that are <span id="v1-indl">60</span>% independent</label>
+    <input type="range" id="v1-ind" min="0" max="100" value="60" step="1" aria-label="How independently the two retrievers fail">
+    <div class="v1-ticks">
+      <span>identical<br>failures</span><span>naive<br>guess 0.87</span><span>measured<br>0.92–0.94</span><span>fully<br>independent</span>
+    </div>
+    <div class="v1-bars" id="v1-bars"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">The reranker cannot rank what it never received, so this number is a <b>hard ceiling on
+    final quality</b> — which is why the interesting engineering question in this lesson is the recall stage,
+    not the precision stage you already tuned. The empirical test for hybrid is <b>failure correlation</b>,
+    never average quality: two retrievers that score the same on a benchmark can be worth 0.85 together or
+    0.97 together.</p>
+
+  <style>
+    .v1-funnel{display:flex;flex-direction:column;gap:4px}
+    .v1-stage{border:1.5px solid var(--viz-line);border-radius:11px;padding:9px 10px;background:var(--viz-surface)}
+    .v1-tag{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);margin-bottom:6px;font-weight:800}
+    .v1-boxes{display:flex;gap:6px;flex-wrap:wrap}
+    .v1-box{flex:1 1 150px;border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 9px;
+      background:var(--viz-bg);font-size:12px;font-weight:700;line-height:1.4}
+    .v1-box span{display:block;font-weight:400;font-size:11px;color:var(--viz-muted);margin-top:2px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-new{border-color:var(--viz-violet)}
+    .v1-fused{border-color:var(--viz-accent)}
+    .v1-arrow{text-align:center;font-size:11px;font-weight:800;color:var(--viz-muted);letter-spacing:.06em}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-ticks{display:flex;justify-content:space-between;font-size:9.5px;line-height:1.25;color:var(--viz-muted);
+      margin-top:2px;text-align:center}
+    .v1-ticks span{flex:1 1 0}
+    .v1-bars{margin-top:14px;display:flex;flex-direction:column;gap:9px}
+    .v1-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between}
+    .v1-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v1-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v1-track i{display:block;height:100%}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var R_SPARSE = 0.85, R_DENSE = 0.82;
+    var INDEP = 1 - (1 - R_SPARSE) * (1 - R_DENSE);   // 1 - 0.15*0.18 = 0.973
+    var LO = 0.75, HI = 1.0;                          // the bar axis, labelled below
+    var s = document.getElementById('v1-ind'), lab = document.getElementById('v1-indl');
+    var bars = document.getElementById('v1-bars'), why = document.getElementById('v1-why');
+    var fused = document.getElementById('v1-fused');
+
+    function pos(v){ return Math.max(2, Math.min(100, (v - LO) / (HI - LO) * 100)); }
+
+    function bar(t, v, c, sub){
+      return '<div class="v1-b"><h6><span>' + t + '</span><b style="color:' + c + '">recall@100 = ' + v.toFixed(3) + '</b></h6>' +
+        '<div class="v1-track"><i style="width:' + pos(v) + '%;background:' + c + '"></i></div>' +
+        '<div style="font-size:11px;color:var(--viz-muted);margin-top:4px">' + sub + '</div></div>';
+    }
+
+    function render(){
+      var t = Number(s.value) / 100;
+      if (!isFinite(t)) t = 0;
+      lab.textContent = Math.round(t * 100);
+      var union = R_SPARSE + t * (INDEP - R_SPARSE);
+      var added = union - R_SPARSE;
+
+      fused.innerHTML = 'RRF merge · 140–180 unique docs<br><span>recall@100 = ' + union.toFixed(3) +
+        '  (+' + (added * 100).toFixed(1) + ' pts over BM25 alone)</span>';
+
+      bars.innerHTML =
+        bar('BM25 alone', R_SPARSE, 'var(--viz-amber)', 'Exact terms, high-IDF rare tokens, fully explainable scores.') +
+        bar('dense alone', R_DENSE, 'var(--viz-violet)', 'Paraphrase and synonymy; a few percent lost to approximate (ANN) search.') +
+        bar('fused candidate set', union, 'var(--viz-green)', 'Everything either retriever found. The reranker sees only this.') +
+        '<div style="font-size:10px;color:var(--viz-muted);text-align:right">bar axis: 0.750 → 1.000</div>';
+
+      why.innerHTML = t <= 0.04
+        ? '<b style="color:var(--viz-red)">Identical failures — the second retriever is pure cost.</b>' +
+          'If dense misses exactly the queries BM25 misses, the union is just the better system: <b>0.850</b>. ' +
+          'You have doubled the retrieval bill, the index footprint and the operational surface for nothing. ' +
+          '<br><br>This is the honest null hypothesis, and it is why "our dense model benchmarks higher" is not an argument for hybrid.'
+        : t <= 0.25
+          ? '<b style="color:var(--viz-amber)">The naive guess lives here: ~0.87.</b>' +
+            'Reasoning from average quality — "0.85 and 0.82, so a bit above 0.85" — lands about here. It is the intuition ' +
+            'most people bring, and on real query traffic it is <em>wrong in the pessimistic direction</em>. ' +
+            '<br><br>Nothing about the two models has changed as you drag; the only variable is <b>where they fail</b>.'
+          : t <= 0.82
+            ? '<b style="color:var(--viz-green)">The measured band: 0.92 to 0.94.</b>' +
+              'Real hybrid systems land here, roughly two thirds of the way to full independence. The queries BM25 misses are ' +
+              'disproportionately the ones dense handles, and the reverse — so the documents each system fails on are largely ' +
+              '<em>different documents</em>. ' +
+              '<br><br>Union = ' + union.toFixed(3) + '. Compare it with the 0.87 the averages predicted: that gap is the whole ' +
+              'reason this lesson exists, and it is invisible to any evaluation that reports one number per system.'
+            : '<b style="color:var(--viz-accent)">Statistical independence: the upper bound, 0.973.</b>' +
+              'Here P(both miss) = 0.15 × 0.18 = 0.027, so union = 1 − 0.027. Nothing in practice reaches it: the two retrievers ' +
+              'read the same documents and share some failure causes (bad chunking, a document that simply is not in the corpus). ' +
+              '<br><br>Treat it as the ceiling the asymmetry is being measured against, not a target.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Three Query Autopsies</h2>
+  <p class="vz-lede">Sparse and dense do not fail <em>more</em> or <em>less</em> than one another — they fail
+    on <b>different queries</b>. Pick a system, then tap a query to open the post-mortem.
+    <b>Like two colleagues who are wrong about opposite things: ask both, and you are right far more often
+    than either.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which system is answering">
+    <button id="v2-sparse" aria-pressed="false">BM25 only</button>
+    <button id="v2-dense" aria-pressed="false">dense only</button>
+    <button id="v2-hybrid" aria-pressed="true">hybrid (fused)</button>
+  </div>
+
+  <div class="v2-rows" id="v2-rows"></div>
+  <div class="v2-count" id="v2-count"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">The judgment layer: <b>segment your traffic by query type before deciding.</b> Exact and
+    navigational queries favour sparse; conceptual and paraphrased queries favour dense. If different segments
+    have different winners, neither system alone is acceptable and hybrid stops being a refinement — it is the
+    default. And note what fusion cannot do: query 3 fails in <em>both</em> lists, so it fails after fusion too.
+    Fusion buys you the union of two strengths, never a new capability.</p>
+
+  <style>
+    .v2-rows{display:flex;flex-direction:column;gap:6px}
+    .v2-q{min-height:44px;width:100%;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12px;
+      display:flex;align-items:center;gap:9px;line-height:1.35}
+    .v2-q[aria-pressed="true"]{border-color:var(--viz-accent)}
+    .v2-txt{flex:1 1 auto;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v2-mk{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;text-align:right;width:74px}
+    .v2-count{margin-top:10px;font-size:11.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v2-why{font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+    .v2-split{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+    .v2-side{border-left:3px solid var(--viz-line);padding:2px 0 2px 9px;font-size:12px;line-height:1.5}
+    .v2-side u{display:block;text-decoration:none;font-weight:800;font-size:10.5px;letter-spacing:.04em;
+      text-transform:uppercase;color:var(--viz-muted);margin-bottom:2px}
+  </style>
+  <script>
+  (function(){
+    var QUERIES = [
+      { q: 'error 0x80070057 windows update',
+        sparse: 2, dense: 0,
+        head: 'An exact rare token decides it.',
+        s: 'The error code appears in a handful of documents, so its inverse document frequency is enormous and it dominates the ranking. BM25 finds the right page instantly, and you can read off exactly why it won.',
+        d: 'The embedding of the code carries almost no identity — the training signal is <b>semantic similarity, not string identity</b>. The query lands in a generic neighbourhood of "Windows error" text and the right page is one of thousands nearby.',
+        f: 'Carried by BM25 through fusion, then confirmed by the cross-encoder. Dense contributes nothing here and costs nothing either: its candidates simply lose.' },
+      { q: 'how to stop feeling dizzy when standing up',
+        sparse: 0, dense: 2,
+        head: 'A conceptual query with no shared vocabulary.',
+        s: 'No content term of the query appears in the answer. BM25 splinters into weak matches on <code>stop</code> and <code>standing</code> — this is the vocabulary mismatch problem, and it scores the best document on the internet as irrelevant.',
+        d: 'Meaning is geometry, so the query sits next to orthostatic hypotension pages that share not one content word with it. This is the failure mode sparse retrieval cannot be tuned out of.',
+        f: 'Carried by dense through fusion. BM25 alone would have failed this query outright — which is the whole argument for the second retriever.' },
+      { q: 'treatments that do not involve surgery',
+        sparse: 1, dense: 1,
+        head: 'A negation: both fail, for opposite reasons.',
+        s: 'BM25 matches <code>surgery</code> <em>positively</em>. The term is in the query, so documents about surgery score high — precisely the documents the learner asked to exclude.',
+        d: 'The negation washes out in the compression to a single vector: "do not involve surgery" averages toward "surgery". Conjunctive constraints dissolve the same way.',
+        f: '<b>Fusion does not save this one.</b> RRF exploits <em>asymmetry</em> — it promotes what one system found and the other missed. A failure both systems share is still a failure in the fused list, and no rank-merge can invent a document neither retriever returned.' }
+    ];
+    var MODES = [
+      { key: 'sparse', label: 'BM25 only' },
+      { key: 'dense', label: 'dense only' },
+      { key: 'hybrid', label: 'hybrid (fused)' }
+    ];
+    var mode = 2, open = 0;
+    var btns = [document.getElementById('v2-sparse'), document.getElementById('v2-dense'), document.getElementById('v2-hybrid')];
+    var rows = document.getElementById('v2-rows'), why = document.getElementById('v2-why'), count = document.getElementById('v2-count');
+
+    function score(qi){
+      var q = QUERIES[qi];
+      if (mode === 0) return q.sparse;
+      if (mode === 1) return q.dense;
+      return Math.max(q.sparse, q.dense);       // fusion keeps the better side's find
+    }
+    function mark(v){
+      if (v === 2) return { t: '✓ answered', c: 'var(--viz-green)' };
+      if (v === 1) return { t: '~ weak', c: 'var(--viz-amber)' };
+      return { t: '✗ missed', c: 'var(--viz-red)' };
+    }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      rows.innerHTML = '';
+      var good = 0;
+      QUERIES.forEach(function(q, i){
+        var v = score(i); if (v === 2) good += 1;
+        var m = mark(v);
+        var b = document.createElement('button');
+        b.className = 'v2-q';
+        b.setAttribute('aria-pressed', i === open ? 'true' : 'false');
+        b.innerHTML = '<span class="v2-txt">' + q.q + '</span>' +
+          '<span class="v2-mk" style="color:' + m.c + '">' + m.t + '</span>';
+        b.addEventListener('click', function(){ open = i; render(); });
+        rows.appendChild(b);
+      });
+      count.innerHTML = '<span style="color:' + (good >= 2 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        MODES[mode].label + ' → ' + good + ' of 3 queries answered</span>';
+
+      var q = QUERIES[open];
+      why.innerHTML = '<b>' + q.head + '</b>' +
+        '<div class="v2-split">' +
+        '<div class="v2-side" style="border-left-color:var(--viz-amber)"><u>BM25 (sparse)</u>' + q.s + '</div>' +
+        '<div class="v2-side" style="border-left-color:var(--viz-violet)"><u>dense vectors</u>' + q.d + '</div>' +
+        '<div class="v2-side" style="border-left-color:var(--viz-green)"><u>after fusion</u>' + q.f + '</div>' +
+        '</div>';
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The RRF Ledger</h2>
+  <p class="vz-lede">Reciprocal rank fusion never looks at a score. Every document gets 1/(k + rank) from each
+    list it appears in, and the sums are added. Move a document's rank, or move k, and watch the merge re-sort.
+    <b>Like a talent contest scored by placings rather than points: the act two judges both put second beats
+    one judge's outright favourite.</b></p>
+
+  <div class="v3-docs" id="v3-docs"></div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="v3-lab" for="v3-k">Smoothing constant k = <span id="v3-kl">60</span></label>
+    <input type="range" id="v3-k" min="1" max="200" value="60" step="1" aria-label="RRF smoothing constant k">
+    <div class="v3-board" id="v3-board"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">RRF discards score magnitudes entirely — that is both its robustness and its limitation.
+    A document BM25 thinks is ten times better than anything else gets no credit beyond rank 1. Ties need a
+    deterministic tie-break (document ID here) or results are not reproducible, and the merge extends cleanly
+    to three or more lists, which is how per-field or metadata-filtered rankings join. The output is a
+    <b>candidate set, not a final ordering</b>: its job is maximum relevant content per slot handed to the
+    reranker.</p>
+
+  <style>
+    .v3-docs{display:flex;flex-direction:column;gap:6px}
+    .v3-row{border:1.5px solid var(--viz-line);border-radius:10px;padding:8px 9px;background:var(--viz-surface);
+      display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+    .v3-name{flex:0 0 auto;font-weight:800;font-size:13px;width:22px}
+    .v3-grp{flex:1 1 138px;display:flex;align-items:center;gap:5px}
+    .v3-gl{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;
+      color:var(--viz-muted);width:40px;line-height:1.15}
+    .v3-btn{min-width:44px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      color:var(--viz-ink);border-radius:9px;font:inherit;font-weight:800;font-size:15px}
+    .v3-val{flex:1 1 auto;text-align:center;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;font-weight:700}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-board{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v3-e{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:7px 9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;flex-wrap:wrap}
+    .v3-pos{font-weight:800;color:var(--viz-muted);width:16px;flex:0 0 auto}
+    .v3-sum{flex:1 1 130px;color:var(--viz-muted)}
+    .v3-sc{margin-left:auto;font-weight:800}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Defaults are the worked table: A(1,6) B(2,2) C(5,absent) D(absent,1). 0 = absent.
+    var DOCS = [
+      { id: 'A', r: [1, 6] },
+      { id: 'B', r: [2, 2] },
+      { id: 'C', r: [5, 0] },
+      { id: 'D', r: [0, 1] }
+    ];
+    var LISTS = ['BM25', 'dense'], MAXR = 12;
+    var docsEl = document.getElementById('v3-docs'), board = document.getElementById('v3-board');
+    var kEl = document.getElementById('v3-k'), kLab = document.getElementById('v3-kl'), why = document.getElementById('v3-why');
+    var vals = [];
+
+    function build(){
+      DOCS.forEach(function(d, di){
+        var row = document.createElement('div');
+        row.className = 'v3-row';
+        var nm = document.createElement('span');
+        nm.className = 'v3-name'; nm.textContent = d.id;
+        row.appendChild(nm);
+        LISTS.forEach(function(name, li){
+          var g = document.createElement('span');
+          g.className = 'v3-grp';
+          var gl = document.createElement('span');
+          gl.className = 'v3-gl'; gl.textContent = name;
+          var minus = document.createElement('button');
+          minus.className = 'v3-btn'; minus.textContent = '−';
+          minus.setAttribute('aria-label', 'lower ' + d.id + ' in the ' + name + ' list');
+          var out = document.createElement('span');
+          out.className = 'v3-val';
+          var plus = document.createElement('button');
+          plus.className = 'v3-btn'; plus.textContent = '+';
+          plus.setAttribute('aria-label', 'raise ' + d.id + ' in the ' + name + ' list');
+          // One line, with "absent" as its bottom rung: 1 … MAXR, then off the list entirely.
+          minus.addEventListener('click', function(){
+            var r = d.r[li];
+            d.r[li] = (r === 0 || r >= MAXR) ? 0 : r + 1;
+            render();
+          });
+          plus.addEventListener('click', function(){
+            var r = d.r[li];
+            d.r[li] = r === 0 ? MAXR : Math.max(1, r - 1);
+            render();
+          });
+          g.appendChild(gl); g.appendChild(minus); g.appendChild(out); g.appendChild(plus);
+          row.appendChild(g);
+          vals.push({ el: out, d: d, li: li });
+        });
+        docsEl.appendChild(row);
+      });
+    }
+
+    function render(){
+      var k = Number(kEl.value);
+      if (!isFinite(k) || k < 1) k = 1;
+      kLab.textContent = k;
+      vals.forEach(function(v){
+        var r = v.d.r[v.li];
+        v.el.textContent = r === 0 ? 'absent' : 'rank ' + r;
+        v.el.style.color = r === 0 ? 'var(--viz-muted)' : 'var(--viz-ink)';
+      });
+
+      var scored = DOCS.map(function(d){
+        var parts = [], total = 0, votes = 0;
+        d.r.forEach(function(r){
+          if (r > 0) { var c = 1 / (k + r); total += c; votes += 1; parts.push('1/' + (k + r)); }
+        });
+        return { id: d.id, total: total, votes: votes, sum: parts.length ? parts.join(' + ') : 'in neither list' };
+      });
+      // Deterministic tie-break by document ID — without it the merge is not reproducible.
+      scored.sort(function(a, b){ return (b.total - a.total) || (a.id < b.id ? -1 : 1); });
+
+      var top = scored[0] ? scored[0].total : 0;
+      board.innerHTML = scored.map(function(s, i){
+        var c = s.total <= 0 ? 'var(--viz-muted)' : (i === 0 ? 'var(--viz-green)' : 'var(--viz-ink)');
+        var w = top > 0 ? Math.max(2, Math.round(s.total / top * 100)) : 0;
+        return '<div class="v3-e" style="' + (i === 0 && s.total > 0 ? 'border-color:var(--viz-green)' : '') + '">' +
+          '<span class="v3-pos">' + (i + 1) + '</span>' +
+          '<span style="font-weight:800;color:' + c + '">doc ' + s.id + '</span>' +
+          '<span class="v3-sum">' + s.sum + '  ·  ' + s.votes + ' list' + (s.votes === 1 ? '' : 's') + '</span>' +
+          '<span class="v3-sc" style="color:' + c + '">' + s.total.toFixed(5) + '</span>' +
+          '<span style="flex:1 1 100%;height:5px;border-radius:3px;background:var(--viz-line);overflow:hidden">' +
+          '<i style="display:block;height:100%;width:' + w + '%;background:' + (i === 0 && s.total > 0 ? 'var(--viz-green)' : 'var(--viz-accent)') + '"></i></span>' +
+          '</div>';
+      }).join('');
+
+      var both = scored.filter(function(s){ return s.votes === 2; });
+      var lead = scored[0];
+      var head, body;
+      if (k <= 12) {
+        head = ['<b style="color:var(--viz-amber)">Small k — position dominates aggressively.</b>',
+          'At k = ' + k + ', rank 1 is worth ' + (1 / (k + 1)).toFixed(4) + ' while rank 6 is worth only ' + (1 / (k + 6)).toFixed(4) +
+          ' — a factor of ' + ((k + 6) / (k + 1)).toFixed(2) + '. One system\'s enthusiasm can now outweigh agreement between two. ' +
+          'Push k to 1 and the curve is so steep that being anyone\'s top hit almost decides the merge.'];
+      } else if (k >= 140) {
+        head = ['<b style="color:var(--viz-amber)">Large k — the merge flattens into a vote count.</b>',
+          'At k = ' + k + ', rank 1 pays ' + (1 / (k + 1)).toFixed(5) + ' and rank 6 pays ' + (1 / (k + 6)).toFixed(5) +
+          ' — nearly the same number. Every contribution converges on 1/k, so what survives is simply <b>how many lists a document appears in</b>: ' +
+          both.length + ' document(s) here appear in both. Rank information is being thrown away.'];
+      } else {
+        head = ['<b style="color:var(--viz-green)">k = 60: the conventional setting, and deliberately dull.</b>',
+          'The value comes from the original RRF experiments and has proved robust across collections; sweeping it on labelled data rarely moves quality much. ' +
+          '<b>That insensitivity is a feature, not a missed tuning opportunity</b> — it is one fewer thing that can silently go stale.'];
+      }
+      body = '<br><br>Doc <b>' + lead.id + '</b> leads at ' + lead.total.toFixed(5) + '. ' +
+        (lead.votes === 2
+          ? 'It appears in both lists: <b>consensus across independent systems is stronger evidence than one system\'s enthusiasm</b>, which is exactly the asymmetry visual 2 measured. Documents loved by exactly one retriever fall behind — but they stay alive in the tail, which is how each side\'s unique finds reach the reranker.'
+          : 'It appears in only one list, so a single retriever is currently deciding the merge. Try giving a second document a mid rank in <em>both</em> lists and watch it climb past a rank-1 hit.') +
+        (scored.some(function(s){ return s.total <= 0; }) ? '<br><br>A document in neither list scores <b>0</b> — absence contributes nothing, it is not a penalty.' : '') +
+        '<br><br>When one retriever is measurably stronger, <b>weighted RRF</b> multiplies each system\'s contribution by a weight — but the weights must be fitted on labels and refitted whenever a component changes. Start unweighted.';
+      why.innerHTML = head[0] + head[1] + body;
+    }
+    kEl.addEventListener('input', render);
+    build();
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Normalize Or Rank</h2>
+  <p class="vz-lede">The alternative to fusing ranks is fusing <em>scores</em>: put both lists on a common
+    scale, then take a weighted sum. Drag the top BM25 score and watch the score-fused order churn while the
+    rank-fused order sits perfectly still. <b>Like converting two currencies at an exchange rate that is
+    re-invented for every transaction — or just asking who came first.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Fusion method">
+    <button id="v4-mm" aria-pressed="true">min-max</button>
+    <button id="v4-z" aria-pressed="false">z-score</button>
+    <button id="v4-rrf" aria-pressed="false">RRF (ranks)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-top">Top BM25 raw score = <span id="v4-topl">25.0</span> (next best is 9.0)</label>
+    <input type="range" id="v4-top" min="90" max="250" value="250" step="5" aria-label="Raw BM25 score of the top document">
+    <label class="v4-lab" for="v4-a" style="margin-top:10px">alpha = <span id="v4-al">0.50</span> — weight on BM25 (score fusion only)</label>
+    <input type="range" id="v4-a" min="0" max="100" value="50" step="5" aria-label="Alpha, the weight on normalized BM25">
+    <div class="v4-table" id="v4-table"></div>
+  </div>
+
+  <div class="v4-orders">
+    <div class="v4-o"><u>this fusion's order</u><div id="v4-order"></div></div>
+    <div class="v4-o"><u>RRF's order (for comparison)</u><div id="v4-rrford"></div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:11px">
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">The decisive production argument is <b>drift</b>. Embedding models get upgraded and the
+    cosine distribution shifts; the corpus doubles and BM25's corpus statistics move; a normalization fitted in
+    January is silently wrong by June, with nothing to raise an alarm. Ranks do not drift. For a small team
+    operating a system for years, that robustness beats the last fraction of a metric point — which is why
+    mature pipelines fuse ranks for candidate generation and let the reranker, calibrated within itself,
+    produce the final ordering.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-table{margin-top:13px;display:flex;flex-direction:column;gap:4px}
+    .v4-r{display:flex;align-items:center;gap:7px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:6px 8px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:10.5px;flex-wrap:wrap}
+    .v4-id{font-weight:800;flex:0 0 24px}
+    .v4-cell{flex:1 1 62px}
+    .v4-cell u{display:block;text-decoration:none;font-size:8.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v4-orders{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-o{flex:1 1 160px;border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-surface)}
+    .v4-o u{display:block;text-decoration:none;font-size:9.5px;font-weight:800;letter-spacing:.04em;
+      text-transform:uppercase;color:var(--viz-muted);margin-bottom:6px}
+    .v4-chip{display:inline-block;font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:800;
+      border:1.5px solid var(--viz-line);border-radius:7px;padding:3px 7px;margin:0 4px 4px 0}
+    .v4-why{font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // One outlier plus a tight cluster — the typical shape of BM25 scores, which are
+    // right-skewed with a heavy tail. Cosine values are far more evenly spread.
+    var DOCS = [
+      { id: 'd1', b: 25.0, c: 0.61 },
+      { id: 'd2', b: 9.0,  c: 0.78 },
+      { id: 'd3', b: 8.2,  c: 0.72 },
+      { id: 'd4', b: 7.5,  c: 0.83 },
+      { id: 'd5', b: 6.9,  c: 0.66 }
+    ];
+    var K = 60, mode = 0;
+    var btns = [document.getElementById('v4-mm'), document.getElementById('v4-z'), document.getElementById('v4-rrf')];
+    var topEl = document.getElementById('v4-top'), topLab = document.getElementById('v4-topl');
+    var aEl = document.getElementById('v4-a'), aLab = document.getElementById('v4-al');
+    var table = document.getElementById('v4-table'), why = document.getElementById('v4-why');
+    var orderEl = document.getElementById('v4-order'), rrfEl = document.getElementById('v4-rrford');
+
+    function minmax(vs){
+      var lo = Math.min.apply(null, vs), hi = Math.max.apply(null, vs), span = hi - lo;
+      if (!(span > 0)) return vs.map(function(){ return 0; });      // guard: a flat list normalizes to nothing
+      return vs.map(function(v){ return (v - lo) / span; });
+    }
+    function zscore(vs){
+      var n = vs.length;
+      var mean = vs.reduce(function(a, b){ return a + b; }, 0) / n;
+      var varr = vs.reduce(function(a, b){ return a + (b - mean) * (b - mean); }, 0) / n;
+      var sd = Math.sqrt(varr);
+      if (!(sd > 0)) return vs.map(function(){ return 0; });          // guard: no spread, no z
+      return vs.map(function(v){ return (v - mean) / sd; });
+    }
+    function ranksOf(vs){
+      var idx = vs.map(function(v, i){ return { v: v, i: i }; });
+      idx.sort(function(x, y){ return (y.v - x.v) || (x.i - y.i); });   // ties broken by document id order
+      var out = [];
+      idx.forEach(function(e, r){ out[e.i] = r + 1; });
+      return out;
+    }
+    function chips(ids, hi){
+      return ids.map(function(id, i){
+        var c = i === 0 ? (hi ? 'var(--viz-green)' : 'var(--viz-accent)') : 'var(--viz-ink)';
+        return '<span class="v4-chip" style="color:' + c + ';border-color:' + c + '">' + (i + 1) + '. ' + id + '</span>';
+      }).join('');
+    }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      DOCS[0].b = Number(topEl.value) / 10;
+      topLab.textContent = DOCS[0].b.toFixed(1);
+      var a = Number(aEl.value) / 100;
+      if (!isFinite(a)) a = 0.5;
+      aLab.textContent = a.toFixed(2);
+
+      var bs = DOCS.map(function(d){ return d.b; }), cs = DOCS.map(function(d){ return d.c; });
+      var nb = mode === 1 ? zscore(bs) : minmax(bs);
+      var nc = mode === 1 ? zscore(cs) : minmax(cs);
+      var br = ranksOf(bs), cr = ranksOf(cs);
+
+      var rows = DOCS.map(function(d, i){
+        var rrf = 1 / (K + br[i]) + 1 / (K + cr[i]);
+        var fused = mode === 2 ? rrf : a * nb[i] + (1 - a) * nc[i];
+        return { id: d.id, b: d.b, c: d.c, nb: nb[i], nc: nc[i], br: br[i], cr: cr[i], rrf: rrf, fused: fused };
+      });
+
+      table.innerHTML = rows.map(function(r){
+        var normLab = mode === 2 ? 'RANK' : (mode === 1 ? 'Z' : 'NORM');
+        var bShow = mode === 2 ? '#' + r.br : r.nb.toFixed(3);
+        var cShow = mode === 2 ? '#' + r.cr : r.nc.toFixed(3);
+        return '<div class="v4-r">' +
+          '<span class="v4-id">' + r.id + '</span>' +
+          '<span class="v4-cell"><u>bm25 raw</u>' + r.b.toFixed(1) + '</span>' +
+          '<span class="v4-cell"><u>bm25 ' + normLab + '</u><span style="color:var(--viz-amber)">' + bShow + '</span></span>' +
+          '<span class="v4-cell"><u>cosine</u>' + r.c.toFixed(2) + '</span>' +
+          '<span class="v4-cell"><u>cos ' + normLab + '</u><span style="color:var(--viz-violet)">' + cShow + '</span></span>' +
+          '<span class="v4-cell"><u>fused</u><b>' + r.fused.toFixed(mode === 2 ? 5 : 3) + '</b></span>' +
+          '</div>';
+      }).join('');
+
+      var byFused = rows.slice().sort(function(x, y){ return (y.fused - x.fused) || (x.id < y.id ? -1 : 1); });
+      var byRrf = rows.slice().sort(function(x, y){ return (y.rrf - x.rrf) || (x.id < y.id ? -1 : 1); });
+      orderEl.innerHTML = chips(byFused.map(function(r){ return r.id; }), mode === 2);
+      rrfEl.innerHTML = chips(byRrf.map(function(r){ return r.id; }), true);
+
+      // How squashed is the rest of the list? (min-max only — the outlier's own doing.)
+      var rest = rows.slice(1).map(function(r){ return r.nb; });
+      var worst = rest.length ? Math.max.apply(null, rest) : 0;
+      var pct = Math.max(1, Math.round(worst * 100));
+
+      if (mode === 0) {
+        why.innerHTML = '<b style="color:' + (DOCS[0].b >= 18 ? 'var(--viz-red)' : 'var(--viz-amber)') + '">Min-max is hostage to outliers.</b>' +
+          'Each list is mapped into [0, 1] by <em>its own</em> minimum and maximum. With a top score of ' + DOCS[0].b.toFixed(1) +
+          ' against a next-best 9.0, every other document is compressed into the bottom <b>' + pct + '%</b> of the BM25 range — ' +
+          'd2 through d5 are still meaningfully different from each other, and the normalization has just thrown that difference away. ' +
+          '<br><br>Drag the top score down toward 9.0 and watch the fused order rearrange. <b>Nothing about the retrievers changed</b>; ' +
+          'one document\'s magnitude re-scaled everyone else. Meanwhile the RRF column on the right has not moved once.';
+      } else if (mode === 1) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Z-score assumes a symmetric distribution. BM25 is not.</b>' +
+          'Subtracting the mean and dividing by the standard deviation is well behaved for roughly bell-shaped data. BM25 score ' +
+          'distributions are <b>right-skewed with heavy tails</b>: one monster and a tight cluster, exactly the list above. The outlier ' +
+          'inflates the standard deviation, so the four documents you actually need to separate all land within a fraction of a z of each other. ' +
+          '<br><br>And the deeper problem is shared with min-max: <b>both normalizations are per-query</b>. The fused number means something ' +
+          'different for every query, so any downstream threshold on it — "only show results above 0.6" — is unsound.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">Rank fusion is invariant by construction.</b>' +
+          'Any <em>monotone</em> transformation of a system\'s scores — rescaling, saturation, swapping in a model that shifts the whole ' +
+          'distribution — leaves the ranks unchanged, and therefore leaves RRF unchanged. Drag the top BM25 score across its whole range: ' +
+          'this order does not move. There are no weights to fit, it works on day one with zero labels, and alpha above does nothing at all here. ' +
+          '<br><br><b>Score fusion still has a niche.</b> When scores are calibrated — probabilities from a trained classifier — magnitudes are ' +
+          'real information that ranks discard. When one retriever is consistently dominant, a weighted sum lets it override the weaker system in ' +
+          'a way consensus voting cannot. And with enough labelled data a learned fusion model over per-system score features beats both — at the ' +
+          'cost of a training pipeline and its permanent maintenance.';
+      }
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    topEl.addEventListener('input', render);
+    aEl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Atrium Path</h2>
+  <p class="vz-lede">BM25 and vectors in parallel, RRF at k = 60, dedupe and ACL, a cross-encoder on the top 50.
+    Walk the request path with real milliseconds, then break a component and see which fallback you designed.
+    <b>Like a kitchen pass: two cooks plating at once, one expediter merging the tickets, one chef tasting the
+    final fifty.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Operating mode">
+    <button id="v5-ok" aria-pressed="true">healthy</button>
+    <button id="v5-novec" aria-pressed="false">vector service down</button>
+    <button id="v5-nore" aria-pressed="false">reranker times out</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-d">Rerank depth = <span id="v5-dl">50</span> candidates rescored</label>
+    <input type="range" id="v5-d" min="0" max="100" value="50" step="10" aria-label="Rerank depth">
+    <div class="v5-time" id="v5-time"></div>
+    <div class="v5-pills" id="v5-pills"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">The tuning surface is deliberately small, and each knob maps to <b>one</b> metric:
+    per-source depth → candidate recall; the RRF constant → fusion quality; rerank depth → final nDCG; upstream
+    chunk size → latency. So changes are made one at a time against a fixed query set. The pattern's deepest
+    advantage is operational — every stage is well understood, independently replaceable and debuggable, since
+    per-source ranks are preserved for diagnosis. <b>That boringness is the bar</b> the learned sparse
+    retrievers and late-interaction models of the next lessons have to clear.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-time{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v5-s{display:flex;align-items:center;gap:8px;font-size:11px;font-family:ui-monospace,Consolas,monospace}
+    .v5-sn{flex:0 0 96px;line-height:1.25}
+    .v5-bar{flex:1 1 auto;height:16px;border-radius:4px;background:var(--viz-line);overflow:hidden;position:relative}
+    .v5-bar i{display:block;height:100%}
+    .v5-ms{flex:0 0 48px;text-align:right;font-weight:800}
+    .v5-off{opacity:.45}
+    .v5-pills{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v5-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var QPS = 20, MS_PER_PAIR = 0.7;    // 50 candidates ≈ 35 ms of cross-encoder
+    var mode = 0;
+    var btns = [document.getElementById('v5-ok'), document.getElementById('v5-novec'), document.getElementById('v5-nore')];
+    var dEl = document.getElementById('v5-d'), dLab = document.getElementById('v5-dl');
+    var time = document.getElementById('v5-time'), pills = document.getElementById('v5-pills'), why = document.getElementById('v5-why');
+
+    function row(name, ms, colour, sub, off){
+      var w = Math.max(2, Math.min(100, Math.round(ms / 90 * 100)));
+      return '<div class="v5-s' + (off ? ' v5-off' : '') + '">' +
+        '<span class="v5-sn">' + name + '<br><span style="color:var(--viz-muted);font-size:9.5px">' + sub + '</span></span>' +
+        '<span class="v5-bar"><i style="width:' + w + '%;background:' + colour + '"></i></span>' +
+        '<span class="v5-ms" style="color:' + colour + '">' + (off ? '—' : ms + ' ms') + '</span></div>';
+    }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+      var depth = Number(dEl.value);
+      if (!isFinite(depth) || depth < 0) depth = 0;
+      dLab.textContent = depth;
+
+      var vecDown = mode === 1, reOff = mode === 2 || depth === 0;
+      var cands = vecDown ? 100 : 160;
+      var used = Math.min(depth, cands);
+      var retrieval = vecDown ? 20 : 25;                 // 15 ms and 20 ms run CONCURRENTLY, +5 overhead
+      var merge = 6;                                     // RRF is microseconds; dedupe + ACL is the cost
+      var rerank = reOff ? 0 : Math.round(used * MS_PER_PAIR);
+      var overhead = 14;
+      var total = retrieval + merge + rerank + overhead;
+      var pairs = reOff ? 0 : QPS * used;
+
+      time.innerHTML =
+        row('BM25', 15, 'var(--viz-amber)', 'top 100, inverted index', false) +
+        row('dense ANN', 20, 'var(--viz-violet)', vecDown ? 'DOWN — no candidates' : 'top 100, vector index', vecDown) +
+        row('wall clock', retrieval, 'var(--viz-accent)', 'both in PARALLEL, + overhead', false) +
+        row('RRF + dedupe + ACL', merge, 'var(--viz-accent)', 'fusion itself is microseconds', false) +
+        row('cross-encoder', rerank, 'var(--viz-green)', reOff ? 'not running' : used + ' pairs @ 0.7 ms', reOff) +
+        row('serialise + net', overhead, 'var(--viz-muted)', 'the rest of the p95', false);
+
+      var tc = total <= 80 ? 'var(--viz-green)' : 'var(--viz-red)';
+      pills.innerHTML =
+        '<span class="v5-pill" style="color:' + tc + ';border-color:' + tc + '">p95 ≈ ' + total + ' ms</span>' +
+        '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + cands + ' unique candidates</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+          (pairs > 0 ? pairs.toLocaleString() + ' pairs/s @ ' + QPS + ' qps' : 'reranker off — 0 pairs/s') + '</span>';
+
+      var head, extra = '';
+      if (vecDown) {
+        head = '<b style="color:var(--viz-amber)">Degraded mode, and it was designed.</b>' +
+          'The pipeline serves <b>BM25-only fusion with a logged flag</b> — an evaluated configuration, not an accident. ' +
+          'Latency actually improves to ' + total + ' ms, which is the trap: the dashboard looks healthy. ' +
+          'What you lost is paraphrase coverage, so <code>how to stop feeling dizzy when standing up</code> now fails silently while ' +
+          '<code>error 0x80070057 windows update</code> is unaffected. That is exactly the asymmetry from visual 2, seen from the operations side.';
+      } else if (reOff) {
+        head = '<b style="color:var(--viz-amber)">Serving the fused order.</b>' +
+          'With no cross-encoder the system returns RRF\'s ranking directly, at ' + total + ' ms. This is also the deliberate choice under a ' +
+          '<b>hard latency floor below 40 ms</b>: drop the reranker and fuse shallower. You keep recall and lose joint query-document attention, ' +
+          'which is precisely the effectiveness-versus-efficiency trade the previous lesson priced.';
+      } else {
+        head = '<b style="color:var(--viz-green)">Every component covers a specific weakness of the others.</b>' +
+          'BM25 guarantees exact-term competence and explainability; dense guarantees paraphrase coverage; RRF merges them with no tunable weights ' +
+          'and no drift-prone normalization; the cross-encoder applies joint attention exactly where the budget allows. ' +
+          'The union is 140–180 unique documents and the fusion itself costs microseconds — <b>the money is in the reranker</b>.';
+        extra = '<br><br><b style="display:inline;font-size:12.5px">Capacity arithmetic, unchanged from the previous lesson:</b> pair throughput = query rate × rerank depth = ' +
+          QPS + ' × ' + used + ' = <b style="display:inline">' + pairs.toLocaleString() + ' pairs/second</b>. Doubling the depth doubles the GPU bill and adds ' +
+          Math.round(used * MS_PER_PAIR) + ' ms; it does not double quality.';
+      }
+
+      var strain = '<br><br><b style="display:inline;font-size:12.5px">The pattern is also defined by what it leaves out:</b> no learned fusion weights ' +
+        '(there are no labels to maintain them with), no score calibration across stages (the reranker rescores rather than trusting fused magnitudes), ' +
+        'and no per-query routing (fusion makes routing unnecessary for most traffic). Honest strain points: homogeneous traffic such as a pure exact-SKU ' +
+        'catalogue makes the dense half dead weight; small corpora collapse the funnel into one stage; and multi-tenant deployments must push ACL filters ' +
+        '<em>into</em> the retrievers, because filtering after fusion starves the reranker of eligible candidates.';
+
+      why.innerHTML = head + extra + strain;
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    dEl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

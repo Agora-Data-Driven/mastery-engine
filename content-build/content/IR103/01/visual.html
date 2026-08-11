@@ -1,0 +1,591 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Sets To Scores</button>
+  <button class="viz-tab" data-viz-tab="2">2. The Saturation Curve</button>
+  <button class="viz-tab" data-viz-tab="3">3. Rarity Is Information</button>
+  <button class="viz-tab" data-viz-tab="4">4. Choosing A Scheme</button>
+  <button class="viz-tab" data-viz-tab="5">5. Title Boost Crossover</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Sets To Scores</h2>
+  <p class="vz-lede">The <b>inverted index</b> told you which documents contain a term, and
+    <b>Boolean query processing by intersecting postings</b> turned that into a set — a set with no
+    order inside it. Four documents, query <code>vector database</code>, corpus of N = 10,000.
+    Change the scoring rule and watch the winner change.
+    <b>Like a shortlist versus a ranked shortlist: same names, but now someone has said who is first.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Scoring rule">
+    <button id="v1-bool" aria-pressed="true">Boolean AND</button>
+    <button id="v1-raw" aria-pressed="false">sum of raw tf</button>
+    <button id="v1-rawidf" aria-pressed="false">raw tf × idf</button>
+    <button id="v1-logidf" aria-pressed="false">log tf × idf</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v1-rows" id="v1-rows"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Both halves of the weight are visible here and they answer different questions.
+    <b>tf</b> is within-document evidence; <b>idf</b> is across-collection discrimination. D4 has the most
+    occurrences of anything in the set and the least rare vocabulary — which rule you pick decides whether
+    that reads as the strongest match or the weakest.</p>
+
+  <style>
+    .v1-rows{display:flex;flex-direction:column;gap:7px}
+    .v1-r{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v1-r.is-top{border-color:var(--viz-green)}
+    .v1-r.is-out{opacity:.5;border-style:dashed}
+    .v1-head{display:flex;align-items:baseline;gap:8px;font-size:11.5px;font-family:ui-monospace,Consolas,monospace}
+    .v1-nm{font-weight:800;font-size:12.5px}
+    .v1-sc{margin-left:auto;font-weight:800;font-size:12.5px;font-family:ui-monospace,Consolas,monospace}
+    .v1-track{height:13px;border-radius:4px;background:var(--viz-line);overflow:hidden;margin-top:6px}
+    .v1-track i{display:block;height:100%}
+    .v1-rk{font-size:10px;font-weight:800;letter-spacing:.04em;color:var(--viz-muted)}
+    .v1-why{margin-top:14px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 10000, DF_V = 100, DF_D = 1000;
+    var IV = Math.log(N / DF_V);           // 4.605 — `vector`
+    var ID = Math.log(N / DF_D);           // 2.303 — `database`
+    function lw(x){ return x > 0 ? 1 + Math.log(x) : 0; }
+
+    var DOCS = [
+      { n:'D1', v:5, d:1 },
+      { n:'D2', v:2, d:2 },
+      { n:'D3', v:3, d:1 },
+      { n:'D4', v:0, d:10 }
+    ];
+    var RULES = {
+      bool:   { f:function(x){ return (x.v > 0 && x.d > 0) ? 1 : 0; }, txt:function(s){ return s ? 'in the set' : 'excluded'; },
+        why:['A set, not a ranking — this is where IR 101 stopped.',
+          'Three documents contain both terms and are therefore equally, indistinguishably correct. D4 is excluded because it never says <code>vector</code>. Nothing here can answer "which of these three should the user read first", because the index only recorded <em>whether</em> a term occurs. Ranking begins by deciding <b>how much each match means</b>.'] },
+      raw:    { f:function(x){ return x.v + x.d; }, txt:function(s){ return s.toFixed(0); },
+        why:['Repetition alone buys the top rank.',
+          'The naive rule is <code>S(q,d) = sum of tf</code> over query terms. D1 scores 5 + 1 = 6, D2 scores 2 + 2 = 4 — and <b>D4 wins with 10</b>, on ten occurrences of the common word and not a single occurrence of the rare one. Two separate faults are visible at once: the tenth occurrence counted exactly as much as the first, and a match on <code>database</code> counted exactly as much as a match on <code>vector</code>.'] },
+      rawidf: { f:function(x){ return x.v * IV + x.d * ID; }, txt:function(s){ return s.toFixed(2); },
+        why:['Rarity now counts, but repetition is still linear.',
+          'One <code>vector</code> occurrence is worth <b>4.605</b> and one <code>database</code> occurrence <b>2.303</b> — twice as much, because df 100 against df 1,000 narrows the candidate population by another factor of ten. D1 takes the lead at 25.33. But D4 is still within touching distance at 23.03 purely by repeating a common term ten times, because raw tf multiplies without limit.'] },
+      logidf: { f:function(x){ return lw(x.v) * IV + lw(x.d) * ID; }, txt:function(s){ return s.toFixed(2); },
+        why:['Both corrections applied — the prose baseline.',
+          'With <code>w = (1 + ln tf) · ln(N/df)</code>, D3’s <code>vector</code> term contributes (1 + ln 3)(4.605) ≈ <b>9.665</b> and its <code>database</code> term 2.303. D4 collapses to 7.60: its ten repetitions are worth only 3.303, and they are worth that on the term that discriminates least. The rare term dominates, repetition is moderated, and this is exactly the weight the next lesson assembles into a vector.'] }
+    };
+
+    var cur = 'bool';
+    var btns = { bool:document.getElementById('v1-bool'), raw:document.getElementById('v1-raw'),
+                 rawidf:document.getElementById('v1-rawidf'), logidf:document.getElementById('v1-logidf') };
+    var rows = document.getElementById('v1-rows'), why = document.getElementById('v1-why');
+
+    function render(){
+      var rule = RULES[cur];
+      Object.keys(btns).forEach(function(k){ btns[k].setAttribute('aria-pressed', k === cur ? 'true' : 'false'); });
+
+      var scored = DOCS.map(function(x){ return { d:x, s:rule.f(x) }; });
+      var max = scored.reduce(function(m, r){ return Math.max(m, r.s); }, 0);
+      var safe = max > 0 ? max : 1;                      // never divide by zero
+      var order = scored.slice().sort(function(a, b){ return b.s - a.s; });
+      var top = order[0].s;
+      var tied = order.filter(function(r){ return r.s === top && top > 0; }).length;
+
+      rows.innerHTML = order.map(function(r, i){
+        var out = r.s <= 0;
+        var isTop = !out && r.s === top;
+        var col = out ? 'var(--viz-muted)' : (isTop ? 'var(--viz-green)' : 'var(--viz-accent)');
+        var rank = out ? 'not ranked' : (cur === 'bool' ? 'tied' : 'rank ' + (i + 1));
+        return '<div class="v1-r ' + (out ? 'is-out' : (isTop ? 'is-top' : '')) + '">' +
+          '<div class="v1-head"><span class="v1-nm">' + r.d.n + '</span>' +
+          '<span>vector ×' + r.d.v + ' · database ×' + r.d.d + '</span>' +
+          '<span class="v1-sc" style="color:' + col + '">' + rule.txt(r.s) + '</span></div>' +
+          '<div class="v1-track"><i style="width:' + Math.max(2, Math.round(r.s / safe * 100)) + '%;background:' + col + '"></i></div>' +
+          '<div class="v1-rk">' + rank + '</div></div>';
+      }).join('');
+
+      why.innerHTML = '<b>' + rule.why[0] + '</b>' +
+        '<span style="color:var(--viz-muted)">' +
+        (cur === 'bool' ? tied + ' documents qualify and none of them is first.'
+                        : 'Winner: ' + order[0].d.n + ' · last: ' + order[order.length - 1].d.n + '.') +
+        '</span><br><br>' + rule.why[1];
+    }
+    Object.keys(btns).forEach(function(k){
+      btns[k].addEventListener('click', function(){ cur = k; render(); });
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. The Saturation Curve</h2>
+  <p class="vz-lede">Raw term frequency claims the tenth occurrence is worth exactly what the first was.
+    Drag the count, or jump to a landmark value, and compare what each transform pays for it — then read
+    the spam row, where a document repeating the term against a relevant document’s 8 occurrences is
+    scored by each rule. <b>Like a tip jar: the first coin tells you something, the fiftieth tells you
+    almost nothing new.</b></p>
+
+  <div class="vz-card">
+    <label class="v2-lab" for="v2-tf">term frequency <span id="v2-tfl">10</span> occurrences</label>
+    <input type="range" id="v2-tf" min="1" max="100" value="10" step="1" aria-label="Term frequency">
+    <div class="vz-seg" role="group" aria-label="Landmark frequencies" id="v2-jump"></div>
+    <svg class="v2-svg" id="v2-svg" viewBox="0 0 300 132" preserveAspectRatio="none" aria-hidden="true"></svg>
+    <div class="v2-tab" id="v2-tab"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The transform is a claim about the field, not a universal law. <b>Binary</b> for
+    categories and exact attributes, where repetition means nothing; <b>sublinear</b> for prose; <b>raw
+    counts</b> mainly when the counts themselves are the phenomenon. And note the branch at zero: extending
+    <code>1 + log tf</code> to tf = 0 is undefined, so the rule carries an explicit 0 case rather than a
+    generic fallback — sparse implementations simply store nothing for absent terms.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v2-lab span{color:var(--viz-accent)}
+    .v2-svg{width:100%;height:132px;margin-top:6px;display:block;border:1.5px solid var(--viz-line);
+      border-radius:8px;background:var(--viz-bg)}
+    .v2-tab{margin-top:11px;display:flex;flex-direction:column;gap:4px}
+    .v2-row{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      border:1.5px solid var(--viz-line);border-radius:9px;padding:7px 10px;background:var(--viz-bg)}
+    .v2-key{flex:0 0 96px;font-weight:800}
+    .v2-val{margin-left:auto;font-weight:800}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MAXTF = 100;                       // the document’s largest term frequency, for the augmented form
+    var s = document.getElementById('v2-tf'), lab = document.getElementById('v2-tfl');
+    var svg = document.getElementById('v2-svg'), tab = document.getElementById('v2-tab');
+    var why = document.getElementById('v2-why'), jump = document.getElementById('v2-jump');
+
+    function logw(t){ return t > 0 ? 1 + Math.log(t) : 0; }
+    function sqw(t){ return t > 0 ? Math.sqrt(t) : 0; }
+    function binw(t){ return t > 0 ? 1 : 0; }
+    function augw(t){ return t > 0 ? 0.5 + 0.5 * (t / MAXTF) : 0; }
+    function ratio(a, b){ return b > 0 ? a / b : 0; }   // never divide by zero
+
+    var CURVES = [
+      { k:'raw tf',     f:function(t){ return t; },   c:'var(--viz-red)',    top:100 },
+      { k:'sqrt tf',    f:sqw,                        c:'var(--viz-amber)',  top:10 },
+      { k:'1 + ln tf',  f:logw,                       c:'var(--viz-green)',  top:1 + Math.log(100) },
+      { k:'binary',     f:binw,                       c:'var(--viz-violet)', top:1 }
+    ];
+
+    function draw(t){
+      var W = 300, H = 132, PAD = 6;
+      var parts = ['<line x1="0" y1="' + (H - PAD) + '" x2="' + W + '" y2="' + (H - PAD) +
+        '" stroke="var(--viz-line)" stroke-width="1"/>'];
+      CURVES.forEach(function(cv){
+        var pts = [];
+        for (var x = 1; x <= 100; x++) {
+          var y = ratio(cv.f(x), cv.top);                       // each curve scaled to its own value at tf = 100
+          pts.push((PAD + (x - 1) / 99 * (W - 2 * PAD)).toFixed(1) + ',' + (H - PAD - y * (H - 2 * PAD)).toFixed(1));
+        }
+        parts.push('<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + cv.c + '" stroke-width="2"/>');
+      });
+      var mx = PAD + (t - 1) / 99 * (W - 2 * PAD);
+      parts.push('<line x1="' + mx.toFixed(1) + '" y1="0" x2="' + mx.toFixed(1) + '" y2="' + H +
+        '" stroke="var(--viz-ink)" stroke-width="1" stroke-dasharray="3 3"/>');
+      svg.innerHTML = parts.join('');
+    }
+
+    function render(){
+      var t = Number(s.value);
+      lab.textContent = t;
+      draw(t);
+      [].slice.call(jump.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', STOPS[i] === t ? 'true' : 'false');
+      });
+
+      var vals = [
+        { k:'raw tf',    v:t,        c:'var(--viz-red)',    note:'linear, unbounded' },
+        { k:'sqrt tf',   v:sqw(t),   c:'var(--viz-amber)',  note:'sublinear, gentler than log' },
+        { k:'1 + ln tf', v:logw(t),  c:'var(--viz-green)',  note:'the prose baseline' },
+        { k:'binary',    v:binw(t),  c:'var(--viz-violet)', note:'saturates at the first occurrence' },
+        { k:'augmented', v:augw(t),  c:'var(--viz-accent)', note:'0.5 + 0.5(tf / max tf), max tf = 100 here' }
+      ];
+      var spamRaw = ratio(t, 8), spamLog = ratio(logw(t), logw(8)),
+          spamSq = ratio(sqw(t), sqw(8)), spamBin = ratio(binw(t), binw(8));
+
+      tab.innerHTML = vals.map(function(r){
+        return '<div class="v2-row"><span class="v2-key" style="color:' + r.c + '">' + r.k + '</span>' +
+          '<span style="color:var(--viz-muted)">' + r.note + '</span>' +
+          '<span class="v2-val" style="color:' + r.c + '">' + r.v.toFixed(3) + '</span></div>';
+      }).join('') +
+        '<div class="v2-row" style="border-color:var(--viz-line);border-style:dashed">' +
+        '<span class="v2-key">vs tf = 8</span>' +
+        '<span style="color:var(--viz-muted)">how many times more evidence than a document with 8</span>' +
+        '<span class="v2-val">raw ' + spamRaw.toFixed(2) + '× · sqrt ' + spamSq.toFixed(2) +
+        '× · log ' + spamLog.toFixed(2) + '× · binary ' + spamBin.toFixed(2) + '×</span></div>';
+
+      why.innerHTML = t >= 60
+        ? '<b style="color:var(--viz-red)">The worked spam comparison lives here.</b>' +
+          'A relevant document R contains <code>retrieval</code> 8 times in 1,000 words; a spam document S repeats it ' + t +
+          ' times in 300. Raw tf hands S <b>' + spamRaw.toFixed(2) + '×</b> R’s term evidence. Log tf gives ' +
+          '1 + ln 8 ≈ 3.08 against 1 + ln ' + t + ' ≈ ' + logw(t).toFixed(2) + ' — only <b>' + spamLog.toFixed(2) + '×</b>. ' +
+          '<br><br>Sublinearity does not <em>solve</em> spam or length bias. It stops repetition from dominating proportionally, which is a different and more modest claim — and it is why the next lesson still has document length normalization to do.'
+        : t >= 10
+          ? '<b style="color:var(--viz-green)">Diminishing returns, made arithmetic.</b>' +
+            'Frequencies 1, 2, 10 and 100 become 1, 1.693, 3.303 and 5.605. Going from 10 to 100 is a <em>tenfold</em> increase in occurrences and adds only ln 10 ≈ 2.303 to the weight, not 90 units. ' +
+            '<br><br>Any logarithm base gives the same ranking when applied consistently, up to a scale factor — so the base is a convention, not a modelling decision. Drag past 60 for the spam case.'
+          : '<b style="color:var(--viz-accent)">The first occurrences are the informative ones.</b>' +
+            'The first <code>database</code> changes the document from nonmatching to matching; the second supports topicality; the fiftieth may be boilerplate or keyword stuffing. Every curve except raw tf is steepest here and flattens later, which is precisely the belief being encoded. ' +
+            '<br><br>Watch the <b>augmented</b> row as you drag: it divides by the document’s own maximum term frequency, so it removes document-specific scale — but one highly repeated unrelated term would change that maximum and rewrite every other weight in the document.';
+    }
+
+    var STOPS = [1, 2, 8, 10, 80, 100];
+    STOPS.forEach(function(v){
+      var b = document.createElement('button');
+      b.textContent = 'tf ' + v;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ s.value = String(v); render(); });
+      jump.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Rarity Is Information</h2>
+  <p class="vz-lede">idf is not a heuristic — it is the information content of an observation. Drag a
+    term’s document frequency through a corpus of N = 10,000 and watch the derivation recompute:
+    p = df/N, information = &minus;log p, and therefore idf = log(N/df).
+    <b>Like being told someone’s birthday month versus their exact date of birth — the rarer answer
+    narrows the crowd more.</b></p>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-df">document frequency <span id="v3-dfl">100</span> of N = 10,000</label>
+    <input type="range" id="v3-df" min="0" max="11" value="4" step="1" aria-label="Document frequency">
+    <div class="v3-marks" id="v3-marks"></div>
+    <div class="vz-mono v3-der" id="v3-der"></div>
+    <div class="v3-pills" id="v3-pills"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two things that follow, and both bite in production. <b>df counts documents, not
+    occurrences</b> — repeating a term 1,000 times in one document raises collection frequency and adds
+    exactly 1 to df, which is what makes idf complementary to tf rather than a second copy of it. And idf is
+    a property of <b>this collection</b>: add documents and both N and df move, so scores from separately
+    computed indexes — or from independently-scored segments — are not inherently comparable.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v3-lab span{color:var(--viz-accent)}
+    .v3-marks{margin-top:12px;display:flex;flex-direction:column;gap:4px}
+    .v3-m{display:flex;align-items:center;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:11px;
+      border:1.5px solid var(--viz-line);border-radius:8px;padding:6px 9px;background:var(--viz-bg)}
+    .v3-m.is-here{border-color:var(--viz-accent)}
+    .v3-bar{flex:1;height:10px;border-radius:3px;background:var(--viz-line);overflow:hidden}
+    .v3-bar i{display:block;height:100%}
+    .v3-der{margin-top:12px;border:1.5px dashed var(--viz-line);border-radius:9px;padding:10px 11px;background:var(--viz-bg)}
+    .v3-pills{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 10000;
+    // Log-ish stops, so one drag spans "absent" to "in every document".
+    var DFS = [0, 1, 10, 50, 100, 250, 500, 1000, 2000, 5000, 9000, 10000];
+    var NAMED = [
+      { w:'a3f9-2210 (a stray id)', df:1 },
+      { w:'vector', df:100 },
+      { w:'database', df:1000 },
+      { w:'the', df:10000 }
+    ];
+    var MAX_IDF = Math.log(N / 1);
+
+    var s = document.getElementById('v3-df'), lab = document.getElementById('v3-dfl');
+    var marks = document.getElementById('v3-marks'), der = document.getElementById('v3-der');
+    var pills = document.getElementById('v3-pills'), why = document.getElementById('v3-why');
+
+    function idfOf(df){ return df > 0 ? Math.log(N / df) : null; }          // df = 0 divides by zero
+    function smoothed(df){ return Math.log((N + 1) / (df + 1)) + 1; }
+
+    function render(){
+      var df = DFS[Number(s.value)];
+      lab.textContent = df.toLocaleString();
+      var idf = idfOf(df);
+      var p = df / N;
+
+      marks.innerHTML = NAMED.map(function(t){
+        var v = idfOf(t.df) || 0;
+        var here = t.df === df;
+        var col = here ? 'var(--viz-accent)' : 'var(--viz-muted)';
+        return '<div class="v3-m ' + (here ? 'is-here' : '') + '"><span style="flex:0 0 132px;color:' + col + '">' +
+          t.w + '</span><span class="v3-bar"><i style="width:' + Math.max(1, Math.round(v / MAX_IDF * 100)) +
+          '%;background:' + col + '"></i></span><span style="flex:0 0 84px;text-align:right;color:' + col + '">df ' +
+          t.df.toLocaleString() + ' → ' + v.toFixed(2) + '</span></div>';
+      }).join('');
+
+      if (idf === null) {
+        der.textContent =
+          'df = 0\n' +
+          'p  = df / N = 0\n' +
+          'idf = log(N / 0)  →  UNDEFINED (division by zero)\n\n' +
+          'A term absent from the corpus has no postings at all, so it\n' +
+          'contributes nothing. Absence is handled BEFORE scoring, not\n' +
+          'rescued by the formula.';
+      } else {
+        der.textContent =
+          'p   = df / N = ' + df.toLocaleString() + ' / 10,000 = ' + p.toFixed(4) + '\n' +
+          'info = −log p = −log(' + p.toFixed(4) + ') = ' + idf.toFixed(3) + '\n' +
+          'idf = log(N / df) = log(' + (N / df).toFixed(2) + ') = ' + idf.toFixed(3) + '\n\n' +
+          'smoothed: log((N+1)/(df+1)) + 1 = ' + smoothed(df).toFixed(3);
+      }
+
+      var col = idf === null ? 'var(--viz-red)' : (idf < 0.5 ? 'var(--viz-red)' : (idf > 6 ? 'var(--viz-amber)' : 'var(--viz-green)'));
+      var share = idf === null ? 0 : idf / Math.log(N / 1000);
+      pills.innerHTML =
+        '<span class="v3-pill" style="color:' + col + ';border-color:' + col + '">idf = ' +
+          (idf === null ? 'not defined' : idf.toFixed(3)) + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">smoothed ' +
+          smoothed(df).toFixed(3) + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' +
+          (idf === null ? 'no postings' : share.toFixed(2) + '× one database match') + '</span>';
+
+      why.innerHTML = idf === null
+        ? '<b style="color:var(--viz-red)">df = 0: the unsmoothed formula divides by zero.</b>' +
+          'This is the edge case implementations must handle before scoring rather than inside it. Very small corpora are unstable for the same reason. <b>Smoothed variants</b> such as <code>log((N+1)/(df+1)) + 1</code>, or <code>log(N/(1+df))</code>, keep the value finite and positive — but they are engineering conventions, not interchangeable numbers, so persist the exact formula with the model configuration.'
+        : df >= N
+          ? '<b style="color:var(--viz-red)">Every document contains it, so idf = log 1 = 0.</b>' +
+            'Matching <code>the</code> distinguishes nothing at all — the observation carries zero information because it was certain in advance. This is the same fact that stop-word removal exploited in IR 101, arriving here as arithmetic rather than as a list.' +
+            '<br><br>Note that the <b>smoothed</b> value is ' + smoothed(df).toFixed(3) + ', not 0. Smoothing keeps weights positive, which changes rankings at the margins. Know which formula your index used.'
+          : df <= 1
+            ? '<b style="color:var(--viz-amber)">Maximally rare — and not automatically trustworthy.</b>' +
+              'idf peaks at ' + idf.toFixed(2) + ' here, but a random UUID, a typo, or an extraction corruption is maximally rare and may be useless. Vocabulary filtering, spelling correction, field rules and quality controls stop noise from taking extreme influence; capping idf or ignoring terms below a minimum collection frequency helps too — while recognising that <b>genuine identifiers are also rare</b>, and that exact rare-identifier matching is lexical retrieval’s great strength.'
+            : '<b style="color:var(--viz-green)">One match here is worth ' + share.toFixed(2) + ' matches on <code>database</code>.</b>' +
+              'At df = 100, idf = ln 100 ≈ 4.605 against ln 10 ≈ 2.303 for df = 1,000 — <b>exactly twice</b>, because <code>vector</code> narrows the candidate population by one further factor of ten. Each factor-of-ten drop in df adds a constant ln 10 to the weight; that constant increment is what "logarithmic" buys you.' +
+              '<br><br>The rarity signal is real and it is also blind: it says a term is discriminating, never that it is meaningful. Phrase constraints and analyzer quality do the rest.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Choosing A Scheme</h2>
+  <p class="vz-lede">tf-idf is not one formula but a family of weighting schemes, and every member is a
+    claim about what repetition and rarity mean in your field. Set a term’s tf and df and compare the
+    five variants side by side on the same evidence.
+    <b>Like choosing a scoring system for a competition before anyone plays: the same performances, a
+    different champion.</b></p>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-tf">tf in this document: <span id="v4-tfl">3</span></label>
+    <input type="range" id="v4-tf" min="1" max="40" value="3" step="1" aria-label="Term frequency in the document">
+    <label class="v4-lab" for="v4-df" style="margin-top:10px">document frequency: <span id="v4-dfl">100</span> of 10,000</label>
+    <input type="range" id="v4-df" min="0" max="7" value="2" step="1" aria-label="Document frequency">
+    <div class="v4-rows" id="v4-rows"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note"><b>Query weights need not match document weights.</b> A short user query usually
+    contains each term once, so binary query tf is adequate while document tf stays logarithmic — deliberate
+    repetition in a query could boost a term, but accidental repetition should not multiply importance
+    unchecked. <b>SMART notation</b> compresses a combination into three letters for the tf, df and
+    normalization choices: <code>ltc</code> commonly means logarithmic tf, idf, cosine normalization;
+    <code>nnn</code> means raw tf, no idf, no normalization. Document the convention rather than memorising
+    codes without an implementation in front of you.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v4-lab span{color:var(--viz-accent)}
+    .v4-rows{margin-top:14px;display:flex;flex-direction:column;gap:5px}
+    .v4-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v4-r.is-base{border-color:var(--viz-green)}
+    .v4-k{flex:0 0 108px;font-weight:800}
+    .v4-t{flex:1;height:11px;border-radius:3px;background:var(--viz-line);overflow:hidden}
+    .v4-t i{display:block;height:100%}
+    .v4-v{flex:0 0 62px;text-align:right;font-weight:800}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 10000, MAXTF = 20;                 // the document’s largest term frequency
+    var DFS = [1, 10, 100, 500, 1000, 2500, 5000, 10000];
+    var tfS = document.getElementById('v4-tf'), tfL = document.getElementById('v4-tfl');
+    var dfS = document.getElementById('v4-df'), dfL = document.getElementById('v4-dfl');
+    var rows = document.getElementById('v4-rows'), why = document.getElementById('v4-why');
+
+    function idfOf(df){ return df > 0 ? Math.log(N / df) : 0; }
+
+    function render(){
+      var tf = Number(tfS.value), df = DFS[Number(dfS.value)];
+      tfL.textContent = tf;
+      dfL.textContent = df.toLocaleString();
+      var idf = idfOf(df);
+
+      var SCHEMES = [
+        { k:'binary × idf', v:1 * idf,                              c:'var(--viz-violet)', d:'presence only; good for short tag sets' },
+        { k:'raw tf × idf',  v:tf * idf,                             c:'var(--viz-red)',    d:'linear repetition; vulnerable to verbosity' },
+        { k:'log tf × idf',  v:(1 + Math.log(tf)) * idf,             c:'var(--viz-green)',  d:'diminishing returns; the prose baseline' },
+        { k:'augmented',    v:(0.5 + 0.5 * (tf / MAXTF)) * idf,     c:'var(--viz-amber)',  d:'0.5 + 0.5(tf / max tf), max tf = 20 here' },
+        { k:'boolean, no idf', v:1,                                 c:'var(--viz-accent)', d:'exact set matching; rarity must not affect eligibility' }
+      ];
+      var max = SCHEMES.reduce(function(m, r){ return Math.max(m, r.v); }, 0);
+      var safe = max > 0 ? max : 1;                                  // never divide by zero
+
+      rows.innerHTML = SCHEMES.map(function(r){
+        return '<div class="v4-r ' + (r.k.indexOf('log tf') === 0 ? 'is-base' : '') + '">' +
+          '<span class="v4-k" style="color:' + r.c + '">' + r.k + '</span>' +
+          '<span class="v4-t"><i style="width:' + Math.max(1, Math.round(r.v / safe * 100)) + '%;background:' + r.c + '"></i></span>' +
+          '<span class="v4-v" style="color:' + r.c + '">' + r.v.toFixed(3) + '</span></div>';
+      }).join('') +
+        '<div class="v4-r" style="border-style:dashed"><span class="v4-k">idf</span>' +
+        '<span style="flex:1;color:var(--viz-muted)">ln(10,000 / ' + df.toLocaleString() + ')</span>' +
+        '<span class="v4-v">' + idf.toFixed(3) + '</span></div>';
+
+      why.innerHTML = df >= N
+        ? '<b style="color:var(--viz-red)">df = N, so idf = 0 and four of the five schemes read exactly 0.</b>' +
+          'Every scheme that multiplies by idf collapses together, whatever the tf transform did — no amount of repetition rescues a term that every document contains. Only <b>boolean weighting without idf</b> still reports 1, which is the point of having it: some fields want exact set matching where rarity must not affect eligibility at all.'
+        : tf >= 20
+          ? '<b style="color:var(--viz-red)">Raw tf has run away; the others have not.</b>' +
+            'At tf = ' + tf + ' raw tf × idf reads ' + (tf * idf).toFixed(2) + ' while log tf × idf reads ' + ((1 + Math.log(tf)) * idf).toFixed(2) +
+            '. That gap is the verbosity vulnerability in one number. ' +
+            '<br><br>Watch <b>augmented</b> too: it is pinned to the document’s own maximum term frequency (20 here), so it is bounded — but that bound couples every term in the document to one term’s count. Add one highly repeated unrelated word and every other weight in the document moves.'
+          : '<b style="color:var(--viz-green)">The worked example sits at tf = 3, df = 100.</b>' +
+            'Raw tf × idf gives 3(4.605) = <b>13.815</b>; log tf × idf gives (1 + ln 3)(4.605) ≈ <b>9.665</b>. Alongside it a <code>database</code> term with tf 1 and df 1,000 contributes 2.303 either way. The rarer term still dominates, and repetition is moderated. ' +
+            '<br><br>Weighting applies <em>after</em> analysis: if stemming maps <code>databases</code> onto <code>database</code>, their tf and df combine into these very numbers. And a scheme is part of the index model — changing it invalidates score comparisons and may require recomputing stored norms even when the postings never moved.';
+    }
+    tfS.addEventListener('input', render);
+    dfS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Title Boost Crossover</h2>
+  <p class="vz-lede">Document X has <code>vector</code> once in its title and ten times in its body.
+    Document Y has it in the body only. A flat tf-idf lets body repetition dominate, so a fielded scheme
+    scores <code>w &times; title_tfidf + 1 &times; body_tfidf</code>. Move the title weight and Y’s body
+    count, and read off how much repetition it takes to overturn one title match.
+    <b>Like a headline versus a footnote: the same sentence, and everyone knows they are not worth the
+    same.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-w">title weight w = <span id="v5-wl">3</span></label>
+    <input type="range" id="v5-w" min="0" max="5" value="3" step="1" aria-label="Title field weight">
+    <label class="v5-lab" for="v5-y" style="margin-top:10px">Y repeats <code>vector</code> <span id="v5-yl">2</span> times in its body</label>
+    <input type="range" id="v5-y" min="1" max="300" value="2" step="1" aria-label="Y body term frequency">
+    <div class="v5-docs" id="v5-docs"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">This decomposition <em>is</em> the explainability story. For any returned document you
+    can report the matched terms, their document frequencies, transformed term frequencies, field boosts and
+    each one’s contribution to the total — which reveals whether a result won on one rare identifier, on
+    repeated generic prose, or on a boosted title, and makes an analyzer regression visible as a missing
+    expected contribution rather than as a mysterious ranking. Tie those explanations to the exact index
+    generation, or later corpus statistics reconstruct a plausible but historically false score.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+    .v5-lab span{color:var(--viz-accent)}
+    .v5-docs{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+    .v5-d{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v5-d.is-win{border-color:var(--viz-green)}
+    .v5-hd{display:flex;align-items:baseline;gap:8px;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v5-nm{font-weight:800;font-size:12.5px;font-family:inherit}
+    .v5-sc{margin-left:auto;font-weight:800;font-size:12.5px}
+    .v5-stack{display:flex;height:16px;border-radius:4px;overflow:hidden;background:var(--viz-line);margin-top:6px}
+    .v5-stack i{display:block;height:100%}
+    .v5-leg{margin-top:5px;font-size:10.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 10000, DF = 100, IDF = Math.log(N / DF);       // `vector`: 4.605
+    function lw(t){ return t > 0 ? 1 + Math.log(t) : 0; }
+    function pct(a, b){ return b > 0 ? a / b * 100 : 0; }  // never divide by zero
+
+    var wS = document.getElementById('v5-w'), wL = document.getElementById('v5-wl');
+    var yS = document.getElementById('v5-y'), yL = document.getElementById('v5-yl');
+    var docs = document.getElementById('v5-docs'), why = document.getElementById('v5-why');
+
+    function render(){
+      var w = Number(wS.value), yt = Number(yS.value);
+      wL.textContent = w;
+      yL.textContent = yt;
+
+      var xTitle = w * lw(1) * IDF;            // one occurrence in the title
+      var xBody = lw(10) * IDF;                // ten in the body
+      var xTot = xTitle + xBody;
+      var yTot = lw(yt) * IDF;
+      var cross = 10 * Math.exp(w);            // (1 + ln t) = w + (1 + ln 10)  =>  t = 10 e^w
+      var max = Math.max(xTot, yTot, 0.001);
+
+      function row(nm, sub, parts, tot, win){
+        var bars = parts.map(function(p){
+          return '<i style="width:' + Math.max(0, pct(p.v, max)) + '%;background:' + p.c + '"></i>';
+        }).join('');
+        return '<div class="v5-d ' + (win ? 'is-win' : '') + '">' +
+          '<div class="v5-hd"><span class="v5-nm">' + nm + (win ? ' ✓ ranked first' : '') + '</span><span>' + sub + '</span>' +
+          '<span class="v5-sc" style="color:' + (win ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' + tot.toFixed(2) + '</span></div>' +
+          '<div class="v5-stack">' + bars + '</div>' +
+          '<div class="v5-leg">' + parts.map(function(p){
+            return p.k + ' ' + p.v.toFixed(2) + ' (' + pct(p.v, tot).toFixed(0) + '%)';
+          }).join('  ·  ') + '</div></div>';
+      }
+
+      docs.innerHTML =
+        row('X', 'title ×1 · body ×10',
+          [{ k:'title', v:xTitle, c:'var(--viz-violet)' }, { k:'body', v:xBody, c:'var(--viz-accent)' }],
+          xTot, xTot >= yTot) +
+        row('Y', 'title ×0 · body ×' + yt,
+          [{ k:'title', v:0, c:'var(--viz-violet)' }, { k:'body', v:yTot, c:'var(--viz-accent)' }],
+          yTot, yTot > xTot);
+
+      var reach = cross <= 300;
+      why.innerHTML = w === 0
+        ? '<b style="color:var(--viz-amber)">w = 0 is flat tf-idf: the title field does not exist.</b>' +
+          'X scores ' + xTot.toFixed(2) + ' purely on ten body occurrences, and Y overtakes it the moment it repeats the term more than 10 times. Adding title repetitions into a 5,000-word body treats <b>incomparable evidence as one count</b> — three mentions in a six-word title are redundant and suspicious; three in a long body are ordinary. That is the case for computing field-specific statistics or weights in the first place.'
+        : '<b style="color:var(--viz-green)">One boosted title match is worth ' +
+            (reach ? Math.ceil(cross) + ' body occurrences' : Math.round(cross).toLocaleString() + ' body occurrences') + '.</b>' +
+          'The crossover falls out of the algebra: Y wins when (1 + ln t) &gt; w + (1 + ln 10), so <b>t* = 10 &middot; e^w</b> = ' +
+          cross.toFixed(1) + '. Because tf is logarithmic, every extra unit of title weight costs the competitor a further factor of e in repetition — w = 1 needs 27, w = 2 needs 74, w = 3 needs 201. ' +
+          (reach ? '' : 'That is beyond this slider, which is the point: at w = ' + w + ' body repetition has effectively stopped being an answer. ') +
+          '<br><br>Weight selection should be tuned on <b>judged queries</b>, not chosen because a formula is traditional — the numbers on screen are a modelling choice, not a fact about the documents. And note what none of this models: tf-idf says nothing about term <b>proximity</b>, word order, synonymy, or interaction between query terms. It supplies interpretable lexical evidence and stops there.';
+    }
+    wS.addEventListener('input', render);
+    yS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>
