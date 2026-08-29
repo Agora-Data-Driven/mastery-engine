@@ -1,0 +1,895 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the little table.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-surface)}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:8px 0 2px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block;margin:4px 4px 0 0}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+.vz-pres{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.vz-pres button{flex:1 1 120px;min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);
+  color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:11.5px;padding:6px 8px;
+  font-family:ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Drop The Altitude</button>
+  <button class="viz-tab" data-viz-tab="2">2. Sides Over Sines</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Ambiguous Case</button>
+  <button class="viz-tab" data-viz-tab="4">4. The Cosine Correction</button>
+  <button class="viz-tab" data-viz-tab="5">5. Which Law First</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Drop The Altitude</h2>
+  <p class="vz-lede">Every ratio you own — opposite over hypotenuse, solving for a side, solving for an
+    angle — needs a 90° corner, and an oblique triangle has none. So build one: the altitude from C cuts
+    the triangle into two right triangles that <em>share that one segment</em>. Drag the angles and watch
+    the two ways of measuring h refuse to disagree. <b>Like measuring a ceiling's height from two different
+    walls: one ceiling, two calculations that must land on the same number.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-a">angle A = <span id="v1-al">40°</span></label>
+    <input type="range" id="v1-a" min="20" max="140" value="40" step="1" aria-label="Angle A in degrees">
+    <label class="vz-lab" for="v1-b">angle B = <span id="v1-bl">65°</span> &nbsp;·&nbsp; base c = AB = 10 units</label>
+    <input type="range" id="v1-b" min="20" max="140" value="65" step="1" aria-label="Angle B in degrees">
+    <div id="v1-fig" class="v1-fig"></div>
+    <div id="v1-calc"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The altitude is scaffolding: it is erased the moment the law is written down. What
+    survives is the pairing — <b>a side with the sine of the angle across from it</b> — and the fact that
+    the same segment can be measured from either side of the figure. Every question about AAS or ASA is
+    really a question about this one equality.</p>
+
+  <style>
+    .v1-fig{margin:14px 0 4px}
+    .v1-base{stroke:var(--viz-line);stroke-width:1.5}
+    .v1-side{stroke:var(--viz-accent);stroke-width:2.4;fill:none;stroke-linecap:round}
+    .v1-alt{stroke:var(--viz-violet);stroke-width:2;stroke-dasharray:5 4;fill:none}
+    .v1-ext{stroke:var(--viz-muted);stroke-width:1;stroke-dasharray:3 4}
+    .v1-rt{stroke:var(--viz-violet);stroke-width:1.4;fill:none}
+    .v1-t{fill:var(--viz-ink);font-size:11.5px;font-weight:700;font-family:ui-monospace,Consolas,monospace}
+    .v1-tm{fill:var(--viz-muted);font-size:10.5px;font-family:ui-monospace,Consolas,monospace}
+    .v1-dot{fill:var(--viz-accent)}
+    .v1-r{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:baseline;padding:6px 0;
+      border-bottom:1px dashed var(--viz-line);font-size:12px}
+    .v1-k{flex:0 0 118px;color:var(--viz-muted);font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;font-weight:700}
+    .v1-v{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v1-v b{color:var(--viz-accent)}
+  </style>
+  <script>
+  (function(){
+    var BASE = 10, D = Math.PI / 180;
+    var sA = document.getElementById('v1-a'), sB = document.getElementById('v1-b');
+    var lA = document.getElementById('v1-al'), lB = document.getElementById('v1-bl');
+    var fig = document.getElementById('v1-fig'), calc = document.getElementById('v1-calc');
+    var why = document.getElementById('v1-why');
+
+    function f(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 2 : d) : '--'; }
+
+    function render(){
+      var A = Number(sA.value), B = Number(sB.value);
+      if (!isFinite(A)) A = 40;
+      if (!isFinite(B)) B = 65;
+      // Three angles must still fit inside 180° with room to draw, so B is capped
+      // against A and the slider is moved to the value actually used — the readout
+      // must never advertise a triangle that does not exist.
+      if (A + B > 160) { B = 160 - A; sB.value = String(B); }
+      var C = 180 - A - B;
+      lA.textContent = A + '°'; lB.textContent = B + '°';
+
+      var sa = Math.sin(A * D), sb = Math.sin(B * D), sc = Math.sin(C * D);
+      var b = BASE * sb / sc;                 // AC, opposite B
+      var a = BASE * sa / sc;                 // BC, opposite A
+      var cx = b * Math.cos(A * D), cy = b * sa;
+      var h1 = b * sa, h2 = a * sb;
+      // At exactly 90° the foot lands ON a vertex — neither inside the base nor
+      // outside it. Calling that "outside" was wrong at A = 90 and at B = 90.
+      var tol = 1e-6 * BASE;
+      var atVertex = Math.abs(cx) < tol || Math.abs(cx - BASE) < tol;
+      var inside = cx > -tol && cx < BASE + tol;
+
+      /* ---------------------------- the figure ---------------------------- */
+      var W = 330, H = 190, m = 30;
+      var minX = Math.min(0, cx), maxX = Math.max(BASE, cx);
+      var spanX = Math.max(maxX - minX, 0.001), spanY = Math.max(cy, 0.001);
+      var k = Math.min((W - 2 * m) / spanX, (H - 2 * m) / spanY);
+      var ox = m + ((W - 2 * m) - spanX * k) / 2;
+      function X(x){ return ox + (x - minX) * k; }
+      function Y(y){ return H - m - y * k; }
+
+      var s = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Triangle split by its altitude">';
+      s += '<line class="v1-base" x1="' + X(minX) + '" y1="' + Y(0) + '" x2="' + X(maxX) + '" y2="' + Y(0) + '"/>';
+      if (!inside) {
+        s += '<line class="v1-ext" x1="' + X(cx) + '" y1="' + Y(0) + '" x2="' + X(cx < 0 ? 0 : BASE) + '" y2="' + Y(0) + '"/>';
+      }
+      s += '<line class="v1-side" x1="' + X(0) + '" y1="' + Y(0) + '" x2="' + X(BASE) + '" y2="' + Y(0) + '"/>';
+      s += '<line class="v1-side" x1="' + X(0) + '" y1="' + Y(0) + '" x2="' + X(cx) + '" y2="' + Y(cy) + '"/>';
+      s += '<line class="v1-side" x1="' + X(BASE) + '" y1="' + Y(0) + '" x2="' + X(cx) + '" y2="' + Y(cy) + '"/>';
+      s += '<line class="v1-alt" x1="' + X(cx) + '" y1="' + Y(cy) + '" x2="' + X(cx) + '" y2="' + Y(0) + '"/>';
+      var rs = 9, dir = inside ? 1 : (cx < 0 ? 1 : -1);
+      s += '<path class="v1-rt" d="M' + (X(cx) + rs * dir) + ' ' + Y(0) + ' L' + (X(cx) + rs * dir) + ' ' + (Y(0) - rs) + ' L' + X(cx) + ' ' + (Y(0) - rs) + '"/>';
+      s += '<circle class="v1-dot" cx="' + X(0) + '" cy="' + Y(0) + '" r="3.5"/>';
+      s += '<circle class="v1-dot" cx="' + X(BASE) + '" cy="' + Y(0) + '" r="3.5"/>';
+      s += '<circle class="v1-dot" cx="' + X(cx) + '" cy="' + Y(cy) + '" r="3.5"/>';
+      s += '<text class="v1-t" x="' + (X(0) - 6) + '" y="' + (Y(0) + 17) + '" text-anchor="middle">A</text>';
+      s += '<text class="v1-t" x="' + (X(BASE) + 6) + '" y="' + (Y(0) + 17) + '" text-anchor="middle">B</text>';
+      s += '<text class="v1-t" x="' + X(cx) + '" y="' + (Y(cy) - 9) + '" text-anchor="middle">C</text>';
+      s += '<text class="v1-tm" x="' + ((X(0) + X(cx)) / 2 - 10) + '" y="' + ((Y(0) + Y(cy)) / 2) + '">b = ' + f(b) + '</text>';
+      s += '<text class="v1-tm" x="' + ((X(BASE) + X(cx)) / 2 + 4) + '" y="' + ((Y(0) + Y(cy)) / 2) + '">a = ' + f(a) + '</text>';
+      s += '<text class="v1-tm" x="' + ((X(0) + X(BASE)) / 2) + '" y="' + (Y(0) + 17) + '" text-anchor="middle">c = 10</text>';
+      s += '<text class="v1-tm" x="' + (X(cx) + 5) + '" y="' + ((Y(0) + Y(cy)) / 2) + '">h = ' + f(h1) + '</text>';
+      s += '<text class="v1-tm" x="' + X(cx) + '" y="' + (Y(0) + 30) + '" text-anchor="middle">' +
+        (atVertex ? 'the altitude IS a side here' : (inside ? 'foot of the altitude' : 'foot lands OUTSIDE the base')) + '</text>';
+      s += '</svg>';
+      fig.innerHTML = s;
+
+      /* ---------------------------- the algebra --------------------------- */
+      var match = Math.abs(h1 - h2) < 1e-9;
+      calc.innerHTML =
+        '<div class="v1-r"><span class="v1-k">left triangle</span><span class="v1-v">h = b &times; sin A = ' +
+          f(b) + ' &times; ' + f(sa, 4) + ' = <b>' + f(h1, 4) + '</b></span></div>' +
+        '<div class="v1-r"><span class="v1-k">right triangle</span><span class="v1-v">h = a &times; sin B = ' +
+          f(a) + ' &times; ' + f(sb, 4) + ' = <b>' + f(h2, 4) + '</b></span></div>' +
+        '<div class="v1-r"><span class="v1-k">so</span><span class="v1-v">b &times; sin A = a &times; sin B' +
+          (match ? ' &nbsp; (equal to every digit, at every setting)' : ' &nbsp; (gap ' + f(Math.abs(h1 - h2), 6) + ')') + '</span></div>' +
+        '<div class="v1-r"><span class="v1-k">divide by sinA sinB</span><span class="v1-v">a / sin A = ' +
+          f(a / sa, 3) + ' &nbsp;=&nbsp; b / sin B = ' + f(b / sb, 3) + '</span></div>';
+
+      if (atVertex) {
+        var rv = Math.abs(cx) < tol ? 'A' : 'B';
+        why.innerHTML = '<b style="color:var(--viz-violet)">' + rv + ' = 90°, so the altitude and a side are the same segment.</b>' +
+          'There is nothing left to construct: the perpendicular from C to AB <em>is</em> side ' + (rv === 'A' ? 'b' : 'a') +
+          ', and h = ' + (rv === 'A' ? 'b &times; sin 90° = b = ' + f(b) : 'a &times; sin 90° = a = ' + f(a)) + '. ' +
+          'The right-triangle work of the earlier lessons is this law with one of the sines equal to 1 — a special case sitting inside it, not a separate subject.' +
+          '<br><br>Move the slider one degree either way and the foot steps off the vertex, in one direction onto the base and in the other beyond it.';
+      } else if (inside) {
+        why.innerHTML = '<b>One segment, two right triangles, one equation.</b>' +
+          'The altitude is the only thing the two halves share, so writing it twice and setting the two ' +
+          'expressions equal costs nothing — and what falls out, <b>a / sin A = b / sin B</b>, is the Law of ' +
+          'sines. Notice which pairs form: <em>a</em> with <em>A</em>, the side and the angle it faces. ' +
+          '<code>a / sin B</code> appears nowhere and is the most common wrong turn in this lesson.' +
+          '<br><br>Right-triangle trigonometry is not being replaced here, it is being <em>reused</em>: ' +
+          'the only tool applied to each half was opposite ÷ hypotenuse.';
+      } else {
+        var ob = A > 90 ? A : B, obName = A > 90 ? 'A' : 'B';
+        why.innerHTML = '<b style="color:var(--viz-violet)">' + obName + ' = ' + ob + '°, so the foot slides off the base — and nothing breaks.</b>' +
+          'With an obtuse angle at ' + obName + ' the perpendicular from C misses segment AB, and the ' +
+          'right triangle you actually get contains <b>180° &minus; ' + ob + '° = ' + (180 - ob) + '°</b> at that vertex. ' +
+          'From the unit circle, sin(180° &minus; x) = sin x — the same reflection that makes the sine graph symmetric about 90° — ' +
+          'so h = b &times; sin A still holds, digit for digit, as the two readings above show. ' +
+          '<br><br>That is why the law is stated for <em>any</em> triangle with no case split: the obtuse case was never a different case.';
+      }
+    }
+    sA.addEventListener('input', render);
+    sB.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Sides Over Sines</h2>
+  <p class="vz-lede">Three separate divisions that always land on the same number. Choose whether your one
+    known side is opposite a known angle (AAS) or wedged between the two (ASA), then drag anything: the
+    three ratios move together and never separate. <b>Like a photograph and its enlargement — every length
+    changes, every proportion survives.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which side you were given">
+    <button id="v2-aas" aria-pressed="true">AAS · side a is opposite angle A</button>
+    <button id="v2-asa" aria-pressed="false">ASA · side c sits between A and B</button>
+  </div>
+  <div class="vz-pres" id="v2-pres"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-ang-a">angle A = <span id="v2-al">30°</span></label>
+    <input type="range" id="v2-ang-a" min="20" max="140" value="30" step="1" aria-label="Angle A in degrees">
+    <label class="vz-lab" for="v2-ang-b">angle B = <span id="v2-bl">60°</span></label>
+    <input type="range" id="v2-ang-b" min="20" max="140" value="60" step="1" aria-label="Angle B in degrees">
+    <label class="vz-lab" for="v2-side">the one known side = <span id="v2-sl">5</span> units</label>
+    <input type="range" id="v2-side" min="1" max="20" value="5" step="1" aria-label="Length of the known side">
+    <div id="v2-rows" class="v2-rows"></div>
+    <div id="v2-pills"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two angles and any one side is always enough, and the reason is worth saying out loud:
+    the angle sum hands you the third angle, which fixes the <b>shape</b>, and the one length fixes the
+    <b>scale</b>. Three angles alone would fix the shape and leave the scale free — which is exactly why
+    AAA can never be solved, and why every solvable configuration on the next visuals contains a side.</p>
+
+  <style>
+    .v2-rows{margin-top:12px}
+    .v2-r{display:flex;align-items:center;gap:8px;margin-bottom:5px}
+    .v2-nm{flex:0 0 22px;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:800}
+    .v2-bar{flex:1;height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-bar i{display:block;height:100%;background:var(--viz-accent)}
+    .v2-num{flex:0 0 96px;text-align:right;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v2-eq{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--viz-muted);
+      padding:3px 0 3px 30px;border-bottom:1px dashed var(--viz-line)}
+    .v2-eq b{color:var(--viz-ink)}
+    .v2-given{font-size:9.5px;font-weight:800;letter-spacing:.04em;color:var(--viz-violet)}
+    .v2-ex{color:var(--viz-green);font-style:normal;font-weight:700}
+  </style>
+  <script>
+  (function(){
+    var D = Math.PI / 180;
+    var bAAS = document.getElementById('v2-aas'), bASA = document.getElementById('v2-asa');
+    var sA = document.getElementById('v2-ang-a'), sB = document.getElementById('v2-ang-b'), sS = document.getElementById('v2-side');
+    var lA = document.getElementById('v2-al'), lB = document.getElementById('v2-bl'), lS = document.getElementById('v2-sl');
+    var pres = document.getElementById('v2-pres'), rows = document.getElementById('v2-rows');
+    var pills = document.getElementById('v2-pills'), why = document.getElementById('v2-why');
+    var aas = true;
+
+    function f(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 3 : d) : '--'; }
+
+    // Reports an exact form ONLY when the live number really is one, to 1e-9.
+    // Nothing here is read off a preset label, so no button can advertise a value
+    // the sliders are unable to produce.
+    function exact(v){
+      if (!isFinite(v)) return '';
+      var r = Math.round(v);
+      if (Math.abs(v - r) < 1e-9) return String(r);
+      var roots = [2, 3];
+      for (var i = 0; i < roots.length; i++) {
+        var k = v / Math.sqrt(roots[i]), h = Math.round(k * 2) / 2;
+        if (h !== 0 && Math.abs(k - h) < 1e-9) return (h === 1 ? '' : h + '&middot;') + 'sqrt(' + roots[i] + ')';
+      }
+      return '';
+    }
+
+    function render(){
+      var A = Number(sA.value), B = Number(sB.value), S = Number(sS.value);
+      if (!isFinite(A)) A = 30;
+      if (!isFinite(B)) B = 60;
+      if (!isFinite(S) || S <= 0) S = 5;
+      if (A + B > 160) { B = 160 - A; sB.value = String(B); }
+      var C = 180 - A - B;
+      lA.textContent = A + '°'; lB.textContent = B + '°'; lS.textContent = String(S);
+      bAAS.setAttribute('aria-pressed', aas ? 'true' : 'false');
+      bASA.setAttribute('aria-pressed', aas ? 'false' : 'true');
+
+      var sa = Math.sin(A * D), sb = Math.sin(B * D), sc = Math.sin(C * D);
+      var k = aas ? S / sa : S / sc;              // the common ratio, set by the given side
+      var a = k * sa, b = k * sb, c = k * sc;
+      var sides = [a, b, c], sins = [sa, sb, sc], nm = ['a', 'b', 'c'], an = ['A', 'B', 'C'];
+      var angs = [A, B, C];
+      var givenIdx = aas ? 0 : 2;
+      var mx = Math.max(a, Math.max(b, c));
+
+      var html = '';
+      for (var i = 0; i < 3; i++) {
+        var ex = exact(sides[i]);
+        html += '<div class="v2-r"><span class="v2-nm">' + nm[i] + '</span>' +
+          '<span class="v2-bar"><i style="width:' + Math.max(2, sides[i] / mx * 100) + '%"></i></span>' +
+          '<span class="v2-num">' + f(sides[i]) + (i === givenIdx ? ' <span class="v2-given">GIVEN</span>' : '') + '</span></div>' +
+          '<div class="v2-eq">' + nm[i] + ' / sin ' + an[i] + ' = ' + f(sides[i]) + ' / ' + f(sins[i], 4) +
+          ' = <b>' + f(sides[i] / sins[i]) + '</b>' + (ex ? ' &nbsp; (' + nm[i] + ' is exactly ' + ex + ')' : '') + '</div>';
+      }
+      rows.innerHTML = html;
+
+      var rs = [a / sa, b / sb, c / sc];
+      var spread = Math.max(rs[0], Math.max(rs[1], rs[2])) - Math.min(rs[0], Math.min(rs[1], rs[2]));
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">third angle C = ' + C + '°</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">common ratio 2R = ' + f(k) + '</span>' +
+        '<span class="vz-pill" style="color:' + (spread < 1e-9 ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+          (spread < 1e-9 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (spread < 1e-9 ? 'all three ratios AGREE' : 'ratios DISAGREE by ' + f(spread, 6)) + '</span>';
+
+      var iso = Math.abs(A - B) < 1e-9;
+      why.innerHTML =
+        '<b>' + (aas
+          ? 'AAS: the given side already has its own angle, so one ratio is complete from the start.'
+          : 'ASA: the given side sits between the known angles, so it is opposite the third one.') + '</b>' +
+        (aas
+          ? 'a = ' + f(a) + ' pairs with A = ' + A + '°, which fixes the constant at ' + f(k) + ' immediately; every other side is that constant times the sine of its own angle.'
+          : 'c = ' + f(c) + ' faces C, and C is not given — you have to make it, with 180° &minus; ' + A + '° &minus; ' + B + '° = ' + C + '°. Only then is a ratio complete. <b>The angle sum is the first move in ASA, and the Law of sines is what finishes the job.</b>') +
+        '<br><br>Either way the law used is <b>the Law of sines</b>: two angles and one side is precisely the data it consumes. The Law of cosines could not start here at all — it needs two sides.' +
+        (iso ? '<br><br><b style="color:var(--viz-green)">A = B right now, so a = b = ' + f(a) + ' exactly.</b>Identical ratios must carry identical sides; that is a proportion being read, not a calculation being done.' : '') +
+        '<br><br><span style="color:var(--viz-muted)">The constant is not an accident of these numbers: it is 2R, the diameter of the circle through all three vertices, which is why one number serves all three sides.</span>';
+    }
+
+    var PRESETS = [
+      { t:'A=45°, B=45°, a=8', aas:true,  A:45, B:45, S:8 },
+      { t:'A=30°, B=60°, a=5', aas:true,  A:30, B:60, S:5 },
+      { t:'A=50°, B=60°, a=7', aas:true,  A:50, B:60, S:7 },
+      { t:'ASA · A=35°, B=80°, c=9', aas:false, A:35, B:80, S:9 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        aas = p.aas; sA.value = String(p.A); sB.value = String(p.B); sS.value = String(p.S); render();
+      });
+      pres.appendChild(btn);
+    });
+    bAAS.addEventListener('click', function(){ aas = true; render(); });
+    bASA.addEventListener('click', function(){ aas = false; render(); });
+    sA.addEventListener('input', render);
+    sB.addEventListener('input', render);
+    sS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Ambiguous Case</h2>
+  <p class="vz-lede">You are handed an angle A, the side b beside it, and the side a across from it — and
+    that is not always enough to name one triangle. Swing the arc of radius a from C and count where it
+    lands on the base: zero, one, or two places. <b>Like a compass on paper: the pencil can reach the line
+    twice, graze it once, or fall short of it entirely.</b></p>
+
+  <div class="vz-pres" id="v3-pres"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-ang">angle A = <span id="v3-angl">30°</span> &nbsp;·&nbsp; adjacent side b = AC = 10 (fixed)</label>
+    <input type="range" id="v3-ang" min="20" max="120" value="30" step="1" aria-label="Angle A in degrees">
+    <label class="vz-lab" for="v3-opp">opposite side a = <span id="v3-oppl">7.0</span></label>
+    <input type="range" id="v3-opp" min="10" max="160" value="70" step="1" aria-label="Length of side a, in tenths">
+    <div id="v3-fig" class="v3-fig"></div>
+    <div id="v3-verdict"></div>
+    <div id="v3-sols" class="v3-sols"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Nothing here is a quirk of the drawing. sin B = sin(180° &minus; B), so the equation
+    <b>sin B = b·sin A / a</b> has two answers below 180° whenever it has any, and geometry decides whether
+    the obtuse one still leaves room for A. An inverse-sine key hands back only the acute answer and cannot
+    warn you — which is why SSA is the one configuration you check by hand, and why the cosine law, whose
+    inverse has no such twin, is the safer tool for angles.</p>
+
+  <style>
+    .v3-fig{margin:12px 0 10px}
+    .v3-base{stroke:var(--viz-line);stroke-width:1.5}
+    .v3-b{stroke:var(--viz-accent);stroke-width:2.4;fill:none;stroke-linecap:round}
+    .v3-alt{stroke:var(--viz-muted);stroke-width:1.6;stroke-dasharray:4 4;fill:none}
+    .v3-arc{fill:none;stroke:var(--viz-violet);stroke-width:1.6;stroke-dasharray:5 5}
+    .v3-s1{stroke:var(--viz-green);stroke-width:2.4;fill:none;stroke-linecap:round}
+    .v3-s2{stroke:var(--viz-amber);stroke-width:2.4;fill:none;stroke-linecap:round}
+    .v3-t{fill:var(--viz-ink);font-size:11.5px;font-weight:700;font-family:ui-monospace,Consolas,monospace}
+    .v3-tm{fill:var(--viz-muted);font-size:10.5px;font-family:ui-monospace,Consolas,monospace}
+    .v3-sols{margin-top:10px}
+    .v3-sol{display:flex;flex-wrap:wrap;gap:4px 12px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;margin-bottom:6px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-sol span{white-space:nowrap}
+    .v3-tag{font-size:9.5px;font-weight:800;letter-spacing:.04em;margin-left:auto}
+  </style>
+  <script>
+  (function(){
+    var B_SIDE = 10, D = Math.PI / 180;
+    var sAng = document.getElementById('v3-ang'), sOpp = document.getElementById('v3-opp');
+    var lAng = document.getElementById('v3-angl'), lOpp = document.getElementById('v3-oppl');
+    var pres = document.getElementById('v3-pres'), fig = document.getElementById('v3-fig');
+    var verdict = document.getElementById('v3-verdict'), sols = document.getElementById('v3-sols');
+    var why = document.getElementById('v3-why');
+
+    function f(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 2 : d) : '--'; }
+    function cl(v){ return v < -1 ? -1 : (v > 1 ? 1 : v); }
+
+    function render(){
+      var A = Number(sAng.value);
+      var a = Number(sOpp.value) / 10;
+      if (!isFinite(A)) A = 30;
+      if (!isFinite(a) || a <= 0) a = 7;
+      lAng.textContent = A + '°'; lOpp.textContent = a.toFixed(1);
+
+      var cx = B_SIDE * Math.cos(A * D), cy = B_SIDE * Math.sin(A * D);
+      var h = cy;                                  // the altitude from C is exactly b·sin A
+      var disc = a * a - h * h;
+      // A near-zero discriminant is the tangent case, not two triangles a
+      // millionth of a unit apart: the arc grazes the base and there is ONE.
+      var tangent = Math.abs(disc) < 1e-6 * a * a;
+      var reach = tangent || disc > 0;
+      var s = tangent ? 0 : (reach ? Math.sqrt(disc) : 0);
+      var roots = [];
+      if (reach) {
+        var x1 = cx + s, x2 = cx - s;
+        if (x1 > 1e-9) roots.push(x1);
+        if (!tangent && x2 > 1e-9 && Math.abs(x2 - x1) > 1e-9) roots.push(x2);
+      }
+
+      /* ---------------------------- the figure ---------------------------- */
+      var W = 350, H = 150, k = 10, ox = 8, oy = 12;
+      function X(x){ return (x + ox) * k; }
+      function Y(y){ return (oy - y) * k; }
+      var g = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Compass arc cutting the base line">';
+      g += '<line class="v3-base" x1="0" y1="' + Y(0) + '" x2="' + W + '" y2="' + Y(0) + '"/>';
+      g += '<circle class="v3-arc" cx="' + X(cx) + '" cy="' + Y(cy) + '" r="' + (a * k) + '"/>';
+      g += '<line class="v3-alt" x1="' + X(cx) + '" y1="' + Y(cy) + '" x2="' + X(cx) + '" y2="' + Y(0) + '"/>';
+      g += '<line class="v3-b" x1="' + X(0) + '" y1="' + Y(0) + '" x2="' + X(cx) + '" y2="' + Y(cy) + '"/>';
+      roots.forEach(function(x, i){
+        g += '<line class="' + (i === 0 ? 'v3-s1' : 'v3-s2') + '" x1="' + X(cx) + '" y1="' + Y(cy) + '" x2="' + X(x) + '" y2="' + Y(0) + '"/>';
+        g += '<line class="' + (i === 0 ? 'v3-s1' : 'v3-s2') + '" x1="' + X(0) + '" y1="' + Y(0) + '" x2="' + X(x) + '" y2="' + Y(0) + '"/>';
+        g += '<text class="v3-t" x="' + X(x) + '" y="' + (Y(0) + 18) + '" text-anchor="middle">B' + (i + 1) + '</text>';
+      });
+      g += '<circle cx="' + X(0) + '" cy="' + Y(0) + '" r="3.5" fill="var(--viz-accent)"/>';
+      g += '<circle cx="' + X(cx) + '" cy="' + Y(cy) + '" r="3.5" fill="var(--viz-accent)"/>';
+      g += '<text class="v3-t" x="' + (X(0) - 4) + '" y="' + (Y(0) + 18) + '" text-anchor="middle">A</text>';
+      g += '<text class="v3-t" x="' + X(cx) + '" y="' + (Y(cy) - 8) + '" text-anchor="middle">C</text>';
+      g += '<text class="v3-tm" x="' + (X(cx) + 5) + '" y="' + ((Y(cy) + Y(0)) / 2) + '">h = ' + f(h) + '</text>';
+      g += '<text class="v3-tm" x="' + ((X(0) + X(cx)) / 2 - 34) + '" y="' + ((Y(0) + Y(cy)) / 2 - 3) + '">b = 10</text>';
+      if (!reach) g += '<text class="v3-tm" x="' + X(cx) + '" y="' + (Y(0) + 26) + '" text-anchor="middle">arc never reaches the base line</text>';
+      g += '</svg>';
+      fig.innerHTML = g;
+
+      /* --------------------------- the solutions -------------------------- */
+      var ratio = h / a;                              // this is sin B
+      var col, word, tail;
+      if (roots.length === 2) { col = 'var(--viz-amber)'; word = 'TWO TRIANGLES FIT'; }
+      else if (roots.length === 1) { col = 'var(--viz-green)'; word = tangent ? 'ONE — the arc just grazes it' : 'ONE TRIANGLE'; }
+      else { col = 'var(--viz-red)'; word = 'NO TRIANGLE'; }
+      tail = reach
+        ? 'sin B = b&middot;sin A / a = ' + f(h, 3) + ' / ' + f(a, 3) + ' = ' + f(ratio, 4)
+        : 'sin B would have to be ' + f(ratio, 3) + ', and no angle has a sine above 1';
+      verdict.innerHTML =
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + word + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">h = b&middot;sin A = ' + f(h, 3) + '</span>' +
+        '<div class="vz-mono" style="margin-top:8px;color:var(--viz-muted)">' + tail + '</div>';
+
+      var out = '';
+      roots.forEach(function(x, i){
+        var Bang = Math.acos(cl((x - cx) / a)) / D;
+        var Cang = 180 - A - Bang;
+        out += '<div class="v3-sol" style="border-color:' + (i === 0 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' +
+          '<span>B' + (i + 1) + ' = ' + f(Bang, 1) + '°</span><span>C = ' + f(Cang, 1) + '°</span>' +
+          '<span>c = ' + f(x, 2) + '</span>' +
+          '<span class="v3-tag" style="color:' + (i === 0 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' +
+          (Bang > 90 ? 'OBTUSE at B' : 'ACUTE at B') + '</span></div>';
+      });
+      if (!roots.length) out = '<div class="v3-sol" style="border-color:var(--viz-red)"><span>no values of B and c close this figure</span></div>';
+      sols.innerHTML = out;
+
+      var acute = reach ? Math.asin(cl(ratio)) / D : 0;
+      why.innerHTML = roots.length === 2
+        ? '<b style="color:var(--viz-amber)">h &lt; a &lt; b — the arc crosses twice, so the data is genuinely ambiguous.</b>' +
+          'a = ' + f(a) + ' is long enough to reach the base (h = ' + f(h, 2) + ') but still shorter than b = 10, so both ' +
+          '<b>B = ' + f(acute, 1) + '°</b> and its partner <b>' + f(180 - acute, 1) + '°</b> leave room for A = ' + A + '°. ' +
+          'Two different triangles carry these same three measurements; a question that gives you SSA and expects one answer is usually testing exactly this.' +
+          '<br><br>The tell is structural: the given angle is <em>not</em> between the two given sides, so nothing pins which side of the altitude the third vertex falls on.'
+        : roots.length === 1
+          ? '<b style="color:var(--viz-green)">' + (tangent
+              ? 'a = h exactly — the arc is tangent, and the single triangle it makes is right-angled at B.'
+              : 'a &ge; b, so the second crossing lands behind A and is not a triangle at all.') + '</b>' +
+            (tangent
+              ? 'This is the knife edge between two triangles and none. Move a a hair down and the arc misses the line; a hair up and it cuts twice.'
+              : 'The obtuse candidate would be B = ' + f(180 - acute, 1) + '°, and A + that is ' + f(A + 180 - acute, 1) + '° — already at or past 180°, so it cannot close. When the side opposite the known angle is the longer one, SSA is safe.') +
+            '<br><br>Note that the arithmetic never told you this: sin B = ' + f(ratio, 4) + ' has two solutions in both cases, and only the geometry rejects one.'
+          : '<b style="color:var(--viz-red)">a &lt; h — the arc falls short and no triangle exists.</b>' +
+            'The shortest possible path from C to the base line is the perpendicular, h = ' + f(h, 3) + '. A side of ' + f(a) +
+            ' cannot span it, and the algebra agrees: sin B = ' + f(ratio, 3) + ' is impossible. ' +
+            '<br><br>A calculator asked for the inverse sine of that number returns an error or a non-real value — one of the few places the arithmetic warns you at all.';
+    }
+
+    var PRESETS = [
+      { t:'A=30°, a=4.0', A:30, a:40 },
+      { t:'A=30°, a=5.0', A:30, a:50 },
+      { t:'A=30°, a=7.0', A:30, a:70 },
+      { t:'A=30°, a=12.0', A:30, a:120 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ sAng.value = String(p.A); sOpp.value = String(p.a); render(); });
+      pres.appendChild(btn);
+    });
+    sAng.addEventListener('input', render);
+    sOpp.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. The Cosine Correction</h2>
+  <p class="vz-lede">c² = a² + b² is a statement about right triangles. Bend the corner and one term
+    appears to fix it up — and that term is zero at exactly 90°. Drag the included angle and watch the
+    Pythagorean theorem pass by as a single point on the dial. <b>Like a door: the wall-to-handle distance
+    depends entirely on how far it is swung open.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="What you are solving for">
+    <button id="v4-sas" aria-pressed="true">SAS · two sides + the angle between → find c</button>
+    <button id="v4-sss" aria-pressed="false">SSS · three sides → find the angle</button>
+  </div>
+  <div class="vz-pres" id="v4-pres"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-a">side a = <span id="v4-alab">3</span></label>
+    <input type="range" id="v4-a" min="1" max="12" value="3" step="1" aria-label="Length of side a">
+    <label class="vz-lab" for="v4-b">side b = <span id="v4-blab">4</span></label>
+    <input type="range" id="v4-b" min="1" max="12" value="4" step="1" aria-label="Length of side b">
+    <div id="v4-angwrap">
+      <label class="vz-lab" for="v4-ang">included angle C = <span id="v4-anglab">90°</span></label>
+      <input type="range" id="v4-ang" min="1" max="179" value="90" step="1" aria-label="Included angle C in degrees">
+    </div>
+    <div id="v4-cwrap">
+      <label class="vz-lab" for="v4-c">third side c = <span id="v4-clab">5</span></label>
+      <input type="range" id="v4-c" min="1" max="24" value="5" step="1" aria-label="Length of side c">
+    </div>
+    <div id="v4-out" class="v4-out"></div>
+    <div id="v4-bars" class="v4-bars"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Read the term, do not memorise the formula: <b>&minus;2ab·cos C</b> is a signed
+    correction to the Pythagorean sum. Positive cosine (a sharp corner) pulls the far ends together;
+    zero cosine (a right angle) leaves the theorem you already had; negative cosine (a blunt corner) pushes
+    them apart. Rearranged for the angle it is the one tool that recovers an angle with no ambiguity at all,
+    because cosine is one-to-one across the whole 0°–180° range a triangle angle can occupy.</p>
+
+  <style>
+    .v4-out{margin-top:12px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.75}
+    .v4-out div{border-bottom:1px dashed var(--viz-line);padding:3px 0}
+    .v4-out b{color:var(--viz-accent)}
+    .v4-bars{margin-top:12px;display:flex;flex-direction:column;gap:9px}
+    .v4-bar h6{margin:0 0 3px;font-size:11px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%}
+    .v4-warn{border:1.5px solid var(--viz-red);border-radius:9px;padding:9px 10px;font-size:12px;line-height:1.5}
+  </style>
+  <script>
+  (function(){
+    var D = Math.PI / 180;
+    var bSAS = document.getElementById('v4-sas'), bSSS = document.getElementById('v4-sss');
+    var sa = document.getElementById('v4-a'), sb = document.getElementById('v4-b');
+    var sAng = document.getElementById('v4-ang'), sc = document.getElementById('v4-c');
+    var la = document.getElementById('v4-alab'), lb = document.getElementById('v4-blab');
+    var lAng = document.getElementById('v4-anglab'), lc = document.getElementById('v4-clab');
+    var wAng = document.getElementById('v4-angwrap'), wC = document.getElementById('v4-cwrap');
+    var pres = document.getElementById('v4-pres'), out = document.getElementById('v4-out');
+    var bars = document.getElementById('v4-bars'), why = document.getElementById('v4-why');
+    var sas = true;
+
+    function f(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 3 : d) : '--'; }
+    function cl(v){ return v < -1 ? -1 : (v > 1 ? 1 : v); }
+    function exact(v){
+      if (!isFinite(v)) return '';
+      var r = Math.round(v);
+      if (Math.abs(v - r) < 1e-9) return String(r);
+      var roots = [2, 3];
+      for (var i = 0; i < roots.length; i++) {
+        var k = v / Math.sqrt(roots[i]), hh = Math.round(k * 2) / 2;
+        if (hh !== 0 && Math.abs(k - hh) < 1e-9) return (hh === 1 ? '' : hh + '&middot;') + 'sqrt(' + roots[i] + ')';
+      }
+      return '';
+    }
+    function bar(t, v, mx, col, sub){
+      return '<div class="v4-bar"><h6><span>' + t + '</span><span style="color:' + col + '">' + sub + '</span></h6>' +
+        '<div class="v4-track"><i style="width:' + Math.max(1, Math.min(100, v / mx * 100)) + '%;background:' + col + '"></i></div></div>';
+    }
+
+    function render(){
+      var a = Number(sa.value), b = Number(sb.value);
+      var C = Number(sAng.value), c = Number(sc.value);
+      if (!isFinite(a) || a <= 0) a = 3;
+      if (!isFinite(b) || b <= 0) b = 4;
+      if (!isFinite(C)) C = 90;
+      if (!isFinite(c) || c <= 0) c = 5;
+      la.textContent = String(a); lb.textContent = String(b);
+      lAng.textContent = C + '°'; lc.textContent = String(c);
+      bSAS.setAttribute('aria-pressed', sas ? 'true' : 'false');
+      bSSS.setAttribute('aria-pressed', sas ? 'false' : 'true');
+      wAng.style.display = sas ? 'block' : 'none';
+      wC.style.display = sas ? 'none' : 'block';
+
+      var pyth = a * a + b * b;
+
+      if (sas) {
+        var cosC = Math.cos(C * D);
+        if (Math.abs(cosC) < 1e-12) cosC = 0;               // 90° is exact, not "-0.00"
+        var corr = -2 * a * b * cosC;
+        var c2 = pyth + corr, cc = Math.sqrt(Math.max(c2, 0));
+        var ex = exact(cc);
+        var word = corr < 0 ? 'SUBTRACTS' : (corr > 0 ? 'ADDS' : 'VANISHES');
+        var col = corr < 0 ? 'var(--viz-green)' : (corr > 0 ? 'var(--viz-red)' : 'var(--viz-violet)');
+        out.innerHTML =
+          '<div>c&sup2; = a&sup2; + b&sup2; &minus; 2ab&middot;cos C</div>' +
+          '<div>&nbsp;&nbsp; = ' + (a * a) + ' + ' + (b * b) + ' &minus; 2(' + a + ')(' + b + ')(' + f(cosC, 4) + ')</div>' +
+          '<div>&nbsp;&nbsp; = ' + f(pyth, 2) + ' ' + (corr < 0 ? '&minus; ' + f(-corr, 2) : '+ ' + f(corr, 2)) + ' = <b>' + f(c2, 2) + '</b></div>' +
+          '<div>c = <b>' + f(cc) + '</b>' + (ex ? ' &nbsp; (exactly ' + ex + ')' : '') + '</div>';
+        var mx = Math.max(pyth, c2);
+        bars.innerHTML =
+          bar('a&sup2; + b&sup2; (the Pythagorean value)', pyth, mx, 'var(--viz-muted)', f(pyth, 2)) +
+          bar('c&sup2; (the real third side, squared)', c2, mx, col, f(c2, 2)) +
+          '<div style="font-size:11.5px;color:' + col + ';font-weight:700">correction &minus;2ab&middot;cos C = ' +
+          f(corr, 2) + ' &nbsp;&mdash;&nbsp; it ' + word + '</div>';
+        why.innerHTML = corr === 0
+          ? '<b style="color:var(--viz-violet)">C = 90°: cos C = 0, the correction disappears, and c&sup2; = a&sup2; + b&sup2;.</b>' +
+            'The Pythagorean theorem is not a different rule sitting alongside this one — it is <b>this law evaluated at one angle</b>. ' +
+            'With a = ' + a + ' and b = ' + b + ' that gives c = ' + f(cc) + ', exactly what the right-triangle work of the earlier lessons would give. ' +
+            '<br><br>Nudge the angle one degree either way and the term reappears with a sign; the right angle is a single point on this dial, not a region.'
+          : corr < 0
+            ? '<b style="color:var(--viz-green)">C = ' + C + '° &lt; 90°: cos C &gt; 0, so the term subtracts and c is SHORTER than ' + f(Math.sqrt(pyth), 3) + '.</b>' +
+              'Closing the corner walks the two far endpoints toward each other. At the extreme, C &rarr; 0° folds the sides flat and c &rarr; |a &minus; b| = ' + Math.abs(a - b) + '. ' +
+              (Math.abs(a - b) < 1e-9 && Math.abs(C - 60) < 1e-9
+                ? '<br><br><b>Right now a = b and C = 60°, so c = ' + f(cc) + ' — all three sides equal. An equilateral triangle is what SAS must return here, and it does.</b>'
+                : '<br><br>Notice that the sides never changed: the third side is a function of the <em>angle between</em> them, which is why SAS determines a triangle and AAA does not.')
+            : '<b style="color:var(--viz-red)">C = ' + C + '° &gt; 90°: cos C &lt; 0, so &minus;2ab&middot;cos C is POSITIVE and c is LONGER than ' + f(Math.sqrt(pyth), 3) + '.</b>' +
+              'Opening the corner pushes the endpoints apart. At the extreme, C &rarr; 180° flattens the triangle into a segment and c &rarr; a + b = ' + (a + b) + '. ' +
+              '<br><br>Everything between those limits is one continuous dial, and the right angle you were trained on is just the place where the correction happens to be zero.';
+      } else {
+        var lo = Math.abs(a - b), hi = a + b;
+        var okTri = c > lo + 1e-12 && c < hi - 1e-12;
+        if (!okTri) {
+          out.innerHTML = '<div class="v4-warn">These three lengths cannot close into a triangle: with a = ' + a +
+            ' and b = ' + b + ', the third side must lie strictly between |a &minus; b| = ' + lo + ' and a + b = ' + hi +
+            ', and c = ' + c + ' does not. No angle exists to compute.</div>';
+          bars.innerHTML = '';
+          why.innerHTML = '<b style="color:var(--viz-red)">The triangle inequality fails, and the formula tells you so.</b>' +
+            'cos C would come out as ' + f((a * a + b * b - c * c) / (2 * a * b), 3) + ', outside the range [&minus;1, 1] that any cosine can take. ' +
+            'That is the arithmetic refusing an impossible figure rather than returning a wrong angle — the same protection the SSA arc gives you in visual 3. ' +
+            '<br><br>Drag c back inside the window and the three angles reappear.';
+          return;
+        }
+        var cosA = cl((b * b + c * c - a * a) / (2 * b * c));
+        var cosB = cl((a * a + c * c - b * b) / (2 * a * c));
+        var cosCc = cl((a * a + b * b - c * c) / (2 * a * b));
+        var Aa = Math.acos(cosA) / D, Bb = Math.acos(cosB) / D, Cc = Math.acos(cosCc) / D;
+        var sides = [a, b, c], angs = [Aa, Bb, Cc], nm = ['a', 'b', 'c'], an = ['A', 'B', 'C'];
+        var si = 0, ai = 0;
+        for (var i = 1; i < 3; i++) { if (sides[i] > sides[si]) si = i; if (angs[i] > angs[ai]) ai = i; }
+        out.innerHTML =
+          '<div>cos C = (a&sup2; + b&sup2; &minus; c&sup2;) / 2ab</div>' +
+          '<div>&nbsp;&nbsp; = (' + (a * a) + ' + ' + (b * b) + ' &minus; ' + (c * c) + ') / ' + (2 * a * b) + ' = <b>' + f(cosCc, 4) + '</b></div>' +
+          '<div>C = <b>' + f(Cc, 2) + '°</b> &nbsp; (' + (cosCc < 0 ? 'obtuse — the cosine came out negative' : (Math.abs(cosCc) < 1e-12 ? 'a right angle — cos C = 0' : 'acute — the cosine came out positive')) + ')</div>' +
+          '<div>A = ' + f(Aa, 2) + '° &nbsp; B = ' + f(Bb, 2) + '° &nbsp; sum = <b>' + f(Aa + Bb + Cc, 2) + '°</b></div>';
+        bars.innerHTML =
+          bar('longest side is ' + nm[si] + ' = ' + sides[si], sides[si], Math.max(a, Math.max(b, c)), 'var(--viz-accent)', 'side ' + nm[si]) +
+          bar('largest angle is ' + an[ai] + ' = ' + f(angs[ai], 1) + '°', angs[ai], 180, 'var(--viz-violet)', 'angle ' + an[ai]) +
+          '<div style="font-size:11.5px;font-weight:700;color:' + (si === ai ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (si === ai ? 'MATCHES — the longest side faces the largest angle' : 'MISMATCH — this should be impossible; check the arithmetic') + '</div>';
+        why.innerHTML = '<b>Three sides, no angles: only the Law of cosines can start.</b>' +
+          'There is no side paired with a known angle anywhere in SSS, so the sine ratio has no complete member to build on. Rearranging the cosine law hands you any angle you want directly from the three lengths. ' +
+          '<br><br><b>And the reading is unambiguous.</b> Cosine is strictly decreasing from 1 at 0° to &minus;1 at 180°, so exactly one angle in that range has cos C = ' + f(cosCc, 4) + '. ' +
+          'The sign alone classifies it: negative means obtuse. Compare visual 3, where sin B = a number left two candidates standing. ' +
+          '<br><br>Once one angle is out you may finish with the sine law, but take the angle opposite the <em>shorter</em> side — it cannot be the obtuse one, so the ambiguity never arises.';
+      }
+    }
+
+    var PRESETS = [
+      { t:'SAS · a=3, b=4, C=90°', sas:true,  a:3, b:4, C:90 },
+      { t:'SAS · a=5, b=5, C=60°', sas:true,  a:5, b:5, C:60 },
+      { t:'SSS · a=7, b=8, c=13',  sas:false, a:7, b:8, c:13 },
+      { t:'SSS · a=4, b=6, c=9',   sas:false, a:4, b:6, c:9 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        sas = p.sas; sa.value = String(p.a); sb.value = String(p.b);
+        if (p.C !== undefined) sAng.value = String(p.C);
+        if (p.c !== undefined) sc.value = String(p.c);
+        render();
+      });
+      pres.appendChild(btn);
+    });
+    bSAS.addEventListener('click', function(){ sas = true; render(); });
+    bSSS.addEventListener('click', function(){ sas = false; render(); });
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    sAng.addEventListener('input', render);
+    sc.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Which Law First</h2>
+  <p class="vz-lede">One triangle, six measurements, and six ways a problem might hand you three of them.
+    Pick a configuration and the solve plan rewrites itself with these numbers — including the one setup
+    that cannot be solved at all. <b>Like a locksmith reading which teeth are cut: the key you were given
+    decides which door opens first.</b></p>
+
+  <div class="vz-card" style="margin-bottom:12px">
+    <label class="vz-lab" for="v5-b">side b = <span id="v5-blab">9</span> &nbsp;(from A to C)</label>
+    <input type="range" id="v5-b" min="2" max="14" value="9" step="1" aria-label="Length of side b">
+    <label class="vz-lab" for="v5-c">side c = <span id="v5-clab">12</span> &nbsp;(from A to B)</label>
+    <input type="range" id="v5-c" min="2" max="14" value="12" step="1" aria-label="Length of side c">
+    <label class="vz-lab" for="v5-ang">angle A between them = <span id="v5-anglab">55°</span></label>
+    <input type="range" id="v5-ang" min="10" max="170" value="55" step="1" aria-label="Angle A in degrees">
+    <div id="v5-grid" class="v5-grid"></div>
+    <div id="v5-checks" class="v5-checks"></div>
+  </div>
+
+  <div class="vz-seg" id="v5-seg" role="group" aria-label="What you were given"></div>
+
+  <div class="vz-card">
+    <div id="v5-verdict"></div>
+    <div id="v5-plan" class="v5-plan"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">The classification is the whole skill, and it comes down to one question:
+    <b>is any side paired with the angle opposite it?</b> If yes, the Law of sines can start. If no, it
+    cannot, and the Law of cosines must — which is why SAS and SSS belong to it. A word problem is this
+    same decision wearing units: label the figure, name the configuration, then apply the law that fits.</p>
+
+  <style>
+    .v5-grid{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+    .v5-chip{flex:1 1 92px;border:1.5px solid var(--viz-line);border-radius:9px;padding:6px 8px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.35}
+    .v5-chip em{display:block;font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.04em;margin-top:2px}
+    .v5-checks{margin-top:11px;padding-top:10px;border-top:1px dashed var(--viz-line);
+      font-size:11.5px;line-height:1.65;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v5-checks b{color:var(--viz-ink)}
+    .v5-plan{margin-top:10px}
+    .v5-step{display:flex;gap:9px;padding:7px 0;border-bottom:1px dashed var(--viz-line);font-size:12.5px;line-height:1.5}
+    .v5-n{flex:0 0 17px;font-weight:800;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v5-step code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+  </style>
+  <script>
+  (function(){
+    var D = Math.PI / 180;
+    var sb = document.getElementById('v5-b'), sc = document.getElementById('v5-c'), sAng = document.getElementById('v5-ang');
+    var lb = document.getElementById('v5-blab'), lc = document.getElementById('v5-clab'), lAng = document.getElementById('v5-anglab');
+    var grid = document.getElementById('v5-grid'), checks = document.getElementById('v5-checks');
+    var seg = document.getElementById('v5-seg'), verdict = document.getElementById('v5-verdict');
+    var plan = document.getElementById('v5-plan'), why = document.getElementById('v5-why');
+    var cur = 0;
+
+    function f(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 2 : d) : '--'; }
+    function cl(v){ return v < -1 ? -1 : (v > 1 ? 1 : v); }
+
+    var CONFIGS = [
+      { k:'SAS', given:['b', 'c', 'A'], law:'cosines' },
+      { k:'SSS', given:['a', 'b', 'c'], law:'cosines' },
+      { k:'ASA', given:['A', 'B', 'c'], law:'sines' },
+      { k:'AAS', given:['A', 'B', 'a'], law:'sines' },
+      { k:'SSA', given:['A', 'a', 'b'], law:'sines' },
+      { k:'AAA', given:['A', 'B', 'C'], law:'none' }
+    ];
+
+    function solve(){
+      var b = Number(sb.value), c = Number(sc.value), A = Number(sAng.value);
+      if (!isFinite(b) || b <= 0) b = 9;
+      if (!isFinite(c) || c <= 0) c = 12;
+      if (!isFinite(A)) A = 55;
+      var a = Math.sqrt(Math.max(b * b + c * c - 2 * b * c * Math.cos(A * D), 1e-12));
+      var B = Math.acos(cl((a * a + c * c - b * b) / (2 * a * c))) / D;
+      var C = 180 - A - B;
+      return { a:a, b:b, c:c, A:A, B:B, C:C, h:b * Math.sin(A * D), area:0.5 * b * c * Math.sin(A * D) };
+    }
+
+    function steps(T, cfg){
+      var shortName = T.b <= T.c ? 'b' : 'c', shortLen = T.b <= T.c ? T.b : T.c;
+      var shortAng = T.b <= T.c ? 'B' : 'C', shortVal = T.b <= T.c ? T.B : T.C;
+      if (cfg.k === 'SAS') {
+        return [
+          'The known angle A sits <em>between</em> the known sides, so no ratio is complete and the sine law cannot start. <b>Law of cosines:</b> <code>a&sup2; = b&sup2; + c&sup2; &minus; 2bc&middot;cos A = ' + f(T.b * T.b + T.c * T.c - 2 * T.b * T.c * Math.cos(T.A * D)) + '</code>, so <b>a = ' + f(T.a) + '</b>.',
+          'Now a pairs with A, so the sine law works. Use it on the shorter of the two known sides — ' + shortName + ' = ' + shortLen + ' — because the angle opposite the shorter side must be acute: <code>sin ' + shortAng + ' = ' + shortName + '&middot;sin A / a</code> gives <b>' + shortAng + ' = ' + f(shortVal) + '°</b>.',
+          'Last angle from the sum: <code>180° &minus; ' + T.A + '° &minus; ' + f(shortVal) + '° = ' + f(180 - T.A - shortVal) + '°</code>. All six measurements are now known.'
+        ];
+      }
+      if (cfg.k === 'SSS') {
+        var big = T.a >= T.b && T.a >= T.c ? ['a', T.a, 'A', T.A] : (T.b >= T.c ? ['b', T.b, 'B', T.B] : ['c', T.c, 'C', T.C]);
+        return [
+          'No angle at all is known, so nothing can start but the <b>Law of cosines</b>, rearranged: <code>cos X = (sum of the other two squares &minus; the opposite square) / 2&middot;(their product)</code>.',
+          'Take the LARGEST side first, ' + big[0] + ' = ' + f(big[1]) + ', giving <b>' + big[2] + ' = ' + f(big[3]) + '°</b>. Doing the biggest angle first means every angle left is certainly acute.',
+          'Second angle by the sine law (safe now) or the cosine law again, then the third by subtraction from 180°. Solved: A = ' + f(T.A) + '°, B = ' + f(T.B) + '°, C = ' + f(T.C) + '°.'
+        ];
+      }
+      if (cfg.k === 'ASA') {
+        return [
+          'The given side c = ' + T.c + ' lies BETWEEN the two given angles, so it is opposite the unknown third angle. Cheapest first move is the angle sum: <code>C = 180° &minus; ' + T.A + '° &minus; ' + f(T.B) + '° = ' + f(T.C) + '°</code>.',
+          'That completes the ratio <code>c / sin C = ' + f(T.c / Math.sin(T.C * D)) + '</code>, and the <b>Law of sines</b> scales everything from it: <code>a = c&middot;sin A / sin C = ' + f(T.a) + '</code>.',
+          'Same ratio for the last side: <code>b = c&middot;sin B / sin C = ' + f(T.b) + '</code>. The Law of cosines is never needed in ASA.'
+        ];
+      }
+      if (cfg.k === 'AAS') {
+        return [
+          'Here the given side a = ' + f(T.a) + ' is already opposite a given angle, so one ratio is complete before you do anything: <code>a / sin A = ' + f(T.a / Math.sin(T.A * D)) + '</code>.',
+          'Fill in the third angle from the sum: <code>C = 180° &minus; ' + T.A + '° &minus; ' + f(T.B) + '° = ' + f(T.C) + '°</code>.',
+          '<b>Law of sines</b> for both remaining sides: <code>b = ' + f(T.b) + '</code> and <code>c = ' + f(T.c) + '</code>. AAS and ASA differ only in which angle you had to find first.'
+        ];
+      }
+      if (cfg.k === 'SSA') {
+        var amb = T.a < T.b - 1e-9 && T.a > T.h + 1e-9;
+        var acute = Math.asin(cl(T.h / T.a)) / D;
+        return [
+          'A side and its opposite angle are both known, so the <b>Law of sines</b> can start: <code>sin B = b&middot;sin A / a = ' + f(T.h / T.a, 4) + '</code>.',
+          'Then STOP and check the ambiguity. The altitude is <code>h = b&middot;sin A = ' + f(T.h) + '</code>, and a = ' + f(T.a) + '. ' +
+            (amb
+              ? '<b style="color:var(--viz-amber)">h &lt; a &lt; b here, so TWO triangles fit: B = ' + f(acute) + '° or ' + f(180 - acute) + '°.</b> Visual 3 draws both.'
+              : '<b style="color:var(--viz-green)">a &ge; b here, so the obtuse candidate ' + f(180 - acute) + '° would push A + B past 180°. One triangle only.</b>'),
+          'With B settled, <code>C = 180° &minus; A &minus; B</code> and one more sine ratio finishes the side c. The check in step 2 is the whole difficulty of SSA.'
+        ];
+      }
+      return [
+        'Three angles, no side: <b>neither law can start</b>. The sine law needs a length in some ratio, and the cosine law needs two sides.',
+        'The angles fix the SHAPE completely — A = ' + T.A + '°, B = ' + f(T.B) + '°, C = ' + f(T.C) + '° — but nothing fixes the SIZE. The triangle drawn above has sides ' + f(T.a) + ', ' + T.b + ', ' + T.c + '.',
+        'Double every side to ' + f(T.a * 2) + ', ' + (T.b * 2) + ', ' + (T.c * 2) + ' and all three angles are unchanged, so it fits the data equally well. Infinitely many triangles qualify; the problem is under-determined.'
+      ];
+    }
+
+    function render(){
+      var T = solve();
+      lb.textContent = String(T.b); lc.textContent = String(T.c); lAng.textContent = T.A + '°';
+      var cfg = CONFIGS[cur];
+
+      var items = [
+        { n:'a', v:f(T.a), d:'side opposite A' }, { n:'b', v:String(T.b), d:'side opposite B' },
+        { n:'c', v:String(T.c), d:'side opposite C' }, { n:'A', v:T.A + '°', d:'angle at A' },
+        { n:'B', v:f(T.B) + '°', d:'angle at B' }, { n:'C', v:f(T.C) + '°', d:'angle at C' }
+      ];
+      grid.innerHTML = items.map(function(it){
+        var on = cfg.given.indexOf(it.n) >= 0;
+        return '<div class="v5-chip" style="border-color:' + (on ? 'var(--viz-accent)' : 'var(--viz-line)') +
+          ';opacity:' + (on ? '1' : '.55') + '"><span>' + it.n + ' = ' + it.v + '</span>' +
+          '<em style="color:' + (on ? 'var(--viz-accent)' : 'var(--viz-muted)') + '">' + (on ? 'GIVEN' : 'TO FIND') + '</em></div>';
+      }).join('');
+
+      var sides = [T.a, T.b, T.c], angs = [T.A, T.B, T.C], nm = ['a', 'b', 'c'], an = ['A', 'B', 'C'];
+      var si = 0, ai = 0;
+      for (var i = 1; i < 3; i++) { if (sides[i] > sides[si]) si = i; if (angs[i] > angs[ai]) ai = i; }
+      checks.innerHTML =
+        'angle sum: ' + T.A + '° + ' + f(T.B) + '° + ' + f(T.C) + '° = <b>' + f(T.A + T.B + T.C, 1) + '°</b><br>' +
+        'longest side <b>' + nm[si] + ' = ' + f(sides[si]) + '</b> faces largest angle <b>' + an[ai] + ' = ' + f(angs[ai]) + '°</b> — ' +
+        (si === ai ? 'consistent' : 'INCONSISTENT, which would mean an arithmetic error') + '<br>' +
+        'as a survey: two boundaries of <b>' + T.b + ' m</b> and <b>' + T.c + ' m</b> meet at <b>' + T.A + '°</b>; the far boundary is <b>' +
+        f(T.a) + ' m</b> and the plot is <b>' + f(T.area, 1) + ' m&sup2;</b> (&frac12;&middot;b&middot;c&middot;sin A)';
+
+      var kids = seg.children;
+      for (var j = 0; j < kids.length; j++) kids[j].setAttribute('aria-pressed', j === cur ? 'true' : 'false');
+
+      var lawWord = cfg.law === 'cosines' ? 'starts with the LAW OF COSINES'
+        : (cfg.law === 'sines' ? 'starts with the LAW OF SINES' : 'CANNOT BE SOLVED');
+      var lawCol = cfg.law === 'cosines' ? 'var(--viz-violet)' : (cfg.law === 'sines' ? 'var(--viz-green)' : 'var(--viz-red)');
+      verdict.innerHTML =
+        '<span class="vz-pill" style="color:' + lawCol + ';border-color:' + lawCol + '">' + cfg.k + ' &middot; ' + lawWord + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' +
+        (cfg.law === 'none' ? 'no side given' : 'given: ' + cfg.given.join(', ')) + '</span>';
+
+      plan.innerHTML = steps(T, cfg).map(function(s, i){
+        return '<div class="v5-step"><span class="v5-n">' + (i + 1) + '</span><span>' + s + '</span></div>';
+      }).join('');
+
+      why.innerHTML = cfg.law === 'none'
+        ? '<b style="color:var(--viz-red)">AAA is the only configuration on this list that is not a problem you can finish.</b>' +
+          'Solving a general triangle means producing all three sides and all three angles, and three angles supply no length for anything to be measured against. Every configuration that works contains at least one side.'
+        : '<b>Solving a general triangle means all six measurements — three given, three found.</b>' +
+          'The test for which law can start is mechanical: <b>' + (cfg.law === 'sines'
+            ? 'this configuration puts a side opposite a known angle (or lets the 180° sum create one), so a sine ratio is completable.'
+            : 'nothing here pairs a side with the angle facing it, so no sine ratio has two knowns and the cosine law is the only way in.') + '</b>' +
+          '<br><br>Word problems change nothing but the vocabulary. A surveyor with two edges and the angle between them is holding SAS, and reaches for the Law of cosines; a navigator with two bearings and one leg is holding ASA, and reaches for the Law of sines.';
+    }
+
+    CONFIGS.forEach(function(cfg, i){
+      var btn = document.createElement('button');
+      btn.textContent = cfg.k;
+      btn.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      btn.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(btn);
+    });
+    sb.addEventListener('input', render);
+    sc.addEventListener('input', render);
+    sAng.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

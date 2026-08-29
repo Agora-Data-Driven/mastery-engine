@@ -3117,7 +3117,10 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
-    res.json({ reply: out.reply, visual: out.visual, conversationId: saved.id, title: saved.title });
+    // `degraded`/`diag` are present only when the model's JSON envelope was broken and the reply had
+    // to be salvaged out of it (generateAssistantChat). The answer is real; the visual was lost. Say
+    // so rather than pretending the turn was clean — the 🐞 panel explains what happened.
+    res.json({ reply: out.reply, visual: out.visual, conversationId: saved.id, title: saved.title, degraded: out.degraded || undefined, diag: out.diag || undefined });
   } catch (e) {
     next(e);
   }
@@ -3203,8 +3206,9 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     res.end();
   } catch (e) {
     if (clientGone) return;
-    // Headers are already sent (sseInit), so surface the failure as an event.
-    try { sseSend(res, 'error', { message: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ }
+    // Headers are already sent (sseInit), so surface the failure as an event — with the diagnosis
+    // when there is one, so a streamed failure reaches the 🐞 panel like a blocking one does.
+    try { sseSend(res, 'error', { message: e.message || 'AI request failed', diag: e.diag || undefined }); res.end(); } catch { /* closed */ }
   }
 });
 
@@ -7226,7 +7230,12 @@ app.get('*', (_req, res) => {
 // JSON error handler
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(500).json({ error: err.message || 'Internal error' });
+  const body = { error: err.message || 'Internal error' };
+  // A diagnosed AI failure carries the evidence the browser's 🐞 panel renders: what ran, why the
+  // payload broke, and the text around the break (lib/gemini.js describeJsonFailure). Only ever a
+  // diag object WE built — never a stack trace, never the prompt.
+  if (err.diag) body.diag = err.diag;
+  res.status(500).json(body);
 });
 
 const PORT = process.env.PORT || 8080;

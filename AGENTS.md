@@ -98,7 +98,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
-| `_*_test.js` | The **eight** Node unit tests (auth, graph, programs, progress credit, priority, visual, deep, usage) — see §6. |
+| `_*_test.js` | The **nine** Node unit tests (auth, graph, programs, progress credit, priority, visual, deep, usage, aidiag) — see §6. |
 
 ### Finding a route fast
 
@@ -455,7 +455,7 @@ There is **no test runner and no linter configured**. `npm test` does not exist.
 node --check server.js
 Get-ChildItem lib\*.js | ForEach-Object { node --check $_.FullName }
 
-# 2. The eight real unit tests (pure logic, no cloud needed — all print "PASS")
+# 2. The nine real unit tests (pure logic, no cloud needed — all print "PASS")
 node lib\_auth_test.js
 node lib\_graph_test.js              # warm-up / readiness graph logic
 node lib\_programs_test.js
@@ -464,6 +464,7 @@ node lib\_priority_test.js           # priority + the depth-mastery properties (
 node lib\_visual_test.js             # visual-guide parsing + the truncation guard (§7)
 node lib\_deep_test.js               # deep mode's answer-key / declared-gap invariants (§7)
 node lib\_usage_test.js              # AI/TTS usage accounting + cost estimates
+node lib\_aidiag_test.js             # AI-failure classifier + the reply salvage (§7)
 
 # 3. Boot it and hit a route
 npm run dev
@@ -637,11 +638,62 @@ against `https://api.kimi.com/coding/v1` — **never** `api.moonshot.ai`. Models
 Vertex forbids Google Search grounding together with a JSON response schema. Web-search answers
 must go down the **plain-text** path. This is why the assistant has two branches.
 
-### 🔴 "non-JSON content" from a model
+### 🔴 "non-JSON content" from a model — and why the ASSISTANT no longer wraps a spoken reply
 
 Under-escaped LaTeX backslashes. `parseLooseJson` ([gemini.js:242](lib/gemini.js#L242)) /
 `restoreLatexEscapes` ([gemini.js:314](lib/gemini.js#L314)) repair it. Also: with thinking OFF,
 raw newlines/tabs in strings break parsing.
+
+**Two malformations survive that repair pass, and both are unfixable in principle:** a payload
+cut off at the token ceiling (the closing brace never arrived) and an **unescaped `"` inside a
+string** (where the string ends is genuinely ambiguous). So any prompt that asks a model to wrap
+prose in a JSON envelope is a dice roll on the prose, and it comes up wrong on exactly the long,
+quote-heavy, LaTeX-y answers learners ask for ("make me a quiz"). Re-sending the same message
+usually works, because the re-roll happens to escape cleanly — which is what made this look like
+a flake for months rather than a bug.
+
+🔴 **The rule that follows: only ask for a JSON envelope when the envelope carries something.**
+Fixed 2026-08-11 in `generateAssistantChat` — the **conversational (voice) path now returns plain
+text**, because a spoken reply cannot carry a `visual` and the wrapper was pure risk there. It was
+the ONLY caller of the blocking route (`sendAssistantBlocking` runs only when `convoOn()`), so
+this was the whole of the observed failure. The non-conversational branch keeps the envelope,
+since that one really does carry the plot spec — but it **salvages** rather than 500s:
+`salvageJsonString(text, 'reply')` recovers the answer by hand (it survives both malformations
+above) and the turn returns `degraded` + `diag` so the UI can say the visual was lost.
+
+**Every JSON parse a learner is waiting on should go through `parseAiJson(label, raw, {meta})`**,
+not a bare `try { parseLooseJson } catch { throw new Error('… returned non-JSON content') }`. It
+throws the same sentence *plus* `.diag` — `describeJsonFailure`'s report — which `server.js`
+returns on the error body and the 🐞 panel renders. See the next entry.
+
+### 🔴 An AI failure must leave EVIDENCE — the 🐞 panel
+
+Added 2026-08-11, with the fix above. The reason that bug survived so long is that its only trace
+was one sentence in the chat: the raw payload was dropped on the floor inside the `catch`, so
+every occurrence was unexplainable after the fact and the cause got re-guessed at each time.
+
+| Piece | Where | What it does |
+|---|---|---|
+| `meta.finishReason` | every `call*` adapter | the provider's own word for why it stopped. **This is the one fact that separates "wrote bad JSON" from "was cut off mid-JSON"** — without it those look identical. Rides the same `meta` out-param as provider/model (§7 "Record the RESOLVED engine") |
+| `describeJsonFailure` | [lib/gemini.js](lib/gemini.js) | names the cause (`truncated` / `stray-quote` / `latex-backslash` / `raw-control-char` / `no-json` / `blocked` / `empty`), quotes the break with a `⟪break⟫` marker, samples head + tail |
+| `parseAiJson` | [lib/gemini.js](lib/gemini.js) | the diagnosed front door to `parseLooseJson`; throws `.diag`, logs one `[ai-fail]` line |
+| `err.diag` → response | [server.js](server.js) error handler + the stream's `error` event | carries the report to the browser |
+| the 🐞 panel | [public/app.js](public/app.js) | every rejected `/api` call, in `localStorage` (last 12), rendered by the header button and by "Why did this fail?" on the failed bubble |
+
+Three properties are load-bearing:
+
+1. 🔴 **The PROMPT is never recorded — only its size.** It carries the learner's growth journal,
+   their task board and (in deep mode) the answer key. None of that is needed to explain a broken
+   reply, and a debug panel is the last place it should surface.
+2. **The log lives in the browser, not on the server.** A per-process ring would be split across
+   Cloud Run instances (the follow-up read lands on a different one) *and* would mix learners'
+   payloads together. `localStorage` is per-person by construction and survives the reload you
+   need to make to look at it. The server's half is a `[ai-fail]` line for Cloud Logging.
+3. **Recording never breaks the thing it describes.** Every entry point swallows its own errors; a
+   full or blocked `localStorage` costs you the history, not the request.
+
+`node lib/_aidiag_test.js` asserts the classifier's ordering (a reported `finishReason` beats any
+guess from the text) and that the salvage survives both unfixable malformations.
 
 ### 🔴 KaTeX renders broken math
 
@@ -1165,6 +1217,9 @@ stops mid-sentence or mid-JSON.
 | Edit lines with NUL bytes using `Edit` | It cannot match. Use a Node script. |
 | Put model-authored HTML through `innerHTML` | Opaque-origin iframe only — see §7. |
 | Record `aiChoice(req)` as an artifact's engine | That is the request, not the resolution. Use the `meta` out-param — §7. |
+| Swallow the payload in a JSON-parse `catch` | An unexplainable failure gets re-guessed at forever. Use `parseAiJson` — §7. |
+| Ask a model to wrap prose in JSON that carries nothing else | The envelope is a dice roll on the prose (a stray `"` kills the turn). Plain text — §7. |
+| Put a model's payload through `renderMarkdown`/`innerHTML` in the 🐞 panel | It is untrusted output. `esc()` only. |
 
 ---
 

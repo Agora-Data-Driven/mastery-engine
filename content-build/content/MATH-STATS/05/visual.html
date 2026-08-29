@@ -1,0 +1,1000 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the slider width.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 10px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Table To Scatterplot</button>
+  <button class="viz-tab" data-viz-tab="2">2. Trend Line And Prediction</button>
+  <button class="viz-tab" data-viz-tab="3">3. Correlation Versus Slope</button>
+  <button class="viz-tab" data-viz-tab="4">4. Minimizing Squared Residuals</button>
+  <button class="viz-tab" data-viz-tab="5">5. Residuals And One Outlier</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Table To Scatterplot</h2>
+  <p class="vz-lede"><b>Two-way tables</b> and <b>Distributions in two-way tables</b> handled two
+    <em>categorical</em> variables by counting cells. Two <em>quantitative</em> variables cannot be counted
+    that way without destroying the numbers, so each row becomes one point instead. Choose a pattern, add
+    spread, and read what the cloud actually says — the verdict below is computed from the points on screen,
+    not from the button you pressed. <b>Like swapping a tally of "tall / short" for everyone's real height
+    marked on a wall.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="underlying pattern">
+    <button id="v1-pos" aria-pressed="true">rising</button>
+    <button id="v1-neg" aria-pressed="false">falling</button>
+    <button id="v1-flat" aria-pressed="false">no pattern</button>
+    <button id="v1-curve" aria-pressed="false">curved</button>
+  </div>
+  <div class="vz-seg" role="group" aria-label="one far-off observation">
+    <button id="v1-out" aria-pressed="false">add one far-off observation</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-noise">spread around the pattern: <span id="v1-nl">30</span> of 100</label>
+    <input class="vz-range" type="range" id="v1-noise" min="0" max="100" step="5" value="30"
+      aria-label="spread around the pattern">
+    <div class="v1-row">
+      <div class="v1-plot" id="v1-plot"></div>
+      <div class="v1-side" id="v1-table"></div>
+    </div>
+    <div class="v1-read vz-mono" id="v1-read"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">An <b>outlier</b> is one point far from the general pattern of the rest; a
+    <b>cluster</b> is a group of points sitting together away from the others. They look similar and mean
+    different things — one is a suspect observation, the other is a hint that two populations got mixed.
+    Notice also what the two-way table cannot do: once a pair is filed as "high, high", the pair itself is
+    gone, and with it every regression on this page.</p>
+
+  <style>
+    .v1-row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    .v1-plot{flex:2 1 210px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v1-plot svg{display:block;width:100%;height:auto}
+    .v1-side{flex:1 1 132px}
+    .v1-t{width:100%;border-collapse:collapse;font-family:ui-monospace,Consolas,monospace;font-size:10.5px}
+    .v1-t th{color:var(--viz-muted);font-weight:700;padding:3px 4px;text-align:center;border:1px solid var(--viz-line)}
+    .v1-t td{padding:6px 4px;text-align:center;border:1px solid var(--viz-line);font-weight:800}
+    .v1-cap{font-size:10.5px;color:var(--viz-muted);line-height:1.45;margin:6px 0 0}
+    .v1-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+  </style>
+  <script>
+  (function(){
+    var MODE = 'pos', OUT = false;
+    var bP = document.getElementById('v1-pos'), bN = document.getElementById('v1-neg');
+    var bF = document.getElementById('v1-flat'), bC = document.getElementById('v1-curve');
+    var bO = document.getElementById('v1-out');
+    var sl = document.getElementById('v1-noise'), nl = document.getElementById('v1-nl');
+    var plot = document.getElementById('v1-plot'), tab = document.getElementById('v1-table');
+    var read = document.getElementById('v1-read'), why = document.getElementById('v1-why');
+
+    var N = 18, XS = [], E = [], i, seed = 987654321;
+    function rnd(){ seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; }
+    for (i = 0; i < N; i++) XS.push(8 + i * (84 / (N - 1)));
+    for (i = 0; i < N; i++) E.push(rnd() + rnd() + rnd() - 1.5);
+    var em = 0; for (i = 0; i < N; i++) em += E[i]; em /= N;
+    for (i = 0; i < N; i++) E[i] -= em;
+
+    function mean(a){ var s = 0, k; for (k = 0; k < a.length; k++) s += a[k]; return a.length ? s / a.length : 0; }
+    function corr(px, py){
+      var n = px.length; if (n < 3) return null;
+      var mx = mean(px), my = mean(py), sxy = 0, sxx = 0, syy = 0, k, dx, dy;
+      for (k = 0; k < n; k++){ dx = px[k] - mx; dy = py[k] - my; sxy += dx * dy; sxx += dx * dx; syy += dy * dy; }
+      if (sxx < 1e-9 || syy < 1e-9) return null;
+      var r = sxy / Math.sqrt(sxx * syy);
+      return isFinite(r) ? Math.max(-1, Math.min(1, r)) : null;
+    }
+    function median(a){
+      var b = a.slice().sort(function(p, q){ return p - q; }), m = b.length >> 1;
+      return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2;
+    }
+
+    function build(){
+      var amp = Number(sl.value) / 100 * 34, pts = [], k, base;
+      for (k = 0; k < N; k++){
+        var x = XS[k];
+        if (MODE === 'pos') base = 12 + 0.72 * x;
+        else if (MODE === 'neg') base = 84 - 0.72 * x;
+        else if (MODE === 'flat') base = 50;
+        else base = 18 + 0.028 * (x - 50) * (x - 50);
+        pts.push({ x: x, y: base + amp * E[k], odd: false });
+      }
+      if (OUT) pts.push({ x: 28, y: 4, odd: true });
+      return pts;
+    }
+
+    function render(){
+      bP.setAttribute('aria-pressed', MODE === 'pos' ? 'true' : 'false');
+      bN.setAttribute('aria-pressed', MODE === 'neg' ? 'true' : 'false');
+      bF.setAttribute('aria-pressed', MODE === 'flat' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', MODE === 'curve' ? 'true' : 'false');
+      bO.setAttribute('aria-pressed', OUT ? 'true' : 'false');
+      nl.textContent = sl.value;
+
+      var pts = build(), n = pts.length, k;
+      var px = pts.map(function(p){ return p.x; }), py = pts.map(function(p){ return p.y; });
+      var r = corr(px, py);
+
+      /* ---- plot ---- */
+      var PW = 300, PH = 186, PAD = 22;
+      var ylo = Math.min.apply(null, py), yhi = Math.max.apply(null, py);
+      if (!isFinite(ylo) || !isFinite(yhi) || yhi - ylo < 1e-9) { ylo -= 10; yhi += 10; }
+      var pad = (yhi - ylo) * 0.12; ylo -= pad; yhi += pad;
+      function sx(v){ return PAD + (v / 100) * (PW - PAD - 6); }
+      function sy(v){ return PH - PAD - ((v - ylo) / (yhi - ylo)) * (PH - PAD - 8); }
+      var dots = '';
+      for (k = 0; k < n; k++){
+        var cx = sx(pts[k].x), cy = sy(pts[k].y);
+        dots += pts[k].odd
+          ? '<path d="M ' + cx.toFixed(1) + ' ' + (cy - 5).toFixed(1) + ' l 5 5 l -5 5 l -5 -5 z" ' +
+            'fill="none" stroke="var(--viz-red)" stroke-width="2"/>' +
+            '<text x="' + (cx + 8).toFixed(1) + '" y="' + (cy + 3).toFixed(1) +
+            '" font-size="8.5" fill="var(--viz-red)">added point</text>'
+          : '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3.4" fill="var(--viz-accent)"/>';
+      }
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" ' +
+        'aria-label="scatterplot of y against x, one point per paired observation">' +
+        '<line x1="' + PAD + '" y1="' + (PH - PAD) + '" x2="' + (PW - 4) + '" y2="' + (PH - PAD) +
+          '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        '<line x1="' + PAD + '" y1="4" x2="' + PAD + '" y2="' + (PH - PAD) +
+          '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        dots +
+        '<text x="' + (PW - 4) + '" y="' + (PH - 8) + '" font-size="9" text-anchor="end" fill="var(--viz-muted)">x</text>' +
+        '<text x="2" y="12" font-size="9" fill="var(--viz-muted)">y</text></svg>';
+
+      /* ---- the same rows as a two-way table ---- */
+      var mx = median(px), my = median(py), c = [0, 0, 0, 0];
+      for (k = 0; k < n; k++){
+        var hi = pts[k].x >= mx ? 1 : 0, hj = pts[k].y >= my ? 0 : 1;
+        c[hj * 2 + hi] += 1;
+      }
+      tab.innerHTML = '<table class="v1-t"><tr><th></th><th>x low</th><th>x high</th></tr>' +
+        '<tr><th>y high</th><td>' + c[0] + '</td><td>' + c[1] + '</td></tr>' +
+        '<tr><th>y low</th><td>' + c[2] + '</td><td>' + c[3] + '</td></tr></table>' +
+        '<p class="v1-cap">The same ' + n + ' rows, binned at each median — this is all a two-way table can ' +
+        'hold. The pairs themselves are gone.</p>';
+
+      /* ---- one row, one point ---- */
+      read.textContent =
+        n + ' rows -> ' + n + ' points (never ' + (2 * n) + ')\n' +
+        'row 1  x = ' + pts[0].x.toFixed(1) + '   y = ' + pts[0].y.toFixed(1) + '   -> one point\n' +
+        'row 2  x = ' + pts[1].x.toFixed(1) + '   y = ' + pts[1].y.toFixed(1) + '   -> one point\n' +
+        'r (computed from the points above) = ' + (r === null ? 'undefined' : r.toFixed(3));
+
+      /* ---- verdict, computed from the points, never from the button ---- */
+      if (r === null){
+        why.innerHTML = '<b style="color:var(--viz-amber)">y takes the same value at every x.</b>' +
+          'With no variation in y there is nothing for an association to be an association <em>of</em>, and ' +
+          'the correlation is undefined rather than zero — its denominator is the spread of y. Nudge the ' +
+          'spread dial and the question becomes askable again.';
+        return;
+      }
+      var lo = [], hi = [], loy = [], hiy = [];
+      for (k = 0; k < n; k++){
+        if (pts[k].x < 50){ lo.push(pts[k].x); loy.push(pts[k].y); } else { hi.push(pts[k].x); hiy.push(pts[k].y); }
+      }
+      var rl = corr(lo, loy), rh = corr(hi, hiy);
+      /* least-squares residuals, to see whether any single point stands away from the pattern */
+      var mxx = mean(px), myy = mean(py), sxy = 0, sxx = 0;
+      for (k = 0; k < n; k++){ sxy += (px[k] - mxx) * (py[k] - myy); sxx += (px[k] - mxx) * (px[k] - mxx); }
+      var b = sxx > 1e-9 ? sxy / sxx : 0, a = myy - b * mxx, ss = 0, worst = 0, wi = 0;
+      for (k = 0; k < n; k++){
+        var e = py[k] - (a + b * px[k]);
+        ss += e * e;
+        if (Math.abs(e) > worst){ worst = Math.abs(e); wi = k; }
+      }
+      var sd = Math.sqrt(ss / Math.max(1, n - 2));
+      var ratio = sd > 1e-9 ? worst / sd : 0;
+      var kx = [], ky = [];
+      for (k = 0; k < n; k++){ if (k !== wi){ kx.push(px[k]); ky.push(py[k]); } }
+      var rKept = corr(kx, ky);
+
+      var dir = r > 0.15 ? 'positive — the points rise from left to right'
+        : (r < -0.15 ? 'negative — the points fall from left to right'
+          : 'little or no association — no clear upward or downward pattern');
+      var str = Math.abs(r) >= 0.8 ? 'strong' : (Math.abs(r) >= 0.5 ? 'moderate' : 'weak');
+      var col = r > 0.15 ? 'var(--viz-green)' : (r < -0.15 ? 'var(--viz-red)' : 'var(--viz-amber)');
+      var txt = '<b style="color:' + col + '">Direction: ' + dir + '.</b>' +
+        'Strength: <b>' + str + '</b>, from r = ' + r.toFixed(2) + ' on the ' + n + ' points drawn above. ' +
+        'Form, direction, strength, outliers — those four words describe any scatterplot, and only the ' +
+        'first three have been used so far.';
+
+      if (rl !== null && rh !== null && Math.abs(r) < 0.3 && rl < -0.45 && rh > 0.45){
+        txt += '<br><br><b style="color:var(--viz-violet)">But look at the halves.</b>' +
+          'Left half r = ' + rl.toFixed(2) + ', right half r = ' + rh.toFixed(2) + ', overall r = ' +
+          r.toFixed(2) + '. The relationship is real and obvious; it is simply not <em>linear</em>, and r ' +
+          'only ever measured the linear part. This is the whole content of "r = 0 does not mean no ' +
+          'relationship".';
+      }
+      if (ratio > 2.5){
+        txt += '<br><br><b style="color:var(--viz-red)">One point lies far from the general pattern.</b>' +
+          'Its distance from the fitted line is ' + ratio.toFixed(1) + ' times the typical residual spread — ' +
+          'that is an <b>outlier</b>, not a cluster, because nothing came with it. And it is not a spectator: ' +
+          'r is ' + r.toFixed(2) + ' with that point and ' +
+          (rKept === null ? 'undefined without it' : rKept.toFixed(2) + ' without it') +
+          ', so read the direction above as a claim about all ' + n + ' points together. Visual 5 takes this ' +
+          'apart properly.';
+      } else if (OUT){
+        txt += '<br><br><b style="color:var(--viz-amber)">The added point no longer stands out.</b>' +
+          'At this much spread its distance from the line is only ' + ratio.toFixed(1) +
+          ' times the typical residual, so calling it an outlier would be a judgement about the noise, not ' +
+          'about the point. "Far from the pattern" is relative to how tight the pattern was.';
+      }
+      why.innerHTML = txt;
+    }
+
+    bP.addEventListener('click', function(){ MODE = 'pos'; render(); });
+    bN.addEventListener('click', function(){ MODE = 'neg'; render(); });
+    bF.addEventListener('click', function(){ MODE = 'flat'; render(); });
+    bC.addEventListener('click', function(){ MODE = 'curve'; render(); });
+    bO.addEventListener('click', function(){ OUT = !OUT; render(); });
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Trend Line And Prediction</h2>
+  <p class="vz-lede">A trend line summarises the direction of the points — it does not join them. Drag the
+    slope and the intercept until the gaps above and below cancel, then push the prediction marker past the
+    edge of the data and watch the label change. <b>Like drawing a line through footprints in sand: fine
+    where the footprints are, a guess the moment they stop.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="preset lines">
+    <button id="v2-bal">balance the gaps</button>
+    <button id="v2-flat">flat line</button>
+    <button id="v2-orig">force through (0, 0)</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v2-plot" id="v2-plot"></div>
+    <label class="vz-lab" for="v2-slope">slope b = <span id="v2-bl">2.3</span> (y per 1 unit of x)</label>
+    <input class="vz-range" type="range" id="v2-slope" min="0" max="40" step="1" value="23" aria-label="slope of the trend line">
+    <label class="vz-lab" for="v2-int">intercept a = <span id="v2-al">6.2</span> (y where x = 0)</label>
+    <input class="vz-range" type="range" id="v2-int" min="0" max="200" step="1" value="181" aria-label="intercept of the trend line">
+    <label class="vz-lab" for="v2-px">predict at x = <span id="v2-xl">5.0</span></label>
+    <input class="vz-range" type="range" id="v2-px" min="0" max="32" step="1" value="10" aria-label="x value to predict at">
+    <div class="v2-read vz-mono" id="v2-read"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Balance is necessary and nowhere near sufficient: the flat preset balances perfectly and
+    is still a terrible summary, because it claims y does not change with x. Balancing fixes only the
+    <em>sum</em> of the gaps. Visual 4 picks the one line that fixes the sum of their <em>squares</em>, and
+    there is exactly one of those.</p>
+
+  <style>
+    .v2-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v2-plot svg{display:block;width:100%;height:auto}
+    .v2-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+    .v2-badge{display:inline-block;font-weight:800;font-size:10.5px;letter-spacing:.03em;
+      border-radius:999px;padding:2px 9px;border:1.5px solid}
+  </style>
+  <script>
+  (function(){
+    var XD = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+    var YD = [8, 11, 13, 17, 18, 20, 22, 25, 26, 28, 32];
+    var NP = XD.length, XBAR = 6, YBAR = 20;          /* exact: sum x = 66, sum y = 220 */
+    var XMIN = 1, XMAX = 11;
+
+    var sB = document.getElementById('v2-slope'), lB = document.getElementById('v2-bl');
+    var sA = document.getElementById('v2-int'), lA = document.getElementById('v2-al');
+    var sX = document.getElementById('v2-px'), lX = document.getElementById('v2-xl');
+    var plot = document.getElementById('v2-plot'), read = document.getElementById('v2-read');
+    var why = document.getElementById('v2-why');
+    var bBal = document.getElementById('v2-bal'), bFlat = document.getElementById('v2-flat');
+    var bOrig = document.getElementById('v2-orig');
+
+    function slope(){ return Number(sB.value) / 10; }
+    function inter(){ return (2 * Number(sA.value) - 100) / 10; }   /* -10.0 … +30.0 in steps of 0.2 */
+
+    /* the visible part of y = a + bx inside the fixed window, or null if it misses entirely */
+    function segment(a, b, x0, x1, ylo, yhi){
+      var xs = [x0, x1], k, best = null;
+      if (Math.abs(b) > 1e-12){
+        var xl = (ylo - a) / b, xh = (yhi - a) / b;
+        if (xl > x0 && xl < x1) xs.push(xl);
+        if (xh > x0 && xh < x1) xs.push(xh);
+      }
+      xs.sort(function(p, q){ return p - q; });
+      for (k = 0; k < xs.length - 1; k++){
+        var xm = (xs[k] + xs[k + 1]) / 2, ym = a + b * xm;
+        if (ym >= ylo - 1e-9 && ym <= yhi + 1e-9){
+          if (!best) best = [xs[k], xs[k + 1]]; else best[1] = xs[k + 1];
+        }
+      }
+      return best;
+    }
+
+    function render(){
+      var b = slope(), a = inter(), xp = Number(sX.value) / 2;
+      lB.textContent = b.toFixed(1); lA.textContent = a.toFixed(1); lX.textContent = xp.toFixed(1);
+
+      var PW = 320, PH = 200, PAD = 26, XLO = 0, XHI = 17, YLO = -5, YHI = 45, k;
+      function sx(v){ return PAD + (v - XLO) / (XHI - XLO) * (PW - PAD - 8); }
+      function sy(v){ return PH - PAD - (v - YLO) / (YHI - YLO) * (PH - PAD - 10); }
+
+      var above = 0, below = 0, on = 0, sum = 0, marks = '';
+      for (k = 0; k < NP; k++){
+        var e = YD[k] - (a + b * XD[k]);
+        sum += e;
+        if (e > 1e-9) above += 1; else if (e < -1e-9) below += 1; else on += 1;
+        var cx = sx(XD[k]), cy = sy(YD[k]), fy = sy(a + b * XD[k]);
+        marks += '<line x1="' + cx.toFixed(1) + '" y1="' + cy.toFixed(1) + '" x2="' + cx.toFixed(1) +
+          '" y2="' + Math.max(-40, Math.min(PH + 40, fy)).toFixed(1) + '" stroke="' +
+          (e >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') + '" stroke-width="1.2" stroke-dasharray="3 3"/>' +
+          '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3.4" fill="var(--viz-accent)"/>';
+      }
+
+      var seg = segment(a, b, XLO, XHI, YLO, YHI), lineSvg = '';
+      if (seg){
+        lineSvg = '<line x1="' + sx(seg[0]).toFixed(1) + '" y1="' + sy(a + b * seg[0]).toFixed(1) +
+          '" x2="' + sx(seg[1]).toFixed(1) + '" y2="' + sy(a + b * seg[1]).toFixed(1) +
+          '" stroke="var(--viz-ink)" stroke-width="2"/>';
+      }
+      var yhat = a + b * xp;
+      var inRange = xp >= XMIN && xp <= XMAX;
+      var predSvg = '';
+      if (isFinite(yhat) && yhat >= YLO && yhat <= YHI){
+        predSvg = '<line x1="' + sx(xp).toFixed(1) + '" y1="' + sy(yhat).toFixed(1) + '" x2="' + sx(xp).toFixed(1) +
+          '" y2="' + sy(YLO).toFixed(1) + '" stroke="var(--viz-violet)" stroke-width="1.2" stroke-dasharray="2 3"/>' +
+          '<circle cx="' + sx(xp).toFixed(1) + '" cy="' + sy(yhat).toFixed(1) + '" r="5" fill="none" ' +
+          'stroke="var(--viz-violet)" stroke-width="2.2"/>';
+      }
+
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" ' +
+        'aria-label="eleven points with a trend line and a prediction marker">' +
+        '<rect x="' + sx(XMIN).toFixed(1) + '" y="4" width="' + (sx(XMAX) - sx(XMIN)).toFixed(1) +
+          '" height="' + (PH - PAD - 4).toFixed(1) + '" fill="var(--viz-accent)" opacity="0.07"/>' +
+        '<line x1="' + PAD + '" y1="' + sy(0).toFixed(1) + '" x2="' + (PW - 6) + '" y2="' + sy(0).toFixed(1) +
+          '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        '<line x1="' + PAD + '" y1="6" x2="' + PAD + '" y2="' + (PH - PAD) + '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        marks + lineSvg + predSvg +
+        '<text x="' + (sx(XMIN) + 3).toFixed(1) + '" y="14" font-size="8.5" fill="var(--viz-muted)">observed x: 1 to 11</text>' +
+        '<text x="' + (PW - 6) + '" y="' + (PH - 8) + '" font-size="9" text-anchor="end" fill="var(--viz-muted)">x</text>' +
+        '</svg>';
+
+      var badge = inRange
+        ? '<span class="v2-badge" style="color:var(--viz-green);border-color:var(--viz-green)">INTERPOLATION</span>'
+        : '<span class="v2-badge" style="color:var(--viz-red);border-color:var(--viz-red)">EXTRAPOLATION</span>';
+
+      read.textContent =
+        'trend line   y-hat = ' + a.toFixed(1) + ' + ' + b.toFixed(1) + ' x\n' +
+        'points above it ' + above + '   below it ' + below + '   exactly on it ' + on + '\n' +
+        'sum of the gaps (observed - predicted) = ' + (isFinite(sum) ? sum.toFixed(2) : '--') + '\n' +
+        'predict at x = ' + xp.toFixed(1) + '   ->   y-hat = ' + (isFinite(yhat) ? yhat.toFixed(2) : '--');
+
+      var balanced = Math.abs(sum) < 0.05;
+      var head = balanced
+        ? '<b style="color:var(--viz-green)">Balanced: the gaps above and below cancel to ' + sum.toFixed(2) + '.</b>'
+        : '<b style="color:var(--viz-amber)">Not balanced: the gaps sum to ' + sum.toFixed(2) + '.</b>';
+      var body = balanced
+        ? 'A line that follows the pattern leaves about as much data above it as below, which is exactly the ' +
+          'statement that the residuals cancel. Note what it does <em>not</em> require: this line passes ' +
+          'through ' + on + ' of the ' + NP + ' points, and it need not — a line through every point is ' +
+          'impossible unless the points are collinear.'
+        : 'A positive sum means the points sit mostly above this line and it is under-predicting across the ' +
+          'board; a negative sum is the mirror image. Press "balance the gaps" to see the same slope moved ' +
+          'onto the data. The intercept is free — forcing it to 0 is a constraint the data never asked for.';
+      var pred = '<br><br>' + badge + ' &nbsp;Prediction at x = ' + xp.toFixed(1) + ' is ' +
+        (isFinite(yhat) ? yhat.toFixed(2) : 'undefined') + '. ' +
+        (inRange
+          ? 'This x sits inside the observed range 1 to 11, where there are points on both sides vouching for ' +
+            'the line. That is interpolation.'
+          : 'This x is outside the observed range 1 to 11. Nothing in the data says the pattern continues out ' +
+            'here — the line will return a number for any x you hand it, including impossible ones, and will ' +
+            'report no discomfort at all. That is the risk in extrapolation.');
+      why.innerHTML = head + body + pred;
+    }
+
+    bBal.addEventListener('click', function(){
+      sA.value = String(150 - 3 * Number(sB.value));   /* a = 20 - 6b, always on the intercept grid */
+      render();
+    });
+    bFlat.addEventListener('click', function(){ sB.value = '0'; sA.value = '150'; render(); });
+    bOrig.addEventListener('click', function(){ sA.value = '50'; render(); });
+    sB.addEventListener('input', render);
+    sA.addEventListener('input', render);
+    sX.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Correlation Versus Slope</h2>
+  <p class="vz-lede">r is the average product of z-scores, so it carries no units — which is why changing
+    the units of y moves the slope and leaves r untouched. Drag r itself, switch the leftover part of y from
+    noise to a curve, and change the units. <b>Like a photo: rescaling it changes every measurement on it and
+    changes nothing about what it shows.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="what the rest of y is made of">
+    <button id="v3-lin" aria-pressed="true">rest of y is noise</button>
+    <button id="v3-cur" aria-pressed="false">rest of y is a curve</button>
+  </div>
+  <div class="vz-seg" role="group" aria-label="units of y">
+    <button id="v3-un" aria-pressed="false">re-express y in marks out of 500 (x 5)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-r">correlation dial r = <span id="v3-rl">0.60</span></label>
+    <input class="vz-range" type="range" id="v3-r" min="-100" max="100" step="5" value="60" aria-label="correlation coefficient r">
+    <div class="v3-plot" id="v3-plot"></div>
+    <div class="v3-bar" id="v3-bar"></div>
+    <div class="v3-read vz-mono" id="v3-read"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two facts that look alike and are not: r is bounded by -1 and 1 because it is an average
+    of z-score products, while a slope is unbounded because it carries the units of y over the units of x.
+    A correlation of -0.9 is stronger than one of +0.2 and points the other way — magnitude is strength,
+    sign is direction, and neither is causation.</p>
+
+  <style>
+    .v3-plot{margin-top:12px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v3-plot svg{display:block;width:100%;height:auto}
+    .v3-bar{margin-top:12px}
+    .v3-track{position:relative;height:16px;border-radius:5px;background:var(--viz-line)}
+    .v3-track i{position:absolute;top:0;bottom:0;border-radius:5px;background:var(--viz-accent);opacity:.85}
+    .v3-track u{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--viz-ink);text-decoration:none}
+    .v3-ends{display:flex;justify-content:space-between;font-size:10px;color:var(--viz-muted);margin-top:3px;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+  </style>
+  <script>
+  (function(){
+    var MODE = 'lin', BIG = false;
+    var bL = document.getElementById('v3-lin'), bC = document.getElementById('v3-cur');
+    var bU = document.getElementById('v3-un');
+    var sR = document.getElementById('v3-r'), lR = document.getElementById('v3-rl');
+    var plot = document.getElementById('v3-plot'), bar = document.getElementById('v3-bar');
+    var read = document.getElementById('v3-read'), why = document.getElementById('v3-why');
+
+    /* zx: 15 evenly spaced values, standardised. Symmetric, so sum of zx^3 is 0 — which
+       makes the parabola below exactly uncorrelated with x rather than nearly so. */
+    var N = 15, ZX = [], U = [], EE = [], i, k;
+    var ss = 0;
+    for (i = 0; i < N; i++) ss += (i - 7) * (i - 7);
+    var sdx = Math.sqrt(ss / (N - 1));
+    for (i = 0; i < N; i++) ZX.push((i - 7) / sdx);
+
+    function standardise(v){
+      var m = 0, q = 0, j;
+      for (j = 0; j < v.length; j++) m += v[j];
+      m /= v.length;
+      for (j = 0; j < v.length; j++) q += (v[j] - m) * (v[j] - m);
+      var s = Math.sqrt(q / (v.length - 1));
+      return v.map(function(t){ return s > 1e-12 ? (t - m) / s : 0; });
+    }
+    function orth(v){                     /* remove the mean and the part along ZX, then standardise */
+      var c = standardise(v), dot = 0, j;
+      for (j = 0; j < N; j++) dot += c[j] * ZX[j];
+      for (j = 0; j < N; j++) c[j] -= (dot / (N - 1)) * ZX[j];
+      return standardise(c);
+    }
+    var raw = [], seed = 24680135;
+    for (i = 0; i < N; i++){ seed = (seed * 1103515245 + 12345) % 2147483648; raw.push(seed / 2147483648); }
+    EE = orth(raw);
+    U = orth(ZX.map(function(z){ return z * z; }));
+
+    function corr(px, py){
+      var n = px.length, mx = 0, my = 0, sxy = 0, sxx = 0, syy = 0, j;
+      if (n < 3) return null;
+      for (j = 0; j < n; j++){ mx += px[j]; my += py[j]; }
+      mx /= n; my /= n;
+      for (j = 0; j < n; j++){ sxy += (px[j] - mx) * (py[j] - my); sxx += (px[j] - mx) * (px[j] - mx); syy += (py[j] - my) * (py[j] - my); }
+      if (sxx < 1e-12 || syy < 1e-12) return null;
+      var r = sxy / Math.sqrt(sxx * syy);
+      return isFinite(r) ? Math.max(-1, Math.min(1, r)) : null;
+    }
+    function sd(v){
+      var m = 0, q = 0, j;
+      for (j = 0; j < v.length; j++) m += v[j];
+      m /= v.length;
+      for (j = 0; j < v.length; j++) q += (v[j] - m) * (v[j] - m);
+      return Math.sqrt(q / (v.length - 1));
+    }
+
+    function render(){
+      bL.setAttribute('aria-pressed', MODE === 'lin' ? 'true' : 'false');
+      bC.setAttribute('aria-pressed', MODE === 'cur' ? 'true' : 'false');
+      bU.setAttribute('aria-pressed', BIG ? 'true' : 'false');
+
+      var rho = Number(sR.value) / 100;
+      lR.textContent = rho.toFixed(2);
+      var other = MODE === 'cur' ? U : EE, w = Math.sqrt(Math.max(0, 1 - rho * rho));
+      var X = [], Y1 = [], Y5 = [], zy = [];
+      for (k = 0; k < N; k++){
+        var zyk = rho * ZX[k] + w * other[k];
+        zy.push(zyk);
+        X.push(5 + 1.2 * ZX[k]);            /* hours studied */
+        Y1.push(70 + 9 * zyk);              /* score, percentage points */
+        Y5.push(5 * (70 + 9 * zyk));        /* the same score, marks out of 500 */
+      }
+      var Y = BIG ? Y5 : Y1;
+      var r1 = corr(X, Y1), r5 = corr(X, Y5), r = BIG ? r5 : r1;
+      var sX = sd(X), sY = sd(Y), b = (r === null || sX < 1e-12) ? null : r * sY / sX;
+      var b1 = (r1 === null) ? null : r1 * sd(Y1) / sX;
+
+      /* ---- plot with the mean lines, points marked by the sign of zx * zy ---- */
+      var PW = 320, PH = 200, PAD = 26, k2;
+      var xlo = Math.min.apply(null, X), xhi = Math.max.apply(null, X);
+      var ylo = Math.min.apply(null, Y), yhi = Math.max.apply(null, Y);
+      if (!(yhi - ylo > 1e-9)) { ylo -= 1; yhi += 1; }
+      if (!(xhi - xlo > 1e-9)) { xlo -= 1; xhi += 1; }
+      var xp = (xhi - xlo) * 0.1, yp = (yhi - ylo) * 0.12;
+      xlo -= xp; xhi += xp; ylo -= yp; yhi += yp;
+      function px(v){ return PAD + (v - xlo) / (xhi - xlo) * (PW - PAD - 10); }
+      function py(v){ return PH - PAD - (v - ylo) / (yhi - ylo) * (PH - PAD - 12); }
+      var mxv = 0, myv = 0;
+      for (k2 = 0; k2 < N; k2++){ mxv += X[k2]; myv += Y[k2]; }
+      mxv /= N; myv /= N;
+      var dots = '', plus = 0, minus = 0;
+      for (k2 = 0; k2 < N; k2++){
+        var prod = ZX[k2] * zy[k2], cx = px(X[k2]), cy = py(Y[k2]);
+        var sign = prod > 1e-9 ? 1 : (prod < -1e-9 ? -1 : 0);
+        if (sign > 0) plus += 1; else if (sign < 0) minus += 1;
+        var col = sign > 0 ? 'var(--viz-green)' : (sign < 0 ? 'var(--viz-red)' : 'var(--viz-muted)');
+        dots += '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3.6" fill="' + col + '"/>' +
+          '<text x="' + (cx + 4.5).toFixed(1) + '" y="' + (cy - 4).toFixed(1) + '" font-size="9" fill="' + col +
+          '">' + (sign > 0 ? '+' : (sign < 0 ? '-' : '0')) + '</text>';
+      }
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" ' +
+        'aria-label="scatterplot split into quadrants by the two mean lines">' +
+        '<line x1="' + px(mxv).toFixed(1) + '" y1="6" x2="' + px(mxv).toFixed(1) + '" y2="' + (PH - PAD) +
+          '" stroke="var(--viz-muted)" stroke-width="1" stroke-dasharray="4 4"/>' +
+        '<line x1="' + PAD + '" y1="' + py(myv).toFixed(1) + '" x2="' + (PW - 6) + '" y2="' + py(myv).toFixed(1) +
+          '" stroke="var(--viz-muted)" stroke-width="1" stroke-dasharray="4 4"/>' +
+        dots +
+        '<text x="' + (px(mxv) + 3).toFixed(1) + '" y="14" font-size="8.5" fill="var(--viz-muted)">mean x</text>' +
+        '<text x="' + (PAD + 3) + '" y="' + (py(myv) - 4).toFixed(1) + '" font-size="8.5" fill="var(--viz-muted)">mean y</text>' +
+        '<text x="' + (PW - 6) + '" y="' + (PH - 8) + '" font-size="9" text-anchor="end" fill="var(--viz-muted)">hours studied</text>' +
+        '</svg>';
+
+      /* ---- the -1 to 1 bar ---- */
+      var rv = r === null ? 0 : r;
+      var zero = 50, wpc = Math.abs(rv) * 50, left = rv >= 0 ? zero : zero - wpc;
+      bar.innerHTML = '<div class="v3-track"><i style="left:' + left + '%;width:' + Math.max(0.7, wpc) + '%;background:' +
+        (rv >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') + '"></i><u style="left:50%"></u></div>' +
+        '<div class="v3-ends"><span>-1 strongest negative</span><span>0</span><span>+1 strongest positive</span></div>';
+
+      var unit = BIG ? 'marks out of 500' : 'percentage points';
+      read.textContent =
+        'r  = sum of (z_x * z_y) / (n - 1) = ' + (r === null ? 'undefined' : r.toFixed(3)) +
+          '        always between -1 and 1\n' +
+        'points with z_x * z_y positive: ' + plus + '   negative: ' + minus + '\n' +
+        's_x = ' + sX.toFixed(3) + ' hours    s_y = ' + sY.toFixed(3) + ' ' + unit + '\n' +
+        'slope b = r * s_y / s_x = ' + (b === null ? 'undefined' : b.toFixed(3)) + ' ' + unit + ' per hour\n' +
+        'r in percentage points ' + (r1 === null ? '--' : r1.toFixed(6)) +
+          '   in marks out of 500 ' + (r5 === null ? '--' : r5.toFixed(6));
+
+      var strength = r === null ? 'undefined' : (Math.abs(r) >= 0.8 ? 'strong' : (Math.abs(r) >= 0.5 ? 'moderate' : (Math.abs(r) >= 0.15 ? 'weak' : 'essentially none')));
+      var dirw = r === null ? '' : (r > 0.001 ? 'positive' : (r < -0.001 ? 'negative' : 'neither positive nor negative'));
+      var same = (r1 !== null && r5 !== null && Math.abs(r1 - r5) < 1e-9);
+      var txt = '<b>Reading it: ' + (r === null ? 'r is undefined here' : 'r = ' + r.toFixed(2) + ', a ' + strength + ' ' + dirw + ' linear association') + '.</b>' +
+        'Every point in the upper-right or lower-left quadrant has z_x and z_y of the same sign and pushes r up ' +
+        '(marked +); the other two quadrants pull it down (marked -). Here ' + plus + ' push up and ' + minus +
+        ' pull down, and r is their average.';
+      txt += '<br><br><b style="color:' + (same ? 'var(--viz-green)' : 'var(--viz-amber)') + '">Units: slope ' +
+        (b1 === null || b === null ? 'undefined' : b1.toFixed(2) + ' -> ' + b.toFixed(2)) + ', r ' +
+        (same ? 'unchanged' : 'changed') + '.</b>' +
+        'Multiplying y by 5 multiplies every deviation from the mean by 5, so s_y and the slope both grow by 5 — ' +
+        'but each z-score is a deviation divided by that same s_y, so every z_y is untouched and r cannot move. ' +
+        'r is a pure number; a slope carries units. They are linked by b = r * s_y / s_x and they are not the ' +
+        'same quantity.';
+      if (MODE === 'cur' && r !== null && Math.abs(r) < 0.2){
+        var lx = [], ly = [], hx = [], hy = [];
+        for (k2 = 0; k2 < N; k2++){
+          if (X[k2] < mxv){ lx.push(X[k2]); ly.push(Y[k2]); } else { hx.push(X[k2]); hy.push(Y[k2]); }
+        }
+        var rl = corr(lx, ly), rh = corr(hx, hy);
+        txt += '<br><br><b style="color:var(--viz-violet)">r = ' + r.toFixed(2) + ' on a perfectly clear curve.</b>' +
+          'The left half alone has r = ' + (rl === null ? '--' : rl.toFixed(2)) + ' and the right half r = ' +
+          (rh === null ? '--' : rh.toFixed(2)) + ', and they cancel. So r = 0 guarantees no <em>linear</em> ' +
+          'relationship and nothing more: the + and - quadrants are equally occupied, which is a statement ' +
+          'about straight lines, not about relationships.';
+      }
+      why.innerHTML = txt;
+    }
+
+    bL.addEventListener('click', function(){ MODE = 'lin'; render(); });
+    bC.addEventListener('click', function(){ MODE = 'cur'; render(); });
+    bU.addEventListener('click', function(){ BIG = !BIG; render(); });
+    sR.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Minimizing Squared Residuals</h2>
+  <p class="vz-lede">"Least squares" is not a slogan, it is the definition: of every line through the point
+    of averages, exactly one makes the total area of these squares as small as it can be. Drag the slope and
+    watch the total. <b>Like tuning a radio by the hiss: you are not aiming at the station, you are
+    minimising the noise, and the station is wherever the noise bottoms out.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="preset slopes">
+    <button id="v4-snap">set the least-squares slope</button>
+    <button id="v4-flat">flat line (b = 0)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-b">slope b = <span id="v4-bl">3.0</span>&nbsp; · &nbsp;intercept follows as
+      a = y-bar - b x-bar</label>
+    <input class="vz-range" type="range" id="v4-b" min="0" max="60" step="1" value="42" aria-label="slope of the candidate line">
+    <div class="v4-plot" id="v4-plot"></div>
+    <div class="v4-curve" id="v4-curve"></div>
+    <div class="v4-read vz-mono" id="v4-read"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Why squares and not plain distances? Squaring makes big misses expensive and the total
+    smooth enough to differentiate, and setting those derivatives to zero is what produces
+    b = r &times; s_y / s_x and a = y-bar - b &times; x-bar in closed form. It is also why one far-off point
+    can dominate the whole fit — which is the next visual.</p>
+
+  <style>
+    .v4-plot{margin-top:6px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v4-plot svg{display:block;width:100%;height:auto}
+    .v4-curve{margin-top:10px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v4-curve svg{display:block;width:100%;height:auto}
+    .v4-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+  </style>
+  <script>
+  (function(){
+    /* Chosen so the least-squares slope is exactly 3.0 and lands on the slider grid:
+       sum x = 45, sum y = 180, S_xy = 180, S_xx = 60, S_yy = 574. */
+    var XD = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+    var YD = [10, 8, 15, 16, 22, 22, 27, 26, 34];
+    var NP = 9, XBAR = 5, YBAR = 20, SXX = 60, SXY = 180, SYY = 574;
+    var BLS = SXY / SXX, ALS = YBAR - BLS * XBAR;
+    var R = SXY / Math.sqrt(SXX * SYY);
+    var SDX = Math.sqrt(SXX / (NP - 1)), SDY = Math.sqrt(SYY / (NP - 1));
+
+    var sB = document.getElementById('v4-b'), lB = document.getElementById('v4-bl');
+    var plot = document.getElementById('v4-plot'), curve = document.getElementById('v4-curve');
+    var read = document.getElementById('v4-read'), why = document.getElementById('v4-why');
+    var bSnap = document.getElementById('v4-snap'), bFlat = document.getElementById('v4-flat');
+
+    function sse(b){ return SYY - 2 * b * SXY + b * b * SXX; }
+
+    /* the smallest total this dial can actually reach, found by walking the dial itself */
+    var bestI = 0, bestV = Infinity, gi;
+    for (gi = 0; gi <= 60; gi++){ var v = sse(gi / 10); if (v < bestV - 1e-9){ bestV = v; bestI = gi; } }
+
+    function render(){
+      var i = Number(sB.value), b = i / 10, a = YBAR - b * XBAR;
+      lB.textContent = b.toFixed(1);
+      var total = sse(b);
+      if (!isFinite(total)) total = 0;
+
+      var PW = 320, PH = 210, PAD = 26, XLO = 0, XHI = 10, YLO = 0, YHI = 40, k;
+      function px(v){ return PAD + (v - XLO) / (XHI - XLO) * (PW - PAD - 10); }
+      function py(v){ return PH - PAD - (v - YLO) / (YHI - YLO) * (PH - PAD - 10); }
+      var sq = '', biggest = 0;
+      for (k = 0; k < NP; k++){
+        var e = YD[k] - (a + b * XD[k]);
+        if (Math.abs(e) > Math.abs(biggest)) biggest = e;
+        var cx = px(XD[k]), cy = py(YD[k]), fy = py(a + b * XD[k]);
+        var side = Math.abs(cy - fy);
+        var rx = e >= 0 ? cx : cx - side, ry = Math.min(cy, fy);
+        sq += '<rect x="' + rx.toFixed(1) + '" y="' + ry.toFixed(1) + '" width="' + side.toFixed(1) +
+          '" height="' + side.toFixed(1) + '" fill="' + (e >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') +
+          '" opacity="0.22" stroke="' + (e >= 0 ? 'var(--viz-green)' : 'var(--viz-red)') + '" stroke-width="1"/>' +
+          '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3.2" fill="var(--viz-accent)"/>';
+      }
+      var y0 = a + b * XLO, y1 = a + b * XHI;
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" ' +
+        'aria-label="nine points with a candidate line and one square drawn on each residual">' +
+        '<line x1="' + PAD + '" y1="' + py(YLO) + '" x2="' + (PW - 6) + '" y2="' + py(YLO) +
+          '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        '<line x1="' + PAD + '" y1="6" x2="' + PAD + '" y2="' + py(YLO) + '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        sq +
+        '<line x1="' + px(XLO).toFixed(1) + '" y1="' + py(y0).toFixed(1) + '" x2="' + px(XHI).toFixed(1) +
+          '" y2="' + py(y1).toFixed(1) + '" stroke="var(--viz-ink)" stroke-width="2"/>' +
+        '<circle cx="' + px(XBAR).toFixed(1) + '" cy="' + py(YBAR).toFixed(1) +
+          '" r="5" fill="none" stroke="var(--viz-violet)" stroke-width="2"/>' +
+        '<text x="' + (px(XBAR) + 7).toFixed(1) + '" y="' + (py(YBAR) - 5).toFixed(1) +
+          '" font-size="8.5" fill="var(--viz-violet)">(x-bar, y-bar)</text>' +
+        '</svg>';
+
+      /* ---- total squared residual against slope ---- */
+      var CW = 320, CH = 120, CP = 30, pts = '', maxV = Math.max(sse(0), sse(6));
+      for (gi = 0; gi <= 60; gi++){
+        var bb = gi / 10, vv = sse(bb);
+        pts += (CP + (gi / 60) * (CW - CP - 8)).toFixed(1) + ',' +
+          (CH - 16 - (vv - bestV) / Math.max(1e-9, maxV - bestV) * (CH - 30)).toFixed(1) + ' ';
+      }
+      var curX = CP + (i / 60) * (CW - CP - 8);
+      var curY = CH - 16 - (total - bestV) / Math.max(1e-9, maxV - bestV) * (CH - 30);
+      var minX = CP + (bestI / 60) * (CW - CP - 8);
+      curve.innerHTML = '<svg viewBox="0 0 ' + CW + ' ' + CH + '" role="img" ' +
+        'aria-label="total squared residual plotted against the slope, a parabola with one minimum">' +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"/>' +
+        '<line x1="' + minX.toFixed(1) + '" y1="8" x2="' + minX.toFixed(1) + '" y2="' + (CH - 14) +
+          '" stroke="var(--viz-green)" stroke-width="1.2" stroke-dasharray="3 3"/>' +
+        '<circle cx="' + curX.toFixed(1) + '" cy="' + curY.toFixed(1) + '" r="4.5" fill="var(--viz-violet)"/>' +
+        '<text x="' + (minX + 4).toFixed(1) + '" y="14" font-size="8.5" fill="var(--viz-green)">minimum at b = ' +
+          (bestI / 10).toFixed(1) + '</text>' +
+        '<text x="2" y="' + (CH - 4) + '" font-size="8.5" fill="var(--viz-muted)">slope b: 0 to 6 &nbsp; · &nbsp; height: total of the squares</text>' +
+        '</svg>';
+
+      var at5 = a + b * 5, at6 = a + b * 6, at7 = a + b * 7;
+      read.textContent =
+        'line        y-hat = ' + a.toFixed(2) + ' + ' + b.toFixed(2) + ' x\n' +
+        'total of the squares = ' + total.toFixed(2) + '     smallest reachable = ' + bestV.toFixed(2) +
+          ' at b = ' + (bestI / 10).toFixed(1) + '\n' +
+        'x = 5 -> ' + at5.toFixed(2) + '   x = 6 -> ' + at6.toFixed(2) + '   x = 7 -> ' + at7.toFixed(2) + '\n' +
+        '1-unit rise in x changes y-hat by ' + (at6 - at5).toFixed(2) + ', a 2-unit rise by ' + (at7 - at5).toFixed(2) + '\n' +
+        'from the data: r = ' + R.toFixed(4) + ', s_y / s_x = ' + (SDY / SDX).toFixed(4) +
+          ', r * s_y / s_x = ' + (R * SDY / SDX).toFixed(4);
+
+      var atMin = Math.abs(total - bestV) < 1e-9;
+      var head = atMin
+        ? '<b style="color:var(--viz-green)">This is the least-squares line: total ' + total.toFixed(2) +
+          ', the smallest value anywhere on the dial.</b>'
+        : '<b style="color:var(--viz-amber)">Total ' + total.toFixed(2) + ' — larger than the smallest, ' +
+          bestV.toFixed(2) + ' at b = ' + (bestI / 10).toFixed(1) + '.</b>';
+      var body = atMin
+        ? 'The closed form agrees: r &times; s_y / s_x = ' + (R * SDY / SDX).toFixed(4) + ', and the intercept ' +
+          'follows as a = y-bar - b &times; x-bar = ' + ALS.toFixed(2) + '. Read the equation literally: b = ' +
+          b.toFixed(2) + ' is the predicted change in y for a 1-unit rise in x, so a 2-unit rise predicts ' +
+          (2 * b).toFixed(2) + '; a = ' + a.toFixed(2) + ' is the predicted y at x = 0 and means nothing beyond ' +
+          'that, since x = 0 is outside this data.'
+        : 'Every candidate here passes through the point of averages (x-bar, y-bar) — that is forced by ' +
+          'a = y-bar - b &times; x-bar, and it is why the line pivots rather than slides. What changes is the ' +
+          'total area of the squares, and the curve below is that total as a function of the slope: one ' +
+          'parabola, one minimum, no local traps.';
+      var extra = '<br><br>Note which lines are <em>not</em> the target: the total of the residuals is 0 for ' +
+        'every line here, so minimising that would leave the slope undetermined. And the largest single ' +
+        'residual right now is ' + biggest.toFixed(2) + ' — squaring is exactly what makes a miss that size ' +
+        'cost ' + (biggest * biggest).toFixed(2) + ' rather than ' + Math.abs(biggest).toFixed(2) + '.';
+      why.innerHTML = head + body + extra;
+    }
+
+    bSnap.addEventListener('click', function(){ sB.value = String(Math.round(BLS * 10)); render(); });
+    bFlat.addEventListener('click', function(){ sB.value = '0'; render(); });
+    sB.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Residuals And One Outlier</h2>
+  <p class="vz-lede">The scatterplot hides what the residual plot shows. Move the one loose observation and
+    watch the line, r and r-squared follow it; switch the underlying data to a curve and watch the residuals
+    arch even though nothing looks wrong above. <b>Like a spirit level: the wall looks straight until you
+    lay the bubble against it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="shape of the underlying data">
+    <button id="v5-str" aria-pressed="true">straight-line data</button>
+    <button id="v5-bent" aria-pressed="false">curved data</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-plot" id="v5-plot"></div>
+    <div class="v5-res" id="v5-resid"></div>
+    <label class="vz-lab" for="v5-px">loose point x = <span id="v5-xl">11.0</span></label>
+    <input class="vz-range" type="range" id="v5-px" min="10" max="130" step="1" value="110" aria-label="x of the loose observation">
+    <label class="vz-lab" for="v5-py">loose point y = <span id="v5-yl">25.0</span></label>
+    <input class="vz-range" type="range" id="v5-py" min="0" max="80" step="1" value="50" aria-label="y of the loose observation">
+    <div class="v5-read vz-mono" id="v5-read"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Nothing here licenses a causal claim, and a high r-squared least of all: r-squared says
+    how much of the variation in y a straight line in x accounts for <em>in this sample</em>, which is a
+    statement about fit, not about mechanism. Regression earns its keep as prediction when a linear model
+    fits — checked here, on the residual plot — and never as proof.</p>
+
+  <style>
+    .v5-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v5-plot svg{display:block;width:100%;height:auto}
+    .v5-res{margin-top:8px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v5-res svg{display:block;width:100%;height:auto}
+    .v5-read{margin-top:12px;padding:9px 10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+  </style>
+  <script>
+  (function(){
+    var BENT = false;
+    var bS = document.getElementById('v5-str'), bB = document.getElementById('v5-bent');
+    var sX = document.getElementById('v5-px'), lX = document.getElementById('v5-xl');
+    var sY = document.getElementById('v5-py'), lY = document.getElementById('v5-yl');
+    var plot = document.getElementById('v5-plot'), resid = document.getElementById('v5-resid');
+    var read = document.getElementById('v5-read'), why = document.getElementById('v5-why');
+
+    var W = [1, -1, 0.5, -0.5, 1, -1, 0.5, -0.5, 1, -1];
+    function base(){
+      var out = [], k;
+      for (k = 0; k < 10; k++){
+        var x = k + 1;
+        out.push({ x: x, y: BENT ? (12 + 7.2 * x - 0.65 * x * x + W[k]) : (3 + 2 * x + W[k]) });
+      }
+      return out;
+    }
+    function fit(pts){
+      var n = pts.length, mx = 0, my = 0, k;
+      if (n < 3) return null;
+      for (k = 0; k < n; k++){ mx += pts[k].x; my += pts[k].y; }
+      mx /= n; my /= n;
+      var sxy = 0, sxx = 0, syy = 0;
+      for (k = 0; k < n; k++){
+        sxy += (pts[k].x - mx) * (pts[k].y - my);
+        sxx += (pts[k].x - mx) * (pts[k].x - mx);
+        syy += (pts[k].y - my) * (pts[k].y - my);
+      }
+      if (sxx < 1e-9) return null;
+      var b = sxy / sxx, a = my - b * mx, sse = 0, res = [];
+      for (k = 0; k < n; k++){ var e = pts[k].y - (a + b * pts[k].x); res.push(e); sse += e * e; }
+      var r = syy > 1e-9 ? sxy / Math.sqrt(sxx * syy) : null;
+      var r2 = syy > 1e-9 ? Math.max(0, Math.min(1, 1 - sse / syy)) : null;
+      if (r !== null && !isFinite(r)) r = null;
+      if (r2 !== null && !isFinite(r2)) r2 = null;
+      return { a: a, b: b, r: r, r2: r2, sse: sse, sst: syy, res: res, n: n };
+    }
+
+    function render(){
+      bS.setAttribute('aria-pressed', BENT ? 'false' : 'true');
+      bB.setAttribute('aria-pressed', BENT ? 'true' : 'false');
+      var lx = Number(sX.value) / 10, ly = Number(sY.value) / 2;
+      lX.textContent = lx.toFixed(1); lY.textContent = ly.toFixed(1);
+
+      var bp = base(), all = bp.concat([{ x: lx, y: ly }]);
+      var F = fit(all), G = fit(bp);
+      if (!F || !G){ why.innerHTML = '<b>Not enough spread in x to fit a line.</b>'; return; }
+
+      var PW = 320, PH = 190, PAD = 26, XLO = 0, XHI = 14, YLO = 0, YHI = 42, k;
+      function px(v){ return PAD + (v - XLO) / (XHI - XLO) * (PW - PAD - 10); }
+      function py(v){ return PH - PAD - (v - YLO) / (YHI - YLO) * (PH - PAD - 10); }
+      function clampY(v){ return Math.max(YLO, Math.min(YHI, v)); }
+      var dots = '';
+      for (k = 0; k < bp.length; k++){
+        dots += '<circle cx="' + px(bp[k].x).toFixed(1) + '" cy="' + py(clampY(bp[k].y)).toFixed(1) +
+          '" r="3.2" fill="var(--viz-accent)"/>';
+      }
+      dots += '<path d="M ' + px(lx).toFixed(1) + ' ' + (py(clampY(ly)) - 6).toFixed(1) +
+        ' l 6 6 l -6 6 l -6 -6 z" fill="none" stroke="var(--viz-red)" stroke-width="2.2"/>' +
+        '<text x="' + (px(lx) + 9).toFixed(1) + '" y="' + (py(clampY(ly)) + 3).toFixed(1) +
+        '" font-size="8.5" fill="var(--viz-red)">loose point</text>';
+      function seg(f, col, dash){
+        return '<line x1="' + px(XLO).toFixed(1) + '" y1="' + py(clampY(f.a + f.b * XLO)).toFixed(1) +
+          '" x2="' + px(XHI).toFixed(1) + '" y2="' + py(clampY(f.a + f.b * XHI)).toFixed(1) +
+          '" stroke="' + col + '" stroke-width="2"' + (dash ? ' stroke-dasharray="6 4"' : '') + '/>';
+      }
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" ' +
+        'aria-label="scatterplot with the fitted line including and excluding the loose point">' +
+        '<line x1="' + PAD + '" y1="' + py(YLO) + '" x2="' + (PW - 6) + '" y2="' + py(YLO) +
+          '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        '<line x1="' + PAD + '" y1="6" x2="' + PAD + '" y2="' + py(YLO) + '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        seg(G, 'var(--viz-muted)', true) + seg(F, 'var(--viz-ink)', false) + dots +
+        '<text x="' + (PW - 6) + '" y="14" font-size="8.5" text-anchor="end" fill="var(--viz-ink)">solid: all points</text>' +
+        '<text x="' + (PW - 6) + '" y="25" font-size="8.5" text-anchor="end" fill="var(--viz-muted)">dashed: loose point removed</text>' +
+        '</svg>';
+
+      /* ---- residual plot ---- */
+      var RW = 320, RH = 118, RP = 26, big = 0.5;
+      for (k = 0; k < F.res.length; k++) big = Math.max(big, Math.abs(F.res[k]));
+      function rx(v){ return RP + (v - XLO) / (XHI - XLO) * (RW - RP - 10); }
+      function ry(v){ return RH / 2 - (v / (big * 1.15)) * (RH / 2 - 12); }
+      var bars = '';
+      for (k = 0; k < all.length; k++){
+        var e = F.res[k], cx = rx(all[k].x), cy = ry(e);
+        var col = k === all.length - 1 ? 'var(--viz-red)' : (e >= 0 ? 'var(--viz-green)' : 'var(--viz-violet)');
+        bars += '<line x1="' + cx.toFixed(1) + '" y1="' + (RH / 2).toFixed(1) + '" x2="' + cx.toFixed(1) +
+          '" y2="' + cy.toFixed(1) + '" stroke="' + col + '" stroke-width="1.2"/>' +
+          '<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="3.2" fill="' + col + '"/>';
+      }
+      resid.innerHTML = '<svg viewBox="0 0 ' + RW + ' ' + RH + '" role="img" ' +
+        'aria-label="residual plotted against x, with a line at zero">' +
+        '<line x1="' + RP + '" y1="' + (RH / 2) + '" x2="' + (RW - 6) + '" y2="' + (RH / 2) +
+          '" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        bars +
+        '<text x="2" y="' + (RH / 2 - 4) + '" font-size="8.5" fill="var(--viz-muted)">0</text>' +
+        '<text x="' + (RW - 6) + '" y="12" font-size="8.5" text-anchor="end" fill="var(--viz-muted)">residual vs x</text>' +
+        '</svg>';
+
+      /* ---- what the residuals say, measured rather than assumed ---- */
+      var s = Math.sqrt(F.sse / Math.max(1, F.n - 2)), worst = 0, wi = 0;
+      for (k = 0; k < F.res.length; k++){ if (Math.abs(F.res[k]) > worst){ worst = Math.abs(F.res[k]); wi = k; } }
+      var ratio = s > 1e-9 ? worst / s : 0;
+      var sorted = all.map(function(p, j){ return { x: p.x, e: F.res[j] }; })
+        .sort(function(p, q){ return p.x - q.x; });
+      var third = Math.max(1, Math.floor(sorted.length / 3)), j2;
+      var mLo = 0, mMid = 0, mHi = 0, cLo = 0, cMid = 0, cHi = 0;
+      for (j2 = 0; j2 < sorted.length; j2++){
+        if (j2 < third){ mLo += sorted[j2].e; cLo += 1; }
+        else if (j2 >= sorted.length - third){ mHi += sorted[j2].e; cHi += 1; }
+        else { mMid += sorted[j2].e; cMid += 1; }
+      }
+      mLo /= Math.max(1, cLo); mMid /= Math.max(1, cMid); mHi /= Math.max(1, cHi);
+      var bend = mMid - (mLo + mHi) / 2;
+
+      var lyHat = F.a + F.b * lx, lres = ly - lyHat;
+      read.textContent =
+        'with the loose point      y-hat = ' + F.a.toFixed(2) + ' + ' + F.b.toFixed(2) + ' x    r = ' +
+          (F.r === null ? '--' : F.r.toFixed(3)) + '   r^2 = ' + (F.r2 === null ? '--' : F.r2.toFixed(3)) + '\n' +
+        'without it                y-hat = ' + G.a.toFixed(2) + ' + ' + G.b.toFixed(2) + ' x    r = ' +
+          (G.r === null ? '--' : G.r.toFixed(3)) + '   r^2 = ' + (G.r2 === null ? '--' : G.r2.toFixed(3)) + '\n' +
+        'loose point   observed y = ' + ly.toFixed(2) + '   predicted = ' + lyHat.toFixed(2) +
+          '   residual = observed - predicted = ' + (lres >= 0 ? '+' : '') + lres.toFixed(2) + '\n' +
+        'r^2 = 1 - SSE/SST = 1 - ' + F.sse.toFixed(1) + ' / ' + F.sst.toFixed(1) + ' = ' +
+          (F.r2 === null ? '--' : F.r2.toFixed(3)) + '\n' +
+        'residual means by thirds of x:  low ' + mLo.toFixed(2) + '   middle ' + mMid.toFixed(2) +
+          '   high ' + mHi.toFixed(2);
+
+      var pct = F.r2 === null ? null : Math.round(F.r2 * 100);
+      var txt = '<b>' + (lres >= 0 ? 'The loose point sits above the line' : 'The loose point sits below the line') +
+        ': residual = ' + (lres >= 0 ? '+' : '') + lres.toFixed(2) + '.</b>' +
+        'Residual is observed minus predicted, in that order — ' + ly.toFixed(2) + ' - ' + lyHat.toFixed(2) +
+        '. Reverse the subtraction and every sign on the plot flips. ' +
+        (pct === null ? '' : 'Right now r-squared = ' + F.r2.toFixed(3) + ', so ' + pct +
+          '% of the variation in y is accounted for by x through this line, and ' + (100 - pct) +
+          '% is not; squaring has already thrown away the sign of r = ' + (F.r === null ? '--' : F.r.toFixed(3)) + '.');
+
+      if (ratio > 2.5){
+        var db = F.b - G.b, dr = (F.r === null || G.r === null) ? 0 : F.r - G.r;
+        txt += '<br><br><b style="color:var(--viz-red)">One residual dominates: ' + ratio.toFixed(1) +
+          ' times the typical residual size.</b>' +
+          'That is an influential observation, and the two lines above show what it is doing: the slope moves ' +
+          'from ' + G.b.toFixed(2) + ' without it to ' + F.b.toFixed(2) + ' with it (a change of ' +
+          (db >= 0 ? '+' : '') + db.toFixed(2) + '), and r from ' + (G.r === null ? '--' : G.r.toFixed(3)) +
+          ' to ' + (F.r === null ? '--' : F.r.toFixed(3)) + ' (' + (dr >= 0 ? '+' : '') + dr.toFixed(3) + '). ' +
+          'Because the criterion squares residuals, a single far-off point can outweigh all ten of the others; ' +
+          'an extreme x makes it heavier still. Report the fit with and without it, rather than choosing one ' +
+          'quietly.';
+      } else if (Math.abs(bend) > 0.9 * s){
+        txt += '<br><br><b style="color:var(--viz-amber)">The residual plot is curved, not random: middle third ' +
+          mMid.toFixed(2) + ' against ends ' + mLo.toFixed(2) + ' and ' + mHi.toFixed(2) + '.</b>' +
+          'The line is systematically wrong — too low in the middle and too high at both ends, or the reverse — ' +
+          'and no choice of slope and intercept can repair that, because the failure is the straight line ' +
+          'itself. This is the signal that a nonlinear model may fit better. Notice how much clearer it is ' +
+          'here than in the scatterplot above.';
+      } else {
+        txt += '<br><br><b style="color:var(--viz-green)">The residual plot is random scatter about zero: ' +
+          'thirds at ' + mLo.toFixed(2) + ', ' + mMid.toFixed(2) + ', ' + mHi.toFixed(2) +
+          ', and no residual beyond ' + ratio.toFixed(1) + ' typical sizes.</b>' +
+          'The line has taken the pattern out and left noise behind, which is what "a linear model is ' +
+          'appropriate" looks like when you check it rather than assume it. Structure left in this plot — a ' +
+          'curve, a fan, one dominating point — is structure the model failed to capture.';
+      }
+      why.innerHTML = txt;
+    }
+
+    bS.addEventListener('click', function(){ BENT = false; render(); });
+    bB.addEventListener('click', function(){ BENT = true; render(); });
+    sX.addEventListener('input', render);
+    sY.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

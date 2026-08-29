@@ -1,0 +1,781 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Circle Becomes Plane</button>
+  <button class="viz-tab" data-viz-tab="2">2. Distance And Conjugate</button>
+  <button class="viz-tab" data-viz-tab="3">3. Modulus And Argument</button>
+  <button class="viz-tab" data-viz-tab="4">4. Multiply By Rotating</button>
+  <button class="viz-tab" data-viz-tab="5">5. Counting Every Root</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Circle Becomes Plane</h2>
+  <p class="vz-lede">The unit circle from <b>Special trig values and identities on the unit circle</b> is one
+    slice of a bigger picture. Set the angle, then grow the radius: the terminal point (cos t, sin t) becomes
+    the complex number a + bi, and the two diagrams are literally the same diagram whenever r = 1.
+    <b>Like a clock hand: the direction was the whole story until someone let the hand change length.</b></p>
+
+  <div class="v1-wrap">
+    <div class="v1-side"><h5>unit circle — lesson 02</h5><div id="v1-circ"></div></div>
+    <div class="v1-side"><h5>complex plane — this lesson</h5><div id="v1-plane"></div></div>
+  </div>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-t">angle t = <span id="v1-tl">pi/4</span></label>
+    <input class="v1-sl" type="range" id="v1-t" min="-11" max="12" value="3" step="1" aria-label="Angle t in twelfths of pi">
+    <label class="v1-lab" for="v1-r">modulus r = <span id="v1-rl">1.00</span></label>
+    <input class="v1-sl" type="range" id="v1-r" min="0" max="12" value="4" step="1" aria-label="Modulus r">
+    <div class="vz-mono v1-out" id="v1-out"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Read the two diagrams as one claim: a complex number carries a <b>direction</b> and a
+    <b>size</b>, and trigonometry only ever gave you the direction. The unit circle is exactly the set of
+    complex numbers with modulus 1 — which is why every rule in this lesson that touches angles is a rule
+    you already proved, and every rule that touches lengths is genuinely new.</p>
+
+  <style>
+    .v1-wrap{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+    .v1-side{flex:1 1 168px;min-width:150px}
+    .v1-side h5{margin:0 0 5px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin:8px 0 2px}
+    .v1-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v1-sl{width:100%;height:44px;accent-color:var(--viz-accent)}
+    .v1-out{margin-top:10px;padding:10px;border:1px dashed var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var TS = document.getElementById('v1-t'), TL = document.getElementById('v1-tl');
+    var RS = document.getElementById('v1-r'), RL = document.getElementById('v1-rl');
+    var LEFT = document.getElementById('v1-circ'), RIGHT = document.getElementById('v1-plane');
+    var OUT = document.getElementById('v1-out'), WHY = document.getElementById('v1-why');
+    var VB = 250, C = 125, SP = 96;
+
+    function gcd(a, b){ return b ? gcd(b, a % b) : a; }
+    function piLab(k){
+      if (!k) return '0';
+      var sg = k < 0 ? '-' : '', n = Math.abs(k), d = 12, g = gcd(n, d);
+      n = n / g; d = d / g;
+      return sg + (n === 1 ? '' : n) + 'pi' + (d === 1 ? '' : '/' + d);
+    }
+    function fx(v){ return isFinite(v) ? (Math.abs(v) < 5e-4 ? 0 : v).toFixed(3) : '--'; }
+
+    function draw(maxR, r, th, isPlane){
+      var k = SP / maxR;
+      var px = C + r * Math.cos(th) * k, py = C - r * Math.sin(th) * k;
+      var g = '<rect x="0" y="0" width="' + VB + '" height="' + VB + '" rx="10" fill="var(--viz-bg)"/>';
+      g += '<line x1="8" y1="' + C + '" x2="' + (VB - 8) + '" y2="' + C + '" stroke="var(--viz-line)" stroke-width="1.2"/>';
+      g += '<line x1="' + C + '" y1="8" x2="' + C + '" y2="' + (VB - 8) + '" stroke="var(--viz-line)" stroke-width="1.2"/>';
+      g += '<text x="' + (VB - 10) + '" y="' + (C - 7) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">' + (isPlane ? 'Re (a)' : 'x') + '</text>';
+      g += '<text x="' + (C + 6) + '" y="17" font-size="10" fill="var(--viz-muted)">' + (isPlane ? 'Im (b)' : 'y') + '</text>';
+      g += '<circle cx="' + C + '" cy="' + C + '" r="' + k.toFixed(1) + '" fill="none" stroke="var(--viz-line)" stroke-width="1.3" stroke-dasharray="3 3"/>';
+      if (isPlane && r > 0.001 && Math.abs(r - 1) > 0.001) {
+        g += '<circle cx="' + C + '" cy="' + C + '" r="' + (r * k).toFixed(1) + '" fill="none" stroke="var(--viz-violet)" stroke-width="1.5" stroke-dasharray="5 3"/>';
+        g += '<text x="' + (C + 4) + '" y="' + (C - r * k - 4).toFixed(1) + '" font-size="9.5" fill="var(--viz-violet)">circle of radius r</text>';
+      }
+      if (r > 0.001) {
+        g += '<line x1="' + C + '" y1="' + C + '" x2="' + px.toFixed(1) + '" y2="' + py.toFixed(1) + '" stroke="var(--viz-accent)" stroke-width="2.2"/>';
+        g += '<line x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="' + px.toFixed(1) + '" y2="' + C + '" stroke="var(--viz-green)" stroke-width="1.5" stroke-dasharray="3 3"/>';
+        g += '<line x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="' + C + '" y2="' + py.toFixed(1) + '" stroke="var(--viz-amber)" stroke-width="1.5" stroke-dasharray="3 3"/>';
+        g += '<text x="' + (px + 4).toFixed(1) + '" y="' + ((py + C) / 2).toFixed(1) + '" font-size="9.5" fill="var(--viz-green)">' + (isPlane ? 'b' : 'sin t') + '</text>';
+        g += '<text x="' + ((px + C) / 2).toFixed(1) + '" y="' + (py - 4).toFixed(1) + '" text-anchor="middle" font-size="9.5" fill="var(--viz-amber)">' + (isPlane ? 'a' : 'cos t') + '</text>';
+      }
+      g += '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="5.5" fill="var(--viz-accent)"/>';
+      var right = Math.cos(th) >= 0;
+      var lx = px + (right ? 9 : -9), ly = py + (Math.sin(th) >= 0 ? -9 : 16);
+      g += '<text x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="' + (right ? 'start' : 'end') +
+        '" font-size="10.5" font-weight="700" fill="var(--viz-accent)">' + (isPlane ? 'z = a + bi' : '(cos t, sin t)') + '</text>';
+      return '<svg viewBox="0 0 ' + VB + ' ' + VB + '" width="100%" role="img" aria-label="' +
+        (isPlane ? 'the complex plane' : 'the unit circle') + '">' + g + '</svg>';
+    }
+
+    function render(){
+      var kk = Number(TS.value), r = Number(RS.value) / 4, th = kk * Math.PI / 12;
+      TL.textContent = piLab(kk);
+      RL.textContent = r.toFixed(2);
+      LEFT.innerHTML = draw(1.35, 1, th, false);
+      RIGHT.innerHTML = draw(Math.max(r, 1) * 1.35, r, th, true);
+
+      var co = Math.cos(th), si = Math.sin(th);
+      OUT.textContent =
+        't = ' + piLab(kk) + '  =  ' + Math.round(kk * 15) + ' deg\n' +
+        'cos t = ' + fx(co) + '      sin t = ' + fx(si) + '\n' +
+        'a = r cos t = ' + fx(r * co) + '      b = r sin t = ' + fx(r * si) + '\n' +
+        'z = ' + fx(r * co) + ' + (' + fx(r * si) + ')i   =   ' + r.toFixed(2) + ' cis(' + piLab(kk) + ')';
+
+      WHY.innerHTML = r < 0.001
+        ? '<b style="color:var(--viz-amber)">r = 0: this is the number 0, and it has no argument.</b>' +
+          'Modulus 0 puts the point at the origin, where there is no ray to measure an angle along — so the ' +
+          'argument is <b>undefined</b>, not zero. This is the one exception that every rule in this lesson ' +
+          'quietly carries: "for a nonzero complex number".'
+        : Math.abs(r - 1) < 0.001
+          ? '<b style="color:var(--viz-green)">r = 1: the two diagrams are the same diagram.</b>' +
+            'At modulus 1 the complex number <em>is</em> the terminal point: a = cos t and b = sin t exactly. ' +
+            'Everything you proved about the unit circle is a statement about the complex numbers of modulus 1 — ' +
+            'and the identity cos^2 t + sin^2 t = 1 is just the statement that this modulus is 1.'
+          : '<b style="color:var(--viz-accent)">Same direction, new size.</b>' +
+            'Changing r slides the point along its ray without turning it, so the angle t is untouched while the ' +
+            'distance from the origin becomes r. Those two numbers — <b>modulus r</b> and <b>argument t</b> — are ' +
+            'the whole of polar form: z = r(cos t + i sin t), here ' + r.toFixed(2) + ' cis(' + piLab(kk) + '). ' +
+            'Trigonometry gave you the bracket; this lesson adds the r in front of it.';
+    }
+    TS.addEventListener('input', render);
+    RS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Distance And Conjugate</h2>
+  <p class="vz-lede">The complex plane borrows every formula the ordinary plane already had. Move the two
+    numbers and switch between the three things the questions ask for — distance, midpoint, conjugate — and
+    watch each one turn out to be a formula you have used since coordinate geometry.
+    <b>Like changing the labels on a map's axes: the roads do not move.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="What to show" id="v2-seg"></div>
+
+  <div id="v2-plot"></div>
+
+  <div class="vz-card">
+    <div class="v2-grid">
+      <div>
+        <label class="v2-lab" for="v2-x1">z1 real part a = <span id="v2-x1l">1</span></label>
+        <input class="v2-sl" type="range" id="v2-x1" min="-6" max="6" value="1" step="1" aria-label="Real part of z1">
+        <label class="v2-lab" for="v2-y1">z1 imaginary part b = <span id="v2-y1l">2</span></label>
+        <input class="v2-sl" type="range" id="v2-y1" min="-6" max="6" value="2" step="1" aria-label="Imaginary part of z1">
+      </div>
+      <div>
+        <label class="v2-lab" for="v2-x2">z2 real part a = <span id="v2-x2l">4</span></label>
+        <input class="v2-sl" type="range" id="v2-x2" min="-6" max="6" value="4" step="1" aria-label="Real part of z2">
+        <label class="v2-lab" for="v2-y2">z2 imaginary part b = <span id="v2-y2l">6</span></label>
+        <input class="v2-sl" type="range" id="v2-y2" min="-6" max="6" value="6" step="1" aria-label="Imaginary part of z2">
+      </div>
+    </div>
+    <div class="vz-mono v2-out" id="v2-out"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">The conjugate is the one of the three that is not merely borrowed geometry. Reflecting
+    across the real axis is what lets you <b>turn a complex denominator into a real one</b>, because
+    z times its conjugate is a^2 + b^2 — always real, always non-negative, and equal to the square of the
+    modulus. Every division you will ever do in rectangular form runs through that single fact.</p>
+
+  <style>
+    .v2-grid{display:flex;gap:12px;flex-wrap:wrap}
+    .v2-grid > div{flex:1 1 168px}
+    .v2-lab{font-size:12px;font-weight:700;display:block;margin:6px 0 2px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-sl{width:100%;height:44px;accent-color:var(--viz-accent)}
+    .v2-out{margin-top:10px;padding:10px;border:1px dashed var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MODES = ['Distance', 'Midpoint', 'Conjugate'];
+    var mode = 0;
+    var seg = document.getElementById('v2-seg'), plot = document.getElementById('v2-plot');
+    var OUT = document.getElementById('v2-out'), WHY = document.getElementById('v2-why');
+    var X1 = document.getElementById('v2-x1'), Y1 = document.getElementById('v2-y1');
+    var X2 = document.getElementById('v2-x2'), Y2 = document.getElementById('v2-y2');
+    var X1L = document.getElementById('v2-x1l'), Y1L = document.getElementById('v2-y1l');
+    var X2L = document.getElementById('v2-x2l'), Y2L = document.getElementById('v2-y2l');
+    var VB = 260, C = 130, SP = 104;
+
+    function zs(a, b){ return a + (b < 0 ? ' - ' + Math.abs(b) : ' + ' + b) + 'i'; }
+    function fx(v){ return isFinite(v) ? (Math.abs(v) < 5e-4 ? 0 : v).toFixed(3) : '--'; }
+    function dot(x, y, col, lab, below){
+      return '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="5.5" fill="' + col + '"/>' +
+        '<text x="' + (x + 8).toFixed(1) + '" y="' + (y + (below ? 15 : -8)).toFixed(1) +
+        '" font-size="10" font-weight="700" fill="' + col + '">' + lab + '</text>';
+    }
+
+    function render(){
+      var x1 = Number(X1.value), y1 = Number(Y1.value), x2 = Number(X2.value), y2 = Number(Y2.value);
+      X1L.textContent = x1; Y1L.textContent = y1; X2L.textContent = x2; Y2L.textContent = y2;
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === mode ? 'true' : 'false'); });
+
+      var m = Math.max(Math.abs(x1), Math.abs(y1), Math.abs(x2), Math.abs(y2), 1) * 1.3;
+      var k = SP / m;
+      function PX(v){ return C + v * k; }
+      function PY(v){ return C - v * k; }
+
+      var g = '<rect x="0" y="0" width="' + VB + '" height="' + VB + '" rx="10" fill="var(--viz-bg)"/>';
+      for (var t = -8; t <= 8; t++) {
+        if (!t || Math.abs(t) > m) continue;
+        g += '<line x1="' + PX(t).toFixed(1) + '" y1="6" x2="' + PX(t).toFixed(1) + '" y2="' + (VB - 6) + '" stroke="var(--viz-line)" stroke-width="0.5" opacity="0.55"/>';
+        g += '<line x1="6" y1="' + PY(t).toFixed(1) + '" x2="' + (VB - 6) + '" y2="' + PY(t).toFixed(1) + '" stroke="var(--viz-line)" stroke-width="0.5" opacity="0.55"/>';
+      }
+      g += '<line x1="6" y1="' + C + '" x2="' + (VB - 6) + '" y2="' + C + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<line x1="' + C + '" y1="6" x2="' + C + '" y2="' + (VB - 6) + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<text x="' + (VB - 8) + '" y="' + (C - 7) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">Re</text>';
+      g += '<text x="' + (C + 6) + '" y="17" font-size="10" fill="var(--viz-muted)">Im</text>';
+
+      var da = x2 - x1, db = y2 - y1;
+      var dist = Math.sqrt(da * da + db * db);
+      var mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+
+      if (mode === 0) {
+        g += '<line x1="' + PX(x1).toFixed(1) + '" y1="' + PY(y1).toFixed(1) + '" x2="' + PX(x2).toFixed(1) + '" y2="' + PY(y1).toFixed(1) + '" stroke="var(--viz-amber)" stroke-width="2" stroke-dasharray="4 3"/>';
+        g += '<line x1="' + PX(x2).toFixed(1) + '" y1="' + PY(y1).toFixed(1) + '" x2="' + PX(x2).toFixed(1) + '" y2="' + PY(y2).toFixed(1) + '" stroke="var(--viz-green)" stroke-width="2" stroke-dasharray="4 3"/>';
+        g += '<line x1="' + PX(x1).toFixed(1) + '" y1="' + PY(y1).toFixed(1) + '" x2="' + PX(x2).toFixed(1) + '" y2="' + PY(y2).toFixed(1) + '" stroke="var(--viz-accent)" stroke-width="2.4"/>';
+        g += '<text x="' + PX((x1 + x2) / 2).toFixed(1) + '" y="' + (PY(y1) + 14).toFixed(1) + '" text-anchor="middle" font-size="9.5" fill="var(--viz-amber)">run ' + Math.abs(da) + '</text>';
+        g += '<text x="' + (PX(x2) + 6).toFixed(1) + '" y="' + PY((y1 + y2) / 2).toFixed(1) + '" font-size="9.5" fill="var(--viz-green)">rise ' + Math.abs(db) + '</text>';
+      } else if (mode === 1) {
+        g += '<line x1="' + PX(x1).toFixed(1) + '" y1="' + PY(y1).toFixed(1) + '" x2="' + PX(x2).toFixed(1) + '" y2="' + PY(y2).toFixed(1) + '" stroke="var(--viz-accent)" stroke-width="2.4"/>';
+        g += dot(PX(mx), PY(my), 'var(--viz-violet)', 'midpoint ' + zs(mx, my), true);
+      } else {
+        g += '<line x1="' + PX(x1).toFixed(1) + '" y1="' + PY(y1).toFixed(1) + '" x2="' + PX(x1).toFixed(1) + '" y2="' + PY(-y1).toFixed(1) + '" stroke="var(--viz-violet)" stroke-width="1.6" stroke-dasharray="3 3"/>';
+        g += '<line x1="' + PX(x2).toFixed(1) + '" y1="' + PY(y2).toFixed(1) + '" x2="' + PX(x2).toFixed(1) + '" y2="' + PY(-y2).toFixed(1) + '" stroke="var(--viz-violet)" stroke-width="1.6" stroke-dasharray="3 3"/>';
+        g += dot(PX(x1), PY(-y1), 'var(--viz-violet)', 'conj z1 = ' + zs(x1, -y1), true);
+        g += dot(PX(x2), PY(-y2), 'var(--viz-violet)', 'conj z2 = ' + zs(x2, -y2), true);
+      }
+      g += dot(PX(x1), PY(y1), 'var(--viz-accent)', 'z1 = ' + zs(x1, y1), false);
+      g += dot(PX(x2), PY(y2), 'var(--viz-red)', 'z2 = ' + zs(x2, y2), false);
+      plot.innerHTML = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" width="100%" role="img" aria-label="two numbers in the complex plane">' + g + '</svg>';
+
+      var whole = Math.abs(dist - Math.round(dist)) < 1e-9;
+      if (mode === 0) {
+        OUT.textContent =
+          'z2 - z1 = ' + zs(da, db) + '\n' +
+          '|z2 - z1| = sqrt(' + da + '^2 + ' + db + '^2) = sqrt(' + (da * da + db * db) + ')\n' +
+          'distance = ' + fx(dist) + (whole ? '   (a whole number)' : '');
+        WHY.innerHTML = '<b>Distance is subtraction, then modulus.</b>' +
+          'Subtracting slides both points so that z1 sits at the origin; the distance is then just how far z2 - z1 ' +
+          'is from there, which is its <b>modulus</b>. Written out it is the ordinary distance formula: ' +
+          'sqrt((a2 - a1)^2 + (b2 - b1)^2). Try z1 = 1 + 2i and z2 = 4 + 6i — legs 3 and 4, so the distance is exactly 5, ' +
+          'the 3-4-5 triangle hiding inside a complex-number question.';
+      } else if (mode === 1) {
+        OUT.textContent =
+          'real parts:      (' + x1 + ' + ' + x2 + ') / 2 = ' + fx(mx) + '\n' +
+          'imaginary parts: (' + y1 + ' + ' + y2 + ') / 2 = ' + fx(my) + '\n' +
+          'midpoint = ' + zs(mx, my);
+        WHY.innerHTML = '<b>The midpoint is the average, component by component.</b>' +
+          'Because adding complex numbers adds coordinates, (z1 + z2) / 2 averages the real parts and the imaginary ' +
+          'parts independently — there is nothing complex-specific about it at all. Try z1 = 2 + 4i and z2 = 6 - 2i: ' +
+          'the real parts average to 4, the imaginary parts to 1, so the midpoint is 4 + i. The classic error is ' +
+          'reporting 8 + 2i, which is the <em>sum</em> with the halving forgotten.';
+      } else {
+        OUT.textContent =
+          'z1              = ' + zs(x1, y1) + '\n' +
+          'conj z1         = ' + zs(x1, -y1) + '        (imaginary part flips sign only)\n' +
+          'z1 + conj z1    = ' + (2 * x1) + '          (real: the i terms cancel)\n' +
+          'z1 * conj z1    = ' + (x1 * x1 + y1 * y1) + '          = |z1|^2, real and never negative';
+        WHY.innerHTML = '<b>Conjugation is a mirror in the real axis — and the only way to remove i.</b>' +
+          'Only the imaginary part changes sign, so the conjugate of 3 - 4i is 3 + 4i (not -3 + 4i, and not 4 - 3i). ' +
+          'Two payoffs follow. <b>Adding</b> a number to its conjugate cancels the imaginary parts: (2 + 3i) + (2 - 3i) = 4, ' +
+          'a real number, and in general z + conj z = 2a. <b>Multiplying</b> gives a^2 + b^2, which is real, non-negative, ' +
+          'and exactly |z|^2 — the fact that makes division possible: 1 / (3 - 4i) = (3 + 4i) / 25.';
+      }
+    }
+
+    MODES.forEach(function(name, i){
+      var b = document.createElement('button');
+      b.textContent = name;
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.addEventListener('click', function(){ mode = i; render(); });
+      seg.appendChild(b);
+    });
+    [X1, Y1, X2, Y2].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Modulus And Argument</h2>
+  <p class="vz-lede">Two numbers locate a point just as well as its coordinates do: how far out, and which
+    way round. Move a and b and watch the modulus and the principal argument — and watch the naive
+    arctangent formula quietly go a half-turn wrong the moment the point crosses to the left.
+    <b>Like giving directions as "3 km, north-east" instead of "3 east, 3 north".</b></p>
+
+  <div id="v3-plot"></div>
+
+  <div class="vz-card">
+    <label class="v3-lab" for="v3-a">real part a = <span id="v3-al">3</span></label>
+    <input class="v3-sl" type="range" id="v3-a" min="-10" max="10" value="6" step="1" aria-label="Real part a in halves">
+    <label class="v3-lab" for="v3-b">imaginary part b = <span id="v3-bl">4</span></label>
+    <input class="v3-sl" type="range" id="v3-b" min="-10" max="10" value="8" step="1" aria-label="Imaginary part b in halves">
+    <div class="vz-mono v3-out" id="v3-out"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The principal argument is the same idea as a principal branch of an inverse trig
+    function: infinitely many angles name this ray, so one representative is chosen — here the one in
+    <b>(-pi, pi]</b>. Half-open on purpose: the leftward direction is assigned +pi, never -pi, which is
+    why arg(-1) = pi rather than -pi. A modulus, by contrast, needs no convention at all — it is a length.</p>
+
+  <style>
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:8px 0 2px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-sl{width:100%;height:44px;accent-color:var(--viz-accent)}
+    .v3-out{margin-top:10px;padding:10px;border:1px dashed var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v3-pills{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var AS = document.getElementById('v3-a'), AL = document.getElementById('v3-al');
+    var BS = document.getElementById('v3-b'), BL = document.getElementById('v3-bl');
+    var plot = document.getElementById('v3-plot');
+    var OUT = document.getElementById('v3-out'), WHY = document.getElementById('v3-why');
+    var VB = 260, C = 130, SP = 100;
+
+    function gcd(a, b){ return b ? gcd(b, a % b) : a; }
+    function piLab(k){
+      if (!k) return '0';
+      var sg = k < 0 ? '-' : '', n = Math.abs(k), d = 12, g = gcd(n, d);
+      n = n / g; d = d / g;
+      return sg + (n === 1 ? '' : n) + 'pi' + (d === 1 ? '' : '/' + d);
+    }
+    function exact(th){
+      var k = Math.round(th / (Math.PI / 12));
+      return Math.abs(th - k * Math.PI / 12) < 1e-9 ? piLab(k) : '';
+    }
+    function fx(v){ return isFinite(v) ? (Math.abs(v) < 5e-4 ? 0 : v).toFixed(3) : '--'; }
+    function deg(v){ return isFinite(v) ? (v * 180 / Math.PI).toFixed(1) : '--'; }
+
+    function render(){
+      var a = Number(AS.value) / 2, b = Number(BS.value) / 2;
+      AL.textContent = a; BL.textContent = b;
+      var r = Math.sqrt(a * a + b * b);
+      var zero = r < 1e-9;
+      var th = zero ? NaN : Math.atan2(b, a);
+
+      var m = Math.max(r, 1) * 1.35, k = SP / m;
+      function PX(v){ return C + v * k; }
+      function PY(v){ return C - v * k; }
+      var px = PX(a), py = PY(b);
+
+      var g = '<rect x="0" y="0" width="' + VB + '" height="' + VB + '" rx="10" fill="var(--viz-bg)"/>';
+      g += '<line x1="6" y1="' + C + '" x2="' + (VB - 6) + '" y2="' + C + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<line x1="' + C + '" y1="6" x2="' + C + '" y2="' + (VB - 6) + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<text x="' + (VB - 8) + '" y="' + (C - 7) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">Re</text>';
+      g += '<text x="' + (C + 6) + '" y="17" font-size="10" fill="var(--viz-muted)">Im</text>';
+      if (!zero) {
+        g += '<circle cx="' + C + '" cy="' + C + '" r="' + (r * k).toFixed(1) + '" fill="none" stroke="var(--viz-violet)" stroke-width="1.4" stroke-dasharray="5 3"/>';
+        var pts = '';
+        for (var i = 0; i <= 40; i++) {
+          var t = th * i / 40;
+          pts += PX(Math.cos(t) * 0.36 * m).toFixed(1) + ',' + PY(Math.sin(t) * 0.36 * m).toFixed(1) + ' ';
+        }
+        g += '<polyline points="' + pts.trim() + '" fill="none" stroke="var(--viz-amber)" stroke-width="2"/>';
+        var mid = th / 2;
+        g += '<text x="' + PX(Math.cos(mid) * 0.47 * m).toFixed(1) + '" y="' + PY(Math.sin(mid) * 0.47 * m).toFixed(1) +
+          '" text-anchor="middle" font-size="10" font-weight="700" fill="var(--viz-amber)">arg z</text>';
+        g += '<line x1="' + C + '" y1="' + C + '" x2="' + px.toFixed(1) + '" y2="' + py.toFixed(1) + '" stroke="var(--viz-accent)" stroke-width="2.4"/>';
+        g += '<text x="' + ((C + px) / 2 + 7).toFixed(1) + '" y="' + ((C + py) / 2 - 6).toFixed(1) +
+          '" font-size="10" font-weight="700" fill="var(--viz-accent)">r = ' + fx(r) + '</text>';
+      }
+      g += '<circle cx="' + px.toFixed(1) + '" cy="' + py.toFixed(1) + '" r="5.5" fill="var(--viz-accent)"/>';
+      plot.innerHTML = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" width="100%" role="img" aria-label="modulus and argument of one number">' + g + '</svg>';
+
+      var ex = zero ? '' : exact(th);
+      var naive = a === 0 ? null : Math.atan(b / a);
+      var off = naive !== null && Math.abs(naive - th) > 1e-9;
+
+      OUT.textContent =
+        'z    = ' + a + (b < 0 ? ' - ' + Math.abs(b) : ' + ' + b) + 'i\n' +
+        '|z|  = sqrt(' + fx(a * a) + ' + ' + fx(b * b) + ') = ' + fx(r) + '\n' +
+        'arg z (principal, in (-pi, pi])  = ' + (zero ? 'UNDEFINED' : fx(th) + ' rad = ' + deg(th) + ' deg' + (ex ? '  = ' + ex : '')) + '\n' +
+        'atan(b / a)                      = ' + (a === 0 ? 'UNDEFINED (a = 0, division by zero)' : fx(naive) + ' rad = ' + deg(naive) + ' deg');
+
+      var quad = zero ? 'the origin' : (a > 0 && b >= 0 ? 'quadrant I / positive axis'
+        : a <= 0 && b > 0 ? 'quadrant II / upper axis'
+        : a < 0 && b <= 0 ? 'quadrant III / negative axis' : 'quadrant IV / lower axis');
+
+      var pills = '<div class="v3-pills">' +
+        '<span class="v3-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">modulus ' + fx(r) + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">argument ' + (zero ? 'undefined' : deg(th) + ' deg') + '</span>' +
+        '<span class="v3-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + quad + '</span></div>';
+
+      WHY.innerHTML = zero
+        ? '<b style="color:var(--viz-amber)">z = 0 has modulus 0 and NO argument.</b>' + pills +
+          'There is no ray from the origin through the origin, so no angle exists to report — undefined, not zero. ' +
+          'Every statement in this lesson about arguments silently begins "for a nonzero complex number", and this ' +
+          'is the case it is excluding.'
+        : off
+          ? '<b style="color:var(--viz-red)">Here atan(b / a) is wrong by exactly pi.</b>' + pills +
+            'The arctangent function returns values in (-pi/2, pi/2), so it can only ever point <em>rightward</em> — it ' +
+            'cannot describe a point in quadrant II or III at all. It reports ' + deg(naive) + ' deg when the true ' +
+            'principal argument is ' + deg(th) + ' deg. The ratio b / a simply cannot tell + from -, since ' +
+            'both a point and its opposite share it. The fix is to feed the two components in separately: ' +
+            '<b>atan2(b, a)</b>, which is what this readout uses.'
+          : '<b style="color:var(--viz-green)">Modulus is size; argument is direction.</b>' + pills +
+            'The modulus sqrt(a^2 + b^2) is a distance from the origin, so it is never negative and never an angle — ' +
+            '|-2i| is 2, not -2 and not pi/2. Watch the easy landmarks as you drag: 1 + 0i points right, so arg = 0; ' +
+            'i points straight up, so arg = pi/2; -1 + 0i points left, so arg = pi. Right now atan(b / a) happens to ' +
+            'agree with the principal argument, because the point is on the right-hand side — push a below zero and it ' +
+            'will not.';
+    }
+    AS.addEventListener('input', render);
+    BS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Multiply By Rotating</h2>
+  <p class="vz-lede">In polar form multiplication stops being algebra and becomes motion: the moduli
+    multiply and the arguments add, which is your angle addition identity wearing a different coat. Set two
+    numbers, then switch between product, quotient and square and watch both halves of the arithmetic move.
+    <b>Like gears: one wheel scales the speed, the other turns the whole assembly.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Operation" id="v4-seg"></div>
+
+  <div id="v4-plot"></div>
+
+  <div class="vz-card">
+    <label class="v4-lab" for="v4-r1">z1 modulus r1 = <span id="v4-r1l">2.00</span></label>
+    <input class="v4-sl" type="range" id="v4-r1" min="0" max="24" value="8" step="1" aria-label="Modulus of z1">
+    <label class="v4-lab" for="v4-t1">z1 argument = <span id="v4-t1l">pi/3</span></label>
+    <input class="v4-sl" type="range" id="v4-t1" min="-11" max="12" value="4" step="1" aria-label="Argument of z1">
+    <div id="v4-row2">
+      <label class="v4-lab" for="v4-r2">z2 modulus r2 = <span id="v4-r2l">3.00</span></label>
+      <input class="v4-sl" type="range" id="v4-r2" min="0" max="24" value="12" step="1" aria-label="Modulus of z2">
+      <label class="v4-lab" for="v4-t2">z2 argument = <span id="v4-t2l">pi/6</span></label>
+      <input class="v4-sl" type="range" id="v4-t2" min="-11" max="12" value="2" step="1" aria-label="Argument of z2">
+    </div>
+    <div class="vz-mono v4-out" id="v4-out"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Squaring is where the saving is obvious: De Moivre gives z^n = r^n cis(n t) in one line,
+    while the same job in rectangular form is a binomial expansion. Set r1 = 5.00 and the argument to pi/4 and
+    read the square off directly — <b>modulus 25, argument pi/2</b>. Note which operation happens to which
+    quantity: the modulus is raised to the power, the argument is only multiplied by it.</p>
+
+  <style>
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:8px 0 2px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-sl{width:100%;height:44px;accent-color:var(--viz-accent)}
+    .v4-out{margin-top:10px;padding:10px;border:1px dashed var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MODES = ['z1 x z2', 'z1 / z2', 'z1 squared'];
+    var mode = 0;
+    var seg = document.getElementById('v4-seg'), plot = document.getElementById('v4-plot');
+    var R1 = document.getElementById('v4-r1'), T1 = document.getElementById('v4-t1');
+    var R2 = document.getElementById('v4-r2'), T2 = document.getElementById('v4-t2');
+    var R1L = document.getElementById('v4-r1l'), T1L = document.getElementById('v4-t1l');
+    var R2L = document.getElementById('v4-r2l'), T2L = document.getElementById('v4-t2l');
+    var ROW2 = document.getElementById('v4-row2');
+    var OUT = document.getElementById('v4-out'), WHY = document.getElementById('v4-why');
+    var VB = 260, C = 130, SP = 100;
+
+    function gcd(a, b){ return b ? gcd(b, a % b) : a; }
+    function piLab(k){
+      if (!k) return '0';
+      var sg = k < 0 ? '-' : '', n = Math.abs(k), d = 12, g = gcd(n, d);
+      n = n / g; d = d / g;
+      return sg + (n === 1 ? '' : n) + 'pi' + (d === 1 ? '' : '/' + d);
+    }
+    function wrap(k){                       // k is in twelfths of pi; fold into (-12, 12]
+      var w = ((k + 12) % 24 + 24) % 24 - 12;
+      return w === -12 ? 12 : w;
+    }
+    function fx(v){ return isFinite(v) ? (Math.abs(v) < 5e-4 ? 0 : v).toFixed(2) : '--'; }
+
+    function arrow(C0, k, r, kk, col, lab){
+      var th = kk * Math.PI / 12;
+      var x = C0 + r * Math.cos(th) * k, y = C0 - r * Math.sin(th) * k;
+      var s = '<line x1="' + C0 + '" y1="' + C0 + '" x2="' + x.toFixed(1) + '" y2="' + y.toFixed(1) +
+        '" stroke="' + col + '" stroke-width="2.4"/>' +
+        '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="5" fill="' + col + '"/>';
+      var right = Math.cos(th) >= 0;
+      s += '<text x="' + (x + (right ? 8 : -8)).toFixed(1) + '" y="' + (y + (Math.sin(th) >= 0 ? -8 : 15)).toFixed(1) +
+        '" text-anchor="' + (right ? 'start' : 'end') + '" font-size="10" font-weight="700" fill="' + col + '">' + lab + '</text>';
+      return s;
+    }
+
+    function render(){
+      var r1 = Number(R1.value) / 4, k1 = Number(T1.value);
+      var r2 = Number(R2.value) / 4, k2 = Number(T2.value);
+      R1L.textContent = r1.toFixed(2); T1L.textContent = piLab(k1);
+      R2L.textContent = r2.toFixed(2); T2L.textContent = piLab(k2);
+      ROW2.style.display = mode === 2 ? 'none' : '';
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === mode ? 'true' : 'false'); });
+
+      var ok = true, R = 0, rawK = 0, modLine = '', argLine = '', expr = '';
+      if (mode === 0) {
+        R = r1 * r2; rawK = k1 + k2; expr = 'z1 * z2';
+        modLine = 'moduli MULTIPLY:    ' + r1.toFixed(2) + ' x ' + r2.toFixed(2) + ' = ' + fx(R);
+        argLine = 'arguments ADD:      ' + piLab(k1) + ' + ' + piLab(k2) + ' = ' + piLab(rawK);
+      } else if (mode === 1) {
+        ok = r2 > 1e-9;
+        R = ok ? r1 / r2 : 0; rawK = k1 - k2; expr = 'z1 / z2';
+        modLine = 'moduli DIVIDE:      ' + r1.toFixed(2) + ' / ' + r2.toFixed(2) + ' = ' + (ok ? fx(R) : 'UNDEFINED');
+        argLine = 'arguments SUBTRACT: ' + piLab(k1) + ' - ' + piLab(k2) + ' = ' + piLab(rawK);
+      } else {
+        R = r1 * r1; rawK = 2 * k1; expr = 'z1^2';
+        modLine = 'modulus is SQUARED: ' + r1.toFixed(2) + '^2 = ' + fx(R);
+        argLine = 'argument DOUBLES:   2 x ' + piLab(k1) + ' = ' + piLab(rawK);
+      }
+      var pk = wrap(rawK);
+      var folded = pk !== rawK;
+
+      var used = [r1];
+      if (mode !== 2) used.push(r2);
+      if (ok) used.push(R);
+      var m = Math.max.apply(null, used.concat([1])) * 1.3;
+      if (!isFinite(m) || m <= 0) m = 1;
+      var k = SP / m;
+
+      var g = '<rect x="0" y="0" width="' + VB + '" height="' + VB + '" rx="10" fill="var(--viz-bg)"/>';
+      g += '<line x1="6" y1="' + C + '" x2="' + (VB - 6) + '" y2="' + C + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<line x1="' + C + '" y1="6" x2="' + C + '" y2="' + (VB - 6) + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<circle cx="' + C + '" cy="' + C + '" r="' + (k).toFixed(1) + '" fill="none" stroke="var(--viz-line)" stroke-width="1" stroke-dasharray="3 3"/>';
+      g += '<text x="' + (VB - 8) + '" y="' + (C - 7) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">Re</text>';
+      g += '<text x="' + (C + 6) + '" y="17" font-size="10" fill="var(--viz-muted)">Im</text>';
+      g += arrow(C, k, r1, k1, 'var(--viz-accent)', 'z1');
+      if (mode !== 2) g += arrow(C, k, r2, k2, 'var(--viz-violet)', 'z2');
+      if (ok && R > 1e-9) g += arrow(C, k, R, pk, 'var(--viz-green)', expr);
+      plot.innerHTML = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" width="100%" role="img" aria-label="two numbers and their ' + expr + '">' + g + '</svg>';
+
+      OUT.textContent =
+        'z1 = ' + r1.toFixed(2) + ' cis(' + piLab(k1) + ')' + (mode === 2 ? '' : '\nz2 = ' + r2.toFixed(2) + ' cis(' + piLab(k2) + ')') + '\n' +
+        modLine + '\n' + argLine + '\n' +
+        (ok
+          ? expr + ' = ' + fx(R) + ' cis(' + piLab(pk) + ')' + (folded ? '   [' + piLab(rawK) + ' folded back into (-pi, pi]]' : '')
+          : expr + ' = UNDEFINED — you cannot divide by 0');
+
+      WHY.innerHTML = !ok
+        ? '<b style="color:var(--viz-red)">r2 = 0, so z2 = 0 and the quotient does not exist.</b>' +
+          'The division rule reads "divide the moduli, subtract the arguments" and both halves fail here at once: ' +
+          'r1 / 0 is undefined, and 0 has no argument to subtract. This is the same exclusion as dividing by zero in the ' +
+          'reals — nudge r2 above 0 and the rule works again.'
+        : R < 1e-9
+          ? '<b style="color:var(--viz-amber)">The result is 0 — modulus 0, argument undefined.</b>' +
+            'A modulus of zero on either input collapses the product to the origin, and the origin has no direction. ' +
+            'The argument arithmetic still runs formally (' + piLab(rawK) + '), but there is no ray to point along.'
+          : mode === 0
+            ? '<b style="color:var(--viz-green)">Multiply the moduli, add the arguments.</b>' +
+              'Expand r1(cos A + i sin A) x r2(cos B + i sin B), collect using i^2 = -1, and the two brackets you are left ' +
+              'with are cos(A + B) and sin(A + B) exactly — <b>the angle addition identities are the proof</b>. So ' +
+              '2 cis A times 3 cis B is 6 cis(A + B): moduli 2 x 3 = 6 (never 2 + 3 = 5), arguments A + B (never A x B). ' +
+              'Geometrically z2 acts on z1 by rotating it through arg z2 and stretching it by |z2|.' +
+              (folded ? '<br><br>Note the fold: the raw sum ' + piLab(rawK) + ' names the same ray as ' + piLab(pk) + ', because arguments are only defined up to 2pi. The <em>principal</em> answer is the one inside (-pi, pi].' : '')
+            : mode === 1
+              ? '<b style="color:var(--viz-green)">Divide the moduli, subtract the arguments.</b>' +
+                'Multiply top and bottom by cis(-B) and the product rule finishes it. Set r1 = 6.00 with argument pi/3 and ' +
+                'r2 = 2.00 with argument pi/6 and read off 3 cis(pi/6) — 6 / 2 = 3 for the modulus, pi/3 - pi/6 = pi/6 for the ' +
+                'argument. Dividing therefore <b>shrinks and rotates backwards</b>, which is precisely undoing the multiplication.' +
+                (folded ? '<br><br>The raw difference ' + piLab(rawK) + ' has been folded to ' + piLab(pk) + ' — the same ray, named principally.' : '')
+              : '<b style="color:var(--viz-green)">De Moivre: z^n = r^n cis(n t).</b>' +
+                'Squaring is just multiplying z1 by itself, so the rule applies with both factors equal: the modulus is ' +
+                '<b>raised to the power</b> (' + r1.toFixed(2) + '^2 = ' + fx(R) + ') while the argument is only ' +
+                '<b>multiplied by it</b> (2 x ' + piLab(k1) + ' = ' + piLab(rawK) + '). Take modulus 5 and argument pi/4: the square has ' +
+                'modulus 25 and argument pi/2 — the classic distractors keep one of the two unchanged.' +
+                (folded ? '<br><br>Here the doubled argument ' + piLab(rawK) + ' has wrapped past pi and is reported as ' + piLab(pk) + '.' : '');
+    }
+
+    MODES.forEach(function(name, i){
+      var b = document.createElement('button');
+      b.textContent = name;
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.addEventListener('click', function(){ mode = i; render(); });
+      seg.appendChild(b);
+    });
+    [R1, T1, R2, T2].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Counting Every Root</h2>
+  <p class="vz-lede">The Fundamental Theorem of Algebra makes a promise about counting, not about finding.
+    Set the degree and switch between three polynomials of that same degree: the roots move, stack and pair
+    up, but the total counting multiplicity never once differs from the degree.
+    <b>Like a guest list: seats can be shared or scattered, but the head count is fixed.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Polynomial" id="v5-seg"></div>
+
+  <div id="v5-plot"></div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-n">degree n = <span id="v5-nl">3</span></label>
+    <input class="v5-sl" type="range" id="v5-n" min="1" max="8" value="3" step="1" aria-label="Degree n">
+    <div class="vz-mono v5-out" id="v5-out"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Read the theorem's quantifiers carefully, because the wrong answers are usually true
+    sentences about a different claim. It applies to <b>every nonconstant polynomial</b> — not only those with
+    real coefficients, not only even or prime degrees. It gives <b>exactly n</b> roots counting multiplicity —
+    not "at most n", and not n <em>distinct</em> ones. And the conjugate-pair rule is a separate, extra
+    hypothesis that needs the coefficients to be real.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:8px 0 2px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-sl{width:100%;height:44px;accent-color:var(--viz-accent)}
+    .v5-out{margin-top:10px;padding:10px;border:1px dashed var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+    .v5-pills{display:flex;gap:7px;flex-wrap:wrap;margin-top:11px}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MODES = ['z^n - 1', '(z - 1)^n', 'conjugate pair'];
+    var mode = 0;
+    var seg = document.getElementById('v5-seg'), plot = document.getElementById('v5-plot');
+    var NS = document.getElementById('v5-n'), NL = document.getElementById('v5-nl');
+    var OUT = document.getElementById('v5-out'), WHY = document.getElementById('v5-why');
+    var VB = 260, C = 130, SP = 98;
+
+    function fx(v){ return isFinite(v) ? (Math.abs(v) < 5e-4 ? 0 : v).toFixed(2) : '--'; }
+    function zs(a, b){
+      if (Math.abs(b) < 5e-4) return fx(a);
+      return fx(a) + (b < 0 ? ' - ' : ' + ') + fx(Math.abs(b)) + 'i';
+    }
+
+    function rootsFor(n){
+      var out = [], i;
+      if (mode === 0) {
+        for (i = 0; i < n; i++) {
+          var t = 2 * Math.PI * i / n;
+          out.push({ a: Math.cos(t), b: Math.sin(t), m: 1 });
+        }
+      } else if (mode === 1) {
+        out.push({ a: 1, b: 0, m: n });
+      } else {
+        out.push({ a: 2, b: 3, m: 1 });
+        out.push({ a: 2, b: -3, m: 1 });
+        if (n > 2) out.push({ a: 1, b: 0, m: n - 2 });
+      }
+      return out;
+    }
+
+    function render(){
+      var n = Number(NS.value);
+      var clamped = mode === 2 && n < 2;
+      if (clamped) n = 2;
+      NL.textContent = n + (clamped ? '  (raised to 2)' : '');
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === mode ? 'true' : 'false'); });
+
+      var roots = rootsFor(n);
+      var total = roots.reduce(function(s, r){ return s + r.m; }, 0);
+      var distinct = roots.length;
+      var real = roots.filter(function(r){ return Math.abs(r.b) < 1e-9; }).reduce(function(s, r){ return s + r.m; }, 0);
+      var pairs = roots.filter(function(r){ return r.b > 1e-9; }).length;
+
+      var span = roots.reduce(function(s, r){ return Math.max(s, Math.abs(r.a), Math.abs(r.b)); }, 1) * 1.45;
+      if (!isFinite(span) || span <= 0) span = 1.45;
+      var k = SP / span;
+      function PX(v){ return C + v * k; }
+      function PY(v){ return C - v * k; }
+
+      var g = '<rect x="0" y="0" width="' + VB + '" height="' + VB + '" rx="10" fill="var(--viz-bg)"/>';
+      g += '<circle cx="' + C + '" cy="' + C + '" r="' + k.toFixed(1) + '" fill="none" stroke="var(--viz-line)" stroke-width="1.2" stroke-dasharray="3 3"/>';
+      g += '<line x1="6" y1="' + C + '" x2="' + (VB - 6) + '" y2="' + C + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<line x1="' + C + '" y1="6" x2="' + C + '" y2="' + (VB - 6) + '" stroke="var(--viz-line)" stroke-width="1.4"/>';
+      g += '<text x="' + (VB - 8) + '" y="' + (C - 7) + '" text-anchor="end" font-size="10" fill="var(--viz-muted)">Re</text>';
+      g += '<text x="' + (C + 6) + '" y="17" font-size="10" fill="var(--viz-muted)">Im</text>';
+
+      roots.forEach(function(r){
+        if (r.b > 1e-9) {
+          g += '<line x1="' + PX(r.a).toFixed(1) + '" y1="' + PY(r.b).toFixed(1) + '" x2="' + PX(r.a).toFixed(1) +
+            '" y2="' + PY(-r.b).toFixed(1) + '" stroke="var(--viz-violet)" stroke-width="1.4" stroke-dasharray="3 3"/>';
+          g += '<text x="' + (PX(r.a) + 6).toFixed(1) + '" y="' + PY(0).toFixed(1) +
+            '" font-size="9" fill="var(--viz-violet)">conjugate pair</text>';
+        }
+      });
+      roots.forEach(function(r){
+        var isReal = Math.abs(r.b) < 1e-9;
+        var col = isReal ? 'var(--viz-green)' : 'var(--viz-accent)';
+        g += '<circle cx="' + PX(r.a).toFixed(1) + '" cy="' + PY(r.b).toFixed(1) + '" r="' + (r.m > 1 ? 8.5 : 5.5) + '" fill="' + col + '"/>';
+        if (r.m > 1) {
+          g += '<text x="' + PX(r.a).toFixed(1) + '" y="' + (PY(r.b) + 3.4).toFixed(1) +
+            '" text-anchor="middle" font-size="9" font-weight="800" fill="var(--viz-bg)">x' + r.m + '</text>';
+        }
+        g += '<text x="' + (PX(r.a) + 10).toFixed(1) + '" y="' + (PY(r.b) - 8).toFixed(1) +
+          '" font-size="9" fill="' + col + '">' + zs(r.a, r.b) + (isReal ? ' (real)' : '') + '</text>';
+      });
+      plot.innerHTML = '<svg viewBox="0 0 ' + VB + ' ' + VB + '" width="100%" role="img" aria-label="roots of a degree n polynomial">' + g + '</svg>';
+
+      var name = mode === 0 ? 'z^' + n + ' - 1'
+        : mode === 1 ? '(z - 1)^' + n
+        : '(z^2 - 4z + 13)' + (n > 2 ? '(z - 1)^' + (n - 2) : '');
+      OUT.textContent =
+        'p(z) = ' + name + '\n' +
+        'degree                        = ' + n + '\n' +
+        'roots counting multiplicity   = ' + total + (total === n ? '   <- always equals the degree' : '') + '\n' +
+        'distinct roots                = ' + distinct + '\n' +
+        'real roots (with multiplicity)= ' + real + '\n' +
+        'nonreal conjugate pairs       = ' + pairs;
+
+      var pills = '<div class="v5-pills">' +
+        '<span class="v5-pill" style="color:var(--viz-green);border-color:var(--viz-green)">degree ' + n + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-green);border-color:var(--viz-green)">' + total + ' roots with multiplicity</span>' +
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">' + distinct + ' distinct</span></div>';
+
+      WHY.innerHTML = mode === 0
+        ? '<b>Every nonconstant polynomial has a complex root — and a degree-n one has exactly n.</b>' + pills +
+          'Find one root, factor it out with the factor theorem to leave degree n - 1, and repeat: the count is forced. ' +
+          'Here the n roots of z^' + n + ' - 1 are the nth roots of unity, evenly spaced around the unit circle at ' +
+          'angles 2pi k / ' + n + ' — De Moivre run backwards, since raising modulus 1 to any power leaves it at 1 while the ' +
+          'argument multiplies up to a full turn. At n = 3 they are 1 and -0.50 +/- 0.87i, so <b>z^3 - 1 has 3 roots</b>, ' +
+          'not 1: two of them simply left the real line.'
+        : mode === 1
+          ? '<b>"Exactly n roots" is not "n distinct roots".</b>' + pills +
+            '(z - 1)^' + n + ' has one distinct root sitting at z = 1 with multiplicity ' + n + ', and the count that the ' +
+            'theorem promises is the one <em>with</em> multiplicity: ' + total + '. This is why the careful phrasing is always ' +
+            '"counting multiplicity". Distractors that read "at most n" or "n different values" are both describing this ' +
+            'picture wrongly — the total is exact, and it is fixed by the degree alone.'
+          : '<b>Real coefficients force nonreal roots into conjugate pairs.</b>' + pills +
+            'Conjugation respects sums and products, so if every coefficient is real then p(conj z) = conj(p(z)); a root ' +
+            'therefore drags its mirror image along. With 2 + 3i present, <b>2 - 3i must be a root too</b> — not -2 - 3i and ' +
+            'not 3 + 2i, since conjugating flips the sign of the imaginary part only. The pair multiplies back to the real ' +
+            'quadratic z^2 - 4z + 13, which is why nonreal roots always arrive two at a time, and why every odd-degree real ' +
+            'polynomial is left with at least one real root.';
+    }
+
+    MODES.forEach(function(name, i){
+      var b = document.createElement('button');
+      b.textContent = name;
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.addEventListener('click', function(){ mode = i; render(); });
+      seg.appendChild(b);
+    });
+    NS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

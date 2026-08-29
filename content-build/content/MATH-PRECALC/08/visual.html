@@ -1,0 +1,776 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, sliders, the segmented control. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour —
+   each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment:
+   canSwapVisualPanel scans for tags textually and would read it as a real
+   page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:34px}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-pills{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.vz-plot svg{display:block;width:100%;height:auto}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Dot Product Average</button>
+  <button class="viz-tab" data-viz-tab="2">2. Counted Twice</button>
+  <button class="viz-tab" data-viz-tab="3">3. Multiply The Stages</button>
+  <button class="viz-tab" data-viz-tab="4">4. Order Or Not</button>
+  <button class="viz-tab" data-viz-tab="5">5. Long Run Average</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Dot Product Average</h2>
+  <p class="vz-lede"><b>Vector components, magnitude, and direction</b> and <b>Matrix multiplication and
+    properties</b> already gave you a row of weights times a column of values. An expected value is that same
+    product with one extra rule bolted on: the weights must sum to 1. Drag the three probabilities and watch
+    the rule bite. <b>Like a class average: multiply each mark by its share of the class, and the shares had
+    better add up to the whole class.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-mono v1-mat" id="v1-mat"></div>
+
+    <label class="vz-lab" for="v1-p1">P(X = 0) = <span id="v1-p1l">0.70</span></label>
+    <input class="vz-range" type="range" id="v1-p1" min="0" max="100" step="5" value="70"
+      aria-label="probability that X equals 0">
+    <label class="vz-lab" for="v1-p2">P(X = 10) = <span id="v1-p2l">0.20</span></label>
+    <input class="vz-range" type="range" id="v1-p2" min="0" max="100" step="5" value="20"
+      aria-label="probability that X equals 10">
+    <label class="vz-lab" for="v1-p3">P(X = 100) = <span id="v1-p3l">0.10</span></label>
+    <input class="vz-range" type="range" id="v1-p3" min="0" max="100" step="5" value="10"
+      aria-label="probability that X equals 100">
+
+    <div class="vz-pills" id="v1-pills"></div>
+    <div class="vz-plot" id="v1-line"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The sum-to-one rule is not decoration. Without it the row-times-column product is only a
+    weighted <em>total</em>; with it, the total becomes an <b>average</b>, because the weights now describe how
+    a whole is divided up. That is also why a table whose probabilities add to 0.9 is not "slightly off" — it
+    is a table with an outcome missing.</p>
+
+  <style>
+    .v1-mat{border:1.5px solid var(--viz-line);border-radius:10px;padding:11px 12px;margin-bottom:4px;
+      background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var XV = [0, 10, 100];
+    var s1 = document.getElementById('v1-p1'), s2 = document.getElementById('v1-p2'), s3 = document.getElementById('v1-p3');
+    var l1 = document.getElementById('v1-p1l'), l2 = document.getElementById('v1-p2l'), l3 = document.getElementById('v1-p3l');
+    var mat = document.getElementById('v1-mat'), pills = document.getElementById('v1-pills');
+    var line = document.getElementById('v1-line'), why = document.getElementById('v1-why');
+
+    function f2(v){ return isFinite(v) ? (Math.round(v * 100) / 100).toFixed(2) : '--'; }
+    function f1(v){ return isFinite(v) ? (Math.round(v * 10) / 10).toFixed(1) : '--'; }
+    function pad(t, w){ t = String(t); while (t.length < w) t = ' ' + t; return t; }
+    function topText(P){
+      var b = 0, tie = false;
+      for (var i = 1; i < P.length; i++) {
+        if (P[i] > P[b] + 1e-12) { b = i; tie = false; }
+        else if (Math.abs(P[i] - P[b]) <= 1e-12) tie = true;
+      }
+      return tie ? 'a tie' : String(XV[b]);
+    }
+
+    function draw(P, E, ok){
+      var W = 320, H = 92, L = 14, R = 306, AX = 56;
+      function X(v){ return L + v / 100 * (R - L); }
+      var g = '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="10" style="fill:var(--viz-bg);stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<line x1="' + L + '" y1="' + AX + '" x2="' + R + '" y2="' + AX + '" style="stroke:var(--viz-line);stroke-width:1.5"/>';
+      for (var i = 0; i < XV.length; i++) {
+        var x = X(XV[i]), r = 3.5 + 9 * P[i];
+        g += '<circle cx="' + x.toFixed(1) + '" cy="' + AX + '" r="' + r.toFixed(1) + '" style="fill:var(--viz-accent);opacity:.85"/>';
+        g += '<text x="' + x.toFixed(1) + '" y="' + (AX + 20) + '" text-anchor="middle" style="fill:var(--viz-ink);font-size:10px;font-family:ui-monospace,monospace">x=' + XV[i] + '</text>';
+        g += '<text x="' + x.toFixed(1) + '" y="' + (AX - 16 - (i === 1 ? 12 : 0)) + '" text-anchor="middle" style="fill:var(--viz-muted);font-size:9.5px;font-family:ui-monospace,monospace">p=' + f2(P[i]) + '</text>';
+      }
+      if (ok && isFinite(E)) {
+        var ex = X(E);
+        g += '<line x1="' + ex.toFixed(1) + '" y1="' + (AX - 26) + '" x2="' + ex.toFixed(1) + '" y2="' + (AX + 8) + '" style="stroke:var(--viz-violet);stroke-width:2.5"/>';
+        g += '<text x="' + Math.min(ex + 6, 200).toFixed(1) + '" y="' + (AX + 34) + '" style="fill:var(--viz-violet);font-size:10.5px;font-weight:800;font-family:ui-monospace,monospace">E[X] = ' + f1(E) + ' (balance point)</text>';
+      } else {
+        g += '<text x="' + L + '" y="' + (AX + 34) + '" style="fill:var(--viz-red);font-size:10.5px;font-weight:800;font-family:ui-monospace,monospace">no expected value — the weights are not a distribution</text>';
+      }
+      line.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="number line with the three outcomes and the expected value">' + g + '</svg>';
+    }
+
+    function render(){
+      var a = Number(s1.value), b = Number(s2.value), c = Number(s3.value);
+      var P = [a / 100, b / 100, c / 100];
+      var tot = a + b + c, sum = tot / 100;
+      l1.textContent = f2(P[0]); l2.textContent = f2(P[1]); l3.textContent = f2(P[2]);
+
+      var dot = P[0] * XV[0] + P[1] * XV[1] + P[2] * XV[2];
+      var ok = tot === 100;
+      var norm = sum > 0 ? dot / sum : NaN;
+
+      mat.textContent =
+        'row of weights        column of values\n' +
+        '[ ' + f2(P[0]) + '  ' + f2(P[1]) + '  ' + f2(P[2]) + ' ]   x   [ ' + pad(XV[0], 3) + ' ]\n' +
+        '                                [ ' + pad(XV[1], 3) + ' ]\n' +
+        '                                [ ' + pad(XV[2], 3) + ' ]\n\n' +
+        'sum of x_i * p_i  =  ' + f2(P[0]) + '(' + XV[0] + ') + ' + f2(P[1]) + '(' + XV[1] + ') + ' + f2(P[2]) + '(' + XV[2] + ')\n' +
+        '                  =  ' + f2(P[0] * XV[0]) + ' + ' + f2(P[1] * XV[1]) + ' + ' + f2(P[2] * XV[2]) + '\n' +
+        '                  =  ' + f2(dot) + (ok ? '        this IS E[X]' : '        NOT an average yet');
+
+      var sc = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + sc + ';border-color:' + sc + '">sum of p = ' + f2(sum) + (ok ? ' — valid' : ' — invalid') + '</span>' +
+        '<span class="vz-pill" style="color:' + (ok ? 'var(--viz-accent)' : 'var(--viz-muted)') + ';border-color:' + (ok ? 'var(--viz-accent)' : 'var(--viz-line)') + '">E[X] = ' + (ok ? f1(dot) : 'undefined') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">most likely value = ' + topText(P) + '</span>';
+
+      draw(P, dot, ok);
+
+      why.innerHTML = ok
+        ? '<b style="color:var(--viz-green)">Valid distribution, so the weighted total is an average.</b>' +
+          'Every p is at least 0 and they add to exactly 1, so the three outcomes partition the sample space and nothing is unaccounted for. The dot product then returns <b>E[X] = ' + f1(dot) + '</b>, and the violet mark is where the number line balances if you hang weight p at each value. ' +
+          (dot !== 0 && dot !== 10 && dot !== 100
+            ? '<br><br>Notice ' + f1(dot) + ' is <b>not one of the three outcomes</b>. An expected value is a balance point, not a prediction — it need not be a value X can ever take.'
+            : '<br><br>Slide a weight so the mass is split and watch the balance point move off the outcomes entirely.') +
+          '<br><br>It is also not the most likely value: the largest p sits at <b>' + topText(P) + '</b>, which is a different question and a different number whenever the distribution is lopsided.'
+        : '<b style="color:var(--viz-red)">Weights sum to ' + f2(sum) + ', so there is no expected value to report.</b>' +
+          'The product still computes — arithmetic never complains — but ' + f2(dot) + ' is a weighted <em>total</em>, not an average, because the weights do not describe a whole. ' +
+          (sum > 0
+            ? 'Divide by ' + f2(sum) + ' and you would get ' + f1(norm) + ', which is what the table would mean if the missing ' + f2(Math.abs(1 - sum)) + ' were spread proportionally — a repair, not the answer to the question asked.'
+            : 'With every weight at zero there is nothing to divide by either, so not even a repair is available.') +
+          '<br><br>This is the check to run before any expected-value computation: <b>add the probabilities first</b>. If they do not come to 1, the table is wrong and every number downstream of it is wrong too.';
+    }
+    s1.addEventListener('input', render);
+    s2.addEventListener('input', render);
+    s3.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Counted Twice</h2>
+  <p class="vz-lede">30 engineers: 18 write Python, 12 write SQL. Drag how many write <em>both</em> and watch
+    P(A) + P(B) stay stubbornly at 1.000 while the true union shrinks. The gap between the two bars is exactly
+    the region you counted twice. <b>Like two guest lists for one party: add the headcounts and everyone
+    invited by both hosts gets a chair they cannot sit in.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-k">engineers who write BOTH = <span id="v2-kl">7</span></label>
+    <input class="vz-range" type="range" id="v2-k" min="0" max="12" step="1" value="7"
+      aria-label="number of engineers in the overlap">
+    <div class="vz-plot" id="v2-venn"></div>
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="vz-mono v2-work" id="v2-work"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Read the rule as bookkeeping and its edge cases stop being special. The subtracted term is
+    not a fudge to make the number smaller, not a way to force independence, and certainly not a claim that
+    shared outcomes cannot happen — it is one copy of a region that got counted twice. When the overlap is
+    empty that copy is 0, and the rule <em>already</em> says P(A) + P(B) without anyone adding a second rule.</p>
+
+  <style>
+    .v2-bars{margin-top:12px;display:flex;flex-direction:column;gap:11px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-track{position:relative;height:17px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-track i{position:absolute;top:0;bottom:0;left:0;border-radius:5px}
+    .v2-track em{position:absolute;top:0;bottom:0;background:var(--viz-amber);opacity:.75}
+    .v2-cap{font-size:10.5px;color:var(--viz-muted);margin-top:4px}
+    .v2-work{margin-top:13px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var N = 30, A = 18, B = 12;
+    var s = document.getElementById('v2-k'), kl = document.getElementById('v2-kl');
+    var venn = document.getElementById('v2-venn'), bars = document.getElementById('v2-bars');
+    var work = document.getElementById('v2-work'), why = document.getElementById('v2-why');
+
+    function f3(v){ return isFinite(v) ? (Math.round(v * 1000) / 1000).toFixed(3) : '--'; }
+
+    function draw(k){
+      var W = 320, H = 190, R = 54, CY = 95;
+      var d = 116 - (k / 12) * 94;
+      var c1 = 160 - d / 2, c2 = 160 + d / 2;
+      var g = '<rect x="6" y="6" width="308" height="178" rx="10" style="fill:var(--viz-bg);stroke:var(--viz-line);stroke-width:1.5"/>';
+      g += '<text x="14" y="21" style="fill:var(--viz-muted);font-size:9.5px;font-family:ui-monospace,monospace">sample space S = 30 engineers</text>';
+      g += '<circle cx="' + c1.toFixed(1) + '" cy="' + CY + '" r="' + R + '" style="fill:var(--viz-accent);opacity:.22;stroke:var(--viz-accent);stroke-width:2"/>';
+      g += '<circle cx="' + c2.toFixed(1) + '" cy="' + CY + '" r="' + R + '" style="fill:var(--viz-violet);opacity:.22;stroke:var(--viz-violet);stroke-width:2"/>';
+      g += '<text x="' + (c1 - R + 2).toFixed(1) + '" y="' + (CY - R - 8) + '" style="fill:var(--viz-accent);font-size:10px;font-weight:800;font-family:ui-monospace,monospace">A: Python 18</text>';
+      g += '<text x="' + (c2 + R - 2).toFixed(1) + '" y="' + (CY + R + 20) + '" text-anchor="end" style="fill:var(--viz-violet);font-size:10px;font-weight:800;font-family:ui-monospace,monospace">B: SQL 12</text>';
+      var aOnly = A - k, bOnly = B - k, none = N - (A + B - k);
+      g += '<text x="' + (c1 - R / 2 - 4).toFixed(1) + '" y="' + (CY + 4) + '" text-anchor="middle" style="fill:var(--viz-ink);font-size:12px;font-weight:800;font-family:ui-monospace,monospace">' + aOnly + '</text>';
+      g += '<text x="' + (c1 - R / 2 - 4).toFixed(1) + '" y="' + (CY + 18) + '" text-anchor="middle" style="fill:var(--viz-muted);font-size:8.5px;font-family:ui-monospace,monospace">A only</text>';
+      g += '<text x="' + (c2 + R / 2 + 4).toFixed(1) + '" y="' + (CY + 4) + '" text-anchor="middle" style="fill:var(--viz-ink);font-size:12px;font-weight:800;font-family:ui-monospace,monospace">' + bOnly + '</text>';
+      g += '<text x="' + (c2 + R / 2 + 4).toFixed(1) + '" y="' + (CY + 18) + '" text-anchor="middle" style="fill:var(--viz-muted);font-size:8.5px;font-family:ui-monospace,monospace">B only</text>';
+      if (k > 0) {
+        g += '<text x="160" y="' + (CY + 4) + '" text-anchor="middle" style="fill:var(--viz-red);font-size:12px;font-weight:800;font-family:ui-monospace,monospace">' + k + '</text>';
+        g += '<text x="160" y="' + (CY + 18) + '" text-anchor="middle" style="fill:var(--viz-red);font-size:8.5px;font-family:ui-monospace,monospace">both</text>';
+      } else {
+        g += '<text x="160" y="' + (CY + 4) + '" text-anchor="middle" style="fill:var(--viz-green);font-size:9px;font-weight:800;font-family:ui-monospace,monospace">no overlap</text>';
+      }
+      g += '<text x="16" y="176" style="fill:var(--viz-muted);font-size:9.5px;font-family:ui-monospace,monospace">neither: ' + none + '</text>';
+      venn.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="two overlapping circles with the four region counts">' + g + '</svg>';
+    }
+
+    function render(){
+      var k = Number(s.value);
+      if (!isFinite(k)) k = 0;
+      kl.textContent = k;
+      var union = A + B - k, naive = (A + B) / N, uni = union / N, both = k / N;
+      var aOnly = A - k, bOnly = B - k, none = N - union;
+      draw(k);
+
+      var uPct = Math.max(1, uni * 100);
+      bars.innerHTML =
+        '<div class="v2-b"><h6><span>P(A) + P(B) — the naive sum</span><b style="color:var(--viz-red)">' + f3(naive) + '</b></h6>' +
+        '<div class="v2-track"><i style="width:100%;background:var(--viz-red);opacity:.8"></i>' +
+        (k > 0 ? '<em style="left:' + uPct.toFixed(1) + '%;width:' + (100 - uPct).toFixed(1) + '%"></em>' : '') +
+        '</div><div class="v2-cap">' + (k > 0 ? 'amber slab = ' + k + '/30 = ' + f3(both) + ' counted a second time' : 'nothing is counted twice — the overlap is empty') + '</div></div>' +
+        '<div class="v2-b"><h6><span>P(A or B) — the true union</span><b style="color:var(--viz-green)">' + f3(uni) + '</b></h6>' +
+        '<div class="v2-track"><i style="width:' + uPct.toFixed(1) + '%;background:var(--viz-green);opacity:.85"></i></div>' +
+        '<div class="v2-cap">' + union + ' of 30 engineers write at least one language</div></div>';
+
+      work.textContent =
+        '|A| = 18        |B| = 12        |A and B| = ' + k + '\n' +
+        'P(A) + P(B)   =  18/30 + 12/30            =  ' + f3(naive) + '   <- overlap in BOTH terms\n' +
+        'P(A and B)    =  ' + k + '/30                       =  ' + f3(both) + '\n' +
+        'P(A or B)     =  ' + f3(naive) + ' - ' + f3(both) + '            =  ' + f3(uni) + '\n' +
+        'direct count  =  ' + aOnly + ' (A only) + ' + k + ' (both) + ' + bOnly + ' (B only)  =  ' + union + '/30\n' +
+        'outside both  =  30 - ' + union + '                    =  ' + none;
+
+      why.innerHTML = k === 0
+        ? '<b style="color:var(--viz-green)">Overlap empty: the events are mutually exclusive.</b>' +
+          'P(A and B) = 0, so the subtracted term vanishes and the addition rule reads P(A or B) = P(A) + P(B) = <b>' + f3(uni) + '</b>. ' +
+          'That is not a second rule to memorise — it is the same rule with a zero in it. ' +
+          '<br><br>Drag the slider up by one and watch the true union fall while the naive sum does not move at all. The naive sum <em>cannot</em> move: it only ever sees 18 and 12.'
+        : '<b style="color:var(--viz-red)">' + k + ' engineer' + (k === 1 ? '' : 's') + ' counted twice, so the sum overshoots by ' + f3(both) + '.</b>' +
+          'Each of those ' + k + ' is inside A and inside B, so the term P(A) claims them and the term P(B) claims them again. The union needs each person once, so exactly one copy comes back out. ' +
+          '<br><br>Keep the naive answer and you would report <b>' + f3(naive) + '</b> — the claim that all 30 engineers write at least one language, when ' + none + ' write neither. ' +
+          'With these numbers the arithmetic is unusually tidy: 18 + 12 is exactly 30, so <b>the count you double is always the count left outside both circles</b>. ' +
+          '<br><br>The overlapping region is the <em>intersection</em>, not the union: it is the smaller region, and it demands both events at once.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Multiply The Stages</h2>
+  <p class="vz-lede">P(A and B) = P(A) x P(B given A) is an area: take a strip of the sample space of width
+    P(A), then keep a fraction of <em>that strip's</em> height. Switch the relationship and watch the same two
+    numbers, 0.30 and 0.40, produce three different answers. <b>Like taking 40% of the 30% of a field you
+    already fenced off — the second percentage is of the fenced part, not the whole field.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="relationship between the two events">
+    <button id="v3-ind" aria-pressed="true">independent</button>
+    <button id="v3-exc" aria-pressed="false">mutually exclusive</button>
+    <button id="v3-dep" aria-pressed="false">general</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-pa">P(A) = <span id="v3-pal">0.30</span></label>
+    <input class="vz-range" type="range" id="v3-pa" min="0" max="100" step="5" value="30" aria-label="probability of A">
+    <label class="vz-lab" for="v3-pb">P(B) = <span id="v3-pbl">0.40</span></label>
+    <input class="vz-range" type="range" id="v3-pb" min="0" max="100" step="5" value="40" aria-label="probability of B">
+    <label class="vz-lab" for="v3-pc">P(B given A) = <span id="v3-pcl">0.40</span></label>
+    <input class="vz-range" type="range" id="v3-pc" min="0" max="100" step="5" value="40"
+      aria-label="conditional probability of B given A">
+
+    <div class="vz-plot" id="v3-sq"></div>
+    <div class="vz-pills" id="v3-pills"></div>
+    <div class="vz-mono v3-work" id="v3-work"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Independent and mutually exclusive are near opposites, and the square shows why. Exclusive
+    means the two shaded blocks never share a column — so learning that A happened forces P(B given A) to 0,
+    which is as <em>dependent</em> as two events can get. Independent means the shaded fraction of A's strip
+    is the same as the shaded fraction of everything else; the strips do not care about each other at all.</p>
+
+  <style>
+    .v3-work{margin-top:12px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+    .v3-locked{opacity:.45}
+  </style>
+  <script>
+  (function(){
+    var sa = document.getElementById('v3-pa'), sb = document.getElementById('v3-pb'), sc = document.getElementById('v3-pc');
+    var la = document.getElementById('v3-pal'), lb = document.getElementById('v3-pbl'), lc = document.getElementById('v3-pcl');
+    var bInd = document.getElementById('v3-ind'), bExc = document.getElementById('v3-exc'), bDep = document.getElementById('v3-dep');
+    var sq = document.getElementById('v3-sq'), pills = document.getElementById('v3-pills');
+    var work = document.getElementById('v3-work'), why = document.getElementById('v3-why');
+    var mode = 'ind';
+
+    function f2(v){ return isFinite(v) ? (Math.round(v * 1000) / 1000).toFixed(2) : '--'; }
+    function f3(v){ return isFinite(v) ? (Math.round(v * 1000) / 1000).toFixed(3) : '--'; }
+
+    function draw(pa, cA, cN, feasible){
+      var W = 240, H = 232, O = 14, S = 200;
+      var wA = S * pa, wN = S - wA;
+      var g = '<rect x="' + O + '" y="10" width="' + S + '" height="' + S + '" rx="6" style="fill:var(--viz-bg);stroke:var(--viz-line);stroke-width:1.5"/>';
+      if (wA > 0.5) {
+        g += '<rect x="' + O + '" y="10" width="' + wA.toFixed(1) + '" height="' + S + '" style="fill:var(--viz-accent);opacity:.16"/>';
+      }
+      g += '<line x1="' + (O + wA).toFixed(1) + '" y1="10" x2="' + (O + wA).toFixed(1) + '" y2="' + (10 + S) + '" style="stroke:var(--viz-accent);stroke-width:2"/>';
+      if (feasible) {
+        var hA = S * cA, hN = S * cN;
+        if (wA > 0.5 && hA > 0.5) {
+          g += '<rect x="' + O + '" y="' + (10 + S - hA).toFixed(1) + '" width="' + wA.toFixed(1) + '" height="' + hA.toFixed(1) + '" style="fill:var(--viz-green);opacity:.75;stroke:var(--viz-green);stroke-width:1.5"/>';
+          if (wA > 40 && hA > 24) {
+            g += '<text x="' + (O + wA / 2).toFixed(1) + '" y="' + (10 + S - hA / 2 + 4).toFixed(1) + '" text-anchor="middle" style="fill:var(--viz-bg);font-size:10px;font-weight:800;font-family:ui-monospace,monospace">A and B</text>';
+          }
+        }
+        if (wN > 0.5 && hN > 0.5) {
+          g += '<rect x="' + (O + wA).toFixed(1) + '" y="' + (10 + S - hN).toFixed(1) + '" width="' + wN.toFixed(1) + '" height="' + hN.toFixed(1) + '" style="fill:var(--viz-violet);opacity:.55;stroke:var(--viz-violet);stroke-width:1.5"/>';
+          if (wN > 46 && hN > 24) {
+            g += '<text x="' + (O + wA + wN / 2).toFixed(1) + '" y="' + (10 + S - hN / 2 + 4).toFixed(1) + '" text-anchor="middle" style="fill:var(--viz-bg);font-size:10px;font-weight:800;font-family:ui-monospace,monospace">B not A</text>';
+          }
+        }
+      } else {
+        g += '<text x="' + (O + S / 2) + '" y="' + (10 + S / 2) + '" text-anchor="middle" style="fill:var(--viz-red);font-size:12px;font-weight:800">impossible combination</text>';
+      }
+      g += '<text x="' + (O + 3) + '" y="24" style="fill:var(--viz-accent);font-size:10px;font-weight:800;font-family:ui-monospace,monospace">A</text>';
+      g += '<text x="' + (O + S - 3) + '" y="24" text-anchor="end" style="fill:var(--viz-muted);font-size:10px;font-weight:800;font-family:ui-monospace,monospace">not A</text>';
+      g += '<text x="' + O + '" y="' + (H - 4) + '" style="fill:var(--viz-muted);font-size:9.5px;font-family:ui-monospace,monospace">whole square = sample space, area 1</text>';
+      sq.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="unit square area model of the multiplication rule">' + g + '</svg>';
+    }
+
+    function render(){
+      var pa = Number(sa.value) / 100, pb = Number(sb.value) / 100;
+      bInd.setAttribute('aria-pressed', mode === 'ind' ? 'true' : 'false');
+      bExc.setAttribute('aria-pressed', mode === 'exc' ? 'true' : 'false');
+      bDep.setAttribute('aria-pressed', mode === 'dep' ? 'true' : 'false');
+
+      if (mode === 'ind') { sc.value = String(Math.round(pb * 100)); }
+      if (mode === 'exc') { sc.value = '0'; }
+      sc.disabled = (mode !== 'dep');
+      sc.className = 'vz-range' + (mode === 'dep' ? '' : ' v3-locked');
+
+      var cA = Number(sc.value) / 100;
+      var joint = pa * cA;
+      la.textContent = f2(pa); lb.textContent = f2(pb); lc.textContent = f2(cA);
+
+      var rest = pb - joint;
+      var cN = pa < 1 ? rest / (1 - pa) : 0;
+      var feasible = rest >= -1e-9 && (pa >= 1 ? Math.abs(rest) < 1e-9 : cN <= 1 + 1e-9);
+      if (!isFinite(cN)) cN = 0;
+      cN = Math.min(Math.max(cN, 0), 1);
+
+      var union = pa + pb - joint;
+      draw(pa, cA, cN, feasible);
+
+      var jc = feasible ? 'var(--viz-green)' : 'var(--viz-red)';
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + jc + ';border-color:' + jc + '">P(A and B) = ' + (feasible ? f3(joint) : 'impossible') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">P(A or B) = ' + (feasible ? f3(union) : '--') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">P(A) + P(B) = ' + f3(pa + pb) + ' — not "and"</span>';
+
+      work.textContent =
+        'general rule   P(A and B)  =  P(A) x P(B given A)\n' +
+        '               P(A and B)  =  ' + f2(pa) + ' x ' + f2(cA) + '  =  ' + f3(joint) + '\n' +
+        (mode === 'ind'
+          ? 'independent    P(B given A) = P(B) = ' + f2(pb) + ', so the rule becomes P(A) x P(B)\n'
+          : mode === 'exc'
+            ? 'exclusive      P(B given A) = 0, so the product is 0 whatever P(B) is\n'
+            : 'general        P(B given A) is yours to set — it need not equal P(B) = ' + f2(pb) + '\n') +
+        'union          P(A or B)   =  ' + f2(pa) + ' + ' + f2(pb) + ' - ' + f3(joint) + '  =  ' + (feasible ? f3(union) : '--   (no consistent sample space)') + '\n' +
+        'B outside A    P(B not A)  =  ' + f2(pb) + ' - ' + f3(joint) + '  =  ' + f3(rest) +
+        (feasible ? '' : (rest < 0
+          ? '   <- NEGATIVE: the overlap cannot exceed P(B)'
+          : '   <- will not fit: the "not A" strip has only ' + f3(1 - pa) + ' of area'));
+
+      var head, body;
+      if (!feasible) {
+        head = '<b style="color:var(--viz-red)">These three numbers cannot describe the same sample space.</b>';
+        body = 'P(B) = ' + f2(pb) + ' has to cover the part of B inside A, which is ' + f3(joint) + ', plus the part outside, which is ' + f3(rest) + '. ' +
+          (rest < 0
+            ? 'A negative leftover means you have claimed more of B inside A than B has in total — impossible, since the intersection is a <em>subset</em> of B, so P(A and B) can never exceed P(B) or P(A).'
+            : 'The leftover does not fit in the "not A" strip, whose total area is only ' + f3(1 - pa) + '.') +
+          '<br><br>The area model catches this instantly: probabilities are areas of nested regions, and a subset cannot be larger than the set that contains it.';
+      } else if (mode === 'ind') {
+        head = '<b style="color:var(--viz-green)">Independent: the shaded fraction is the same in both strips.</b>';
+        body = 'Knowing A occurred tells you nothing about B, so P(B given A) = P(B) = ' + f2(pb) + ' and the rule collapses to a plain product: <b>' + f2(pa) + ' x ' + f2(pb) + ' = ' + f3(joint) + '</b>. ' +
+          'Both shaded blocks rise to the same height, which is what independence looks like as a picture. ' +
+          '<br><br>With 0.30 and 0.40 the answer is <b>0.12</b>. The tempting wrong answer, <b>' + f3(pa + pb) + '</b>, is the sum — and a sum answers "or", not "and". Requiring two things at once can only shrink a probability, so a joint probability larger than either factor is wrong on sight.';
+      } else if (mode === 'exc') {
+        head = '<b style="color:var(--viz-amber)">Mutually exclusive: the product is 0, and the events are maximally dependent.</b>';
+        body = 'The blocks cannot share a column, so P(B given A) = 0 and <b>P(A and B) = 0</b> — not ' + f3(pa * pb) + '. ' +
+          'That is the opposite of independence: learning A occurred changed B’s chance from ' + f2(pb) + ' to 0, which is the largest change there is. ' +
+          '<br><br>The union is now the full ' + f3(union) + ' = P(A) + P(B), because the addition rule has nothing to subtract. ' +
+          (pa + pb > 1.0001
+            ? 'And note the constraint above: with P(A) + P(B) = ' + f3(pa + pb) + ' greater than 1, no two events this large can be exclusive at all.'
+            : 'Push both sliders up until P(A) + P(B) passes 1 and the configuration becomes impossible — two events that big must overlap.');
+      } else {
+        head = '<b style="color:var(--viz-accent)">General: the second factor is conditional, and that is the honest default.</b>';
+        body = 'P(B given A) = ' + f2(cA) + ' while P(B) = ' + f2(pb) + '. ' +
+          (Math.abs(cA - pb) < 1e-9
+            ? 'They happen to be equal right now, which is exactly the definition of independence — drag the conditional slider away and the events become dependent.'
+            : cA > pb
+              ? 'Since ' + f2(cA) + ' is above ' + f2(pb) + ', A occurring makes B <em>more</em> likely; the two are positively dependent and the joint probability ' + f3(joint) + ' exceeds the product ' + f3(pa * pb) + '.'
+              : 'Since ' + f2(cA) + ' is below ' + f2(pb) + ', A occurring makes B <em>less</em> likely, and the joint probability ' + f3(joint) + ' falls short of the product ' + f3(pa * pb) + '.') +
+          '<br><br>This is the mode that matches drawing without replacement, where the first draw changes what is left. Reaching for P(A)P(B) there is the standard error: it silently assumes the conditional equals the marginal.';
+      }
+      why.innerHTML = head + body;
+    }
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    sc.addEventListener('input', render);
+    bInd.addEventListener('click', function(){ mode = 'ind'; render(); });
+    bExc.addEventListener('click', function(){ mode = 'exc'; render(); });
+    bDep.addEventListener('click', function(){ mode = 'dep'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Order Or Not</h2>
+  <p class="vz-lede">Permutations and combinations count the same choices; only one of them cares what order
+    they came in. Toggle order on and watch every unordered set explode into exactly r! ordered lists — the
+    factor you divide back out. <b>Like a photo of three friends: one group of friends, six ways to line them
+    up for the camera.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="does order matter">
+    <button id="v4-ord" aria-pressed="false">order matters</button>
+    <button id="v4-unord" aria-pressed="true">order does not</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-n">n items available = <span id="v4-nl">5</span></label>
+    <input class="vz-range" type="range" id="v4-n" min="2" max="8" step="1" value="5" aria-label="number of items available">
+    <label class="vz-lab" for="v4-r">r items chosen = <span id="v4-rl">3</span></label>
+    <input class="vz-range" type="range" id="v4-r" min="0" max="8" step="1" value="3" aria-label="number of items chosen">
+
+    <div class="vz-pills" id="v4-pills"></div>
+    <div class="vz-mono v4-work" id="v4-work"></div>
+    <div class="v4-list" id="v4-list"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">One question decides every counting problem: <b>does swapping two of the chosen items give
+    a different outcome?</b> Gold, silver and bronze — yes, so permutation. A three-person committee — no, so
+    combination. Because r! is never below 1, the ordered count is always at least the unordered one, which
+    makes a quick sanity check: an answer bigger than nPr or smaller than nCr is wrong before you check it.</p>
+
+  <style>
+    .v4-work{margin-top:12px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+    .v4-list{margin-top:12px;display:flex;flex-wrap:wrap;gap:6px}
+    .v4-grp{border:1.5px solid var(--viz-line);border-radius:10px;padding:6px;display:flex;flex-wrap:wrap;
+      gap:4px;background:var(--viz-bg)}
+    .v4-grp.is-ord{border-color:var(--viz-amber)}
+    .v4-chip{font-family:ui-monospace,Consolas,monospace;font-size:11px;font-weight:700;letter-spacing:.06em;
+      border:1.5px solid var(--viz-line);border-radius:7px;padding:4px 7px;color:var(--viz-ink)}
+    .v4-chip.is-set{border-color:var(--viz-green);color:var(--viz-green)}
+    .v4-more{font-size:11px;color:var(--viz-muted);align-self:center;padding:4px 2px}
+  </style>
+  <script>
+  (function(){
+    var LET = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+    var MAX = 42;
+    var sn = document.getElementById('v4-n'), sr = document.getElementById('v4-r');
+    var nl = document.getElementById('v4-nl'), rl = document.getElementById('v4-rl');
+    var bOrd = document.getElementById('v4-ord'), bUn = document.getElementById('v4-unord');
+    var pills = document.getElementById('v4-pills'), work = document.getElementById('v4-work');
+    var list = document.getElementById('v4-list'), why = document.getElementById('v4-why');
+    var ordered = false;
+
+    function fact(k){ var f = 1; for (var i = 2; i <= k; i++) f *= i; return f; }
+    function nPr(n, r){ if (r < 0 || r > n) return 0; var p = 1; for (var i = 0; i < r; i++) p *= (n - i); return p; }
+    function nCr(n, r){ if (r < 0 || r > n) return 0; return nPr(n, r) / fact(r); }
+
+    function combos(n, r){
+      var out = [], idx = [];
+      if (r < 0 || r > n) return out;
+      (function rec(start, k){
+        if (k === 0) { out.push(idx.slice()); return; }
+        for (var i = start; i <= n - k; i++) { idx.push(i); rec(i + 1, k - 1); idx.pop(); }
+      })(0, r);
+      return out;
+    }
+    function perms(a){
+      if (a.length <= 1) return [a.slice()];
+      var out = [];
+      for (var i = 0; i < a.length; i++) {
+        var rest = a.slice(0, i).concat(a.slice(i + 1));
+        var sub = perms(rest);
+        for (var j = 0; j < sub.length; j++) out.push([a[i]].concat(sub[j]));
+      }
+      return out;
+    }
+    function word(a){ var t = ''; for (var i = 0; i < a.length; i++) t += LET[a[i]]; return t || '(empty)'; }
+
+    function render(){
+      var n = Number(sn.value), r = Number(sr.value);
+      nl.textContent = n; rl.textContent = r;
+      bOrd.setAttribute('aria-pressed', ordered ? 'true' : 'false');
+      bUn.setAttribute('aria-pressed', ordered ? 'false' : 'true');
+
+      var P = nPr(n, r), C = nCr(n, r), F = fact(r);
+      var tooBig = r > n || (ordered && r > 4);
+
+      var col = r > n ? 'var(--viz-red)' : 'var(--viz-accent)';
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + (ordered ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' + (ordered ? 'var(--viz-amber)' : 'var(--viz-line)') + '">nPr = ' + P + ' ordered lists</span>' +
+        '<span class="vz-pill" style="color:' + (ordered ? 'var(--viz-muted)' : 'var(--viz-green)') + ';border-color:' + (ordered ? 'var(--viz-line)' : 'var(--viz-green)') + '">nCr = ' + C + ' unordered sets</span>' +
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + (r > n ? 'r > n — nothing to count' : 'r! = ' + F + ' orderings each') + '</span>';
+
+      if (r > n) {
+        work.textContent =
+          'r = ' + r + ' but n = ' + n + '\n\n' +
+          'There is no way to choose more items than exist, so both counts are 0.\n' +
+          'The formula agrees: (n - r)! is undefined for a negative argument.';
+      } else {
+        var fall = '';
+        for (var i = 0; i < r; i++) fall += (i ? ' x ' : '') + (n - i);
+        work.textContent =
+          'nPr  =  n! / (n - r)!   =  ' + n + '! / ' + (n - r) + '!  =  ' + (r === 0 ? '1 (empty product)' : fall + '  =  ' + P) + '\n' +
+          'r!   =  ' + r + '!' + '               =  ' + F + '            each set rearranged\n' +
+          'nCr  =  nPr / r!        =  ' + P + ' / ' + F + '  =  ' + C + '\n' +
+          'check  nCr = nC(n-r)    =  ' + n + 'C' + (n - r) + '  =  ' + nCr(n, n - r) + '        choosing what to leave';
+      }
+
+      var html = '', shown = 0, total = ordered ? P : C;
+      if (!tooBig) {
+        var groups = combos(n, r);
+        for (var gi = 0; gi < groups.length; gi++) {
+          var items = ordered ? perms(groups[gi]) : [groups[gi]];
+          if (shown + items.length > MAX) break;
+          var chips = '';
+          for (var ci = 0; ci < items.length; ci++) {
+            chips += '<span class="v4-chip' + (ordered ? '' : ' is-set') + '">' + word(items[ci]) + '</span>';
+          }
+          html += '<div class="v4-grp' + (ordered ? ' is-ord' : '') + '">' + chips + '</div>';
+          shown += items.length;
+        }
+        if (shown < total) html += '<span class="v4-more">… ' + (total - shown) + ' more not drawn</span>';
+        if (!total) html = '<span class="v4-more">nothing to draw</span>';
+      } else {
+        html = '<span class="v4-more">' + (r > n ? 'no selections exist' : total.toLocaleString() + ' items — too many to draw, but the counts above are exact') + '</span>';
+      }
+      list.innerHTML = html;
+
+      if (r > n) {
+        why.innerHTML = '<b style="color:var(--viz-red)">You cannot choose ' + r + ' items from ' + n + '.</b>' +
+          'Both counts are 0, and that is a genuine answer rather than an error: the set of ways to do an impossible thing is empty. ' +
+          '<br><br>It is also the boundary worth knowing, because nCr = 0 for r > n while nC0 = nCn = 1 — there is exactly one way to take nothing and exactly one way to take everything.';
+      } else if (ordered) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">Order matters: ' + P + ' arrangements, grouped into ' + C + ' boxes of ' + F + '.</b>' +
+          'Fill the r slots left to right: ' + n + ' choices for the first, ' + (n - 1 >= 0 ? (n - 1) : 0) + ' for the second, and so on for ' + r + ' factors — which is what n!/(n-r)! cancels down to. Never expand ' + n + '! first; the cancellation is the point, exactly as with a rational expression. ' +
+          '<br><br>Every box above holds the same r items in a different order. Those boxes are the reason ' + P + ' over-counts a committee by a factor of <b>' + F + '</b>, and the reason nCr divides by r!.';
+      } else {
+        why.innerHTML = '<b style="color:var(--viz-green)">Order ignored: ' + C + ' sets, each of which was ' + F + ' of the ordered lists.</b>' +
+          'The division is exact, not an approximation: every unordered set of ' + r + ' appears among the ' + P + ' ordered lists precisely ' + F + ' times, once per internal rearrangement, so nCr = nPr / r! lands on a whole number every time. ' +
+          '<br><br>The symmetry is free too — ' + n + 'C' + r + ' = ' + n + 'C' + (n - r) + ' = ' + nCr(n, n - r) + ' — because naming the ' + r + ' you take is the same act as naming the ' + (n - r) + ' you leave behind.';
+      }
+    }
+    sn.addEventListener('input', render);
+    sr.addEventListener('input', render);
+    bOrd.addEventListener('click', function(){ ordered = true; render(); });
+    bUn.addEventListener('click', function(){ ordered = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Long Run Average</h2>
+  <p class="vz-lede">"Expected value" is a promise about the <em>long run</em>, not about the next trial. Spin
+    these variables and watch the running mean wander wildly, then settle onto E[X] — a value neither of them
+    can actually produce. <b>Like a batting average: meaningless after one at-bat, and hard to shift after a
+    thousand.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="which random variable to spin">
+    <button id="v5-die" aria-pressed="true">fair die</button>
+    <button id="v5-pay" aria-pressed="false">skewed payout</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v5-btns">
+      <button class="v5-go" id="v5-b1">spin 1</button>
+      <button class="v5-go" id="v5-b100">spin 100</button>
+      <button class="v5-go" id="v5-b1000">spin 1000</button>
+      <button class="v5-go" id="v5-reset">reset</button>
+    </div>
+    <div class="vz-plot" id="v5-plot"></div>
+    <div class="vz-pills" id="v5-pills"></div>
+    <div class="vz-mono v5-tally" id="v5-tally"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two habits come out of this panel. First, compute E[X] by building the x·p column and
+    adding it — never by averaging the values, which silently assumes every outcome is equally likely. Second,
+    keep the three summaries apart: the <b>mean</b> is the balance point, the <b>mode</b> is the tallest bar,
+    and the <b>median</b> is the middle of the order. Only the mean is what a long run of trials converges to,
+    and only the mean can be a number the variable never takes.</p>
+
+  <style>
+    .v5-btns{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v5-go{flex:1 1 68px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px}
+    .v5-tally{margin-top:12px;border:1.5px dashed var(--viz-line);border-radius:10px;padding:10px 11px;
+      background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var SETS = {
+      die: { name: 'fair die', xs: [1, 2, 3, 4, 5, 6], ps: [1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6], lo: 0.5, hi: 6.5 },
+      pay: { name: 'skewed payout', xs: [0, 10, 100], ps: [0.7, 0.2, 0.1], lo: 0, hi: 55 }
+    };
+    var CAP = 5000;
+    var bDie = document.getElementById('v5-die'), bPay = document.getElementById('v5-pay');
+    var b1 = document.getElementById('v5-b1'), b100 = document.getElementById('v5-b100');
+    var b1000 = document.getElementById('v5-b1000'), bReset = document.getElementById('v5-reset');
+    var plot = document.getElementById('v5-plot'), pills = document.getElementById('v5-pills');
+    var tally = document.getElementById('v5-tally'), why = document.getElementById('v5-why');
+    var key = 'die', hist = [], counts = [], total = 0;
+
+    function f2(v){ return isFinite(v) ? (Math.round(v * 100) / 100).toFixed(2) : '--'; }
+    function set(){ return SETS[key]; }
+    function ev(){ var S = set(), e = 0; for (var i = 0; i < S.xs.length; i++) e += S.xs[i] * S.ps[i]; return e; }
+    function modeText(){
+      var S = set(), b = 0, tie = false;
+      for (var i = 1; i < S.ps.length; i++) {
+        if (S.ps[i] > S.ps[b] + 1e-12) { b = i; tie = false; }
+        else if (Math.abs(S.ps[i] - S.ps[b]) <= 1e-12) tie = true;
+      }
+      return tie ? 'none (all tie)' : String(S.xs[b]);
+    }
+    function medianOf(){
+      var S = set(), acc = 0;
+      for (var i = 0; i < S.xs.length; i++) {
+        acc += S.ps[i];
+        if (Math.abs(acc - 0.5) < 1e-9 && i + 1 < S.xs.length) return (S.xs[i] + S.xs[i + 1]) / 2;
+        if (acc > 0.5) return S.xs[i];
+      }
+      return S.xs[S.xs.length - 1];
+    }
+    function reset(){ hist = []; counts = []; total = 0; for (var i = 0; i < set().xs.length; i++) counts.push(0); }
+
+    function spin(k){
+      var S = set();
+      for (var t = 0; t < k && hist.length < CAP; t++) {
+        var u = Math.random(), acc = 0, pick = S.xs.length - 1;
+        for (var i = 0; i < S.ps.length; i++) { acc += S.ps[i]; if (u < acc) { pick = i; break; } }
+        counts[pick] += 1;
+        total += S.xs[pick];
+        hist.push(total / (hist.length + 1));
+      }
+    }
+
+    function draw(){
+      var S = set(), E = ev();
+      var W = 320, H = 176, PL = 34, PR = 8, PT = 10, PB = 24;
+      var lo = S.lo, hi = S.hi;
+      function X(n){ return PL + (Math.log(Math.max(n, 1)) / Math.log(CAP)) * (W - PL - PR); }
+      function Y(v){
+        var c = Math.min(Math.max(v, lo), hi);
+        return H - PB - ((c - lo) / (hi - lo)) * (H - PT - PB);
+      }
+      var g = '<rect x="0" y="0" width="' + W + '" height="' + H + '" rx="10" style="fill:var(--viz-bg);stroke:var(--viz-line);stroke-width:1.5"/>';
+      var ticks = [1, 10, 100, 1000, CAP];
+      for (var i = 0; i < ticks.length; i++) {
+        var tx = X(ticks[i]);
+        g += '<line x1="' + tx.toFixed(1) + '" y1="' + PT + '" x2="' + tx.toFixed(1) + '" y2="' + (H - PB) + '" style="stroke:var(--viz-line);stroke-width:1;stroke-dasharray:2 4"/>';
+        g += '<text x="' + tx.toFixed(1) + '" y="' + (H - 8) + '" text-anchor="middle" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,monospace">' + ticks[i] + '</text>';
+      }
+      g += '<line x1="' + PL + '" y1="' + Y(E).toFixed(1) + '" x2="' + (W - PR) + '" y2="' + Y(E).toFixed(1) + '" style="stroke:var(--viz-violet);stroke-width:2;stroke-dasharray:5 4"/>';
+      g += '<text x="' + (PL + 3) + '" y="' + (Y(E) - 5).toFixed(1) + '" style="fill:var(--viz-violet);font-size:10px;font-weight:800;font-family:ui-monospace,monospace">E[X] = ' + f2(E) + '</text>';
+      g += '<text x="4" y="' + (Y(hi) + 8).toFixed(1) + '" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,monospace">' + hi + '</text>';
+      g += '<text x="4" y="' + (Y(lo) - 2).toFixed(1) + '" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,monospace">' + lo + '</text>';
+      g += '<text x="' + (W - PR) + '" y="' + (H - 8) + '" text-anchor="end" style="fill:var(--viz-muted);font-size:9px;font-family:ui-monospace,monospace">spins (log scale)</text>';
+
+      if (hist.length) {
+        var step = Math.max(1, Math.ceil(hist.length / 380)), d = '';
+        for (var j = 0; j < hist.length; j += step) {
+          d += (d ? 'L' : 'M') + X(j + 1).toFixed(1) + ' ' + Y(hist[j]).toFixed(1) + ' ';
+        }
+        d += 'L' + X(hist.length).toFixed(1) + ' ' + Y(hist[hist.length - 1]).toFixed(1);
+        g += '<path d="' + d + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2"/>';
+        g += '<circle cx="' + X(hist.length).toFixed(1) + '" cy="' + Y(hist[hist.length - 1]).toFixed(1) + '" r="4" style="fill:var(--viz-accent)"/>';
+      } else {
+        g += '<text x="' + (W / 2) + '" y="' + (H / 2) + '" text-anchor="middle" style="fill:var(--viz-muted);font-size:11px">no spins yet — press a spin button</text>';
+      }
+      plot.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="running mean converging to the expected value on a log scale">' + g + '</svg>';
+    }
+
+    function render(){
+      var S = set(), E = ev(), n = hist.length;
+      bDie.setAttribute('aria-pressed', key === 'die' ? 'true' : 'false');
+      bPay.setAttribute('aria-pressed', key === 'pay' ? 'true' : 'false');
+      var mean = n > 0 ? total / n : NaN;
+      var gap = n > 0 ? Math.abs(mean - E) : NaN;
+      draw();
+
+      var gc = n === 0 ? 'var(--viz-muted)' : (gap < (S.hi - S.lo) * 0.03 ? 'var(--viz-green)' : 'var(--viz-amber)');
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">E[X] = ' + f2(E) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + n + ' spin' + (n === 1 ? '' : 's') + ', running mean ' + (n > 0 ? f2(mean) : '--') + '</span>' +
+        '<span class="vz-pill" style="color:' + gc + ';border-color:' + gc + '">gap ' + (n > 0 ? f2(gap) : '--') + '</span>';
+
+      var lines = ['value    true p     observed     x * p'];
+      for (var i = 0; i < S.xs.length; i++) {
+        var obs = n > 0 ? counts[i] / n : NaN;
+        var v = String(S.xs[i]); while (v.length < 5) v = ' ' + v;
+        lines.push(v + '    ' + f2(S.ps[i]) + '       ' + (n > 0 ? f2(obs) : ' -- ') + '        ' + f2(S.xs[i] * S.ps[i]));
+      }
+      lines.push('');
+      lines.push('sum of p     =  ' + f2(S.ps.reduce(function(a, b){ return a + b; }, 0)) + '        a valid distribution');
+      lines.push('E[X]         =  sum of x * p  =  ' + f2(E));
+      lines.push('mode         =  ' + modeText() + '        most likely single value');
+      lines.push('median       =  ' + medianOf() + '        middle value in order');
+      tally.textContent = lines.join('\n');
+
+      var attainable = S.xs.indexOf(E) >= 0;
+      why.innerHTML = n === 0
+        ? '<b>Nothing spun yet — E[X] = ' + f2(E) + ' is a prediction about the average, not about any one spin.</b>' +
+          'The dashed violet line is where the running mean is headed. Press <b>spin 1</b> a few times and watch it lurch: with a handful of trials the average is nowhere near ' + f2(E) + ', which is precisely why the definition says <em>long-run</em> average. ' +
+          '<br><br>Then press <b>spin 1000</b> and watch the same line flatten onto the target.'
+        : '<b style="color:' + (gap < (S.hi - S.lo) * 0.03 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">After ' + n + ' spin' + (n === 1 ? '' : 's') + ' the average is ' + f2(mean) + ', off by ' + f2(gap) + '.</b>' +
+          (n < 30
+            ? 'Small samples swing hard — the curve is still dominated by which outcomes happened to come up, and the observed proportions above are nowhere near the true p column. Keep spinning.'
+            : 'The observed proportions are converging on the true p column, and the running mean is following them onto E[X]. Note the x-axis is logarithmic: each dashed gridline is ten times more evidence, and the curve visibly stops moving.') +
+          '<br><br>' + (attainable
+            ? 'Here E[X] = ' + f2(E) + ' happens to be one of the values, but that is a coincidence of this table, not a rule.'
+            : '<b>' + f2(E) + ' is not one of the values ' + S.xs.join(', ') + '</b> — the variable never once produced it, and never will. An expected value is a balance point, not an outcome.') +
+          (key === 'pay'
+            ? '<br><br>And look at the three summaries in the table: mean ' + f2(E) + ', mode ' + modeText() + ', median ' + medianOf() + '. The rare 100 drags the mean far above the value you will see most often — the mean is the right tool for long-run totals and the wrong one for "what happens next".'
+            : '<br><br>Switch to the skewed payout to see the mean, the mode and the median come apart into three different numbers from a single table.');
+    }
+
+    function go(k){ spin(k); render(); }
+    bDie.addEventListener('click', function(){ key = 'die'; reset(); render(); });
+    bPay.addEventListener('click', function(){ key = 'pay'; reset(); render(); });
+    b1.addEventListener('click', function(){ go(1); });
+    b100.addEventListener('click', function(){ go(100); });
+    b1000.addEventListener('click', function(){ go(1000); });
+    bReset.addEventListener('click', function(){ reset(); render(); });
+    reset();
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,1027 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+input[type=range]{width:100%;min-height:44px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Manufacture The Symmetry</button>
+  <button class="viz-tab" data-viz-tab="2">2. Eigenvalues Become Sigmas</button>
+  <button class="viz-tab" data-viz-tab="3">3. Building U Columns</button>
+  <button class="viz-tab" data-viz-tab="4">4. Rotate Stretch Rotate</button>
+  <button class="viz-tab" data-viz-tab="5">5. PCA By Hand</button>
+  <button class="viz-tab" data-viz-tab="6">6. The Dependency Graph</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Manufacture The Symmetry</h2>
+  <p class="vz-lede"><b>The spectral theorem: real eigenvalues, orthogonal eigenvectors</b> only fires on a
+    symmetric matrix, and this A is 3 x 2 — you cannot even ask it for an eigenvalue. So build one. Drag the
+    second column of A and watch A^T A stay square, stay symmetric and keep every eigenvalue at or above
+    zero, whatever you do to it. <b>Like a photocopier that always prints both sides at once: whatever lands
+    top-right lands bottom-left too.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-b1">column 2, entry 1 = <span id="v1-b1l">2</span></label>
+    <input type="range" id="v1-b1" min="-5" max="5" value="2" step="1" aria-label="second column entry 1">
+    <label class="vz-lab" for="v1-b2">column 2, entry 2 = <span id="v1-b2l">1</span></label>
+    <input type="range" id="v1-b2" min="-5" max="5" value="1" step="1" aria-label="second column entry 2">
+    <label class="vz-lab" for="v1-b3">column 2, entry 3 = <span id="v1-b3l">4</span></label>
+    <input type="range" id="v1-b3" min="-5" max="5" value="4" step="1" aria-label="second column entry 3">
+    <div class="v1-mat vz-mono" id="v1-mat"></div>
+    <div class="v1-tags" id="v1-eig"></div>
+    <div class="vz-seg" id="v1-vec" role="group" aria-label="Test vector x"></div>
+    <div class="v1-chk vz-mono" id="v1-check"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Column 1 is fixed at (1, 3, 0) so you can watch one thing at a time. Note what never
+    moves however hard you drag: the shape stays 2 x 2 = n x n, the two off-diagonal entries stay equal, and
+    no eigenvalue ever goes negative. Those three facts are the entire licence for the rest of this page —
+    every step after this one is just the spectral theorem applied to the matrix you have manufactured here.</p>
+
+  <style>
+    .v1-mat{margin-top:14px;padding:11px 12px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg);white-space:pre;overflow-x:auto}
+    .v1-tags{display:flex;gap:7px;flex-wrap:wrap;margin:11px 0}
+    .v1-chk{padding:10px 12px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);
+      white-space:pre-wrap}
+  </style>
+  <script>
+  (function(){
+    var A1 = [1, 3, 0];                       // column 1, held fixed
+    var B = [document.getElementById('v1-b1'), document.getElementById('v1-b2'), document.getElementById('v1-b3')];
+    var L = [document.getElementById('v1-b1l'), document.getElementById('v1-b2l'), document.getElementById('v1-b3l')];
+    var mat = document.getElementById('v1-mat'), tags = document.getElementById('v1-eig');
+    var vecBox = document.getElementById('v1-vec'), chk = document.getElementById('v1-check');
+    var why = document.getElementById('v1-why');
+    var VECS = [[1, 0], [0, 1], [1, 1], [2, -1]];
+    var vi = 2, TOL = 1e-9;
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return String(r); }
+    function pad(v, w){ var t = f2(v); while (t.length < w) t = ' ' + t; return t; }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var b = [Number(B[0].value), Number(B[1].value), Number(B[2].value)];
+      L[0].textContent = b[0]; L[1].textContent = b[1]; L[2].textContent = b[2];
+
+      var p = A1[0] * A1[0] + A1[1] * A1[1] + A1[2] * A1[2];      // a1 . a1
+      var q = A1[0] * b[0] + A1[1] * b[1] + A1[2] * b[2];         // a1 . a2
+      var r = b[0] * b[0] + b[1] * b[1] + b[2] * b[2];            // a2 . a2
+
+      mat.textContent =
+        'A  (3 x 2)              A^T A  (2 x 2)\n' +
+        '[' + pad(A1[0], 4) + pad(b[0], 4) + ' ]         [' + pad(p, 5) + pad(q, 5) + ' ]\n' +
+        '[' + pad(A1[1], 4) + pad(b[1], 4) + ' ]         [' + pad(q, 5) + pad(r, 5) + ' ]\n' +
+        '[' + pad(A1[2], 4) + pad(b[2], 4) + ' ]\n\n' +
+        'entry (i,j) is a column dot product:\n' +
+        '  a1.a1 = ' + f2(p) + '     a1.a2 = a2.a1 = ' + f2(q) + '     a2.a2 = ' + f2(r) + '\n' +
+        'trace = ' + f2(p + r) + ' = sum of the squares of all 6 entries of A\n' +
+        'det   = ' + f2(p) + '(' + f2(r) + ') - ' + f2(q) + '^2 = ' + f2(p * r - q * q);
+
+      var disc = Math.sqrt(Math.max((p - r) * (p - r) + 4 * q * q, 0));   // never negative, so lambda is real
+      var lam1 = (p + r + disc) / 2, lam2 = (p + r - disc) / 2;
+      if (lam2 < 0) lam2 = 0;                                            // guard: rounding must not print a negative
+      var det = p * r - q * q;
+
+      tags.innerHTML =
+        pill('SYMMETRIC · off-diagonals both ' + f2(q), 'var(--viz-green)') +
+        pill('lambda = ' + f2(lam1) + ' and ' + f2(lam2) + ' · both >= 0', 'var(--viz-accent)') +
+        (Math.abs(det) > 1e-9
+          ? pill('INVERTIBLE · columns independent', 'var(--viz-green)')
+          : pill('SINGULAR · columns dependent', 'var(--viz-red)'));
+
+      var x = VECS[vi], x1 = x[0], x2 = x[1];
+      [].slice.call(vecBox.children).forEach(function(btn, j){ btn.setAttribute('aria-pressed', j === vi ? 'true' : 'false'); });
+      var ax = [A1[0] * x1 + b[0] * x2, A1[1] * x1 + b[1] * x2, A1[2] * x1 + b[2] * x2];
+      var normSq = ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2];
+      var quad = p * x1 * x1 + 2 * q * x1 * x2 + r * x2 * x2;
+
+      chk.textContent =
+        'x = (' + x1 + ', ' + x2 + ')\n' +
+        'A x            = (' + f2(ax[0]) + ', ' + f2(ax[1]) + ', ' + f2(ax[2]) + ')\n' +
+        '|A x|^2        = ' + f2(normSq) + '\n' +
+        'x^T (A^T A) x  = ' + f2(quad) + '   <- the same number, and never negative';
+
+      var perp = Math.abs(q) <= TOL;
+      why.innerHTML = perp
+        ? '<b style="color:var(--viz-green)">Off-diagonal zero: the two columns are perpendicular.</b>' +
+          'a1.a2 = 0, so A^T A is diagonal and its eigenvalues are read straight off: ' + f2(p) + ' and ' + f2(r) +
+          '. Scale both columns to length 1 as well and A^T A becomes the identity — which is exactly what ' +
+          '"A^T A = I means the columns of A are orthonormal vectors in R^m" is saying. ' +
+          '<br><br>Drag any slider off this setting and the off-diagonal reappears. Orthogonality is a knife edge; ' +
+          'symmetry is not.'
+        : '<b>a1.a2 = ' + f2(q) + ', so the columns are <em>not</em> perpendicular — and A^T A is symmetric anyway.</b>' +
+          'That is the whole point. Two arbitrary symmetric matrices multiplied together need not be symmetric, ' +
+          'but the pattern X^T X cannot fail: (A^T A)^T = A^T (A^T)^T = A^T A, using only ' +
+          '(MN)^T = N^T M^T and the fact that transposing twice returns the original. Nothing about the entries ' +
+          'of A is involved, which is why dragging changes the numbers and never the verdict.' +
+          '<br><br>The nonnegativity line is just as short, and the readout above is it: ' +
+          'x^T A^T A x = (Ax)^T(Ax) = |Ax|^2, and a squared length cannot be negative. So every eigenvalue is ' +
+          'real and <b>nonnegative</b> — not strictly positive. Set the whole second column to 0 and watch the ' +
+          'determinant hit zero: dependent columns, a zero eigenvalue, and A^T A no longer invertible. ' +
+          'Set every entry to 0 and A^T A is the zero matrix, because each diagonal entry is a squared column ' +
+          'norm and the only way to zero all of those is for A itself to be zero.';
+    }
+
+    VECS.forEach(function(v, j){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', j === vi ? 'true' : 'false');
+      btn.textContent = 'x = (' + v[0] + ', ' + v[1] + ')';
+      btn.addEventListener('click', function(){ vi = j; render(); });
+      vecBox.appendChild(btn);
+    });
+    B.forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Eigenvalues Become Sigmas</h2>
+  <p class="vz-lede">V is not invented, it is inherited: the normalised eigenvectors of A^T A, in order.
+    The singular values are the square roots of its eigenvalues — the step everyone forgets. Drive the
+    entries of A and watch lambda, sigma, V and the rank move together, then flip the sign of v2 and watch
+    nothing break. <b>Like reading a room's area off the floor plan: to get a wall length back you take a
+    square root.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-seg" id="v2-pre" role="group" aria-label="Worked examples"></div>
+    <label class="vz-lab" for="v2-a">A row 1 = [ <span id="v2-al">1</span> , <span id="v2-bl">2</span> ]</label>
+    <input type="range" id="v2-a" min="-5" max="5" value="1" step="1" aria-label="entry a">
+    <input type="range" id="v2-b" min="-5" max="5" value="2" step="1" aria-label="entry b">
+    <label class="vz-lab" for="v2-c">A row 2 = [ <span id="v2-cl">2</span> , <span id="v2-dl">1</span> ]</label>
+    <input type="range" id="v2-c" min="-5" max="5" value="2" step="1" aria-label="entry c">
+    <input type="range" id="v2-d" min="-5" max="5" value="1" step="1" aria-label="entry d">
+    <div class="v2-out vz-mono" id="v2-out"></div>
+    <div class="vz-seg" id="v2-sign" role="group" aria-label="Sign of the second right singular vector">
+      <button id="v2-keep" aria-pressed="true">v2 as computed</button>
+      <button id="v2-neg" aria-pressed="false">v2 negated</button>
+    </div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Ordering is a convention, not a theorem: sigma1 &gt;= sigma2 &gt;= ... simply means you
+    sorted the eigenvalues of A^T A before building V, and every column of U, every diagonal entry of Sigma
+    and every column of V must be permuted together. Break the pairing and A = U Sigma V^T stops holding —
+    which is why "sort, then build" is one step and not two.</p>
+
+  <style>
+    .v2-out{margin-top:12px;margin-bottom:12px;padding:11px 12px;border:1.5px solid var(--viz-line);
+      border-radius:10px;background:var(--viz-bg);white-space:pre;overflow-x:auto}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v2-a'), Bv = document.getElementById('v2-b');
+    var C = document.getElementById('v2-c'), D = document.getElementById('v2-d');
+    var al = document.getElementById('v2-al'), bl = document.getElementById('v2-bl');
+    var cl = document.getElementById('v2-cl'), dl = document.getElementById('v2-dl');
+    var pre = document.getElementById('v2-pre'), out = document.getElementById('v2-out');
+    var keep = document.getElementById('v2-keep'), neg = document.getElementById('v2-neg');
+    var why = document.getElementById('v2-why');
+    var TOL = 1e-9, flipped = false;
+
+    var PRESETS = [
+      { n: '[1 2 ; 2 1]', a: 1, b: 2, c: 2, d: 1 },
+      { n: '[3 0 ; 0 4]', a: 3, b: 0, c: 0, d: 4 },
+      { n: '[1 1 ; 1 1]', a: 1, b: 1, c: 1, d: 1 },
+      { n: '[1 2 ; 3 4]', a: 1, b: 2, c: 3, d: 4 }
+    ];
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return r.toFixed(2); }
+    function pad(v, w){ var t = f2(v); while (t.length < w) t = ' ' + t; return t; }
+
+    function render(){
+      var a = Number(A.value), b = Number(Bv.value), c = Number(C.value), d = Number(D.value);
+      al.textContent = a; bl.textContent = b; cl.textContent = c; dl.textContent = d;
+      keep.setAttribute('aria-pressed', flipped ? 'false' : 'true');
+      neg.setAttribute('aria-pressed', flipped ? 'true' : 'false');
+
+      var p = a * a + c * c, q = a * b + c * d, r = b * b + d * d;      // A^T A = [p q ; q r]
+      var disc = Math.sqrt(Math.max((p - r) * (p - r) + 4 * q * q, 0));
+      var lam1 = (p + r + disc) / 2, lam2 = Math.max((p + r - disc) / 2, 0);
+      var s1 = Math.sqrt(Math.max(lam1, 0)), s2 = Math.sqrt(lam2);
+
+      var ex = q, ey = lam1 - p, en = Math.sqrt(ex * ex + ey * ey);
+      if (en < 1e-9) { ex = 1; ey = 0; en = 1; }                        // guard: A^T A already diagonal
+      var v1 = [ex / en, ey / en];
+      var v2 = [-v1[1], v1[0]];
+      if (flipped) v2 = [-v2[0], -v2[1]];
+
+      function mul(v){ return [a * v[0] + b * v[1], c * v[0] + d * v[1]]; }
+      var av1 = mul(v1), av2 = mul(v2);
+      var u1 = s1 > TOL ? [av1[0] / s1, av1[1] / s1] : null;            // guard: never divide by sigma = 0
+      var u2 = s2 > TOL ? [av2[0] / s2, av2[1] / s2] : null;
+      var rank = (s1 > TOL ? 1 : 0) + (s2 > TOL ? 1 : 0);
+      var udot = (u1 && u2) ? u1[0] * u2[0] + u1[1] * u2[1] : 0;
+
+      out.textContent =
+        'A^T A = [' + pad(p, 6) + pad(q, 6) + ' ]\n' +
+        '        [' + pad(q, 6) + pad(r, 6) + ' ]\n\n' +
+        'lambda1 = ' + f2(lam1) + '     lambda2 = ' + f2(lam2) + '\n' +
+        'sigma1  = ' + f2(s1) + '     sigma2  = ' + f2(s2) + '     (sigma = sqrt of lambda)\n' +
+        'rank    = ' + rank + '   = how many sigmas are nonzero\n\n' +
+        'V = [' + pad(v1[0], 6) + pad(v2[0], 6) + ' ]      each column has length 1\n' +
+        '    [' + pad(v1[1], 6) + pad(v2[1], 6) + ' ]\n\n' +
+        'A v1 = (' + f2(av1[0]) + ', ' + f2(av1[1]) + ')   |A v1| = ' + f2(s1) + ' = sigma1\n' +
+        (u1 ? 'u1   = A v1 / sigma1 = (' + f2(u1[0]) + ', ' + f2(u1[1]) + ')\n' : 'u1   : sigma1 is 0, so A is the zero matrix\n') +
+        'A v2 = (' + f2(av2[0]) + ', ' + f2(av2[1]) + ')   |A v2| = ' + f2(s2) + ' = sigma2\n' +
+        (u2 ? 'u2   = A v2 / sigma2 = (' + f2(u2[0]) + ', ' + f2(u2[1]) + ')\n' +
+              'u1 . u2 = ' + f2(udot) + '   (orthonormal, as promised)'
+            : 'u2   : sigma2 is 0, so no division is possible;\n' +
+              '       fill this column from the left null space (visual 3)');
+
+      var degenerate = Math.abs(lam1 - lam2) < 1e-9;
+      why.innerHTML = '<b>lambda = ' + f2(lam1) + ', ' + f2(lam2) + '  ->  sigma = ' + f2(s1) + ', ' + f2(s2) + '.</b>' +
+        'The pipeline never varies: form A^T A, solve its characteristic equation, take square roots for the ' +
+        'sigmas, normalise the eigenvectors into the columns of V in descending order. Try [3 0 ; 0 4]: A^T A ' +
+        'is diag(9, 16), so the singular values are <b>4 and 3</b> — not 16 and 9, and not 7 and 1. An ' +
+        'eigenvector that comes out as (3, 4) enters V as (3/5, 4/5); a raw (3, 4) would leave V non-orthogonal ' +
+        'and the whole factorisation false.' +
+        (flipped
+          ? '<br><br><b style="color:var(--viz-green)">v2 is negated and nothing broke.</b>' +
+            'Both v2 and -v2 are unit eigenvectors for the same eigenvalue, so both are legal columns of V. ' +
+            'Watch u2 in the readout: it flipped too, because u2 = A v2 / sigma2 carries the sign through, and ' +
+            'A v2 = sigma2 u2 still holds. The sign is free; the <em>pairing</em> is not.'
+          : '<br><br>Press <b>v2 negated</b>. Both v2 and -v2 are unit eigenvectors for the same eigenvalue, so ' +
+            'both give a valid V — u2 simply flips with it and A v2 = sigma2 u2 survives.') +
+        (rank < 2
+          ? '<br><br><b style="color:var(--viz-amber)">sigma2 = 0, so the rank is ' + rank + '.</b>' +
+            'The count of nonzero singular values <em>is</em> the rank — eigenvalues 25, 9, 0 mean sigmas ' +
+            '5, 3, 0 and rank 2. And notice u2 cannot be built here: dividing by zero is exactly the wall that ' +
+            'sends you to the left null space in the next visual.'
+          : (degenerate
+            ? '<br><br><b style="color:var(--viz-accent)">Both eigenvalues are equal.</b>' +
+              'A^T A is a multiple of the identity, so <em>every</em> unit vector is an eigenvector and V is ' +
+              'not unique at all. Any orthonormal pair works, and A scales every direction by the same amount.'
+            : ''));
+    }
+
+    PRESETS.forEach(function(ps){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.textContent = ps.n;
+      btn.addEventListener('click', function(){
+        A.value = ps.a; Bv.value = ps.b; C.value = ps.c; D.value = ps.d; render();
+      });
+      pre.appendChild(btn);
+    });
+    keep.addEventListener('click', function(){ flipped = false; render(); });
+    neg.addEventListener('click', function(){ flipped = true; render(); });
+    [A, Bv, C, D].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Building U Columns</h2>
+  <p class="vz-lede">u_i = A v_i / sigma_i builds exactly r columns and then stops dead at the first zero
+    sigma — but U has to be m x m. Set the shape and the rank and watch the shortfall appear, then pick the
+    right filler vector for a concrete rank-1 case. <b>Like a choir where only the front row sings: the back
+    row still has to stand in line.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-m">m = <span id="v3-ml">5</span> rows of A &nbsp;·&nbsp; U is m x m</label>
+    <input type="range" id="v3-m" min="2" max="6" value="5" step="1" aria-label="rows m">
+    <label class="vz-lab" for="v3-n">n = <span id="v3-nl">3</span> columns of A &nbsp;·&nbsp; V is n x n</label>
+    <input type="range" id="v3-n" min="1" max="6" value="3" step="1" aria-label="columns n">
+    <label class="vz-lab" for="v3-r">rank r = <span id="v3-rl">2</span></label>
+    <input type="range" id="v3-r" min="0" max="6" value="2" step="1" aria-label="rank r">
+    <div class="v3-cols" id="v3-cols"></div>
+    <div class="v3-sig" id="v3-sig"></div>
+    <div class="v3-counts" id="v3-counts"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card v3-lower">
+    <div class="v3-cap">Concrete case: A = [1 1 ; 1 1], rank 1, u1 = (1, 1)/sqrt2. Which vector may fill the
+      second column of U?</div>
+    <div class="vz-seg" id="v3-cand" role="group" aria-label="Candidate filler vectors"></div>
+    <div class="v3-verdict vz-mono" id="v3-verdict"></div>
+  </div>
+  <p class="vz-note">This is why two people can hand in different, equally correct U matrices for the same
+    rank-deficient A. The first r columns are forced by the formula, but the last m - r are <b>any</b>
+    orthonormal basis of N(A^T) you like — and it does not matter, because the rows of Sigma that would
+    multiply them are zero. They contribute nothing to A and everything to U being square and orthogonal.</p>
+
+  <style>
+    .v3-cols{margin-top:15px;display:flex;flex-direction:column;gap:5px}
+    .v3-c{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-left-width:5px;
+      border-radius:9px;padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;
+      font-size:11.5px;line-height:1.35}
+    .v3-tag{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;font-family:inherit}
+    .v3-sig{margin-top:13px}
+    .v3-grid{display:grid;gap:2px;margin-top:5px}
+    .v3-cell{height:15px;border-radius:2px;background:var(--viz-line)}
+    .v3-cell.is-sig{background:var(--viz-accent)}
+    .v3-cap{font-size:12.5px;font-weight:700;line-height:1.45;margin-bottom:11px}
+    .v3-counts{margin-top:13px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-lower{margin-top:12px}
+    .v3-verdict{padding:10px 12px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);
+      white-space:pre-wrap}
+    .v3-lbl{font-size:11px;color:var(--viz-muted);font-weight:700;letter-spacing:.04em}
+  </style>
+  <script>
+  (function(){
+    var M = document.getElementById('v3-m'), N = document.getElementById('v3-n'), R = document.getElementById('v3-r');
+    var ml = document.getElementById('v3-ml'), nl = document.getElementById('v3-nl'), rl = document.getElementById('v3-rl');
+    var cols = document.getElementById('v3-cols'), sig = document.getElementById('v3-sig');
+    var counts = document.getElementById('v3-counts'), why = document.getElementById('v3-why');
+    var candBox = document.getElementById('v3-cand'), verdict = document.getElementById('v3-verdict');
+    var ci = 1, TOL = 1e-9;
+
+    var CANDS = [
+      { n: '(1,1)/sqrt2',  x: 1 / Math.SQRT2, y: 1 / Math.SQRT2 },
+      { n: '(1,-1)/sqrt2', x: 1 / Math.SQRT2, y: -1 / Math.SQRT2 },
+      { n: '(1,-1)/2',     x: 0.5,            y: -0.5 },
+      { n: '(1,0)',        x: 1,              y: 0 }
+    ];
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return r.toFixed(2); }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var m = Number(M.value), n = Number(N.value);
+      var r = Math.min(Number(R.value), m, n);                    // guard: rank can never exceed either dimension
+      ml.textContent = m; nl.textContent = n; rl.textContent = r + (r < Number(R.value) ? ' (capped at min(m,n))' : '');
+
+      var html = '';
+      for (var i = 1; i <= m; i++) {
+        var formula = i <= r;
+        var col = formula ? 'var(--viz-accent)' : 'var(--viz-violet)';
+        html += '<div class="v3-c" style="border-left-color:' + col + '">' +
+          '<span>column ' + i + '</span>' +
+          '<span style="color:var(--viz-muted)">' + (formula ? 'u' + i + ' = A v' + i + ' / sigma' + i : 'orthonormal basis vector of N(A^T)') + '</span>' +
+          '<span class="v3-tag" style="color:' + col + '">' + (formula ? 'FORMULA' : 'FILLED IN') + '</span></div>';
+      }
+      cols.innerHTML = html;
+
+      var cells = '';
+      for (var row = 0; row < m; row++) {
+        for (var c = 0; c < n; c++) {
+          cells += '<div class="v3-cell' + (row === c && row < r ? ' is-sig' : '') + '"></div>';
+        }
+      }
+      sig.innerHTML = '<span class="v3-lbl">SIGMA IS ' + m + ' x ' + n + ' · ' + r + ' NONZERO ENTRY' +
+        (r === 1 ? '' : 'IES') + ' ON THE DIAGONAL</span>' +
+        '<div class="v3-grid" style="grid-template-columns:repeat(' + n + ', 1fr)">' + cells + '</div>';
+
+      var fill = m - r;
+      counts.innerHTML =
+        pill(r + ' from the formula', 'var(--viz-accent)') +
+        pill(fill + ' from N(A^T)', fill > 0 ? 'var(--viz-violet)' : 'var(--viz-muted)') +
+        pill('dim N(A^T) = m - r = ' + fill, 'var(--viz-muted)') +
+        pill('dim N(A) = n - r = ' + (n - r), 'var(--viz-muted)');
+
+      why.innerHTML = (fill === 0
+        ? '<b style="color:var(--viz-green)">r = m, so the formula fills U on its own: 0 columns come from N(A^T).</b>' +
+          'Full row rank means the columns of A already span all of R^' + m + ', so the left null space is the ' +
+          'zero subspace and there is nothing left over. A 4 x 6 matrix of rank 4 is exactly this case.'
+        : '<b style="color:var(--viz-violet)">m - r = ' + m + ' - ' + r + ' = ' + fill + ' column' +
+          (fill === 1 ? '' : 's') + ' must come from N(A^T).</b>' +
+          'The formula stops at r because sigma_' + (r + 1) + ' is zero and you cannot divide by it. Rank-nullity ' +
+          'applied to A^T guarantees the shortfall is met exactly: dim N(A^T) = m - r = ' + fill + '.') +
+        '<br><br>Count m, n and r before anything else and most questions answer themselves. The trap is ' +
+        'reaching for <b>n - r</b> = ' + (n - r) + ': that is the dimension of the ordinary null space and it ' +
+        'sizes V\'s leftovers, not U\'s. U is m x m and lives on the <em>output</em> side.' +
+        '<br><br>Why any y in N(A^T) is automatically perpendicular to the columns you already built, with no ' +
+        'extra work: y^T (A v_i) = (A^T y)^T v_i = 0^T v_i = <b>0</b>. So the added columns only have to be ' +
+        'orthonormal among themselves and orthogonal to the column space of A — which is precisely what ' +
+        'belonging to N(A^T) means.';
+
+      var cd = CANDS[ci];
+      [].slice.call(candBox.children).forEach(function(btn, j){ btn.setAttribute('aria-pressed', j === ci ? 'true' : 'false'); });
+      var len = Math.sqrt(cd.x * cd.x + cd.y * cd.y);
+      var dot = (cd.x + cd.y) / Math.SQRT2;                        // dot with u1 = (1,1)/sqrt2
+      var atY = cd.x + cd.y;                                       // A^T y for A = [1 1 ; 1 1] is (atY, atY)
+      var unit = Math.abs(len - 1) <= 1e-9, perp = Math.abs(dot) <= 1e-9;
+      var ok = unit && perp;
+      verdict.innerHTML =
+        'candidate y = ' + cd.n + ' = (' + f2(cd.x) + ', ' + f2(cd.y) + ')\n' +
+        '|y|      = ' + f2(len) + '   ' + (unit ? 'UNIT LENGTH — ok' : 'NOT A UNIT VECTOR — rejected') + '\n' +
+        'y . u1   = ' + f2(dot) + '   ' + (perp ? 'PERPENDICULAR TO u1 — ok' : 'NOT PERPENDICULAR — rejected') + '\n' +
+        'A^T y    = (' + f2(atY) + ', ' + f2(atY) + ')   ' + (Math.abs(atY) <= TOL ? 'in N(A^T) — ok' : 'not in N(A^T)') + '\n\n' +
+        '<b style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+        (ok
+          ? 'VALID. U = [u1 y] is orthogonal, and A = U Sigma V^T holds.'
+          : (!unit
+            ? 'INVALID. Its length is ' + f2(len) + '; scaling by 1/2 instead of 1/sqrt2 is the single most common slip here.'
+            : 'INVALID. It is not orthogonal to u1, so U would not be an orthogonal matrix.')) +
+        '</b>';
+    }
+
+    CANDS.forEach(function(cd, j){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', j === ci ? 'true' : 'false');
+      btn.textContent = cd.n;
+      btn.addEventListener('click', function(){ ci = j; render(); });
+      candBox.appendChild(btn);
+    });
+    [M, N, R].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Rotate Stretch Rotate</h2>
+  <p class="vz-lede">A x = U Sigma V^T x, read right to left: V^T turns the input so the special directions
+    land on the axes, Sigma stretches along those axes, U turns the result into place. Step through the
+    three actions and watch the unit circle become an ellipse. <b>Like a potter's wheel: turn the clay,
+    press it out, turn it again.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-seg" id="v4-stage" role="group" aria-label="Stage of the factorisation"></div>
+    <label class="vz-lab" for="v4-s1">sigma1 = <span id="v4-s1l">2.0</span></label>
+    <input type="range" id="v4-s1" min="0" max="3" value="2" step="0.1" aria-label="first singular value">
+    <label class="vz-lab" for="v4-s2">sigma2 = <span id="v4-s2l">0.8</span></label>
+    <input type="range" id="v4-s2" min="0" max="3" value="0.8" step="0.1" aria-label="second singular value">
+    <label class="vz-lab" for="v4-av">V turns the inputs by <span id="v4-avl">30</span> degrees</label>
+    <input type="range" id="v4-av" min="0" max="180" value="30" step="5" aria-label="rotation of V">
+    <label class="vz-lab" for="v4-bu">U turns the outputs by <span id="v4-bul">100</span> degrees</label>
+    <input type="range" id="v4-bu" min="0" max="180" value="100" step="5" aria-label="rotation of U">
+    <div class="v4-row">
+      <svg class="v4-svg" id="v4-svg" viewBox="0 0 190 190" role="img"
+           aria-label="The unit circle carried through the three actions of the factorisation"></svg>
+      <div class="v4-read vz-mono" id="v4-read"></div>
+    </div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Because U and V^T are orthogonal they change no length at all, so <b>every bit of the
+    stretching lives in Sigma</b>. That single sentence answers a whole family of questions: the largest
+    stretch any unit vector can receive is sigma1 and v1 is the direction that receives it; the smallest is
+    sigma2; and the area scale factor is the product. Nothing about the entries of A is needed to say so.</p>
+
+  <style>
+    .v4-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:14px}
+    .v4-svg{flex:0 0 auto;width:190px;height:190px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg)}
+    .v4-read{flex:1 1 155px;min-width:150px;white-space:pre-wrap}
+  </style>
+  <script>
+  (function(){
+    var S1 = document.getElementById('v4-s1'), S2 = document.getElementById('v4-s2');
+    var AV = document.getElementById('v4-av'), BU = document.getElementById('v4-bu');
+    var s1l = document.getElementById('v4-s1l'), s2l = document.getElementById('v4-s2l');
+    var avl = document.getElementById('v4-avl'), bul = document.getElementById('v4-bul');
+    var stageBox = document.getElementById('v4-stage'), svg = document.getElementById('v4-svg');
+    var read = document.getElementById('v4-read'), why = document.getElementById('v4-why');
+    var CX = 95, CY = 95, UNIT = 22, TOL = 1e-9, st = 0;
+
+    var STAGES = ['x', 'V^T x', 'Sigma V^T x', 'A x'];
+    var NAMES = [['v1', 'v2'], ['e1', 'e2'], ['s1 e1', 's2 e2'], ['s1 u1', 's2 u2']];
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return r.toFixed(2); }
+    function sx(w){ var v = CX + w * UNIT; return isFinite(v) ? f2(v) : '95'; }
+    function sy(w){ var v = CY - w * UNIT; return isFinite(v) ? f2(v) : '95'; }
+
+    function render(){
+      var s1 = Number(S1.value), s2 = Number(S2.value);
+      var av = Number(AV.value), bu = Number(BU.value);
+      s1l.textContent = s1.toFixed(1); s2l.textContent = s2.toFixed(1);
+      avl.textContent = av; bul.textContent = bu;
+      [].slice.call(stageBox.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === st ? 'true' : 'false'); });
+
+      var ca = Math.cos(av * Math.PI / 180), sa = Math.sin(av * Math.PI / 180);
+      var cb = Math.cos(bu * Math.PI / 180), sb = Math.sin(bu * Math.PI / 180);
+
+      // v1, v2 are the columns of V; u1, u2 the columns of U. Both are rotations.
+      function pipe(x, y){
+        if (st === 0) return [x, y];
+        var p = [x * ca + y * sa, -x * sa + y * ca];          // V^T x
+        if (st === 1) return p;
+        var q = [s1 * p[0], s2 * p[1]];                        // Sigma V^T x
+        if (st === 2) return q;
+        return [q[0] * cb - q[1] * sb, q[0] * sb + q[1] * cb]; // U Sigma V^T x
+      }
+
+      var pts = '', N = 96;
+      for (var k = 0; k <= N; k++) {
+        var th = 2 * Math.PI * k / N;
+        var w = pipe(Math.cos(th), Math.sin(th));
+        pts += sx(w[0]) + ',' + sy(w[1]) + ' ';
+      }
+
+      function arrow(w, col, lab){
+        var n = Math.sqrt(w[0] * w[0] + w[1] * w[1]);
+        if (!isFinite(n) || n < 1e-6) return '';               // guard: a collapsed direction has nothing to draw
+        return '<line x1="' + CX + '" y1="' + CY + '" x2="' + sx(w[0]) + '" y2="' + sy(w[1]) +
+          '" stroke="' + col + '" stroke-width="3" stroke-linecap="round"></line>' +
+          '<circle cx="' + sx(w[0]) + '" cy="' + sy(w[1]) + '" r="3.5" fill="' + col + '"></circle>' +
+          '<text x="' + sx(w[0] * 1.22) + '" y="' + sy(w[1] * 1.22) + '" fill="' + col +
+          '" font-size="10" font-weight="800" text-anchor="middle" dominant-baseline="middle">' + lab + '</text>';
+      }
+
+      var base = '<line x1="8" y1="95" x2="182" y2="95" stroke="var(--viz-line)" stroke-width="1"></line>' +
+        '<line x1="95" y1="8" x2="95" y2="182" stroke="var(--viz-line)" stroke-width="1"></line>' +
+        '<circle cx="95" cy="95" r="' + UNIT + '" fill="none" stroke="var(--viz-line)" stroke-width="1" stroke-dasharray="3 4"></circle>';
+
+      var d1 = pipe(ca, sa), d2 = pipe(-sa, ca);
+      svg.innerHTML = base +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2" opacity="0.9"></polyline>' +
+        arrow(d1, 'var(--viz-green)', NAMES[st][0]) +
+        arrow(d2, 'var(--viz-violet)', NAMES[st][1]);
+
+      // the sliders let sigma2 exceed sigma1, which breaks the descending convention —
+      // so name the max and min by which value is actually bigger, never by position
+      var big = Math.max(s1, s2), small = Math.min(s1, s2), inOrder = s1 >= s2;
+      var bigIn = inOrder ? 'v1' : 'v2', smallIn = inOrder ? 'v2' : 'v1';
+      var bigOut = inOrder ? 'u1' : 'u2';
+      var shape = big <= TOL ? 'a single point at the origin'
+        : (small <= TOL ? 'a segment on the line through ' + bigOut + ' — the plane is flattened'
+          : (Math.abs(s1 - s2) < 1e-9 ? 'a circle of radius ' + f2(s1)
+            : 'an ellipse, semi-axes ' + f2(big) + ' and ' + f2(small)));
+
+      read.textContent =
+        'stage ' + (st + 1) + ' of 4\n' +
+        'showing: ' + STAGES[st] + '\n\n' +
+        'x -> V^T x -> Sigma V^T x -> U Sigma V^T x\n\n' +
+        'sigma1 = ' + f2(s1) + '     sigma2 = ' + f2(s2) + '\n\n' +
+        'max stretch = ' + f2(big) + '\n   attained at ' + bigIn + '\n' +
+        'min stretch = ' + f2(small) + '\n   attained at ' + smallIn + '\n' +
+        'area factor = ' + f2(s1 * s2) + '\n\n' +
+        'unit circle becomes\n' + shape;
+
+      var texts = [
+        '<b>Stage 1 — the input side.</b>' +
+          'The dashed circle is every unit vector. Marked on it are v1 and v2, the columns of V: an ' +
+          'orthonormal pair of <em>input</em> directions, chosen back in visual 2 as the eigenvectors of A^T A. ' +
+          'Nothing has happened to the circle yet.',
+        '<b>Stage 2 — V^T rotates, and only rotates.</b>' +
+          'V^T carries v1 onto e1 and v2 onto e2, so the special directions now lie along the coordinate axes. ' +
+          'The circle is unchanged: an orthogonal matrix preserves every length and every angle, so this step ' +
+          'cannot stretch anything. It only chooses the coordinate system in which the stretching is diagonal.',
+        '<b>Stage 3 — Sigma scales along the axes.</b>' +
+          'Now, and only now, sizes change: the e1 axis is multiplied by sigma1 = ' + f2(s1) + ' and the e2 axis ' +
+          'by sigma2 = ' + f2(s2) + '. The circle becomes an axis-aligned ellipse. All of A\'s distortion is in ' +
+          'this one diagonal matrix, which is why the largest stretch any unit vector can receive is sigma1.',
+        '<b>Stage 4 — U rotates the finished ellipse into place.</b>' +
+          'A x = U Sigma V^T x. The semi-axes are sigma1 and sigma2 and they point along <b>u1 and u2</b>, the ' +
+          'output directions — never along v1 and v2, which are where the pre-images were. That swap is the ' +
+          'single most common error on this topic.'
+      ];
+
+      var extra = '';
+      if (small <= TOL && big > TOL) {
+        extra = '<br><br><b style="color:var(--viz-red)">One sigma is 0: the plane is flattened onto one line.</b>' +
+          'The ellipse has lost an axis. Every vector in the plane lands somewhere on the line spanned by ' +
+          bigOut + ' — not rotated onto it, and not collapsed to the origin. Rank 1, area factor 0, and the ' +
+          'other column of U now has to come from the left null space.';
+      } else if (big <= TOL) {
+        extra = '<br><br><b style="color:var(--viz-red)">Both sigmas are 0: A is the zero matrix.</b>' +
+          'Everything lands on the origin, and rank 0 is the one case where the formula builds no column of U at all.';
+      } else if (Math.abs(s1 - s2) < 1e-9) {
+        extra = '<br><br><b style="color:var(--viz-accent)">Equal sigmas: the circle stays a circle.</b>' +
+          'A is a rotation times a scalar, so every direction is stretched identically and no direction is special.';
+      }
+
+      why.innerHTML = texts[st] + extra +
+        (inOrder ? '' :
+          '<br><br><b style="color:var(--viz-amber)">You have set sigma2 above sigma1, which breaks the ' +
+          'descending convention.</b>' +
+          'The picture is still a perfectly valid factorisation — nothing here is wrong — but a real SVD sorts ' +
+          'the singular values largest first. Fixing it is a relabelling, not a recalculation: swap the two ' +
+          'diagonal entries of Sigma and swap the matching columns of <b>both</b> U and V together. Swap Sigma ' +
+          'alone and you have written down a different matrix.');
+    }
+
+    STAGES.forEach(function(nm, j){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', j === 0 ? 'true' : 'false');
+      btn.textContent = (j + 1) + '. ' + nm;
+      btn.addEventListener('click', function(){ st = j; render(); });
+      stageBox.appendChild(btn);
+    });
+    [S1, S2, AV, BU].forEach(function(s){ s.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. PCA By Hand</h2>
+  <p class="vz-lede">Four steps, every one of them a tool you already own. Walk them on three points you can
+    check by hand, then shear the cloud and watch the covariance matrix, the principal direction and the
+    variance explained all move together. <b>Like finding the long axis of a swarm of bees: first the
+    middle, then the direction it stretches.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-seg" id="v5-step" role="group" aria-label="Step of PCA"></div>
+    <label class="vz-lab" for="v5-t">shear the cloud: t = <span id="v5-tl">0.0</span> &nbsp;·&nbsp; t = 0 is the worked example</label>
+    <input type="range" id="v5-t" min="-1.5" max="1.5" value="0" step="0.1" aria-label="shear the data">
+    <div class="v5-row">
+      <svg class="v5-svg" id="v5-svg" viewBox="0 0 190 190" role="img"
+           aria-label="The three data points and the principal component direction"></svg>
+      <div class="v5-num vz-mono" id="v5-num"></div>
+    </div>
+    <div class="vz-seg" id="v5-pt" role="group" aria-label="Which point to project"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two shortcuts worth carrying. The covariance matrix is a scaled Gram matrix,
+    C = (1/n) Xc^T Xc, so everything from visual 1 applies to it unchanged: symmetric, positive
+    semidefinite, real nonnegative eigenvalues. And you never have to form it — the right singular vectors
+    of the centered Xc <b>are</b> its eigenvectors, with lambda_i = sigma_i^2 / n. PCA is the SVD of
+    centered data, wearing a statistician's hat.</p>
+
+  <style>
+    .v5-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:14px;margin-bottom:12px}
+    .v5-svg{flex:0 0 auto;width:190px;height:190px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg)}
+    .v5-num{flex:1 1 155px;min-width:150px;white-space:pre-wrap}
+  </style>
+  <script>
+  (function(){
+    var stepBox = document.getElementById('v5-step'), T = document.getElementById('v5-t');
+    var tl = document.getElementById('v5-tl'), svg = document.getElementById('v5-svg');
+    var num = document.getElementById('v5-num'), ptBox = document.getElementById('v5-pt');
+    var why = document.getElementById('v5-why');
+    var BASE = [[1, 1], [2, 3], [3, 2]];
+    var STEPS = ['1 center', '2 covariance', '3 eigen', '4 project'];
+    // point 2 by default: point 1 sits exactly on pc1, so it would open on a zero residual
+    var step = 0, pi = 1, TOL = 1e-9;
+
+    function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return r.toFixed(2); }
+
+    // two frames: a wide one that shows the raw cloud AND the origin, and a centered one
+    function raw(x, y){ return [12 + (x + 1.1) * 27, 178 - (y + 1.1) * 27]; }
+    function cen(x, y){ return [95 + x * 26, 95 - y * 26]; }
+    function dot(p, col, r){ return '<circle cx="' + f2(p[0]) + '" cy="' + f2(p[1]) + '" r="' + r + '" fill="' + col + '"></circle>'; }
+    function seg(p, q, col, dash){
+      return '<line x1="' + f2(p[0]) + '" y1="' + f2(p[1]) + '" x2="' + f2(q[0]) + '" y2="' + f2(q[1]) +
+        '" stroke="' + col + '" stroke-width="1.8"' + (dash ? ' stroke-dasharray="4 3"' : '') + '></line>';
+    }
+    function label(p, txt, col){
+      return '<text x="' + f2(p[0]) + '" y="' + f2(p[1]) + '" fill="' + col + '" font-size="9.5" font-weight="800" ' +
+        'text-anchor="middle" dominant-baseline="middle">' + txt + '</text>';
+    }
+
+    function render(){
+      var t = Number(T.value);
+      tl.textContent = t.toFixed(1);
+      [].slice.call(stepBox.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === step ? 'true' : 'false'); });
+      [].slice.call(ptBox.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === pi ? 'true' : 'false'); });
+
+      // shear about the x mean: the means stay at (2, 2) whatever t does
+      var pts = BASE.map(function(p){ return [p[0], p[1] + t * (p[0] - 2)]; });
+      var mx = (pts[0][0] + pts[1][0] + pts[2][0]) / 3;
+      var my = (pts[0][1] + pts[1][1] + pts[2][1]) / 3;
+      var ctr = pts.map(function(p){ return [p[0] - mx, p[1] - my]; });
+
+      var sxx = 0, sxy = 0, syy = 0;
+      ctr.forEach(function(p){ sxx += p[0] * p[0]; sxy += p[0] * p[1]; syy += p[1] * p[1]; });
+      var cxx = sxx / 3, cxy = sxy / 3, cyy = syy / 3;
+
+      var disc = Math.sqrt(Math.max((cxx - cyy) * (cxx - cyy) + 4 * cxy * cxy, 0));
+      var lam1 = (cxx + cyy + disc) / 2, lam2 = Math.max((cxx + cyy - disc) / 2, 0);
+      var ex = cxy, ey = lam1 - cxx, en = Math.sqrt(ex * ex + ey * ey);
+      if (en < 1e-9) { ex = 1; ey = 0; en = 1; }                       // guard: C already diagonal
+      var u1 = [ex / en, ey / en], u2 = [-u1[1], u1[0]];
+      var tot = lam1 + lam2;
+      var expl = tot > TOL ? lam1 / tot : 1;                           // guard: all points identical
+
+      var sel = ctr[pi];
+      var z = sel[0] * u1[0] + sel[1] * u1[1];
+      var hat = [z * u1[0], z * u1[1]];
+      var res = [sel[0] - hat[0], sel[1] - hat[1]];
+      var resDot = res[0] * u1[0] + res[1] * u1[1];
+
+      var g = '', i;
+      if (step === 0) {
+        g += seg(raw(-1.1, 0), raw(4.2, 0), 'var(--viz-line)') + seg(raw(0, -1.1), raw(0, 4.2), 'var(--viz-line)');
+        for (i = 0; i < 3; i++) {
+          g += seg(raw(pts[i][0], pts[i][1]), raw(ctr[i][0], ctr[i][1]), 'var(--viz-muted)', true);
+          g += dot(raw(pts[i][0], pts[i][1]), 'var(--viz-muted)', 4);
+          g += dot(raw(ctr[i][0], ctr[i][1]), i === pi ? 'var(--viz-green)' : 'var(--viz-accent)', 4);
+        }
+        g += '<path d="M ' + f2(raw(mx, my)[0] - 5) + ' ' + f2(raw(mx, my)[1]) + ' h 10 M ' +
+          f2(raw(mx, my)[0]) + ' ' + f2(raw(mx, my)[1] - 5) + ' v 10" stroke="var(--viz-red)" stroke-width="2"></path>';
+        g += label(raw(mx, my + 0.45), 'mean', 'var(--viz-red)');
+        g += label(raw(2.9, 3.6), 'raw', 'var(--viz-muted)');
+        g += label(raw(0.6, -0.75), 'centered', 'var(--viz-accent)');
+      } else {
+        g += seg(cen(-3, 0), cen(3, 0), 'var(--viz-line)') + seg(cen(0, -3), cen(0, 3), 'var(--viz-line)');
+        if (step >= 2) {
+          // capped so a sheared cloud cannot push the axis line off the 190px canvas
+          var k1 = Math.min(Math.max(Math.sqrt(lam1) * 2.4, 0.4), 2.6);
+          var k2 = Math.min(Math.max(Math.sqrt(lam2) * 2.4, 0.001), 2.6);
+          g += seg(cen(-u1[0] * k1, -u1[1] * k1), cen(u1[0] * k1, u1[1] * k1), 'var(--viz-accent)');
+          if (k2 > 0.12) g += seg(cen(-u2[0] * k2, -u2[1] * k2), cen(u2[0] * k2, u2[1] * k2), 'var(--viz-violet)');
+          g += label(cen(u1[0] * (k1 + 0.42), u1[1] * (k1 + 0.42)), 'pc1', 'var(--viz-accent)');
+          if (k2 > 0.12) g += label(cen(u2[0] * (k2 + 0.42), u2[1] * (k2 + 0.42)), 'pc2', 'var(--viz-violet)');
+        }
+        for (i = 0; i < 3; i++) {
+          if (step === 1) g += seg(cen(0, 0), cen(ctr[i][0], ctr[i][1]), 'var(--viz-line)', true);
+          g += dot(cen(ctr[i][0], ctr[i][1]), i === pi ? 'var(--viz-green)' : 'var(--viz-accent)', 4);
+        }
+        if (step === 3) {
+          g += seg(cen(sel[0], sel[1]), cen(hat[0], hat[1]), 'var(--viz-red)', true);
+          g += dot(cen(hat[0], hat[1]), 'var(--viz-green)', 4);
+          g += label(cen(hat[0], hat[1] - 0.42), 'x hat', 'var(--viz-green)');
+          g += label(cen((sel[0] + hat[0]) / 2 + 0.5, (sel[1] + hat[1]) / 2), 'resid', 'var(--viz-red)');
+        }
+      }
+      svg.innerHTML = g;
+
+      var body;
+      if (step === 0) {
+        body = 'STEP 1 · CENTER\n\n' +
+          'raw rows\n  (' + f2(pts[0][0]) + ', ' + f2(pts[0][1]) + ')\n  (' + f2(pts[1][0]) + ', ' + f2(pts[1][1]) +
+          ')\n  (' + f2(pts[2][0]) + ', ' + f2(pts[2][1]) + ')\n\n' +
+          'column means = (' + f2(mx) + ', ' + f2(my) + ')\n\n' +
+          'centered rows\n  (' + f2(ctr[0][0]) + ', ' + f2(ctr[0][1]) + ')\n  (' + f2(ctr[1][0]) + ', ' + f2(ctr[1][1]) +
+          ')\n  (' + f2(ctr[2][0]) + ', ' + f2(ctr[2][1]) + ')';
+      } else if (step === 1) {
+        body = 'STEP 2 · COVARIANCE\n\nC = (1/n) Xc^T Xc,  n = 3\n\n' +
+          'sum xc^2  = ' + f2(sxx) + '\nsum xc yc = ' + f2(sxy) + '\nsum yc^2  = ' + f2(syy) + '\n\n' +
+          'C = [ ' + f2(cxx) + '  ' + f2(cxy) + ' ]\n    [ ' + f2(cxy) + '  ' + f2(cyy) + ' ]\n\n' +
+          'symmetric, and it is a\nGram matrix, so every\neigenvalue is >= 0';
+      } else if (step === 2) {
+        body = 'STEP 3 · EIGENDECOMPOSE\n\n' +
+          'lambda1 = ' + f2(lam1) + '\nlambda2 = ' + f2(lam2) + '\ntotal   = ' + f2(tot) + '\n\n' +
+          'pc1 = (' + f2(u1[0]) + ', ' + f2(u1[1]) + ')\npc2 = (' + f2(u2[0]) + ', ' + f2(u2[1]) + ')\n\n' +
+          'variance explained by pc1\n  ' + f2(lam1) + ' / ' + f2(tot) + ' = ' + f2(expl * 100) + ' %';
+      } else {
+        body = 'STEP 4 · PROJECT\n\npoint ' + (pi + 1) + ' centered\n  x = (' + f2(sel[0]) + ', ' + f2(sel[1]) + ')\n' +
+          'u = pc1 = (' + f2(u1[0]) + ', ' + f2(u1[1]) + ')\n\n' +
+          'score      z = x . u = ' + f2(z) + '\nrank-1 rebuild\n  x hat = z u = (' + f2(hat[0]) + ', ' + f2(hat[1]) + ')\n' +
+          'residual\n  x - x hat = (' + f2(res[0]) + ', ' + f2(res[1]) + ')\n\n' +
+          'residual . u = ' + f2(resDot) + '\n  -> perpendicular to pc1,\n     lying along pc2';
+      }
+      num.textContent = body;
+
+      var WHYS = [
+        '<b>Center first, because covariance must measure variation <em>about</em> the mean.</b>' +
+          'Subtract each column\'s mean and the cloud slides onto the origin, keeping its shape exactly. Skip ' +
+          'this and (1/n) X^T X measures distance from the origin instead of spread, so the leading direction ' +
+          'chases the mean vector rather than the variation — which for data sitting far from the origin means ' +
+          'the first component is almost pure mean and tells you nothing.',
+        '<b>C = (1/n) Xc^T Xc, with n = 3 here.</b>' +
+          'Every entry is a dot product of centered columns, exactly as in visual 1: the diagonal holds the two ' +
+          'variances, the off-diagonal the covariance, and it is symmetric for the same one-line reason. At ' +
+          't = 0 the arithmetic is worth doing by hand: centered rows (-1,-1), (0,1), (1,0) give sums 2, 1, 2, ' +
+          'so C = [2/3 1/3 ; 1/3 2/3]. Push t and watch the off-diagonal grow — that is correlation appearing.',
+        '<b>Eigenvectors are the directions, eigenvalues are the variances along them.</b>' +
+          'C is symmetric, so the spectral theorem gives an orthonormal pair, and pc1 is the eigenvector of the ' +
+          'largest eigenvalue. At t = 0 the eigenvalues are 1 and 1/3, so pc1 explains 1 / (4/3) = 75 %, and ' +
+          'pc1 = (1,1)/sqrt2 — the same direction you would get from C = [2 1 ; 1 2], because scaling C scales ' +
+          'both eigenvalues and moves no eigenvector. Variance explained is always lambda_k over the sum: ' +
+          'eigenvalues 5, 3, 2 give (5+3)/10 = 0.8 for the first two components.',
+        '<b>Score z = x . u, rebuild x hat = z u, and the residual is what pc1 could not see.</b>' +
+          'This is the shadow formula from earlier in the course, applied to a unit vector so the denominator ' +
+          'disappears. Check it on a clean case: a centered point (2, 0) with u = (1,1)/sqrt2 gives ' +
+          'z = 2/sqrt2 = sqrt2 and x hat = sqrt2 u = (1, 1) — not (sqrt2, sqrt2), and not (2, 0). The residual ' +
+          '(1, -1) is <b>orthogonal to pc1 and lies along pc2</b>, which is exactly the residual-in-the-left-' +
+          'null-space fact you already know, and it is zero only when the point already sits on the component.'
+      ];
+      var resLen = Math.sqrt(res[0] * res[0] + res[1] * res[1]);
+      why.innerHTML = WHYS[step] +
+        (step === 3 && resLen < 1e-9
+          ? '<br><br><b style="color:var(--viz-green)">This point\'s residual is exactly zero.</b>' +
+            'It already lies on pc1, so one number reconstructs it perfectly. That is the <em>only</em> case ' +
+            'where the residual vanishes — centering alone never makes it zero. Pick another point and watch ' +
+            'it come back.'
+          : '') +
+        (Math.abs(t) > 1e-9
+          ? '<br><br><b style="color:var(--viz-accent)">t = ' + t.toFixed(1) + ': pc1 has swung to (' +
+            f2(u1[0]) + ', ' + f2(u1[1]) + ') and now explains ' + f2(expl * 100) + ' % of the variance.</b>' +
+            'Shearing changes no count and no formula — only the numbers inside C — and the entire pipeline ' +
+            'tracks it automatically.'
+          : '');
+    }
+
+    STEPS.forEach(function(nm, j){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', j === 0 ? 'true' : 'false');
+      btn.textContent = nm;
+      btn.addEventListener('click', function(){ step = j; render(); });
+      stepBox.appendChild(btn);
+    });
+    [0, 1, 2].forEach(function(j){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', j === pi ? 'true' : 'false');
+      btn.textContent = 'point ' + (j + 1);
+      btn.addEventListener('click', function(){ pi = j; render(); });
+      ptBox.appendChild(btn);
+    });
+    T.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. The Dependency Graph</h2>
+  <p class="vz-lede">Every idea in this course is a component, and an edge from A to B means "A requires B
+    to be present before A can work". Tap a component to see what it needs and what breaks if you change it,
+    then inject a cycle and watch the resolver give up. <b>Like a recipe: you cannot ice a cake you have not
+    baked.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-seg" id="v6-mode" role="group" aria-label="Question to ask of the graph"></div>
+    <div class="v6-graph" id="v6-graph"></div>
+    <div class="v6-out vz-mono" id="v6-out"></div>
+    <div class="vz-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">One shape this graph happily allows is the <b>diamond</b>: two components that both
+    depend on a third. That is fine here, because there is only one version of the Rank-Nullity Theorem —
+    but in a software toolkit, where <code>X</code> wants <code>lib</code> v1 and <code>Y</code> wants
+    <code>lib</code> v2 and one app needs both, the same diamond is a <b>version conflict</b>. Same picture,
+    and the difference is only whether the shared component can be two things at once.</p>
+
+  <style>
+    .v6-graph{margin-top:6px;display:flex;flex-direction:column;gap:7px}
+    .v6-lay{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
+    .v6-tier{flex:0 0 34px;font-size:9.5px;font-weight:800;color:var(--viz-muted);letter-spacing:.03em}
+    .v6-n{min-height:44px;flex:1 1 92px;border:1.5px solid var(--viz-line);border-radius:9px;padding:5px 8px;
+      background:var(--viz-bg);color:var(--viz-ink);font:inherit;font-size:11px;font-weight:700;line-height:1.25;
+      text-align:left;display:flex;flex-direction:column;justify-content:center;gap:2px}
+    .v6-n em{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.03em;color:var(--viz-muted)}
+    .v6-out{margin-top:13px;padding:10px 12px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-bg);white-space:pre-wrap}
+  </style>
+  <script>
+  (function(){
+    var modeBox = document.getElementById('v6-mode'), graph = document.getElementById('v6-graph');
+    var out = document.getElementById('v6-out'), why = document.getElementById('v6-why');
+
+    var NODES = [
+      { id: 'dot',   n: 'dot products',   d: [] },
+      { id: 'mul',   n: 'matrix multiply', d: [] },
+      { id: 'rref',  n: 'RREF',           d: [] },
+      { id: 'det',   n: 'determinants',   d: [] },
+      { id: 'rank',  n: 'rank + nullity', d: ['rref'] },
+      { id: 'ortho', n: 'orthonormal bases', d: ['dot'] },
+      { id: 'char',  n: 'characteristic eq', d: ['det'] },
+      { id: 'ata',   n: 'A^T A',          d: ['mul', 'dot'] },
+      { id: 'lnull', n: 'left null space', d: ['rref', 'rank'] },
+      { id: 'eig',   n: 'eigenvectors',   d: ['char', 'rref'] },
+      { id: 'spec',  n: 'spectral theorem', d: ['eig', 'ortho'] },
+      { id: 'svd',   n: 'SVD',            d: ['spec', 'ata', 'lnull'] },
+      { id: 'pca',   n: 'PCA',            d: ['svd'] }
+    ];
+    var MODES = ['build order', 'what it needs', 'what rebuilds', 'add a cycle'];
+    var mode = 0, sel = 'svd';
+
+    function depMap(cycle){
+      var m = {};
+      NODES.forEach(function(x){ m[x.id] = x.d.slice(); });
+      if (cycle) m.dot.push('pca');                 // dot now requires PCA: dot -> pca -> svd -> ata -> dot
+      return m;
+    }
+    function users(dep){
+      var u = {};
+      NODES.forEach(function(x){ u[x.id] = []; });
+      Object.keys(dep).forEach(function(k){ dep[k].forEach(function(d){ if (u[d]) u[d].push(k); }); });
+      return u;
+    }
+    function closure(start, adj){
+      var seen = {}, stack = [start];
+      while (stack.length) {
+        var c = stack.pop();
+        (adj[c] || []).forEach(function(d){ if (!seen[d]) { seen[d] = 1; stack.push(d); } });
+      }
+      return seen;
+    }
+    function kahn(dep){
+      var lay = {}, order = [], left = NODES.map(function(x){ return x.id; }), guard = 0;
+      while (left.length && guard++ < 40) {
+        var moved = [];
+        left.forEach(function(id){
+          var ok = true, mx = -1;
+          dep[id].forEach(function(d){ if (!(d in lay)) ok = false; else mx = Math.max(mx, lay[d]); });
+          if (ok) moved.push([id, mx + 1]);
+        });
+        if (!moved.length) break;
+        moved.forEach(function(mv){ lay[mv[0]] = mv[1]; order.push(mv[0]); });
+        left = left.filter(function(id){ return !(id in lay); });
+      }
+      return { lay: lay, order: order, stuck: left };
+    }
+    function nameOf(id){ for (var i = 0; i < NODES.length; i++) if (NODES[i].id === id) return NODES[i].n; return id; }
+
+    function render(){
+      [].slice.call(modeBox.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === mode ? 'true' : 'false'); });
+      var cyc = mode === 3;
+      var dep = depMap(cyc), use = users(dep), k = kahn(dep);
+      var needs = closure(sel, dep), breaks = closure(sel, use);
+
+      var tiers = {}, maxT = -1, i;
+      NODES.forEach(function(x){
+        var t = (x.id in k.lay) ? k.lay[x.id] : 99;
+        if (!tiers[t]) tiers[t] = [];
+        tiers[t].push(x);
+        if (t !== 99 && t > maxT) maxT = t;
+      });
+
+      var html = '';
+      var keys = Object.keys(tiers).map(Number).sort(function(a, b){ return a - b; });
+      keys.forEach(function(t){
+        html += '<div class="v6-lay"><span class="v6-tier">' + (t === 99 ? 'STUCK' : 'tier ' + t) + '</span>';
+        tiers[t].forEach(function(x){
+          var col = 'var(--viz-line)', tag = '', ink = 'var(--viz-muted)';
+          if (x.id === sel) { col = 'var(--viz-accent)'; tag = 'SELECTED'; ink = 'var(--viz-accent)'; }
+          else if (cyc) {
+            if (t === 99) {
+              var inCycle = closure(x.id, dep)[x.id] === 1;
+              col = inCycle ? 'var(--viz-red)' : 'var(--viz-amber)';
+              ink = col; tag = inCycle ? 'IN CYCLE' : 'BLOCKED';
+            } else { tag = 'ok'; }
+          } else if (mode === 0) { col = 'var(--viz-green)'; ink = 'var(--viz-green)'; tag = 'STEP ' + (k.order.indexOf(x.id) + 1); }
+          else if (mode === 1 && needs[x.id]) { col = 'var(--viz-green)'; ink = 'var(--viz-green)'; tag = 'NEEDED'; }
+          else if (mode === 2 && breaks[x.id]) { col = 'var(--viz-amber)'; ink = 'var(--viz-amber)'; tag = 'REBUILD'; }
+          html += '<button class="v6-n" data-id="' + x.id + '" style="border-color:' + col + '">' +
+            '<span>' + x.n + '</span><em style="color:' + ink + '">' + (tag || '—') + '</em></button>';
+        });
+        html += '</div>';
+      });
+      graph.innerHTML = html;
+      [].slice.call(graph.querySelectorAll('button')).forEach(function(b){
+        b.addEventListener('click', function(){ sel = b.getAttribute('data-id'); render(); });
+      });
+
+      var needList = Object.keys(needs).map(nameOf), breakList = Object.keys(breaks).map(nameOf);
+      out.textContent = cyc
+        ? 'edge added: dot products now requires PCA\n\n' +
+          'placed  : ' + k.order.length + ' of ' + NODES.length + '\n' +
+          'stuck   : ' + k.stuck.length + '\n' +
+          'cycle   : dot products -> PCA -> SVD -> A^T A -> dot products\n\n' +
+          'no topological order exists, so no\ncomponent can be built first'
+        : 'selected: ' + nameOf(sel) + '\n\n' +
+          'direct edges out: ' + (dep[sel].length ? dep[sel].map(nameOf).join(', ') : 'none — it is a base component') + '\n' +
+          'direct edges in : ' + (use[sel].length ? use[sel].map(nameOf).join(', ') : 'none — nothing uses it yet') + '\n\n' +
+          'needs, transitively (' + needList.length + '):\n  ' + (needList.join(', ') || 'nothing') + '\n\n' +
+          'must be rebuilt if you change it (' + breakList.length + '):\n  ' + (breakList.join(', ') || 'nothing') + '\n\n' +
+          'a valid build order (' + k.order.length + ' steps):\n  ' + k.order.map(nameOf).join(' -> ');
+
+      var WHYS = [
+        '<b>A valid build order is a topological order: never take a component before everything it points to.</b>' +
+          'Kahn\'s rule computes it live — repeatedly take every component whose dependencies are all already ' +
+          'placed. Tier 0 needs nothing, and each later tier waits on the one below. The toy version is the same ' +
+          'idea: with core needing nothing, utils needing core, viz needing utils, and report needing viz and ' +
+          'core, only <b>core, utils, viz, report</b> works. Starting with utils fails immediately, and so does ' +
+          'core, viz, utils, report — viz cannot go before utils.',
+        '<b>Follow the edges forward and you get everything ' + nameOf(sel) + ' silently rests on.</b>' +
+          'Dependencies are <b>transitive</b>: SVD never mentions RREF, but it needs eigenvectors, which need ' +
+          'RREF to solve for eigenspaces — so a breaking change in RREF reaches SVD through the middle even ' +
+          'though nothing in SVD references it directly. This is the whole reason a shaky base makes an ' +
+          'advanced topic feel impossible: you are not failing at SVD, you are failing at something three ' +
+          'edges below it.',
+        '<b>Reverse every arrow and the same walk gives the minimal rebuild set.</b>' +
+          'Edit ' + nameOf(sel) + ' and exactly the components listed above must be redone — no more, no less. ' +
+          'The software version of this question is the one to memorise: if lexer is used by parser, and cli ' +
+          'and fmt each use parser, then editing parser rebuilds <b>parser, cli and fmt</b>. Not lexer — that ' +
+          'is a forward edge, and forward edges are what you <em>depend on</em>, not what depends on you.',
+        '<b style="color:var(--viz-red)">A cycle has no topological order, so nothing can be built first.</b>' +
+          'With dot products requiring PCA, the chain dot -> PCA -> SVD -> A^T A -> dot closes on itself. The ' +
+          'resolver places every component it can, then stalls: each survivor is waiting on another survivor, ' +
+          'and there is no starting point to break the tie. Notice the amber components — orthonormal bases and ' +
+          'the spectral theorem are not <em>in</em> the cycle, they are merely downstream of it, and they die ' +
+          'anyway. That is transitivity working against you.'
+      ];
+      why.innerHTML = WHYS[mode];
+    }
+
+    MODES.forEach(function(nm, j){
+      var btn = document.createElement('button');
+      btn.setAttribute('aria-pressed', j === 0 ? 'true' : 'false');
+      btn.textContent = nm;
+      btn.addEventListener('click', function(){ mode = j; render(); });
+      modeBox.appendChild(btn);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

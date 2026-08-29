@@ -1,0 +1,1064 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Arrows That Stay</button>
+  <button class="viz-tab" data-viz-tab="2">2. Slide Lambda To Zero</button>
+  <button class="viz-tab" data-viz-tab="3">3. Free Columns To Basis</button>
+  <button class="viz-tab" data-viz-tab="4">4. Two Multiplicities Compared</button>
+  <button class="viz-tab" data-viz-tab="5">5. Build P And D</button>
+  <button class="viz-tab" data-viz-tab="6">6. Variance And Steady State</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Arrows That Stay</h2>
+  <p class="vz-lede"><b>Linear transformations and matrix-vector multiplication</b> said a matrix is a map
+    that mixes coordinates: every output number is a blend of every input number. Spin the input arrow and
+    watch how far the output swings off its line — then hunt for the directions where the swing is exactly
+    zero. <b>Like a spinning globe: everything moves except the axis it turns on.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the matrix" id="v1-mats"></div>
+
+  <div class="vz-card">
+    <svg id="v1-svg" viewBox="0 0 320 224" role="img" aria-label="The input arrow and its image, with any eigen-directions drawn dashed"></svg>
+    <label class="v1-lab" for="v1-ang">Input direction: <span id="v1-angl">30</span> degrees</label>
+    <input type="range" id="v1-ang" min="0" max="359" value="30" step="1" aria-label="Angle of the input vector">
+    <button class="v1-snap" id="v1-snap">snap to the nearest eigen-direction</button>
+    <div class="v1-read" id="v1-read"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The eigenvalue reports <b>only the scale factor</b> — never a rank, a dimension, a
+    determinant or the size of the matrix. That is also why eigenvalues have to be found before
+    eigenvectors: the equation carries two unknowns at once, and until the number is pinned down there is
+    no linear system left to solve. Visual 2 pins it down.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+    .v1-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v1-snap{min-height:44px;width:100%;margin-top:9px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-weight:700;font-size:12.5px}
+    .v1-grid{stroke:var(--viz-line);stroke-width:1}
+    .v1-axis{stroke:var(--viz-muted);stroke-width:1.3;opacity:.55}
+    .v1-eig{stroke:var(--viz-green);stroke-width:1.6;stroke-dasharray:5 4;opacity:.85}
+    .v1-in{stroke:var(--viz-accent);stroke-width:3.2}
+    .v1-inh{fill:var(--viz-accent)}
+    .v1-out{stroke:var(--viz-violet);stroke-width:2.6}
+    .v1-outh{fill:var(--viz-violet)}
+    .v1-t{fill:var(--viz-muted);font-size:10px;font-family:ui-monospace,Consolas,monospace}
+    .v1-read{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v1-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v1-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v1-key{display:flex;gap:10px;flex-wrap:wrap;margin-top:9px;font-size:10.5px;font-weight:800}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MATS = [
+      { lab:'stretch x by 3', M:[[3,0],[0,1]] },
+      { lab:'shear + stretch', M:[[3,1],[0,2]] },
+      { lab:'symmetric mix', M:[[2,1],[1,2]] },
+      { lab:'rotate 90 degrees', M:[[0,-1],[1,0]] }
+    ];
+    var cur = 0;
+    var host = document.getElementById('v1-mats');
+    var svg = document.getElementById('v1-svg');
+    var sa = document.getElementById('v1-ang'), al = document.getElementById('v1-angl');
+    var snap = document.getElementById('v1-snap');
+    var read = document.getElementById('v1-read'), why = document.getElementById('v1-why');
+    var OX = 160, OY = 112;
+
+    function n(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 100) / 100;
+      if (Math.abs(r) < 0.005) r = 0;
+      return r.toFixed(2);
+    }
+    function ap(M, v){ return [M[0][0]*v[0] + M[0][1]*v[1], M[1][0]*v[0] + M[1][1]*v[1]]; }
+    // A null direction of the row (p, q) is (-q, p). For a singular 2x2 the second
+    // row is a multiple of the first, so the longer row alone gives the answer.
+    function nullDir(M){
+      var r1 = [M[0][0], M[0][1]], r2 = [M[1][0], M[1][1]];
+      var n1 = Math.abs(r1[0]) + Math.abs(r1[1]), n2 = Math.abs(r2[0]) + Math.abs(r2[1]);
+      if (n1 < 1e-9 && n2 < 1e-9) return null;              // the whole plane
+      var r = n1 >= n2 ? r1 : r2;
+      return [-r[1], r[0]];
+    }
+    function eigs(M){
+      var tr = M[0][0] + M[1][1], dt = M[0][0]*M[1][1] - M[0][1]*M[1][0];
+      var disc = tr*tr - 4*dt;
+      if (!isFinite(disc) || disc < -1e-9) return null;      // no real eigen-direction
+      var s = Math.sqrt(Math.max(0, disc));
+      return [(tr + s) / 2, (tr - s) / 2].map(function(l){
+        var d = nullDir([[M[0][0]-l, M[0][1]], [M[1][0], M[1][1]-l]]);
+        return { l:l, v:d || [1, 0] };
+      });
+    }
+
+    function render(){
+      var M = MATS[cur].M;
+      var th = Number(sa.value) * Math.PI / 180;
+      al.textContent = sa.value;
+      [].slice.call(host.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var R = 2.2;
+      var v = [R * Math.cos(th), R * Math.sin(th)];
+      var w = ap(M, v);
+      var lv = Math.sqrt(v[0]*v[0] + v[1]*v[1]), lw = Math.sqrt(w[0]*w[0] + w[1]*w[1]);
+      var big = Math.max(lv, lw, 0.5);
+      var S = 84 / big;
+      function P(p){ return [OX + p[0]*S, OY - p[1]*S]; }
+      function seg(a, b, cls){
+        var A = P(a), B = P(b);
+        return '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + B[0] + '" y2="' + B[1] + '" class="' + cls + '"/>';
+      }
+      function arrow(a, b, cls){
+        var A = P(a), B = P(b), dx = B[0]-A[0], dy = B[1]-A[1];
+        var L = Math.sqrt(dx*dx + dy*dy);
+        if (!isFinite(L) || L < 2) return '';
+        var ux = dx/L, uy = dy/L, h = 9, wd = 4.4;
+        var bx = B[0] - ux*h, by = B[1] - uy*h;
+        return '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + bx + '" y2="' + by + '" class="' + cls + '"/>' +
+          '<polygon points="' + B[0] + ',' + B[1] + ' ' + (bx - uy*wd) + ',' + (by + ux*wd) + ' ' +
+          (bx + uy*wd) + ',' + (by - ux*wd) + '" class="' + cls + 'h"/>';
+      }
+
+      var span = big * 1.35;
+      var g = '';
+      for (var k = -6; k <= 6; k++) {
+        var t = k * span / 3;
+        g += seg([t, -span], [t, span], k === 0 ? 'v1-axis' : 'v1-grid');
+        g += seg([-span, t], [span, t], k === 0 ? 'v1-axis' : 'v1-grid');
+      }
+
+      var E = eigs(M), body = '', seen = [];
+      if (E) {
+        E.forEach(function(e){
+          var L = Math.sqrt(e.v[0]*e.v[0] + e.v[1]*e.v[1]);
+          if (!isFinite(L) || L < 1e-9) return;
+          var u = [e.v[0]/L, e.v[1]/L];
+          if (seen.some(function(s2){ return Math.abs(s2[0]*u[1] - s2[1]*u[0]) < 1e-6; })) return;
+          seen.push(u);
+          body += seg([-u[0]*span, -u[1]*span], [u[0]*span, u[1]*span], 'v1-eig');
+          var tp = P([u[0]*span*0.82, u[1]*span*0.82]);
+          body += '<text class="v1-t" x="' + tp[0] + '" y="' + tp[1] + '">lambda ' + n(e.l) + '</text>';
+        });
+      }
+      body += arrow([0,0], w, 'v1-out') + arrow([0,0], v, 'v1-in');
+      svg.innerHTML = g + body;
+
+      var cross = v[0]*w[1] - v[1]*w[0];
+      var dot = v[0]*w[0] + v[1]*w[1];
+      var sinA = (lv > 1e-9 && lw > 1e-9) ? Math.abs(cross) / (lv*lw) : 1;
+      var turn = (lv > 1e-9 && lw > 1e-9)
+        ? Math.acos(Math.max(-1, Math.min(1, dot/(lv*lw)))) * 180 / Math.PI : NaN;
+      var onLine = lw > 1e-9 && sinA < 0.02;
+      var lam = (lv > 1e-9) ? dot / (lv*lv) : NaN;
+
+      read.innerHTML =
+        '<div class="v1-r"><span>input v</span><b style="color:var(--viz-accent)">(' + n(v[0]) + ', ' + n(v[1]) + ')</b></div>' +
+        '<div class="v1-r"><span>the familiar mix: row 1 &middot; v</span><b>' + n(M[0][0]) + '&middot;' + n(v[0]) + ' + ' + n(M[0][1]) + '&middot;' + n(v[1]) + ' = ' + n(w[0]) + '</b></div>' +
+        '<div class="v1-r"><span>the familiar mix: row 2 &middot; v</span><b>' + n(M[1][0]) + '&middot;' + n(v[0]) + ' + ' + n(M[1][1]) + '&middot;' + n(v[1]) + ' = ' + n(w[1]) + '</b></div>' +
+        '<div class="v1-r"><span>output Av</span><b style="color:var(--viz-violet)">(' + n(w[0]) + ', ' + n(w[1]) + ')</b></div>' +
+        '<div class="v1-r"><span>angle between them</span><b style="color:' + (onLine ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' +
+          (isFinite(turn) ? n(turn) + ' degrees' : '—') + (onLine ? ' — same line' : ' — turned off its line') + '</b></div>' +
+        '<div class="v1-r"><span>length ratio |Av| / |v|</span><b>' + (lv > 1e-9 ? n(lw/lv) : '—') + '</b></div>' +
+        '<div class="v1-key"><span style="color:var(--viz-accent)">v input</span>' +
+        '<span style="color:var(--viz-violet)">Av output</span>' +
+        '<span style="color:var(--viz-green)">dashed = eigen-direction</span></div>';
+
+      why.innerHTML = !E
+        ? '<b style="color:var(--viz-red)">No real eigen-direction exists here.</b>' +
+          'A quarter-turn moves <em>every</em> arrow off its own line, so there is no nonzero v with Av = lambda&middot;v over the real numbers — and correspondingly no dashed line to find. Spin the slider all the way round: the angle readout never reaches zero. ' +
+          '<br><br>Eigen-directions are a property of the map, not a guarantee that comes with being square.'
+        : onLine
+          ? '<b style="color:var(--viz-green)">EIGENVECTOR — the map only rescaled it, by lambda = ' + n(lam) + '.</b>' +
+            'v and Av lie on one line, so Av = ' + n(lam) + '&middot;v exactly. Every arrow on this dashed line behaves the same way, which is why an eigenvector is really a whole direction rather than one arrow: scaling v by any nonzero number scales Av by the same number and the equation still holds. ' +
+            (lam < 0 ? 'Note the negative lambda — the arrow flipped onto the other half of the same line, which still counts. ' : '') +
+            (Math.abs(lam) < 1e-9 ? 'Note lambda = 0 — the whole direction collapsed to the origin, which also counts. ' : '') +
+            '<br><br>The pay-off: along this line, applying A a hundred times is just ' + n(lam) + ' raised to the hundredth power. Everywhere else you would have to grind out the products.'
+          : '<b style="color:var(--viz-amber)">Not an eigenvector — it turned by ' + n(turn) + ' degrees.</b>' +
+            'Both output coordinates are blends of both input coordinates, so the arrow generally leaves its own line. That mixing is the normal case and it is what makes iterating a matrix hard to reason about. ' +
+            '<br><br>Drag towards a dashed line, or press snap: the turn angle falls to zero and the two arrows lock together. That single number, the factor between them, is the eigenvalue.';
+    }
+
+    MATS.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = m.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      host.appendChild(b);
+    });
+    snap.addEventListener('click', function(){
+      var E = eigs(MATS[cur].M);
+      if (!E) { render(); return; }
+      var th = Number(sa.value) * Math.PI / 180, best = null, bd = 1e9;
+      E.forEach(function(e){
+        [1, -1].forEach(function(sg){
+          var a = Math.atan2(sg*e.v[1], sg*e.v[0]);
+          var d = Math.abs(Math.atan2(Math.sin(a - th), Math.cos(a - th)));
+          if (d < bd) { bd = d; best = a; }
+        });
+      });
+      if (best === null || !isFinite(best)) { render(); return; }
+      var deg = Math.round(best * 180 / Math.PI);
+      sa.value = String(((deg % 360) + 360) % 360);
+      render();
+    });
+    sa.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Slide Lambda To Zero</h2>
+  <p class="vz-lede">A nonzero v can survive (A &minus; lambda&middot;I)v = 0 only where that matrix is
+    singular, so the hunt for eigenvalues is a hunt for the lambdas that kill the determinant. Slide lambda
+    and watch the determinant curve cross the axis. <b>Like tuning a radio: almost every setting is silence,
+    and the stations are the exact spots where something comes through.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the matrix" id="v2-mats"></div>
+
+  <div class="vz-card">
+    <svg id="v2-svg" viewBox="0 0 320 176" role="img" aria-label="The determinant of A minus lambda I plotted against lambda"></svg>
+    <label class="v2-lab" for="v2-lam">lambda = <span id="v2-laml">0.00</span></label>
+    <input type="range" id="v2-lam" min="-2" max="6" value="0" step="0.05" aria-label="The value of lambda">
+    <div class="v2-read" id="v2-read"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Two free checks ride along, and they cost nothing. The roots must <b>sum to the
+    trace</b> and <b>multiply to the determinant</b> of A — so a candidate pair that fails either test is
+    wrong before you ever substitute it back. Note also what the roots are <em>not</em>: they are the
+    eigenvalues, not the eigenvectors, and never the inverse.</p>
+
+  <style>
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:8px 0 4px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-ax{stroke:var(--viz-muted);stroke-width:1.2;opacity:.6}
+    .v2-gr{stroke:var(--viz-line);stroke-width:1}
+    .v2-cv{fill:none;stroke:var(--viz-violet);stroke-width:2.4}
+    .v2-mk{stroke:var(--viz-accent);stroke-width:1.6;stroke-dasharray:4 3}
+    .v2-t{fill:var(--viz-muted);font-size:9.5px;font-family:ui-monospace,Consolas,monospace}
+    .v2-read{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v2-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-mat{display:grid;grid-template-columns:repeat(2,minmax(46px,1fr));gap:2px 10px;margin-top:9px;
+      border-left:2px solid var(--viz-line);border-right:2px solid var(--viz-line);border-radius:3px;
+      padding:5px 8px;background:var(--viz-bg);max-width:150px}
+    .v2-mat span{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:right}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MATS = [
+      { lab:'symmetric mix', M:[[2,1],[1,2]] },
+      { lab:'triangular', M:[[3,1],[0,2]] },
+      { lab:'a repeated root', M:[[2,1],[0,2]] },
+      { lab:'rotate 90 degrees', M:[[0,-1],[1,0]] }
+    ];
+    var cur = 0;
+    var host = document.getElementById('v2-mats');
+    var svg = document.getElementById('v2-svg');
+    var sl = document.getElementById('v2-lam'), ll = document.getElementById('v2-laml');
+    var read = document.getElementById('v2-read'), why = document.getElementById('v2-why');
+    var LO = -2, HI = 6, W = 320, H = 176, PADX = 26, PADY = 14;
+
+    function n(v, d){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var f = Math.pow(10, d === undefined ? 2 : d);
+      var r = Math.round(v * f) / f;
+      if (Math.abs(r) < 0.5 / f) r = 0;
+      return r.toFixed(d === undefined ? 2 : d);
+    }
+    function detOf(M, l){ return (M[0][0]-l)*(M[1][1]-l) - M[0][1]*M[1][0]; }
+
+    function render(){
+      var M = MATS[cur].M;
+      var lam = Math.round(Number(sl.value) * 100) / 100;
+      ll.textContent = n(lam);
+      [].slice.call(host.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var tr = M[0][0] + M[1][1], dt = M[0][0]*M[1][1] - M[0][1]*M[1][0];
+      var disc = tr*tr - 4*dt;
+      var real = isFinite(disc) && disc >= -1e-9;
+      var s = real ? Math.sqrt(Math.max(0, disc)) : 0;
+      var r1 = real ? (tr + s)/2 : NaN, r2 = real ? (tr - s)/2 : NaN;
+
+      var pts = [], maxA = 0.001, i;
+      for (i = 0; i <= 160; i++) {
+        var x = LO + (HI - LO) * i / 160;
+        var y = detOf(M, x);
+        if (!isFinite(y)) y = 0;
+        pts.push([x, y]);
+        if (Math.abs(y) > maxA) maxA = Math.abs(y);
+      }
+      function PX(x){ return PADX + (x - LO) / (HI - LO) * (W - 2*PADX); }
+      function PY(y){ return H/2 - (y / maxA) * (H/2 - PADY); }
+
+      var g = '';
+      for (i = LO; i <= HI; i++) g += '<line x1="' + PX(i) + '" y1="' + PADY + '" x2="' + PX(i) + '" y2="' + (H-PADY) + '" class="v2-gr"/>';
+      g += '<line x1="' + PADX + '" y1="' + PY(0) + '" x2="' + (W-PADX) + '" y2="' + PY(0) + '" class="v2-ax"/>';
+      g += '<text class="v2-t" x="' + PADX + '" y="' + (H - 2) + '">lambda ' + LO + '</text>';
+      g += '<text class="v2-t" x="' + (W - PADX - 34) + '" y="' + (H - 2) + '">lambda ' + HI + '</text>';
+      g += '<text class="v2-t" x="2" y="' + (PY(0) - 4) + '">det 0</text>';
+      var d = pts.map(function(p, j){ return (j ? 'L' : 'M') + PX(p[0]) + ' ' + PY(p[1]); }).join(' ');
+      g += '<path d="' + d + '" class="v2-cv"/>';
+      g += '<line x1="' + PX(lam) + '" y1="' + PADY + '" x2="' + PX(lam) + '" y2="' + (H-PADY) + '" class="v2-mk"/>';
+      if (real) {
+        [r1, r2].forEach(function(r){
+          if (!isFinite(r) || r < LO || r > HI) return;
+          g += '<circle cx="' + PX(r) + '" cy="' + PY(0) + '" r="4.5" fill="var(--viz-green)"/>';
+        });
+      }
+      svg.innerHTML = g;
+
+      var dv = detOf(M, lam);
+      var sing = Math.abs(dv) < 1e-9;
+      read.innerHTML =
+        '<div class="v2-r"><span>A &minus; lambda&middot;I</span><b></b></div>' +
+        '<div class="v2-mat"><span>' + n(M[0][0]-lam) + '</span><span>' + n(M[0][1]) + '</span>' +
+          '<span>' + n(M[1][0]) + '</span><span>' + n(M[1][1]-lam) + '</span></div>' +
+        '<div class="v2-r" style="margin-top:8px"><span>characteristic polynomial</span><b>lambda^2 &minus; ' + n(tr, 0) + '&middot;lambda + ' + n(dt, 0) + '</b></div>' +
+        '<div class="v2-r"><span>det(A &minus; lambda&middot;I) right now</span><b style="color:' + (sing ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + n(dv) + '</b></div>' +
+        '<div class="v2-r"><span>so A &minus; lambda&middot;I is</span><b style="color:' + (sing ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (sing ? 'SINGULAR — nonzero v exists' : 'invertible — only v = 0') + '</b></div>' +
+        '<div class="v2-r"><span>roots (the eigenvalues)</span><b style="color:var(--viz-green)">' + (real ? n(r1) + ' and ' + n(r2) : 'none that are real') + '</b></div>' +
+        '<div class="v2-r"><span>check: sum = trace &middot; product = det</span><b>' + (real ? n(r1+r2) + ' = ' + n(tr) + ' &middot; ' + n(r1*r2) + ' = ' + n(dt) : '—') + '</b></div>';
+
+      why.innerHTML = !real
+        ? '<b style="color:var(--viz-red)">The curve never touches the axis.</b>' +
+          'The polynomial is lambda^2 &minus; ' + n(tr, 0) + '&middot;lambda + ' + n(dt, 0) + ', whose discriminant is ' + n(disc, 0) + ' — negative, so it has no real root. No real root means no real eigenvalue, and no real eigenvalue means no real eigenvector — matching visual 1, where this same map turned every arrow. ' +
+          '<br><br>Being square guarantees a characteristic polynomial; it does not guarantee that its roots are real.'
+        : sing
+          ? '<b style="color:var(--viz-green)">Zero — and zero is the whole point.</b>' +
+            'The determinant vanishing is exactly the statement that A &minus; lambda&middot;I is singular, which by the solvability rules is exactly when the homogeneous system has a solution other than v = 0. Any other lambda leaves the matrix invertible, and an invertible matrix sends only the zero vector to zero — no eigenvector. ' +
+            (Math.abs(r1 - r2) < 1e-9
+              ? '<br><br>Both roots landed here at once: the factor is squared, so this eigenvalue has <b>algebraic multiplicity 2</b>. Whether it also supplies two independent directions is a different question — visual 4.'
+              : '<br><br>Notice you never needed A itself to be singular. It is the shifted matrix that must be.')
+          : '<b style="color:var(--viz-amber)">Not a root, so not an eigenvalue.</b>' +
+            'det = ' + n(dv) + ', which is not zero, so A &minus; lambda&middot;I is invertible and (A &minus; lambda&middot;I)v = 0 forces v = 0 — and the zero vector is never an eigenvector. Slide towards a green dot. ' +
+            '<br><br>This is the same fact you would read off an RREF: reduce A &minus; lambda&middot;I here and you get the identity, with no free column and nothing to build an eigenvector from.';
+    }
+    MATS.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = m.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      host.appendChild(b);
+    });
+    sl.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Free Columns To Basis</h2>
+  <p class="vz-lede">Once lambda is a number, finding eigenvectors is the null-space drill you already own:
+    row reduce, mark the free columns, set one free variable to 1, solve. Move the RREF entries and watch
+    the basis vectors flip sign underneath them. <b>Like a recipe with one ingredient left free: fix it at
+    one unit and every other amount follows.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="How many free columns" id="v3-cases"></div>
+
+  <div class="vz-card">
+    <div class="v3-head" id="v3-head"></div>
+    <div class="v3-grid" id="v3-grid"></div>
+    <div class="v3-sliders">
+      <label class="v3-lab" for="v3-a">entry <span id="v3-al">-3</span></label>
+      <input type="range" id="v3-a" min="-4" max="4" value="-3" step="1" aria-label="First adjustable RREF entry">
+      <label class="v3-lab" for="v3-b">entry <span id="v3-bl">2</span></label>
+      <input type="range" id="v3-b" min="-4" max="4" value="2" step="1" aria-label="Second adjustable RREF entry">
+    </div>
+    <div class="v3-rows" id="v3-rows"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The eigenspace is a null space, so it is a genuine <b>subspace</b>: it contains the zero
+    vector, and any combination of its members — 2u &minus; 5v included — lands back inside it. The zero
+    vector is still never called an eigenvector, which is the distinction the wording of a question usually
+    turns on. And a basis is what you quote, never "the" eigenvector: scaling any of these vectors by a
+    nonzero number gives an equally correct answer.</p>
+
+  <style>
+    .v3-head{font-size:12.5px;font-weight:700;margin-bottom:9px}
+    .v3-head span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-grid{display:grid;grid-template-columns:repeat(3,minmax(40px,1fr));gap:3px 10px;max-width:190px;
+      border-left:2px solid var(--viz-line);border-right:2px solid var(--viz-line);border-radius:3px;
+      padding:6px 9px;background:var(--viz-bg)}
+    .v3-grid span{font-family:ui-monospace,Consolas,monospace;font-size:12px;text-align:right}
+    .v3-grid span.is-free{color:var(--viz-amber);font-weight:700}
+    .v3-grid span.is-piv{color:var(--viz-accent);font-weight:700}
+    .v3-sliders{margin-top:12px}
+    .v3-lab{font-size:12px;font-weight:700;display:block;margin:6px 0 3px}
+    .v3-lab span{color:var(--viz-amber);font-family:ui-monospace,Consolas,monospace}
+    .v3-sliders input{width:100%}
+    .v3-rows{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v3-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v3-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // Each case opens on the worked example from the guide, so the panel and the
+    // written lesson agree before the learner starts dragging.
+    var CASES = [
+      { lab:'one free column', lam:2, def:[-3, 2] },
+      { lab:'two free columns', lam:4, def:[-1, 2] },
+      { lab:'no free column', lam:5, def:[0, 0] }
+    ];
+    var cur = 0;
+    var host = document.getElementById('v3-cases');
+    var head = document.getElementById('v3-head'), grid = document.getElementById('v3-grid');
+    var sa = document.getElementById('v3-a'), sb = document.getElementById('v3-b');
+    var al = document.getElementById('v3-al'), bl = document.getElementById('v3-bl');
+    var rows = document.getElementById('v3-rows'), why = document.getElementById('v3-why');
+
+    function num(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 100) / 100;
+      if (Math.abs(r) < 0.005) r = 0;
+      return String(r);
+    }
+    function vec(v){ return '(' + v.map(num).join(', ') + ')'; }
+    // Prints a combination the way you would write it by hand: no "1x", no "+ -2x".
+    function lin(terms){
+      var out = '';
+      terms.forEach(function(t){
+        var c = t[0];
+        if (!isFinite(c) || c === 0) return;
+        var mag = Math.abs(c) === 1 ? '' : String(Math.abs(c));
+        if (out === '') out += (c < 0 ? '-' : '') + mag + t[1];
+        else out += (c < 0 ? ' - ' : ' + ') + mag + t[1];
+      });
+      return out === '' ? '0' : out;
+    }
+    function mul(R, v){
+      return R.map(function(r){ return r[0]*v[0] + r[1]*v[1] + r[2]*v[2]; });
+    }
+
+    function build(){
+      var a = Number(sa.value), b = Number(sb.value);
+      if (cur === 0) return { R:[[1,0,a],[0,1,b],[0,0,0]], free:[2], piv:[0,1], basis:[[-a,-b,1]] };
+      if (cur === 1) return { R:[[1,a,b],[0,0,0],[0,0,0]], free:[1,2], piv:[0], basis:[[-a,1,0],[-b,0,1]] };
+      return { R:[[1,0,0],[0,1,0],[0,0,1]], free:[], piv:[0,1,2], basis:[] };
+    }
+
+    function render(){
+      var C = CASES[cur], S = build();
+      al.textContent = sa.value; bl.textContent = sb.value;
+      [].slice.call(host.children).forEach(function(x, i){ x.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+      sa.disabled = cur === 2; sb.disabled = cur === 2;
+
+      head.innerHTML = 'row reducing <span>A &minus; ' + C.lam + 'I</span> &nbsp;·&nbsp; looking for <span>E' + C.lam + '</span>' +
+        '<div style="font-weight:400;font-size:11px;margin-top:4px">' +
+        'columns are labelled by colour AND by word: ' +
+        '<b style="color:var(--viz-accent)">pivot</b> &nbsp;·&nbsp; ' +
+        '<b style="color:var(--viz-amber)">free</b></div>';
+      var cells = '';
+      for (var r = 0; r < 3; r++) {
+        for (var c = 0; c < 3; c++) {
+          var cls = S.free.indexOf(c) >= 0 ? 'is-free' : (S.piv.indexOf(c) >= 0 ? 'is-piv' : '');
+          cells += '<span class="' + cls + '">' + num(S.R[r][c]) + '</span>';
+        }
+      }
+      grid.innerHTML = cells;
+
+      var rank = S.piv.length, dim = 3 - rank;
+      var checks = S.basis.map(function(v){ return vec(mul(S.R, v)); });
+      var eqs = '';
+      if (cur === 0) {
+        var a0 = Number(sa.value), b0 = Number(sb.value);
+        eqs = '<div class="v3-r"><span>row 1 says</span><b>x1 + (' + a0 + ')x3 = 0 &rarr; x1 = ' + lin([[-a0, 'x3']]) + '</b></div>' +
+              '<div class="v3-r"><span>row 2 says</span><b>x2 + (' + b0 + ')x3 = 0 &rarr; x2 = ' + lin([[-b0, 'x3']]) + '</b></div>' +
+              '<div class="v3-r"><span>set the free x3 = 1</span><b style="color:var(--viz-green)">' + vec(S.basis[0]) + '</b></div>';
+      } else if (cur === 1) {
+        var p0 = Number(sa.value), q0 = Number(sb.value);
+        eqs = '<div class="v3-r"><span>row 1 says</span><b>x1 + (' + p0 + ')x2 + (' + q0 + ')x3 = 0 &rarr; x1 = ' + lin([[-p0, 'x2'], [-q0, 'x3']]) + '</b></div>' +
+              '<div class="v3-r"><span>x2 = 1, x3 = 0</span><b style="color:var(--viz-green)">' + vec(S.basis[0]) + '</b></div>' +
+              '<div class="v3-r"><span>x2 = 0, x3 = 1</span><b style="color:var(--viz-green)">' + vec(S.basis[1]) + '</b></div>';
+      } else {
+        eqs = '<div class="v3-r"><span>every row says</span><b>x1 = 0, x2 = 0, x3 = 0</b></div>';
+      }
+
+      rows.innerHTML = eqs +
+        '<div class="v3-r"><span>rank of A &minus; ' + C.lam + 'I</span><b>' + rank + '</b></div>' +
+        '<div class="v3-r"><span>dim E' + C.lam + ' = 3 &minus; rank</span><b style="color:' + (dim ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + dim + '</b></div>' +
+        '<div class="v3-r"><span>substitute back: RREF &middot; basis</span><b style="color:' + (dim ? 'var(--viz-green)' : 'var(--viz-muted)') + '">' + (checks.length ? checks.join('  ') : 'nothing to substitute') + '</b></div>';
+
+      why.innerHTML = cur === 2
+        ? '<b style="color:var(--viz-red)">RREF is the identity, so ' + C.lam + ' is NOT an eigenvalue.</b>' +
+          'Three pivots, zero free columns, rank 3, and dim E' + C.lam + ' = 0. The only solution of (A &minus; ' + C.lam + 'I)v = 0 is v = 0, and the zero vector is never an eigenvector — so there is no eigenspace to describe, not an eigenspace that happens to be small. ' +
+          '<br><br>This is the RREF-side twin of visual 2: a nonzero determinant there and a full set of pivots here are the same fact stated twice.'
+        : cur === 0
+          ? '<b style="color:var(--viz-green)">The signs flip — that is the whole trap.</b>' +
+            'The entries you can see are ' + sa.value + ' and ' + sb.value + ', and the basis vector is ' + vec(S.basis[0]) + '. Reading the row straight off the page gives (1, 0, ' + sa.value + '), which is a different vector entirely; the row is an <em>equation</em>, and solving it moves every coefficient across the equals sign. ' +
+            '<br><br>Two pivots and one free column give rank 2, so rank-nullity fixes dim E' + C.lam + ' = 3 &minus; 2 = 1: one independent direction, so the basis is a single vector, and the substitution check above returns the zero vector as it must.'
+          : '<b style="color:var(--viz-green)">Two free columns, so two basis vectors.</b>' +
+            'One pivot leaves rank 1, and rank-nullity gives dim E' + C.lam + ' = 3 &minus; 1 = 2 — the eigenspace is a plane, not a line. Each free variable gets its own turn at 1 while the other sits at 0, which is what makes the two special solutions independent. ' +
+            '<br><br>Every vector in that plane is an eigenvector for the same lambda except the zero vector at its centre, and this count — the dimension of the eigenspace — is the geometric multiplicity that decides everything in visual 4.';
+    }
+    CASES.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = c.lab;
+      b.addEventListener('click', function(){
+        cur = i;
+        sa.value = String(c.def[0]); sb.value = String(c.def[1]);
+        render();
+      });
+      host.appendChild(b);
+    });
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Two Multiplicities Compared</h2>
+  <p class="vz-lede">Algebraic multiplicity counts how many times a root repeats in the polynomial;
+    geometric multiplicity counts how many independent directions the eigenspace actually supplies. Drag the
+    geometric numbers and watch a single shortfall decide the verdict. <b>Like seats sold against seats that
+    exist: sell four and only three exist and the flight is short, however healthy the rest of the plane.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the matrix profile" id="v4-cases"></div>
+
+  <div class="vz-card">
+    <div class="v4-poly" id="v4-poly"></div>
+    <div class="v4-list" id="v4-list"></div>
+    <div class="v4-sum" id="v4-sum"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The bound runs one way only: geometric is at least 1 and at most algebraic, never more.
+    So an eigenvalue of algebraic multiplicity 3 can have geometric 1, 2 or 3 — and never 0, because a root
+    of the characteristic polynomial always makes the shifted matrix singular. Summing the <em>algebraic</em>
+    column proves nothing: it always totals n.</p>
+
+  <style>
+    .v4-poly{font-size:12.5px;font-weight:700;margin-bottom:11px}
+    .v4-poly span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-list{display:flex;flex-direction:column;gap:9px}
+    .v4-e{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg)}
+    .v4-e.is-short{border-color:var(--viz-red)}
+    .v4-top{display:flex;justify-content:space-between;gap:8px;font-size:12px;align-items:baseline;flex-wrap:wrap}
+    .v4-top b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-dots{display:flex;gap:3px;margin:6px 0 4px;flex-wrap:wrap}
+    .v4-d{width:15px;height:15px;border-radius:4px;border:1.5px solid var(--viz-line)}
+    .v4-d.is-got{background:var(--viz-green);border-color:var(--viz-green)}
+    .v4-d.is-miss{background:var(--viz-red);border-color:var(--viz-red);opacity:.55}
+    .v4-e input{width:100%;margin-top:2px}
+    .v4-cap{font-size:10.5px;font-weight:800;letter-spacing:.02em}
+    .v4-sum{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:5px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CASES = [
+      { lab:'3x3, one repeat', n:3, poly:'(lambda &minus; 2)^2 (lambda &minus; 7)',
+        eig:[{ l:2, a:2, g:2 }, { l:7, a:1, g:1 }] },
+      { lab:'5x5, all distinct', n:5, poly:'(lambda &minus; 1)(lambda &minus; 2)(lambda &minus; 3)(lambda &minus; 4)(lambda &minus; 5)',
+        eig:[{ l:1, a:1, g:1 }, { l:2, a:1, g:1 }, { l:3, a:1, g:1 }, { l:4, a:1, g:1 }, { l:5, a:1, g:1 }] },
+      { lab:'5x5, two repeats', n:5, poly:'(lambda &minus; 1)^2 (lambda &minus; 3)^2 (lambda &minus; 4)',
+        eig:[{ l:1, a:2, g:2 }, { l:3, a:2, g:1 }, { l:4, a:1, g:1 }] },
+      { lab:'4x4, one eigenvalue', n:4, poly:'(lambda &minus; 5)^4',
+        eig:[{ l:5, a:4, g:1 }] }
+    ];
+    var cur = 0;
+    var state = CASES.map(function(c){ return c.eig.map(function(e){ return e.g; }); });
+    var host = document.getElementById('v4-cases');
+    var poly = document.getElementById('v4-poly'), list = document.getElementById('v4-list');
+    var sum = document.getElementById('v4-sum'), why = document.getElementById('v4-why');
+
+    function render(){
+      var C = CASES[cur], G = state[cur];
+      [].slice.call(host.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+      poly.innerHTML = 'n = <span>' + C.n + '</span> &nbsp;·&nbsp; characteristic polynomial <span>' + C.poly + '</span>';
+
+      var total = 0, firstShort = -1;
+      list.innerHTML = '';
+      C.eig.forEach(function(e, i){
+        var g = Math.max(1, Math.min(e.a, G[i]));
+        G[i] = g;
+        total += g;
+        if (g < e.a && firstShort < 0) firstShort = i;
+        var wrap = document.createElement('div');
+        wrap.className = 'v4-e' + (g < e.a ? ' is-short' : '');
+        var dots = '';
+        for (var k = 0; k < e.a; k++) dots += '<span class="v4-d ' + (k < g ? 'is-got' : 'is-miss') + '"></span>';
+        wrap.innerHTML =
+          '<div class="v4-top"><span>lambda = <b>' + e.l + '</b></span>' +
+          '<span>algebraic <b>' + e.a + '</b> &nbsp; geometric <b style="color:' + (g < e.a ? 'var(--viz-red)' : 'var(--viz-green)') + '">' + g + '</b></span></div>' +
+          '<div class="v4-dots">' + dots + '</div>' +
+          '<span class="v4-cap" style="color:' + (g < e.a ? 'var(--viz-red)' : 'var(--viz-green)') + '">' +
+            (g < e.a ? (e.a - g) + ' direction' + (e.a - g === 1 ? '' : 's') + ' missing — rank(A &minus; ' + e.l + 'I) = ' + (C.n - g) : 'full — dim E' + e.l + ' = ' + g) +
+          '</span>';
+        if (e.a > 1) {
+          var inp = document.createElement('input');
+          inp.type = 'range'; inp.min = '1'; inp.max = String(e.a); inp.step = '1'; inp.value = String(g);
+          inp.setAttribute('aria-label', 'Geometric multiplicity of eigenvalue ' + e.l);
+          inp.addEventListener('input', function(){ G[i] = Number(inp.value); render(); });
+          wrap.appendChild(inp);
+        } else {
+          var lock = document.createElement('div');
+          lock.className = 'v4-cap';
+          lock.style.color = 'var(--viz-muted)';
+          lock.style.marginTop = '4px';
+          lock.textContent = 'algebraic 1 pins geometric at 1 — nothing to drag';
+          wrap.appendChild(lock);
+        }
+        list.appendChild(wrap);
+      });
+
+      var ok = total === C.n;
+      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      sum.innerHTML =
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">geometric sum ' + total + ' of ' + C.n + '</span>' +
+        '<span class="v4-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">algebraic sum ' + C.n + ' of ' + C.n + ' — always</span>' +
+        '<span class="v4-pill" style="color:' + col + ';border-color:' + col + '">' + (ok ? 'DIAGONALIZABLE' : 'NOT diagonalizable') + '</span>';
+
+      var e0 = firstShort >= 0 ? C.eig[firstShort] : null;
+      why.innerHTML = ok
+        ? '<b style="color:var(--viz-green)">The geometric multiplicities sum to ' + C.n + ', so there are ' + C.n + ' independent eigenvectors.</b>' +
+          'That is the test, in full: diagonalizable exactly when the eigenspaces together supply a basis of the whole space. ' +
+          (C.eig.length === C.n
+            ? 'Here every eigenvalue is distinct, so each contributes at least one and there are ' + C.n + ' of them — distinctness is <em>sufficient</em>, which is why you never have to check anything else in that case. '
+            : 'Note that a repeated eigenvalue did not stop it: the repeat delivered its full quota of directions. Distinctness is sufficient but never necessary. ') +
+          (C.eig.length === 1
+            ? '<br><br>And with one eigenvalue filling all ' + C.n + ' dimensions, D = ' + C.eig[0].l + 'I, so A = P(' + C.eig[0].l + 'I)P inverse = ' + C.eig[0].l + 'I — the matrix has no choice but to be a scalar multiple of the identity.'
+            : '<br><br>Drag any slider down and watch one shortfall overturn the whole verdict.')
+        : '<b style="color:var(--viz-red)">One shortfall is enough: dim E' + e0.l + ' = ' + e0.g + ' &lt; ' + e0.a + '.</b>' +
+          'The geometric multiplicities total ' + total + ', short of ' + C.n + ', so no basis of eigenvectors exists and no P can be built. Stop at the first deficit — the health of the other eigenvalues cannot make it up, because each one is already capped by its own algebraic multiplicity. ' +
+          '<br><br>Geometric multiplicity is the <b>nullity</b> of A &minus; ' + e0.l + 'I, not its rank: with n = ' + C.n + ' and geometric ' + e0.g + ', the rank is ' + (C.n - e0.g) + '. Swapping those two numbers is the single most common wrong answer here.';
+    }
+    CASES.forEach(function(c, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = c.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      host.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Build P And D</h2>
+  <p class="vz-lede">Put the eigenvectors in the columns of P and their eigenvalues down the diagonal of D,
+    and A splits as P D P inverse. Raise the power and compare the one-line formula against grinding out the
+    products; swap the columns and watch D follow. <b>Like changing into the local currency, doing the
+    arithmetic there, and changing back.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the matrix" id="v5-mats"></div>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-k">power k = <span id="v5-kl">3</span></label>
+    <input type="range" id="v5-k" min="0" max="8" value="3" step="1" aria-label="The power k">
+    <button class="v5-swap" id="v5-swap">swap the columns of P</button>
+    <div class="v5-mats" id="v5-grids"></div>
+    <div class="v5-rows" id="v5-rows"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Read the product right to left and the benefit is one sentence: P inverse rewrites a
+    vector in eigen-coordinates, D scales each coordinate on its own, and P translates back — the action of
+    A recast as pure scaling along eigenvector directions. What diagonalization promises is
+    <b>independence</b>, not orthogonality: these columns need not meet at right angles, and the result is
+    not the identity. Right angles are next lesson's gift, and only for symmetric matrices.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:0 0 4px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-swap{min-height:44px;width:100%;margin-top:9px;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-weight:700;font-size:12.5px}
+    .v5-mats{display:flex;gap:11px;flex-wrap:wrap;margin-top:13px}
+    .v5-m h6{margin:0 0 4px;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);font-weight:800}
+    .v5-g{display:grid;grid-template-columns:repeat(2,minmax(40px,1fr));gap:2px 9px;border-left:2px solid var(--viz-line);
+      border-right:2px solid var(--viz-line);border-radius:3px;padding:5px 8px;background:var(--viz-bg)}
+    .v5-g span{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:right}
+    .v5-m.is-d .v5-g{border-color:var(--viz-accent)}
+    .v5-m.is-d .v5-g span.is-diag{color:var(--viz-accent);font-weight:700}
+    .v5-rows{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v5-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v5-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var MATS = [
+      { lab:'triangular', M:[[3,1],[0,2]] },
+      { lab:'symmetric mix', M:[[2,1],[1,2]] },
+      { lab:'a repeat that works', M:[[3,0],[0,3]] },
+      { lab:'a repeat that fails', M:[[2,1],[0,2]] }
+    ];
+    var cur = 0, swapped = false;
+    var host = document.getElementById('v5-mats');
+    var sk = document.getElementById('v5-k'), kl = document.getElementById('v5-kl');
+    var swapB = document.getElementById('v5-swap');
+    var grids = document.getElementById('v5-grids'), rows = document.getElementById('v5-rows'), why = document.getElementById('v5-why');
+
+    function n(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var r = Math.round(v * 1000) / 1000;
+      if (Math.abs(r) < 0.0005) r = 0;
+      return String(r);
+    }
+    function mul(A, B){
+      return [
+        [A[0][0]*B[0][0] + A[0][1]*B[1][0], A[0][0]*B[0][1] + A[0][1]*B[1][1]],
+        [A[1][0]*B[0][0] + A[1][1]*B[1][0], A[1][0]*B[0][1] + A[1][1]*B[1][1]]
+      ];
+    }
+    function inv(M){
+      var d = M[0][0]*M[1][1] - M[0][1]*M[1][0];
+      if (!isFinite(d) || Math.abs(d) < 1e-9) return null;
+      return [[M[1][1]/d, -M[0][1]/d], [-M[1][0]/d, M[0][0]/d]];
+    }
+    function pow(M, k){
+      var R = [[1,0],[0,1]];
+      for (var i = 0; i < k; i++) R = mul(R, M);
+      return R;
+    }
+    function nullDir(M){
+      var r1 = [M[0][0], M[0][1]], r2 = [M[1][0], M[1][1]];
+      var n1 = Math.abs(r1[0]) + Math.abs(r1[1]), n2 = Math.abs(r2[0]) + Math.abs(r2[1]);
+      if (n1 < 1e-9 && n2 < 1e-9) return null;
+      var r = n1 >= n2 ? r1 : r2;
+      return [-r[1], r[0]];
+    }
+    function grid(label, M, cls, diag){
+      if (!M) return '<div class="v5-m"><h6>' + label + '</h6><div class="v5-g"><span>not</span><span>usable</span></div></div>';
+      function cell(v, isD){ return '<span class="' + (isD && diag ? 'is-diag' : '') + '">' + n(v) + '</span>'; }
+      return '<div class="v5-m ' + (cls || '') + '"><h6>' + label + '</h6><div class="v5-g">' +
+        cell(M[0][0], true) + cell(M[0][1], false) + cell(M[1][0], false) + cell(M[1][1], true) + '</div></div>';
+    }
+
+    function render(){
+      var A = MATS[cur].M, k = Number(sk.value);
+      kl.textContent = k;
+      [].slice.call(host.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+      swapB.setAttribute('aria-pressed', swapped ? 'true' : 'false');
+
+      var tr = A[0][0] + A[1][1], dt = A[0][0]*A[1][1] - A[0][1]*A[1][0];
+      var disc = tr*tr - 4*dt;
+      var real = isFinite(disc) && disc >= -1e-9;
+      var s = real ? Math.sqrt(Math.max(0, disc)) : 0;
+      var ls = [(tr + s)/2, (tr - s)/2];
+      var vs = ls.map(function(l){ return nullDir([[A[0][0]-l, A[0][1]], [A[1][0], A[1][1]-l]]); });
+      // A - lambda*I collapsing to the zero matrix means the eigenspace IS the plane,
+      // so any two independent vectors serve as the eigenvector basis.
+      if (vs[0] === null || vs[1] === null) { vs = [[1,0],[0,1]]; }
+
+      var ord = swapped ? [1,0] : [0,1];
+      var P = [[vs[ord[0]][0], vs[ord[1]][0]], [vs[ord[0]][1], vs[ord[1]][1]]];
+      var D = [[ls[ord[0]], 0], [0, ls[ord[1]]]];
+      var Pi = inv(P);
+      var Dk = [[Math.pow(D[0][0], k), 0], [0, Math.pow(D[1][1], k)]];
+      var viaP = (Pi && isFinite(Dk[0][0]) && isFinite(Dk[1][1])) ? mul(mul(P, Dk), Pi) : null;
+      var direct = pow(A, k);
+      var match = viaP && [0,1].every(function(i){
+        return [0,1].every(function(j){ return Math.abs(viaP[i][j] - direct[i][j]) < 1e-6; });
+      });
+
+      grids.innerHTML = grid('P (eigenvectors)', Pi ? P : null) + grid('D', Pi ? D : null, 'is-d', true) +
+        grid('P inverse', Pi) + grid('D^k', Pi ? Dk : null, 'is-d', true);
+
+      rows.innerHTML =
+        '<div class="v5-r"><span>eigenvalues, in P&apos;s column order</span><b style="color:var(--viz-accent)">' + n(D[0][0]) + ', ' + n(D[1][1]) + '</b></div>' +
+        '<div class="v5-r"><span>det P (zero means no basis)</span><b style="color:' + (Pi ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + n(P[0][0]*P[1][1] - P[0][1]*P[1][0]) + '</b></div>' +
+        '<div class="v5-r"><span>A^' + k + ' by P D^' + k + ' P inverse</span><b style="color:var(--viz-accent)">' +
+          (viaP ? '[' + n(viaP[0][0]) + ' ' + n(viaP[0][1]) + '; ' + n(viaP[1][0]) + ' ' + n(viaP[1][1]) + ']' : 'unavailable') + '</b></div>' +
+        '<div class="v5-r"><span>A^' + k + ' by ' + k + ' actual products</span><b>[' + n(direct[0][0]) + ' ' + n(direct[0][1]) + '; ' + n(direct[1][0]) + ' ' + n(direct[1][1]) + ']</b></div>' +
+        '<div class="v5-r"><span>do they agree</span><b style="color:' + (match ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (match ? 'yes, exactly' : (viaP ? 'no' : 'no factorization to compare')) + '</b></div>';
+
+      why.innerHTML = !real
+        ? '<b style="color:var(--viz-red)">No real eigenvalues, so no real factorization.</b>' +
+          'There is nothing to put in P over the real numbers.'
+        : !Pi
+          ? '<b style="color:var(--viz-red)">Only ONE independent eigenvector — P is singular and cannot be inverted.</b>' +
+            'Both eigenvalues came out as ' + n(ls[0]) + ', but A &minus; ' + n(ls[0]) + 'I has rank 1, so its null space is a single line and the two columns of P are the same direction. det P = 0, there is no eigenvector basis, and A^k has to be ground out the slow way. ' +
+            '<br><br>This is the repeated eigenvalue failing to deliver — precisely the case visual 4 lets you drag into.'
+          : '<b style="color:var(--viz-green)">AP = PD, so A = P D P inverse — and the two rows above agree.</b>' +
+            'Column i of AP is A applied to eigenvector i, which is lambda<sub>i</sub> times that column; column i of PD is the same thing. That is the whole derivation, and independence of the columns is what makes P invertible. ' +
+            'Powers then cost one line: D^' + k + ' is just each eigenvalue raised to ' + k + ', because a diagonal matrix has nothing to mix. ' +
+            '<br><br><b style="display:inline;font-size:12.5px">On the swap:</b> the eigenvalues are currently ordered ' + n(D[0][0]) + ', ' + n(D[1][1]) + ' because that is the order of P&apos;s columns. Press the button and both reorder together, and A is unchanged — but pair a column of P with the wrong diagonal entry and the identity breaks immediately. ' +
+            (Math.abs(ls[0] - ls[1]) < 1e-9
+              ? '<br><br>Here one eigenvalue fills the whole plane, so D = ' + n(ls[0]) + 'I and A = P(' + n(ls[0]) + 'I)P inverse = ' + n(ls[0]) + 'I — a repeat that diagonalizes, and the only matrix it could possibly be.'
+              : '');
+    }
+    MATS.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = m.lab;
+      b.addEventListener('click', function(){ cur = i; swapped = false; render(); });
+      host.appendChild(b);
+    });
+    swapB.addEventListener('click', function(){ swapped = !swapped; render(); });
+    sk.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. Variance And Steady State</h2>
+  <p class="vz-lede">Two famous algorithms are the same idea wearing different clothes. PCA takes the
+    eigenvectors of a covariance matrix as the directions data actually varies in; PageRank takes the
+    eigenvector for lambda = 1 as where a random surfer ends up. Reshape the cloud, or run the walk.
+    <b>Like a crowd in a stadium: which way it spreads, and which exit it eventually all uses.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Choose the application">
+    <button id="v6-pca" aria-pressed="true">PCA · covariance</button>
+    <button id="v6-pr" aria-pressed="false">PageRank · transition</button>
+  </div>
+
+  <div class="vz-card">
+    <svg id="v6-svg" viewBox="0 0 320 200" role="img" aria-label="The data cloud with its principal directions, or the state probabilities as they converge"></svg>
+    <div id="v6-ctlA">
+      <label class="v6-lab" for="v6-vx">variance in x = <span id="v6-vxl">8</span></label>
+      <input type="range" id="v6-vx" min="1" max="12" value="8" step="1" aria-label="Variance in x">
+      <label class="v6-lab" for="v6-cov">covariance = <span id="v6-covl">2</span></label>
+      <input type="range" id="v6-cov" min="-6" max="6" value="2" step="1" aria-label="Covariance between x and y">
+      <label class="v6-lab" for="v6-vy">variance in y = <span id="v6-vyl">5</span></label>
+      <input type="range" id="v6-vy" min="1" max="12" value="5" step="1" aria-label="Variance in y">
+    </div>
+    <div id="v6-ctlB">
+      <label class="v6-lab" for="v6-step">steps taken = <span id="v6-stepl">0</span></label>
+      <input type="range" id="v6-step" min="0" max="30" value="0" step="1" aria-label="Number of steps of the random walk">
+      <div class="vz-seg" role="group" aria-label="Where the walk starts" id="v6-starts"></div>
+    </div>
+    <div class="v6-read" id="v6-read"></div>
+    <div class="v6-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">Both are eigen-questions with the eigenvalue named out loud, and naming it is how you
+    keep them straight. PageRank wants the eigenvector for <b>lambda = 1</b> — an equilibrium, not a
+    transient state, and ranking is just sorting those long-run probabilities. PCA wants the eigenvector for
+    the <b>largest</b> lambda, because that eigenvalue <em>is</em> the variance along its own direction;
+    take the smallest and you have kept the noise and thrown away the signal.</p>
+
+  <style>
+    .v6-lab{font-size:12px;font-weight:700;display:block;margin:8px 0 3px}
+    .v6-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v6-read{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v6-r{display:flex;justify-content:space-between;gap:10px;font-size:12px;align-items:baseline}
+    .v6-r b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v6-grid{stroke:var(--viz-line);stroke-width:1}
+    .v6-ax{stroke:var(--viz-muted);stroke-width:1.2;opacity:.55}
+    .v6-ell{fill:var(--viz-accent);opacity:.13;stroke:var(--viz-accent);stroke-width:1.4}
+    .v6-pt{fill:var(--viz-muted)}
+    .v6-p1{stroke:var(--viz-green);stroke-width:3}
+    .v6-p1h{fill:var(--viz-green)}
+    .v6-p2{stroke:var(--viz-violet);stroke-width:2.4}
+    .v6-p2h{fill:var(--viz-violet)}
+    .v6-t{fill:var(--viz-muted);font-size:10px;font-family:ui-monospace,Consolas,monospace}
+    .v6-bar{fill:var(--viz-accent)}
+    .v6-tgt{stroke:var(--viz-green);stroke-width:1.6;stroke-dasharray:4 3}
+    .v6-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v6-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var mode = 0, start = 0;
+    var bA = document.getElementById('v6-pca'), bB = document.getElementById('v6-pr');
+    var ctlA = document.getElementById('v6-ctlA'), ctlB = document.getElementById('v6-ctlB');
+    var svg = document.getElementById('v6-svg');
+    var vx = document.getElementById('v6-vx'), cov = document.getElementById('v6-cov'), vy = document.getElementById('v6-vy');
+    var vxl = document.getElementById('v6-vxl'), covl = document.getElementById('v6-covl'), vyl = document.getElementById('v6-vyl');
+    var st = document.getElementById('v6-step'), stl = document.getElementById('v6-stepl');
+    var starts = document.getElementById('v6-starts');
+    var read = document.getElementById('v6-read'), why = document.getElementById('v6-why');
+
+    // Column j holds the probabilities of leaving state j, so every column sums to 1.
+    var T = [[0, 0, 0.5], [0.5, 0, 0.5], [0.5, 1, 0]];
+    var STARTS = [{ lab:'start even', p:[1/3, 1/3, 1/3] }, { lab:'start all on A', p:[1, 0, 0] }, { lab:'start all on C', p:[0, 0, 1] }];
+    var NAMES = ['A', 'B', 'C'];
+    var BASE = [[1.2, 0.45], [-0.95, 0.7], [0.25, -1.15], [-1.3, -0.45], [0.8, 0.45]];
+
+    function n(v, d){
+      if (typeof v !== 'number' || !isFinite(v)) return '—';
+      var f = Math.pow(10, d === undefined ? 2 : d);
+      var r = Math.round(v * f) / f;
+      if (Math.abs(r) < 0.5 / f) r = 0;
+      return r.toFixed(d === undefined ? 2 : d);
+    }
+    function arrow(A, B, cls){
+      var dx = B[0]-A[0], dy = B[1]-A[1], L = Math.sqrt(dx*dx + dy*dy);
+      if (!isFinite(L) || L < 2) return '';
+      var ux = dx/L, uy = dy/L, h = 8, w = 4;
+      var bx = B[0] - ux*h, by = B[1] - uy*h;
+      return '<line x1="' + A[0] + '" y1="' + A[1] + '" x2="' + bx + '" y2="' + by + '" class="' + cls + '"/>' +
+        '<polygon points="' + B[0] + ',' + B[1] + ' ' + (bx - uy*w) + ',' + (by + ux*w) + ' ' +
+        (bx + uy*w) + ',' + (by - ux*w) + '" class="' + cls + 'h"/>';
+    }
+
+    function renderPCA(){
+      var a = Number(vx.value), b = Number(cov.value), c = Number(vy.value);
+      vxl.textContent = a; covl.textContent = b; vyl.textContent = c;
+      var tr = a + c, disc = (a - c)*(a - c) + 4*b*b;
+      var s = Math.sqrt(Math.max(0, disc));
+      var l1 = (tr + s)/2, l2 = (tr - s)/2;
+      var valid = isFinite(l1) && isFinite(l2) && l2 > 1e-9;
+
+      var u1, u2;
+      if (Math.abs(b) > 1e-9) { u1 = [b, l1 - a]; }
+      else { u1 = (a >= c) ? [1, 0] : [0, 1]; }
+      var L1 = Math.sqrt(u1[0]*u1[0] + u1[1]*u1[1]);
+      if (!isFinite(L1) || L1 < 1e-9) { u1 = [1, 0]; L1 = 1; }
+      u1 = [u1[0]/L1, u1[1]/L1];
+      u2 = [-u1[1], u1[0]];
+
+      var OX = 160, OY = 100, S = 17;
+      var g = '';
+      for (var k = -7; k <= 7; k++) {
+        g += '<line x1="' + (OX + k*S) + '" y1="6" x2="' + (OX + k*S) + '" y2="194" class="' + (k ? 'v6-grid' : 'v6-ax') + '"/>';
+        g += '<line x1="10" y1="' + (OY + k*S) + '" x2="310" y2="' + (OY + k*S) + '" class="' + (k ? 'v6-grid' : 'v6-ax') + '"/>';
+      }
+      if (valid) {
+        var s1 = Math.sqrt(l1), s2 = Math.sqrt(l2);
+        var deg = Math.atan2(-u1[1], u1[0]) * 180 / Math.PI;
+        g += '<ellipse class="v6-ell" cx="' + OX + '" cy="' + OY + '" rx="' + (s1*S*1.6) + '" ry="' + (s2*S*1.6) + '" transform="rotate(' + deg + ' ' + OX + ' ' + OY + ')"/>';
+        BASE.forEach(function(p){
+          var x = u1[0]*s1*p[0] + u2[0]*s2*p[1], y = u1[1]*s1*p[0] + u2[1]*s2*p[1];
+          g += '<circle class="v6-pt" cx="' + (OX + x*S) + '" cy="' + (OY - y*S) + '" r="3.4"/>';
+        });
+        g += arrow([OX, OY], [OX + u1[0]*s1*S*1.6, OY - u1[1]*s1*S*1.6], 'v6-p1');
+        g += arrow([OX, OY], [OX + u2[0]*s2*S*1.6, OY - u2[1]*s2*S*1.6], 'v6-p2');
+        g += '<text class="v6-t" x="8" y="16">PC1 (green) · PC2 (violet)</text>';
+      } else {
+        g += '<text class="v6-t" x="8" y="16">no cloud to draw</text>';
+      }
+      svg.innerHTML = g;
+
+      var tot = l1 + l2;
+      var share = (isFinite(tot) && Math.abs(tot) > 1e-9) ? l1 / tot : NaN;
+      read.innerHTML =
+        '<div class="v6-r"><span>covariance matrix</span><b>[' + a + ' ' + b + '; ' + b + ' ' + c + ']</b></div>' +
+        '<div class="v6-r"><span>eigenvalues</span><b style="color:var(--viz-green)">' + n(l1) + ' and ' + n(l2) + '</b></div>' +
+        '<div class="v6-r"><span>first principal component</span><b style="color:var(--viz-green)">(' + n(u1[0]) + ', ' + n(u1[1]) + ')</b></div>' +
+        '<div class="v6-r"><span>variance it captures</span><b style="color:var(--viz-green)">' + (isFinite(share) ? n(l1) + ' / ' + n(tot) + ' = ' + n(share*100, 1) + '%' : '—') + '</b></div>' +
+        '<div class="v6-r"><span>check: sum of eigenvalues = trace</span><b>' + n(tot) + ' = ' + n(tr) + '</b></div>';
+
+      why.innerHTML = !valid
+        ? '<b style="color:var(--viz-red)">Not a valid covariance matrix.</b>' +
+          'One eigenvalue has come out at ' + n(l2) + ', and an eigenvalue of a covariance matrix is a variance — a variance cannot be negative or zero here, so no real cloud has these numbers. Pull the covariance slider back towards zero. ' +
+          '<br><br>The machinery still ran and still produced numbers, which is the point: eigen-arithmetic never checks whether your matrix meant anything.'
+        : '<b style="color:var(--viz-green)">The eigenvector of the LARGEST eigenvalue is the first principal component.</b>' +
+          'The green arrow points along the widest spread of the cloud, and its eigenvalue ' + n(l1) + ' <em>is</em> the variance measured in that direction — so it captures ' + n(share*100, 1) + '% of the total. Take the violet one instead and you keep ' + n((1-share)*100, 1) + '%. That is the whole of dimensionality reduction: keep the big directions, drop the small ones, and an image with thousands of pixels survives on a handful of numbers. ' +
+          '<br><br>Watch the check line: the eigenvalues always sum to ' + n(tr) + ', the trace, so "total variance" and "sum of eigenvalues" are the same quantity — which is why the share is written as one eigenvalue over the sum of them all. ' +
+          (Math.abs(Number(cov.value)) < 1e-9
+            ? '<br><br>With zero covariance the axes are already the principal directions and PCA has nothing to rotate.'
+            : '<br><br>Slide the covariance to zero and the arrows snap to the axes; push it far and the cloud collapses onto a single line.');
+    }
+
+    function renderPR(){
+      var steps = Number(st.value);
+      stl.textContent = steps;
+      [].slice.call(starts.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === start ? 'true' : 'false'); });
+      var p = STARTS[start].p.slice();
+      for (var k = 0; k < steps; k++) {
+        var q = [
+          T[0][0]*p[0] + T[0][1]*p[1] + T[0][2]*p[2],
+          T[1][0]*p[0] + T[1][1]*p[1] + T[1][2]*p[2],
+          T[2][0]*p[0] + T[2][1]*p[1] + T[2][2]*p[2]
+        ];
+        var sum = q[0] + q[1] + q[2];
+        if (!isFinite(sum) || sum < 1e-12) break;
+        p = [q[0]/sum, q[1]/sum, q[2]/sum];
+      }
+      var Tp = [
+        T[0][0]*p[0] + T[0][1]*p[1] + T[0][2]*p[2],
+        T[1][0]*p[0] + T[1][1]*p[1] + T[1][2]*p[2],
+        T[2][0]*p[0] + T[2][1]*p[1] + T[2][2]*p[2]
+      ];
+      var resid = Math.abs(Tp[0]-p[0]) + Math.abs(Tp[1]-p[1]) + Math.abs(Tp[2]-p[2]);
+      var TRUE = [2/9, 3/9, 4/9];
+
+      var g = '', BW = 58, GAP = 34, X0 = 40, BASEY = 168, HMAX = 132;
+      g += '<line x1="18" y1="' + BASEY + '" x2="302" y2="' + BASEY + '" class="v6-ax"/>';
+      for (var i = 0; i < 3; i++) {
+        var x = X0 + i*(BW + GAP);
+        var h = Math.max(1, Math.min(HMAX, (isFinite(p[i]) ? p[i] : 0) * HMAX * 2));
+        var ht = Math.max(1, Math.min(HMAX, TRUE[i] * HMAX * 2));
+        g += '<rect class="v6-bar" x="' + x + '" y="' + (BASEY - h) + '" width="' + BW + '" height="' + h + '" rx="4"/>';
+        g += '<line x1="' + (x - 5) + '" y1="' + (BASEY - ht) + '" x2="' + (x + BW + 5) + '" y2="' + (BASEY - ht) + '" class="v6-tgt"/>';
+        g += '<text class="v6-t" x="' + (x + BW/2 - 22) + '" y="' + (BASEY + 15) + '">page ' + NAMES[i] + '</text>';
+        g += '<text class="v6-t" x="' + (x + BW/2 - 14) + '" y="' + (BASEY - h - 5) + '">' + n(isFinite(p[i]) ? p[i] : 0, 3) + '</text>';
+      }
+      g += '<text class="v6-t" x="10" y="14">dashed green = the steady state Pv = v</text>';
+      svg.innerHTML = g;
+
+      read.innerHTML =
+        '<div class="v6-r"><span>transition matrix, by column</span><b>A&rarr;B,C &nbsp; B&rarr;C &nbsp; C&rarr;A,B</b></div>' +
+        '<div class="v6-r"><span>distribution after ' + steps + ' step' + (steps === 1 ? '' : 's') + '</span><b style="color:var(--viz-accent)">(' + n(p[0], 3) + ', ' + n(p[1], 3) + ', ' + n(p[2], 3) + ')</b></div>' +
+        '<div class="v6-r"><span>apply the matrix once more</span><b>(' + n(Tp[0], 3) + ', ' + n(Tp[1], 3) + ', ' + n(Tp[2], 3) + ')</b></div>' +
+        '<div class="v6-r"><span>how far from Pv = v</span><b style="color:' + (resid < 0.005 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">' + n(resid, 4) + '</b></div>' +
+        '<div class="v6-r"><span>ranking right now</span><b>' +
+          (Math.max(p[0], p[1], p[2]) - Math.min(p[0], p[1], p[2]) < 1e-6
+            ? 'a three-way tie — nothing to rank yet'
+            : [0,1,2].slice().sort(function(x, y){ return p[y] - p[x]; }).map(function(i){ return NAMES[i]; }).join(' &gt; ')) + '</b></div>';
+
+      why.innerHTML = resid < 0.005
+        ? '<b style="color:var(--viz-green)">Settled: applying the matrix again changes nothing, so Pv = v — an eigenvector with eigenvalue exactly 1.</b>' +
+          'The bars have reached (2/9, 3/9, 4/9) and sit on the dashed lines. These are the <b>long-run probabilities of being in each state</b>, not a snapshot of anyone&apos;s journey, and page C ranks first because a random surfer spends the largest share of eternity there. ' +
+          '<br><br>Now change the starting distribution. Every start converges to the same vector, which is what "equilibrium" means and why the answer belongs to the matrix rather than to the walk.'
+        : '<b style="color:var(--viz-amber)">Still transient — one more application still moves it.</b>' +
+          'The gap from Pv = v is ' + n(resid, 4) + ', so this distribution is a snapshot of a walk in progress, not the equilibrium. Push the slider right and watch the bars climb onto the dashed lines. ' +
+          '<br><br>Each step is one multiplication by the transition matrix, whose column j holds the probabilities of leaving state j — so every column sums to 1 and no probability leaks away. Repeating it is exactly the power iteration of visual 5, and it converges on the eigenvector for the largest eigenvalue, which for a matrix like this is 1.';
+    }
+
+    function render(){
+      bA.setAttribute('aria-pressed', mode === 0 ? 'true' : 'false');
+      bB.setAttribute('aria-pressed', mode === 1 ? 'true' : 'false');
+      ctlA.style.display = mode === 0 ? 'block' : 'none';
+      ctlB.style.display = mode === 1 ? 'block' : 'none';
+      if (mode === 0) renderPCA(); else renderPR();
+    }
+    STARTS.forEach(function(s, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = s.lab;
+      b.addEventListener('click', function(){ start = i; render(); });
+      starts.appendChild(b);
+    });
+    bA.addEventListener('click', function(){ mode = 0; render(); });
+    bB.addEventListener('click', function(){ mode = 1; render(); });
+    [vx, cov, vy, st].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

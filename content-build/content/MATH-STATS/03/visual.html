@@ -1,0 +1,898 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, pills. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour —
+   each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: the panel
+   scanner reads tags textually and would treat it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 92px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-seg button[aria-pressed="true"]::before{content:"\2713\00a0"}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-pills{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid var(--viz-line);
+  color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Balance Point Drag</button>
+  <button class="viz-tab" data-viz-tab="2">2. Five Number Box</button>
+  <button class="viz-tab" data-viz-tab="3">3. Squares Not Signs</button>
+  <button class="viz-tab" data-viz-tab="4">4. Why n Minus One</button>
+  <button class="viz-tab" data-viz-tab="5">5. Tilt The Cloud</button>
+  <button class="viz-tab" data-viz-tab="6">6. Spread Under Stress</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Balance Point Drag</h2>
+  <p class="vz-lede"><b>Displaying quantitative data with graphs</b> and <b>Describing and comparing
+    distributions</b> taught you to look at a dot plot and say "skewed right, one outlier". Here is the same
+    picture with the two numbers attached. Drag the fourth value and watch which summary follows it.
+    <b>Like a seesaw with three children on one end: the mean is where the plank balances, the median is
+    just whoever is sitting in the middle.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-x">Data set: 5, 6, 7, <span id="v1-xl">8</span></label>
+    <input type="range" id="v1-x" min="1" max="100" step="1" value="8" aria-label="the fourth data value">
+    <div class="vz-seg" role="group" aria-label="presets">
+      <button id="v1-typ" aria-pressed="true">typical value: 8</button>
+      <button id="v1-out" aria-pressed="false">outlier: 100</button>
+    </div>
+    <div id="v1-plot"></div>
+    <div class="vz-pills" id="v1-pills"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The mechanism is a loss function you already use. The mean minimises squared error
+    <b>sum (x - c)^2</b> and the median minimises absolute error <b>sum |x - c|</b> — MSE against MAE. A
+    squared penalty is unbounded, so one far value buys an arbitrarily large shift; an absolute penalty is
+    linear, so sliding a point that is already past the middle changes nothing at all. Resistance is not a
+    property of the median so much as a property of the norm you chose to minimise.</p>
+
+  <style>
+    #v1-plot{margin-top:10px}
+    #v1-plot svg{display:block}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v1-x');
+    var xl = document.getElementById('v1-xl');
+    var plot = document.getElementById('v1-plot');
+    var pills = document.getElementById('v1-pills');
+    var why = document.getElementById('v1-why');
+    var bT = document.getElementById('v1-typ');
+    var bO = document.getElementById('v1-out');
+    var BASE = [5, 6, 7];
+
+    function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--'; }
+
+    function summary(x){
+      var v = BASE.concat([x]).sort(function(a, b){ return a - b; });
+      var sum = 0;
+      for (var i = 0; i < v.length; i++) sum += v[i];
+      return { v: v, mean: sum / v.length, med: (v[1] + v[2]) / 2 };
+    }
+
+    function render(){
+      var x = Number(s.value);
+      if (!isFinite(x)) x = 8;
+      xl.textContent = x;
+      bT.setAttribute('aria-pressed', x === 8 ? 'true' : 'false');
+      bO.setAttribute('aria-pressed', x === 100 ? 'true' : 'false');
+
+      var st = summary(x);
+      var top = Math.max(12, x * 1.12);
+      var px = function(val){ return 14 + (val / top) * 292; };
+      var clamp = function(p){ return Math.max(46, Math.min(274, p)); };
+
+      var dots = '';
+      for (var i = 0; i < st.v.length; i++) {
+        dots += '<circle cx="' + px(st.v[i]).toFixed(1) + '" cy="59" r="5" fill="var(--viz-accent)" opacity="0.85"></circle>';
+      }
+      var mp = px(st.mean), dp = px(st.med);
+      plot.innerHTML =
+        '<svg viewBox="0 0 320 110" width="100%" height="110" role="img" aria-label="dot plot with the mean and median marked">' +
+        '<line x1="14" y1="66" x2="306" y2="66" stroke="var(--viz-line)" stroke-width="2"></line>' +
+        dots +
+        '<line x1="' + dp.toFixed(1) + '" y1="30" x2="' + dp.toFixed(1) + '" y2="66" stroke="var(--viz-violet)" stroke-width="2.5" stroke-dasharray="4 3"></line>' +
+        '<text x="' + clamp(dp).toFixed(1) + '" y="24" text-anchor="middle" style="font-size:10.5px;font-weight:700;fill:var(--viz-violet)">median ' + num(st.med, 2) + '</text>' +
+        '<polygon points="' + mp.toFixed(1) + ',67 ' + (mp - 7).toFixed(1) + ',81 ' + (mp + 7).toFixed(1) + ',81" fill="var(--viz-red)"></polygon>' +
+        '<text x="' + clamp(mp).toFixed(1) + '" y="95" text-anchor="middle" style="font-size:10.5px;font-weight:700;fill:var(--viz-red)">mean ' + num(st.mean, 2) + ' &#183; balance point</text>' +
+        '<text x="14" y="108" style="font-size:9.5px;fill:var(--viz-muted)">0</text>' +
+        '<text x="306" y="108" text-anchor="end" style="font-size:9.5px;fill:var(--viz-muted)">' + Math.round(top) + '</text>' +
+        '</svg>';
+
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">mean ' + num(st.mean, 2) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">median ' + num(st.med, 2) + '</span>' +
+        '<span class="vz-pill">mean - median = ' + num(st.mean - st.med, 2) + '</span>';
+
+      var lo = summary(Number(s.min)), hi = summary(Number(s.max));
+      var d = st.mean - st.med, head, body;
+      if (Math.abs(d) < 0.05) {
+        head = 'They agree: no tail to pull with.';
+        body = 'The balance point has landed on the middle address, which is what happens when the values sit ' +
+          'symmetrically about the centre. This is the only situation in which the choice of summary genuinely does not matter.';
+      } else if (d > 0) {
+        head = 'The mean sits ' + num(d, 2) + ' ABOVE the median.';
+        body = 'The long tail is on the right, so the balance point has been dragged that way while the middle address ' +
+          'stayed put. Mean above median is the numeric signature of right skew — the same reading you gave the ' +
+          'histogram, now from two numbers. At the far end of this slider the mean describes no observation at all: ' +
+          'not one of 5, 6, 7, 100 is anywhere near 29.5.';
+      } else {
+        head = 'The mean sits ' + num(-d, 2) + ' BELOW the median.';
+        body = 'You have dragged the fourth value to the LEFT of the pack, so the tail is on the left and the balance ' +
+          'point moved down while the middle address barely responded. Mean below median is the signature of left skew. ' +
+          'Notice the direction is not a rule about outliers — it is a rule about which side the far value is on.';
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body +
+        '<br><br>Sweep the whole slider and compare the two journeys: the median travels only from <b>' +
+        num(lo.med, 2) + '</b> to <b>' + num(hi.med, 2) + '</b>, while the mean travels from <b>' +
+        num(lo.mean, 2) + '</b> to <b>' + num(hi.mean, 2) + '</b>. That difference in travel <em>is</em> ' +
+        'resistance, and it is why skewed quantities — income, latency, session length — are reported by their median.';
+    }
+
+    s.addEventListener('input', render);
+    bT.addEventListener('click', function(){ s.value = 8; render(); });
+    bO.addEventListener('click', function(){ s.value = 100; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Five Number Box</h2>
+  <p class="vz-lede">Minimum, Q1, median, Q3, maximum — five numbers, drawn to scale. Pick a starting shape,
+    then push the largest value out and watch which parts of the picture move and which refuse to.
+    <b>Like a train: the carriage holds the middle half of the passengers, and only the couplings stretch.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="starting data set">
+    <button id="v2-a" aria-pressed="false">left tail</button>
+    <button id="v2-b" aria-pressed="false">symmetric</button>
+    <button id="v2-c" aria-pressed="true">right tail</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-push">Push the largest value further out: <span id="v2-pl">+0</span></label>
+    <input type="range" id="v2-push" min="0" max="24" step="1" value="0" aria-label="how far to push the largest value">
+    <div id="v2-plot"></div>
+    <div class="vz-pills" id="v2-five"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Read the whiskers, not the box, for shape: the box is deliberately blind to the tails,
+    which is exactly what makes it resistant. And note what the plot cannot show you — the mean is never
+    drawn on a box plot, so two data sets with identical five-number summaries can have very different means.</p>
+
+  <style>
+    #v2-plot{margin-top:10px}
+    #v2-plot svg{display:block}
+  </style>
+  <script>
+  (function(){
+    var SETS = {
+      a: [1, 7, 10, 12, 13, 13, 14, 14, 15, 15, 16],
+      b: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+      c: [1, 2, 2, 3, 3, 4, 4, 5, 7, 10, 16]
+    };
+    var btns = { a: document.getElementById('v2-a'), b: document.getElementById('v2-b'), c: document.getElementById('v2-c') };
+    var s = document.getElementById('v2-push');
+    var sl = document.getElementById('v2-pl');
+    var plot = document.getElementById('v2-plot');
+    var five = document.getElementById('v2-five');
+    var why = document.getElementById('v2-why');
+    var cur = 'c';
+
+    function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--'; }
+
+    function pushed(key, t){
+      var a = SETS[key].slice(), mi = 0;
+      for (var i = 1; i < a.length; i++) if (a[i] > a[mi]) mi = i;
+      a[mi] = a[mi] + t;
+      return a;
+    }
+    // n = 11, so the overall median is excluded from both halves: Q1 is the
+    // median of the first five, Q3 the median of the last five.
+    function stats(arr){
+      var v = arr.slice().sort(function(p, q){ return p - q; });
+      var q1 = v[2], q3 = v[8];
+      return { v: v, min: v[0], max: v[10], med: v[5], q1: q1, q3: q3,
+               iqr: q3 - q1, range: v[10] - v[0], lw: q1 - v[0], rw: v[10] - q3 };
+    }
+    function shape(st){
+      if (st.rw > st.lw * 1.15) return 'right-skewed';
+      if (st.lw > st.rw * 1.15) return 'left-skewed';
+      return 'roughly symmetric';
+    }
+
+    function render(){
+      for (var k in btns) if (btns.hasOwnProperty(k)) btns[k].setAttribute('aria-pressed', k === cur ? 'true' : 'false');
+      var t = Number(s.value);
+      if (!isFinite(t)) t = 0;
+      sl.textContent = '+' + t;
+
+      var st = stats(pushed(cur, t)), base = stats(pushed(cur, 0));
+      var span = (st.max - st.min) || 1;
+      var px = function(val){ return 16 + (val - st.min) / span * 288; };
+      var clamp = function(p){ return Math.max(30, Math.min(290, p)); };
+
+      var dots = '';
+      for (var i = 0; i < st.v.length; i++) {
+        dots += '<circle cx="' + px(st.v[i]).toFixed(1) + '" cy="16" r="3" fill="var(--viz-accent)" opacity="0.7"></circle>';
+      }
+      var bw = Math.max(3, px(st.q3) - px(st.q1));
+      plot.innerHTML =
+        '<svg viewBox="0 0 320 108" width="100%" height="108" role="img" aria-label="box and whisker plot of the current data">' +
+        dots +
+        '<line x1="' + px(st.min).toFixed(1) + '" y1="52" x2="' + px(st.max).toFixed(1) + '" y2="52" stroke="var(--viz-line)" stroke-width="2"></line>' +
+        '<line x1="' + px(st.min).toFixed(1) + '" y1="42" x2="' + px(st.min).toFixed(1) + '" y2="62" stroke="var(--viz-muted)" stroke-width="2"></line>' +
+        '<line x1="' + px(st.max).toFixed(1) + '" y1="42" x2="' + px(st.max).toFixed(1) + '" y2="62" stroke="var(--viz-muted)" stroke-width="2"></line>' +
+        '<rect x="' + px(st.q1).toFixed(1) + '" y="36" width="' + bw.toFixed(1) + '" height="32" rx="4" fill="var(--viz-surface)" stroke="var(--viz-accent)" stroke-width="2"></rect>' +
+        '<line x1="' + px(st.med).toFixed(1) + '" y1="36" x2="' + px(st.med).toFixed(1) + '" y2="68" stroke="var(--viz-violet)" stroke-width="3"></line>' +
+        '<text x="' + clamp(px(st.med)).toFixed(1) + '" y="32" text-anchor="middle" style="font-size:10px;font-weight:700;fill:var(--viz-violet)">median</text>' +
+        '<text x="' + clamp((px(st.q1) + px(st.q3)) / 2).toFixed(1) + '" y="82" text-anchor="middle" style="font-size:10px;font-weight:700;fill:var(--viz-accent)">box = middle 50% = IQR ' + num(st.iqr, 1) + '</text>' +
+        '<text x="' + px(st.min).toFixed(1) + '" y="100" text-anchor="middle" style="font-size:9.5px;fill:var(--viz-muted)">min ' + st.min + '</text>' +
+        '<text x="' + clamp(px(st.max)).toFixed(1) + '" y="100" text-anchor="middle" style="font-size:9.5px;fill:var(--viz-muted)">max ' + st.max + '</text>' +
+        '</svg>';
+
+      five.innerHTML =
+        '<span class="vz-pill">min ' + st.min + '</span>' +
+        '<span class="vz-pill">Q1 ' + num(st.q1, 1) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">median ' + num(st.med, 1) + '</span>' +
+        '<span class="vz-pill">Q3 ' + num(st.q3, 1) + '</span>' +
+        '<span class="vz-pill">max ' + st.max + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">IQR ' + num(st.iqr, 1) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">range ' + num(st.range, 1) + '</span>';
+
+      var sh = shape(st), bsh = shape(base);
+      var boxSame = (st.q1 === base.q1 && st.q3 === base.q3 && st.med === base.med);
+      var body = 'The whiskers carry the tail information that the box throws away, so their asymmetry is how a ' +
+        'box plot reports shape: the longer whisker points at the longer tail. The box itself spans Q1 to Q3 — the ' +
+        'middle 50% of the data — and the line inside it is the <b>median</b>, never the mean.';
+      if (t > 0) {
+        body += '<br><br>' + (boxSame
+          ? 'You have moved one value by ' + t + ' and the box has not shifted by a hair: Q1 is still ' + num(st.q1, 1) +
+            ', the median still ' + num(st.med, 1) + ', Q3 still ' + num(st.q3, 1) + ', IQR still ' + num(st.iqr, 1) +
+            '. The range meanwhile went from ' + num(base.range, 1) + ' to ' + num(st.range, 1) +
+            '. Quartiles are order statistics — anything beyond Q3 can run to infinity without being noticed.'
+          : 'The box moved too: Q1 ' + num(base.q1, 1) + ' &#8594; ' + num(st.q1, 1) + ', median ' + num(base.med, 1) +
+            ' &#8594; ' + num(st.med, 1) + ', Q3 ' + num(base.q3, 1) + ' &#8594; ' + num(st.q3, 1) + '.');
+        if (sh !== bsh) {
+          body += ' And you have re-shaped a <b>' + bsh + '</b> set into a <b>' + sh + '</b> one by moving a single value ' +
+            '— which is the honest warning that "skewed" is a statement about the picture in front of you, not a label the data was born with.';
+        }
+      }
+      why.innerHTML = '<b>Right whisker ' + num(st.rw, 1) + ' vs left whisker ' + num(st.lw, 1) + ' &#8594; ' + sh + '.</b>' + body;
+    }
+
+    for (var k in btns) {
+      if (!btns.hasOwnProperty(k)) continue;
+      (function(key){
+        btns[key].addEventListener('click', function(){ cur = key; render(); });
+      })(k);
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Squares Not Signs</h2>
+  <p class="vz-lede">Spread means "how far from the centre", but distances have signs and signs cancel — by
+    construction, not by accident. Switch what you total and drag the third value to see which candidate
+    survives. <b>Like measuring how far a class wandered from the teacher: walking left and walking right
+    both count as wandering.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="what to total">
+    <button id="v3-m1" aria-pressed="false">total x - mu</button>
+    <button id="v3-m2" aria-pressed="false">total |x - mu|</button>
+    <button id="v3-m3" aria-pressed="true">total (x - mu)^2</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-x">Population: 2, 4, <span id="v3-xl">6</span></label>
+    <input type="range" id="v3-x" min="0" max="12" step="1" value="6" aria-label="the third population value">
+    <div id="v3-tbl"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Squaring is not the only way to kill a sign — absolute values work too, and the median
+    absolute deviation in visual 6 is built that way. Squares win because they are differentiable everywhere
+    and add cleanly over independent parts, which is why variance and not mean absolute deviation sits
+    underneath every downstream result you know. Try x = 0 and then x = 6: different data, identical spread.</p>
+
+  <style>
+    #v3-tbl{margin-top:12px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v3-row{display:flex;gap:6px;align-items:center;padding:5px 6px;border-radius:7px}
+    .v3-row + .v3-row{margin-top:3px}
+    .v3-row span{flex:1 1 0;text-align:right}
+    .v3-row span:first-child{text-align:left;flex:0 0 52px;color:var(--viz-muted)}
+    .v3-head{color:var(--viz-muted);font-weight:800;border-bottom:1px solid var(--viz-line);border-radius:0}
+    .v3-tot{border-top:1px solid var(--viz-line);border-radius:0;font-weight:800;margin-top:4px;padding-top:8px}
+    .v3-on{color:var(--viz-accent)}
+    .v3-off{color:var(--viz-muted);opacity:.55}
+  </style>
+  <script>
+  (function(){
+    var modes = ['m1', 'm2', 'm3'];
+    var btns = {
+      m1: document.getElementById('v3-m1'),
+      m2: document.getElementById('v3-m2'),
+      m3: document.getElementById('v3-m3')
+    };
+    var s = document.getElementById('v3-x');
+    var xl = document.getElementById('v3-xl');
+    var tbl = document.getElementById('v3-tbl');
+    var why = document.getElementById('v3-why');
+    var cur = 'm3';
+
+    function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--'; }
+
+    function render(){
+      for (var i = 0; i < modes.length; i++) btns[modes[i]].setAttribute('aria-pressed', modes[i] === cur ? 'true' : 'false');
+      var x = Number(s.value);
+      if (!isFinite(x)) x = 6;
+      xl.textContent = x;
+
+      var v = [2, 4, x], n = v.length;
+      var sum = 0;
+      for (var j = 0; j < n; j++) sum += v[j];
+      var mu = sum / n;
+      var tSign = 0, tAbs = 0, tSq = 0, rows = '';
+      var cls = { m1: ['v3-on', 'v3-off', 'v3-off'], m2: ['v3-off', 'v3-on', 'v3-off'], m3: ['v3-off', 'v3-off', 'v3-on'] }[cur];
+      rows += '<div class="v3-row v3-head"><span>value</span><span class="' + cls[0] + '">x - mu</span>' +
+              '<span class="' + cls[1] + '">|x - mu|</span><span class="' + cls[2] + '">(x - mu)^2</span></div>';
+      for (var k = 0; k < n; k++) {
+        var d = v[k] - mu;
+        tSign += d; tAbs += Math.abs(d); tSq += d * d;
+        rows += '<div class="v3-row"><span>' + v[k] + '</span>' +
+          '<span class="' + cls[0] + '">' + num(d, 2) + '</span>' +
+          '<span class="' + cls[1] + '">' + num(Math.abs(d), 2) + '</span>' +
+          '<span class="' + cls[2] + '">' + num(d * d, 2) + '</span></div>';
+      }
+      if (Math.abs(tSign) < 1e-12) tSign = 0;
+      rows += '<div class="v3-row v3-tot"><span>total</span>' +
+        '<span class="' + cls[0] + '">' + num(tSign, 2) + '</span>' +
+        '<span class="' + cls[1] + '">' + num(tAbs, 2) + '</span>' +
+        '<span class="' + cls[2] + '">' + num(tSq, 2) + '</span></div>';
+      tbl.innerHTML = rows;
+
+      var head, body;
+      if (cur === 'm1') {
+        head = 'Total = ' + num(tSign, 2) + ', and it is 0 at every position of this slider.';
+        body = 'Not approximately zero &#8212; exactly zero, for every data set that has ever existed, because mu is ' +
+          '<em>defined</em> as the point where the signed deviations cancel: sum(x - mu) = sum(x) - n&#183;mu = 0. ' +
+          'A quantity that is zero for tightly clustered data and for wildly scattered data measures nothing at all. ' +
+          'This is the whole reason a spread statistic has to remove the sign first.';
+      } else if (cur === 'm2') {
+        head = 'Total |x - mu| = ' + num(tAbs, 2) + ', mean absolute deviation ' + num(tAbs / n, 2) + '.';
+        body = 'Absolute values remove the sign and this is a perfectly real measure of spread &#8212; it is the family ' +
+          'the median absolute deviation belongs to. It loses on mathematical convenience, not on honesty: |x| has no ' +
+          'derivative at 0 and absolute deviations do not add cleanly when you combine independent quantities, so nothing ' +
+          'downstream can be built on it as cheaply.';
+      } else {
+        head = 'Sum of squares ' + num(tSq, 2) + ' &#8594; variance ' + num(tSq / n, 3) + ' &#8594; standard deviation ' + num(Math.sqrt(tSq / n), 3) + '.';
+        body = 'Population variance divides the sum of squares by N = ' + n + ': sigma^2 = ' + num(tSq, 2) + ' / ' + n + ' = ' + num(tSq / n, 3) +
+          '. That number lives in <em>squared</em> units, so it can never be "the typical distance from the mean"; the square ' +
+          'root pulls it back onto the scale of the data, giving sigma = ' + num(Math.sqrt(tSq / n), 3) + '. ' +
+          'Standard deviation is the only spread measure in this lesson that is stated in the original units and derived from every point.';
+        if (x === 6) {
+          body += '<br><br><b>This is the bank’s population 2, 4, 6:</b> mu = 4, deviations -2, 0, 2, squares 4, 0, 4, ' +
+            'so sigma^2 = 8/3 = ' + num(8 / 3, 3) + ' and sigma = sqrt(8/3) = ' + num(Math.sqrt(8 / 3), 3) + '.';
+        }
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body;
+    }
+
+    for (var m = 0; m < modes.length; m++) {
+      (function(key){
+        btns[key].addEventListener('click', function(){ cur = key; render(); });
+      })(modes[m]);
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Why n Minus One</h2>
+  <p class="vz-lede">Take a population whose variance you actually know, enumerate <em>every</em> sample of
+    size n, and average the two candidate formulas over all of them. No simulation and no luck — these are
+    exact expected values. <b>Like measuring a room with a tape you cut to fit that room: it always comes
+    out a little short.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="centre the squared deviations on">
+    <button id="v4-cx" aria-pressed="true">centre on sample mean</button>
+    <button id="v4-cm" aria-pressed="false">centre on true mean mu = 6</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-n">Population 2, 4, 6, 8, 10 &#183; sigma^2 = 8 &#183; sample size n = <span id="v4-nl">3</span></label>
+    <input type="range" id="v4-n" min="2" max="6" step="1" value="3" aria-label="sample size">
+    <div id="v4-bars"></div>
+    <div class="vz-pills" id="v4-pills"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The correction is for <b>estimating the centre</b>, not for "being a sample". Switch the
+    centring button and the winner switches with it: knowing mu really does buy you back that degree of
+    freedom. And note what is <em>not</em> fixed &#8212; s^2 is unbiased, but s is the square root of an unbiased
+    quantity, which makes it slightly biased low. Nobody corrects that in practice, and now you know why it is
+    not a contradiction.</p>
+
+  <style>
+    #v4-bars{margin-top:14px;display:flex;flex-direction:column;gap:11px}
+    .v4-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v4-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v4-track{position:relative;height:16px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v4-track i{display:block;height:100%;border-radius:5px}
+    .v4-ref{position:relative;height:14px;margin-top:2px}
+    .v4-ref span{position:absolute;top:0;font-size:9.5px;color:var(--viz-muted);transform:translateX(-50%);white-space:nowrap}
+  </style>
+  <script>
+  (function(){
+    var POP = [2, 4, 6, 8, 10], MU = 6, SIG2 = 8;
+    var s = document.getElementById('v4-n');
+    var nl = document.getElementById('v4-nl');
+    var bars = document.getElementById('v4-bars');
+    var pills = document.getElementById('v4-pills');
+    var why = document.getElementById('v4-why');
+    var bX = document.getElementById('v4-cx');
+    var bM = document.getElementById('v4-cm');
+    var onSampleMean = true;
+
+    function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--'; }
+
+    // Every ordered sample of size n drawn with replacement, enumerated with an
+    // odometer. 5^6 = 15625 at the widest setting, so this is exact, not sampled.
+    function expectedSS(n){
+      var idx = [], i;
+      for (i = 0; i < n; i++) idx.push(0);
+      var total = 0, count = 0;
+      for (;;) {
+        var sum = 0;
+        for (i = 0; i < n; i++) sum += POP[idx[i]];
+        var c = onSampleMean ? sum / n : MU;
+        var ss = 0;
+        for (i = 0; i < n; i++) { var d = POP[idx[i]] - c; ss += d * d; }
+        total += ss; count += 1;
+        var k = n - 1;
+        while (k >= 0) { idx[k] += 1; if (idx[k] < POP.length) break; idx[k] = 0; k -= 1; }
+        if (k < 0) break;
+      }
+      return { mean: count ? total / count : NaN, count: count };
+    }
+
+    function render(){
+      bX.setAttribute('aria-pressed', onSampleMean ? 'true' : 'false');
+      bM.setAttribute('aria-pressed', onSampleMean ? 'false' : 'true');
+      var n = Number(s.value);
+      if (!isFinite(n) || n < 2) n = 2;
+      nl.textContent = n;
+
+      var e = expectedSS(n);
+      var byN = e.mean / n;
+      var byN1 = e.mean / (n - 1);
+      var scale = Math.max(byN, byN1, SIG2) * 1.15;
+      if (!isFinite(scale) || scale <= 0) scale = 1;
+
+      function bar(label, value, colour){
+        var w = Math.max(1, Math.min(100, (value / scale) * 100));
+        return '<div class="v4-b"><h6><span>' + label + '</span><b style="color:' + colour + '">' + num(value, 3) + '</b></h6>' +
+          '<div class="v4-track"><i style="width:' + w.toFixed(1) + '%;background:' + colour + '"></i></div></div>';
+      }
+      var okN = Math.abs(byN - SIG2) < 1e-9, okN1 = Math.abs(byN1 - SIG2) < 1e-9;
+      bars.innerHTML =
+        bar('divide the sum of squares by n = ' + n, byN, okN ? 'var(--viz-green)' : 'var(--viz-red)') +
+        bar('divide the sum of squares by n - 1 = ' + (n - 1), byN1, okN1 ? 'var(--viz-green)' : 'var(--viz-red)') +
+        '<div class="v4-ref"><span style="left:' + ((SIG2 / scale) * 100).toFixed(1) + '%">&#9650; true sigma^2 = 8</span></div>';
+
+      pills.innerHTML =
+        '<span class="vz-pill">samples enumerated ' + e.count + '</span>' +
+        '<span class="vz-pill">E[sum of squares] ' + num(e.mean, 3) + '</span>' +
+        '<span class="vz-pill">degrees of freedom ' + (n - 1) + '</span>';
+
+      function offBy(v){
+        var pct = (v / SIG2 - 1) * 100;
+        if (!isFinite(pct)) return 'off by an unmeasurable amount';
+        return num(Math.abs(pct), 1) + '% ' + (pct < 0 ? 'LOW' : 'HIGH');
+      }
+      var head, body;
+      if (onSampleMean) {
+        head = 'Dividing by n runs ' + offBy(byN) + '; dividing by n - 1 lands exactly on 8.';
+        body = 'The sample mean is fitted to the very points you are measuring, so it sits closer to them than mu = 6 does: ' +
+          'sum(x - xbar)^2 is never larger than sum(x - mu)^2. Averaged over all ' + e.count + ' samples the sum of squares ' +
+          'comes to ' + num(e.mean, 3) + ', which is exactly (n - 1)&#183;sigma^2 = ' + (n - 1) + '&#183;8. So the honest divisor is ' +
+          'n - 1 = ' + (n - 1) + ', not n. One degree of freedom went on estimating the centre. ' +
+          'Notice the shortfall is ' + offBy(byN) + ' <em>at this n</em> and shrinks as n grows &#8212; but it never reaches zero, ' +
+          'which is why the correction is not something you can skip on "big enough" data.';
+      } else {
+        head = 'Centred on the true mean, dividing by n is exact; n - 1 now runs ' + offBy(byN1) + '.';
+        body = 'This is the control experiment, and it is the whole proof. With mu known there is nothing to estimate from ' +
+          'the sample, the expected sum of squares is n&#183;sigma^2 = ' + num(e.mean, 3) + ', and the ordinary divisor n is already ' +
+          'unbiased. Applying n - 1 here <em>overshoots</em>. So n - 1 is not a rule about samples being smaller or noisier; ' +
+          'it is compensation for one specific act &#8212; using xbar, computed from this data, as the centre.';
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body;
+    }
+
+    s.addEventListener('input', render);
+    bX.addEventListener('click', function(){ onSampleMean = true; render(); });
+    bM.addEventListener('click', function(){ onSampleMean = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Tilt The Cloud</h2>
+  <p class="vz-lede">Covariance centres two variables at once and multiplies; correlation divides the units
+    back out. Tilt the cloud, bend it, and change the units of y, then watch which of the three numbers
+    actually mean anything. <b>Like asking whether two dancers move together: the answer must not change
+    when you measure their steps in centimetres instead of inches.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="shape of the relationship">
+    <button id="v5-s1" aria-pressed="true">straight</button>
+    <button id="v5-s2" aria-pressed="false">plus a U bend</button>
+    <button id="v5-s3" aria-pressed="false">plus a steep curve</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-slope">Slope of the straight part: <span id="v5-sl">0.6</span></label>
+    <input type="range" id="v5-slope" min="-10" max="10" step="1" value="6" aria-label="slope of the linear part">
+    <div class="vz-seg" role="group" aria-label="units of y">
+      <button id="v5-units" aria-pressed="false">re-measure y in milliseconds (x1000)</button>
+    </div>
+    <div id="v5-plot"></div>
+    <div class="vz-pills" id="v5-pills"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">And the warning that outranks all of the arithmetic: <b>correlation does not imply
+    causation.</b> A confounder driving both variables, causation running the other way, or a filter that
+    selected the rows you are looking at will each manufacture a strong r out of nothing. Correlation is a
+    description of this sample's geometry, never a claim about what would happen if you intervened.</p>
+
+  <style>
+    #v5-plot{margin-top:12px}
+    #v5-plot svg{display:block}
+  </style>
+  <script>
+  (function(){
+    var XS = [-4, -3, -2, -1, 0, 1, 2, 3, 4];
+    var JIT = [0.5, -0.4, 0.35, -0.6, 0.45, -0.35, 0.55, -0.5, 0.25];
+    var shapes = ['s1', 's2', 's3'];
+    var btns = {
+      s1: document.getElementById('v5-s1'),
+      s2: document.getElementById('v5-s2'),
+      s3: document.getElementById('v5-s3')
+    };
+    var sl = document.getElementById('v5-slope');
+    var slab = document.getElementById('v5-sl');
+    var bU = document.getElementById('v5-units');
+    var plot = document.getElementById('v5-plot');
+    var pills = document.getElementById('v5-pills');
+    var why = document.getElementById('v5-why');
+    var cur = 's1', ms = false;
+
+    function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--'; }
+    function big(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '--';
+      return Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(3);
+    }
+    function mean(a){ var t = 0; for (var i = 0; i < a.length; i++) t += a[i]; return t / a.length; }
+    function sdev(a){
+      var m = mean(a), t = 0;
+      for (var i = 0; i < a.length; i++) { var d = a[i] - m; t += d * d; }
+      return Math.sqrt(t / (a.length - 1));
+    }
+    function cov(a, b){
+      var ma = mean(a), mb = mean(b), t = 0;
+      for (var i = 0; i < a.length; i++) t += (a[i] - ma) * (b[i] - mb);
+      return t / (a.length - 1);
+    }
+    function pearson(a, b){
+      var den = sdev(a) * sdev(b);
+      return (isFinite(den) && den > 1e-12) ? cov(a, b) / den : NaN;
+    }
+    function ranks(a){
+      var order = [], i;
+      for (i = 0; i < a.length; i++) order.push(i);
+      order.sort(function(p, q){ return a[p] - a[q]; });
+      var r = new Array(a.length);
+      i = 0;
+      while (i < order.length) {
+        var j = i;
+        while (j + 1 < order.length && a[order[j + 1]] === a[order[i]]) j += 1;
+        var avg = (i + j) / 2 + 1;
+        for (var k = i; k <= j; k++) r[order[k]] = avg;
+        i = j + 1;
+      }
+      return r;
+    }
+
+    function render(){
+      for (var i = 0; i < shapes.length; i++) btns[shapes[i]].setAttribute('aria-pressed', shapes[i] === cur ? 'true' : 'false');
+      bU.setAttribute('aria-pressed', ms ? 'true' : 'false');
+      var slope = Number(sl.value) / 10;
+      if (!isFinite(slope)) slope = 0;
+      slab.textContent = slope.toFixed(1);
+      var mult = ms ? 1000 : 1;
+
+      var ys = [];
+      for (var q = 0; q < XS.length; q++) {
+        var x = XS[q], extra = 0;
+        if (cur === 's2') extra = (x * x) / 4;
+        if (cur === 's3') extra = (x * x * x) / 16;
+        ys.push((slope * x + extra + JIT[q]) * mult);
+      }
+
+      var r = pearson(XS, ys);
+      var rho = pearson(ranks(XS), ranks(ys));
+      var cv = cov(XS, ys);
+
+      var ymin = Math.min.apply(null, ys), ymax = Math.max.apply(null, ys);
+      var pad = (ymax - ymin) * 0.12 || 1;
+      ymin -= pad; ymax += pad;
+      var yspan = (ymax - ymin) || 1;
+      var pxX = function(v){ return 26 + (v + 4) / 8 * 274; };
+      var pxY = function(v){ return 126 - (v - ymin) / yspan * 108; };
+      var dots = '';
+      for (var d2 = 0; d2 < XS.length; d2++) {
+        dots += '<circle cx="' + pxX(XS[d2]).toFixed(1) + '" cy="' + pxY(ys[d2]).toFixed(1) + '" r="4.5" fill="var(--viz-accent)" opacity="0.9"></circle>';
+      }
+      plot.innerHTML =
+        '<svg viewBox="0 0 320 148" width="100%" height="148" role="img" aria-label="scatter plot of y against x">' +
+        '<line x1="22" y1="130" x2="308" y2="130" stroke="var(--viz-line)" stroke-width="1.5"></line>' +
+        '<line x1="22" y1="12" x2="22" y2="130" stroke="var(--viz-line)" stroke-width="1.5"></line>' +
+        dots +
+        '<text x="308" y="144" text-anchor="end" style="font-size:9.5px;fill:var(--viz-muted)">x from -4 to 4</text>' +
+        '<text x="22" y="10" style="font-size:9.5px;fill:var(--viz-muted)">y ' + (ms ? 'in ms' : 'in s') + '</text>' +
+        '</svg>';
+
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">cov ' + big(cv) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">Pearson r ' + num(r, 3) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">Spearman rho ' + num(rho, 3) + '</span>';
+
+      var ar = Math.abs(r), arho = Math.abs(rho);
+      var strength = !isFinite(ar) ? 'undefined'
+        : ar < 0.15 ? 'essentially no'
+        : ar < 0.4 ? 'a weak'
+        : ar < 0.7 ? 'a moderate'
+        : ar < 0.9 ? 'a strong'
+        : 'a very strong';
+      var dir = (!isFinite(r) || ar < 0.15) ? '' : (r > 0 ? ' positive' : ' negative');
+      var head = 'Pearson r = ' + num(r, 3) + ' &#8212; ' + strength + dir + ' LINEAR relationship.';
+
+      var body = 'r is covariance divided by the two standard deviations, r = cov / (sx&#183;sy) &#8212; <em>not</em> covariance ' +
+        'divided by the sample size. Geometrically it is the cosine of the angle between the two mean-centred vectors, ' +
+        'so Cauchy-Schwarz pins it into [-1, 1] with no further work.';
+
+      if (isFinite(ar) && isFinite(arho)) {
+        if (arho - ar > 0.12) {
+          body += '<br><br><b>Spearman rho = ' + num(rho, 3) + ' beats |r| = ' + num(ar, 3) + '.</b> rho is Pearson r computed on the ' +
+            'ranks, so it scores any <em>monotone</em> relationship. When it clearly outruns r, the pattern is real and ordered ' +
+            'but bent &#8212; a straight line is simply the wrong ruler for it.';
+        } else if (ar - arho > 0.12) {
+          body += '<br><br><b>Here |r| = ' + num(ar, 3) + ' exceeds |rho| = ' + num(arho, 3) + '.</b> Ranks throw away the spacing between ' +
+            'values, so when the points really do lie near a straight line the rank version can only lose information.';
+        } else {
+          body += '<br><br><b>r and rho agree to within ' + num(Math.abs(ar - arho), 3) + '.</b> That is the signature of a pattern that is ' +
+            'close to straight: the ordering and the spacing tell the same story.';
+        }
+      }
+      if (cur === 's2') {
+        body += '<br><br>The U term x^2/4 is in this data whatever the slope says. Set the slope to 0.0 and read r again: ' +
+          'both r and rho collapse towards zero while the plot shows an unmistakable curve. <b>r near 0 means no LINEAR ' +
+          'relationship, never "no relationship"</b> &#8212; and a symmetric U defeats rank correlation too, because it is not monotone.';
+      } else if (cur === 's3') {
+        body += '<br><br>The x^3/16 term is strictly increasing, so this shape is monotone but bent: rank correlation can score it ' +
+          'perfectly while Pearson cannot reach 1. That gap is the reason Spearman exists.';
+      }
+      body += '<br><br><b>Covariance = ' + big(cv) + '.</b> Press the units button: every y is multiplied by 1000, covariance is ' +
+        'multiplied by 1000 with it, and r and rho do not move at all. Covariance carries the units of x times the units of y, ' +
+        'so its magnitude is uninterpretable on its own &#8212; only its <em>sign</em> is, and a negative sign says that when one ' +
+        'variable rises the other tends to fall.';
+      why.innerHTML = '<b>' + head + '</b>' + body;
+    }
+
+    for (var m = 0; m < shapes.length; m++) {
+      (function(key){
+        btns[key].addEventListener('click', function(){ cur = key; render(); });
+      })(shapes[m]);
+    }
+    sl.addEventListener('input', render);
+    bU.addEventListener('click', function(){ ms = !ms; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. Spread Under Stress</h2>
+  <p class="vz-lede">Five measures of spread on one data set of response times. Drag the slowest request out
+    to disaster, then shift and scale the whole set, and watch which numbers follow and which refuse.
+    <b>Like a room full of people and one basketball player: the average height moves, the person standing in
+    the middle does not.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="transform every value">
+    <button id="v6-t0" aria-pressed="true">as recorded</button>
+    <button id="v6-t1" aria-pressed="false">add 5 to every value</button>
+    <button id="v6-t2" aria-pressed="false">multiply every value by 3</button>
+    <button id="v6-t3" aria-pressed="false">multiply every value by 0</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v6-o">Nine requests: 11, 12, 13, 14, 15, 16, 17, 18, <span id="v6-ol">18</span> ms</label>
+    <input type="range" id="v6-o" min="18" max="200" step="2" value="18" aria-label="the slowest response time">
+    <div id="v6-tbl"></div>
+    <div class="vz-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">Two consequences worth carrying out of here. The <b>range</b> is computed from the
+    maximum and the minimum and nothing else, which makes it the most outlier-sensitive statistic on the
+    list &#8212; and it also means two data sets sharing a range agree on nothing except that max minus min
+    matches. And <b>variance</b> is the one row measured in ms&#178;, so it can be compared with another
+    variance and never with the data itself; that is the job the square root does.</p>
+
+  <style>
+    #v6-tbl{margin-top:12px}
+    .v6-r{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1.5px solid var(--viz-line);
+      border-radius:9px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px}
+    .v6-r + .v6-r{margin-top:4px}
+    .v6-nm{flex:0 0 96px;font-family:inherit;font-weight:700}
+    .v6-vl{flex:0 0 auto;font-weight:800}
+    .v6-tg{margin-left:auto;font-size:10px;font-weight:800;letter-spacing:.03em;text-align:right}
+    .v6-hd{color:var(--viz-muted);font-size:10.5px;font-weight:800;letter-spacing:.05em;
+      text-transform:uppercase;margin:12px 0 6px}
+  </style>
+  <script>
+  (function(){
+    var BASE = [11, 12, 13, 14, 15, 16, 17, 18];
+    var modes = ['t0', 't1', 't2', 't3'];
+    var btns = {
+      t0: document.getElementById('v6-t0'),
+      t1: document.getElementById('v6-t1'),
+      t2: document.getElementById('v6-t2'),
+      t3: document.getElementById('v6-t3')
+    };
+    var s = document.getElementById('v6-o');
+    var ol = document.getElementById('v6-ol');
+    var tbl = document.getElementById('v6-tbl');
+    var why = document.getElementById('v6-why');
+    var cur = 't0';
+
+    function num(v, d){ return (typeof v === 'number' && isFinite(v)) ? v.toFixed(d) : '--'; }
+    function medianOf(sorted){
+      var n = sorted.length, h = Math.floor(n / 2);
+      return n % 2 ? sorted[h] : (sorted[h - 1] + sorted[h]) / 2;
+    }
+    function apply(mode, arr){
+      var out = [], i;
+      for (i = 0; i < arr.length; i++) {
+        if (mode === 't1') out.push(arr[i] + 5);
+        else if (mode === 't2') out.push(arr[i] * 3);
+        else if (mode === 't3') out.push(arr[i] * 0);
+        else out.push(arr[i]);
+      }
+      return out;
+    }
+    // n = 9, so the overall median is excluded from both halves.
+    function stats(raw){
+      var v = raw.slice().sort(function(p, q){ return p - q; });
+      var n = v.length, i;
+      var med = medianOf(v);
+      var q1 = medianOf(v.slice(0, Math.floor(n / 2)));
+      var q3 = medianOf(v.slice(Math.ceil(n / 2)));
+      var sum = 0;
+      for (i = 0; i < n; i++) sum += v[i];
+      var m = sum / n, ss = 0;
+      for (i = 0; i < n; i++) { var d = v[i] - m; ss += d * d; }
+      var varr = n > 1 ? ss / (n - 1) : NaN;
+      var abs = [];
+      for (i = 0; i < n; i++) abs.push(Math.abs(v[i] - med));
+      abs.sort(function(p, q){ return p - q; });
+      return { mean: m, med: med, range: v[n - 1] - v[0], iqr: q3 - q1,
+               sd: Math.sqrt(varr), varr: varr, mad: medianOf(abs) };
+    }
+    function ratio(cur2, base){
+      if (typeof base !== 'number' || !isFinite(base) || Math.abs(base) < 1e-12) return '--';
+      if (typeof cur2 !== 'number' || !isFinite(cur2)) return '--';
+      return 'x' + (cur2 / base).toFixed(3);
+    }
+
+    function render(){
+      for (var i = 0; i < modes.length; i++) btns[modes[i]].setAttribute('aria-pressed', modes[i] === cur ? 'true' : 'false');
+      var o = Number(s.value);
+      if (!isFinite(o)) o = 18;
+      ol.textContent = o;
+
+      var raw = BASE.concat([o]);
+      var st = stats(apply(cur, raw));
+      var untouched = stats(raw);
+      var atStart = stats(apply(cur, BASE.concat([Number(s.min)])));
+
+      function row(name, value, unit, note, colour){
+        return '<div class="v6-r"><span class="v6-nm" style="color:' + colour + '">' + name + '</span>' +
+          '<span class="v6-vl" style="color:' + colour + '">' + num(value, 2) + ' ' + unit + '</span>' +
+          '<span class="v6-tg" style="color:var(--viz-muted)">' + note + '</span></div>';
+      }
+      tbl.innerHTML =
+        '<div class="v6-hd">centre</div>' +
+        row('mean', st.mean, 'ms', 'uses every value', 'var(--viz-red)') +
+        row('median', st.med, 'ms', 'uses the middle position', 'var(--viz-violet)') +
+        '<div class="v6-hd">spread</div>' +
+        row('range', st.range, 'ms', 'max and min only &#183; ' + ratio(st.range, untouched.range), 'var(--viz-red)') +
+        row('std deviation', st.sd, 'ms', 'every value, squared &#183; ' + ratio(st.sd, untouched.sd), 'var(--viz-amber)') +
+        row('variance', st.varr, 'ms&#178;', 'squared units &#183; ' + ratio(st.varr, untouched.varr), 'var(--viz-amber)') +
+        row('IQR', st.iqr, 'ms', 'Q3 - Q1 &#183; ' + ratio(st.iqr, untouched.iqr), 'var(--viz-green)') +
+        row('MAD', st.mad, 'ms', 'median of |x - median| &#183; ' + ratio(st.mad, untouched.mad), 'var(--viz-green)');
+
+      var head, body;
+      if (cur === 't0') {
+        var frozen = (Math.abs(st.iqr - atStart.iqr) < 1e-9) && (Math.abs(st.mad - atStart.mad) < 1e-9);
+        head = 'Slowest request at ' + o + ' ms: range ' + num(st.range, 2) + ', IQR ' + num(st.iqr, 2) + ', MAD ' + num(st.mad, 2) + '.';
+        body = 'One value is doing all the moving. The range follows it exactly, because the range <em>is</em> max minus min. ' +
+          'The standard deviation follows it a long way too &#8212; it squares every deviation, so the biggest one dominates the sum. ' +
+          (frozen
+            ? 'The IQR and the MAD have not moved a hair since ' + s.min + ' ms: both are built from order statistics, and anything ' +
+              'past Q3 can run to infinity without changing which value sits at a given rank.'
+            : 'The IQR is now ' + num(st.iqr, 2) + ' against ' + num(atStart.iqr, 2) + ' at the start, and the MAD ' + num(st.mad, 2) +
+              ' against ' + num(atStart.mad, 2) + '.') +
+          '<br><br>That ordering &#8212; range, then standard deviation, then IQR and MAD &#8212; is the resistance ranking, and it is the ' +
+          'reason "which measure of spread" is a real decision and not a matter of taste.';
+      } else if (cur === 't3') {
+        head = 'Every value is now identical, and every spread is exactly 0.';
+        body = 'Multiplying by 0 collapses all nine readings onto the same number, so there is no variation left to measure and ' +
+          'range, IQR, standard deviation, variance and MAD are all 0.00. This is the whole content of "s = 0": it happens ' +
+          '<b>precisely when every value in the set is the same</b> &#8212; the 1, 1, 1 case &#8212; and never merely because the values are small.';
+      } else {
+        var k = (cur === 't1') ? 'adding 5 to' : 'multiplying by 3';
+        head = 'range ' + ratio(st.range, untouched.range) + ' &#183; SD ' + ratio(st.sd, untouched.sd) +
+          ' &#183; IQR ' + ratio(st.iqr, untouched.iqr) + ' &#183; MAD ' + ratio(st.mad, untouched.mad) +
+          ' &#183; variance ' + ratio(st.varr, untouched.varr) + '.';
+        body = (cur === 't1')
+          ? 'Adding a constant moved the mean to ' + num(st.mean, 2) + ' and the median to ' + num(st.med, 2) +
+            ', and left every spread measure at ratio 1.000. The reason is one line: (x + 5) - (xbar + 5) = x - xbar, so the ' +
+            'constant cancels inside every deviation, and all five spreads are built from deviations or differences. ' +
+            '<b>Shifting relocates a distribution; it cannot stretch one.</b>'
+          : 'Multiplying by 3 scaled every deviation by 3, so the standard deviation, range, IQR and MAD are all exactly three ' +
+            'times what they were &#8212; and the variance is <b>nine</b> times, because Var(aX) = a&#178;Var(X). That single ' +
+            'discrepancy between the ratios is the units argument made visible: variance lives in ms&#178;, everything else in ms. ' +
+            'Sweep the outlier slider with this button held and the ratios do not budge: the rule is about the transform, not the data.';
+        body += ' Untransformed, for comparison: SD ' + num(untouched.sd, 2) + ' ms, IQR ' + num(untouched.iqr, 2) +
+          ' ms, range ' + num(untouched.range, 2) + ' ms.';
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body;
+    }
+
+    for (var m = 0; m < modes.length; m++) {
+      (function(key){
+        btns[key].addEventListener('click', function(){ cur = key; render(); });
+      })(modes[m]);
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

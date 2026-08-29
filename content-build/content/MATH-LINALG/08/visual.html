@@ -16,12 +16,13 @@
 .vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
   color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
 .vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-seg button{overflow-wrap:anywhere}
 .vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
 .vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
 .vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
 .vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
 .vz-why b{display:block;font-size:13px;margin-bottom:4px}
-input[type=range]{width:100%;min-height:30px}
+input[type=range]{width:100%;min-height:44px}
 </style>
 </head>
 <body>
@@ -137,12 +138,19 @@ input[type=range]{width:100%;min-height:30px}
       var ang = Math.acos(cos) * 180 / Math.PI;
       var perp = Math.abs(dot) < 1e-6;
 
-      var mark = perp
-        ? '<path d="M 95 79 L 111 79 L 111 95" fill="none" stroke="var(--viz-green)" stroke-width="1.6"></path>'
-        : '';
+      // The right-angle square is drawn ON the two vectors, not on the axes: n1 and n2
+      // are sqrt(1 + something), so they are never zero and this cannot divide by zero.
+      var mark = '';
+      if (perp) {
+        var d = 17, u1x = 1 / n1, u1y = v1y / n1, u2x = 1 / n2, u2y = v2y / n2;
+        mark = '<path d="M ' + f2(CX + u1x * d) + ' ' + f2(CY - u1y * d) +
+          ' L ' + f2(CX + (u1x + u2x) * d) + ' ' + f2(CY - (u1y + u2y) * d) +
+          ' L ' + f2(CX + u2x * d) + ' ' + f2(CY - u2y * d) +
+          '" fill="none" stroke="var(--viz-green)" stroke-width="1.6"></path>';
+      }
       svg.innerHTML = BASE + mark +
-        arrow(1, v1y, 'var(--viz-accent)', 'q1') +
-        arrow(1, v2y, 'var(--viz-violet)', 'q2');
+        arrow(1, v1y, 'var(--viz-accent)', 'v1') +
+        arrow(1, v2y, 'var(--viz-violet)', 'v2');
 
       read.innerHTML = (sym
           ? '<span class="v1-tag" style="color:var(--viz-green);border-color:var(--viz-green)">SYMMETRIC · A = A transpose</span>'
@@ -221,7 +229,7 @@ input[type=range]{width:100%;min-height:30px}
     var VECS = [[1, 2], [3, -1], [1, 0], [2, 2]];
     var PRESETS = [
       { n: 'x A x = 21', a: 1, b: 4, c: 3, v: 0 },
-      { n: '2x1x1+6x1x2+5x2x2', a: 2, b: 6, c: 5, v: 0 },
+      { n: 'halve the 6', a: 2, b: 6, c: 5, v: 0 },
       { n: 'no cross term', a: 3, b: 0, c: 1, v: 1 }
     ];
     var vi = 0;
@@ -229,6 +237,9 @@ input[type=range]{width:100%;min-height:30px}
     function f1(v){ var r = Math.round(v * 10) / 10; if (!isFinite(r)) return '--'; return String(r); }
     function pad(v){ var t = f1(v); while (t.length < 5) t = ' ' + t; return t; }
     function term(co, s){ if (co === 0) return ''; return (co > 0 ? ' + ' : ' - ') + (Math.abs(co) === 1 ? '' : Math.abs(co)) + s; }
+    // the substitution line keeps every coefficient, including 1 and 0, so the arithmetic
+    // can be followed digit by digit
+    function sub(co, s){ return (co < 0 ? ' - ' : ' + ') + Math.abs(co) + s; }
 
     function row(name, mat, label, val, col){
       return '<div class="v2-r"><span class="v2-nm" style="color:' + col + '">' + name + '</span>' +
@@ -242,12 +253,16 @@ input[type=range]{width:100%;min-height:30px}
       var h = b / 2;
       var p = VECS[vi], x = p[0], y = p[1];
 
-      var body = (a === 0 ? '' : (a === 1 ? 'x^2' : a + 'x^2')) + term(b, 'xy') + term(c, 'y^2');
-      poly.textContent = 'q(x, y) = ' + (body.replace(/^ \+ /, '') || '0');
+      var body = term(a, 'x^2') + term(b, 'xy') + term(c, 'y^2');
+      poly.textContent = 'q(x, y) = ' + (body.replace(/^ \+ /, '').replace(/^ - /, '-') || '0');
 
-      var qA = a * x * x + b * x * y + c * y * y;
-      var qB = a * x * x + b * x * y + c * y * y;
-      var qS = 0;
+      // Each row is evaluated from ITS OWN four entries, so the three numbers below are
+      // three independent computations that happen to agree — not one value printed
+      // three times. That agreement is the whole point of the panel.
+      function form(m11, m12, m21, m22){ return m11 * x * x + m12 * x * y + m21 * y * x + m22 * y * y; }
+      var qA = form(a, h, h, c);          // the symmetric representative
+      var qB = form(a, b, 0, c);          // an upper-triangular rival, same function
+      var qS = form(0, h - b, h, 0);      // A - B, which is skew, and always evaluates to 0
 
       [].slice.call(vecBox.children).forEach(function(btn, j){
         btn.setAttribute('aria-pressed', j === vi ? 'true' : 'false');
@@ -258,12 +273,19 @@ input[type=range]{width:100%;min-height:30px}
         row('LOPSIDED B', '[' + pad(a) + pad(b) + ' ]\n[' + pad(0) + pad(c) + ' ]', 'x B x', qB, 'var(--viz-accent)') +
         row('SKEW A - B', '[' + pad(0) + pad(-h) + ' ]\n[' + pad(h) + pad(0) + ' ]', 'x S x', qS, 'var(--viz-violet)');
 
-      why.innerHTML = '<b>At x = (' + x + ', ' + y + '): ' + a + '(' + x + ')^2 + ' + b + '(' + x + ')(' + y +
-        ') + ' + c + '(' + y + ')^2 = ' + f1(qA) + '.</b>' +
-        'Read the symmetric matrix off the polynomial by <b>halving every cross coefficient</b>: the entry ' +
-        f1(h) + ' sits in both off-diagonal slots and is therefore counted twice, which is how it recovers the ' +
-        'full ' + b + 'xy. Putting ' + b + ' in both corners would double the cross term.' +
-        '<br><br>The lopsided B is not symmetric and returns the identical value at every x you can pick. ' +
+      var worked = a + '(' + x + ')^2' + sub(b, '(' + x + ')(' + y + ')') + sub(c, '(' + y + ')^2');
+      why.innerHTML = '<b>At x = (' + x + ', ' + y + '): ' + worked + ' = ' + f1(qA) + '.</b>' +
+        (b === 0
+          ? 'With no cross term both off-diagonal entries are 0, so A is already diagonal and the translation ' +
+            'is trivial — the coefficients <em>are</em> the eigenvalues. Drag b off zero and the halving starts ' +
+            'to matter.'
+          : 'Read the symmetric matrix off the polynomial by <b>halving every cross coefficient</b>: the entry ' +
+            f1(h) + ' sits in both off-diagonal slots and is therefore counted twice, which is how it recovers ' +
+            'the full ' + b + 'xy. Putting ' + b + ' in both corners would double the cross term.') +
+        '<br><br>' + (b === 0
+          ? 'At b = 0 the lopsided B has collapsed onto A and S is the zero matrix: the degenerate case where ' +
+            'the two representatives coincide. Move b and they part company while the value does not. '
+          : 'The lopsided B is not symmetric and returns the identical value at every x you can pick. ') +
         'Their difference S is <b>skew-symmetric</b> (S<sup>T</sup> = -S), and the third row is pinned at ' +
         'exactly zero for the same reason it always is: x<sup>T</sup>S x is a 1x1 scalar, so it equals its own ' +
         'transpose, x<sup>T</sup>S<sup>T</sup>x = -x<sup>T</sup>S x. A number equal to its own negative is zero.' +
@@ -483,10 +505,15 @@ input[type=range]{width:100%;min-height:30px}
       { n: 'saddle', a: 2, k: -4, c: 1 },
       { n: 'trough', a: 1, k: -4, c: 4 },
       { n: 'all entries positive', a: 1, k: 8, c: 1 },
-      { n: 'pure cross term', a: 0, k: 4, c: 0 }
+      { n: 'pure cross term', a: 0, k: 4, c: 0 },
+      { n: 'k boundary', a: 1, k: 4, c: 4 }
     ];
 
     function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return String(r); }
+    // sign-aware algebra rendering, so the completed square reads "2(x - y)^2 - y^2"
+    // rather than the machine-literal "2(x + -1y)^2 + -1y^2"
+    function lead(v){ var t = f2(v); return t === '1' ? '' : (t === '-1' ? '-' : t); }
+    function signed(v, s){ var t = f2(Math.abs(v)); return (v < 0 ? ' - ' : ' + ') + (t === '1' ? '' : t) + s; }
 
     function classify(p, m){
       var pos = p > TOL || m > TOL, neg = p < -TOL || m < -TOL, zero = Math.abs(p) <= TOL || Math.abs(m) <= TOL;
@@ -511,11 +538,13 @@ input[type=range]{width:100%;min-height:30px}
       verd.style.color = v.c; verd.style.borderColor = v.c;
       verd.textContent = v.t;
 
-      var sq;
+      var sq, rest;
       if (Math.abs(a) > TOL) {
-        sq = f2(a) + '(x + ' + f2(h / a) + 'y)^2 + ' + f2(c - h * h / a) + 'y^2';
+        rest = c - h * h / a;
+        sq = lead(a) + '(x' + signed(h / a, 'y') + ')^2' + (Math.abs(rest) <= TOL ? '' : signed(rest, 'y^2'));
       } else if (Math.abs(c) > TOL) {                     // guard: cannot divide by a = 0
-        sq = f2(c) + '(y + ' + f2(h / c) + 'x)^2 + ' + f2(a - h * h / c) + 'x^2';
+        rest = a - h * h / c;
+        sq = lead(c) + '(y' + signed(h / c, 'x') + ')^2' + (Math.abs(rest) <= TOL ? '' : signed(rest, 'x^2'));
       } else {
         sq = f2(k) + 'xy  — no square to complete; take x = y then x = -y';
       }
@@ -523,8 +552,8 @@ input[type=range]{width:100%;min-height:30px}
       var sign = function(x){ return x > TOL ? 'positive' : (x < -TOL ? 'negative' : 'zero'); };
       tests.innerHTML =
         '<div class="v4-t"><b>TEST 1 · LEADING PRINCIPAL MINORS</b><span>D1 = ' + f2(d1) + ' (' + sign(d1) +
-          ') · D2 = det = ' + f2(a) + '(' + f2(c) + ') - ' + f2(h) + '^2 = ' + f2(d2) + ' (' + sign(d2) +
-          ')</span></div>' +
+          ') · D2 = det = ' + f2(a) + '(' + f2(c) + ') - ' + (h < 0 ? '(' + f2(h) + ')' : f2(h)) +
+          '^2 = ' + f2(d2) + ' (' + sign(d2) + ')</span></div>' +
         '<div class="v4-t"><b>TEST 2 · TRACE AND DETERMINANT</b><span>trace = ' + f2(tr) + ' = sum of eigenvalues · det = ' +
           f2(det) + ' = product</span></div>' +
         '<div class="v4-t"><b>TEST 3 · THE EIGENVALUES THEMSELVES</b><span>lambda = ' + f2(lp) + ' and ' + f2(lm) +
@@ -554,8 +583,10 @@ input[type=range]{width:100%;min-height:30px}
         '2x2 the determinant is the product of the eigenvalues and the trace is their sum, so two numbers fix ' +
         'both signs. Test 3 is the definition. Test 4 is the algebra underneath all of them: once q is written ' +
         'as a weighted sum of independent squares, the weights <em>are</em> the verdict.' +
-        '<br><br>Set k with a = 1 and c = 4 and watch the boundary: D2 = 4 - k^2/4 stays positive exactly for ' +
-        '-4 &lt; k &lt; 4, which is the full answer to "for which k is x^2 + kxy + 4y^2 positive definite".' + traps;
+        '<br><br>Tap <b>k boundary</b> — that is a = 1, c = 4 — then drag k alone and watch D2 = 4 - k^2/4 ' +
+        'cross zero. It stays positive exactly for <b>-4 &lt; k &lt; 4</b>, which is the full answer to "for ' +
+        'which k is x^2 + kxy + 4y^2 positive definite", and the completed square in test 4 shows the same ' +
+        'number as the weight on y^2.' + traps;
     }
 
     PRESETS.forEach(function(ps){
@@ -633,6 +664,8 @@ input[type=range]{width:100%;min-height:30px}
 
     function f2(v){ var r = Math.round(v * 100) / 100; if (!isFinite(r)) return '--'; if (r === 0) r = 0; return String(r); }
     function pad(v){ var t = f2(v); while (t.length < 7) t = ' ' + t; return t; }
+    // sign-aware join, so a negative eigenvalue reads "- 2 q2 q2^T" and not "+ -2 q2 q2^T"
+    function plus(v, s){ return (v < 0 ? ' - ' : ' + ') + f2(Math.abs(v)) + s; }
 
     function render(){
       var l1 = Number(L1.value), l2 = Number(L2.value);
@@ -649,7 +682,7 @@ input[type=range]{width:100%;min-height:30px}
         matEl.textContent = fn.n + ' does not exist.\n\nAn eigenvalue is 0, so A is\nsingular: it flattens its\n' +
           'own eigenvector to the\nzero vector, and nothing\ncan undo that.';
       } else {
-        matEl.textContent = fn.n + ' = ' + f2(f1) + ' q1 q1^T + ' + f2(f2v) + ' q2 q2^T\n\n' +
+        matEl.textContent = fn.n + ' = ' + f2(f1) + ' q1 q1^T' + plus(f2v, ' q2 q2^T') + '\n\n' +
           '  [' + pad((f1 + f2v) / 2) + pad((f1 - f2v) / 2) + ' ]\n' +
           '  [' + pad((f1 - f2v) / 2) + pad((f1 + f2v) / 2) + ' ]\n\n' +
           'Q^T (' + fn.n + ') Q = diag(' + f2(f1) + ', ' + f2(f2v) + ')';
@@ -663,8 +696,9 @@ input[type=range]{width:100%;min-height:30px}
 
       valEl.innerHTML = singular
         ? '<div class="v5-l"><b>NO VALUE TO SHOW</b>Choose a nonzero eigenvalue pair, or pick another function.</div>'
-        : '<div class="v5-l"><b>IN THE EIGENBASIS</b>x M x = ' + f2(f1) + '(' + c1 + ')^2 + ' + f2(f2v) + '(' + c2 +
-            ')^2 = <b style="display:inline;color:var(--viz-accent)">' + f2(spectral) + '</b></div>' +
+        : '<div class="v5-l"><b>IN THE EIGENBASIS</b>x M x = ' + f2(f1) + '(' + c1 + ')^2' +
+            plus(f2v, '(' + c2 + ')^2') +
+            ' = <b style="display:inline;color:var(--viz-accent)">' + f2(spectral) + '</b></div>' +
           '<div class="v5-l"><b>BY THE ENTRIES, IN STANDARD COORDINATES</b>x = (' + f2(p) + ', ' + f2(qq) +
             ') · x M x = ' + f2(direct) + '  — the same number</div>' +
           '<div class="v5-l"><b>LENGTH IS UNCHANGED BY Q</b>|x|^2 = ' + c1 + '^2 + ' + c2 + '^2 = ' + f2(norm) +

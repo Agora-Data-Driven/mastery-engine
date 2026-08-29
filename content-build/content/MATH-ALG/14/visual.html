@@ -43,18 +43,18 @@
 <!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
 <section class="viz-panel" data-viz-panel="1">
   <h2 class="vz-h">1. Undoing The Exponential</h2>
-  <p class="vz-lede">Graphing exponential growth and decay gave you a machine that turns an exponent into a
-    value. Introduction to inverse functions gave you the idea of running a machine backwards. A logarithm
-    is that backwards machine — nothing more. Pick a base, drag the exponent, and watch the same pair of
-    numbers appear on both curves with their coordinates swapped.
-    <b>Like folding paper: one question is how thick it is after 6 folds, the other is how many folds got
-    it that thick.</b></p>
+  <p class="vz-lede"><b>Graphing exponential growth and decay</b> gave you a machine that turns an exponent
+    into a value. <b>Introduction to inverse functions</b> and <b>Verifying inverse functions</b> gave you the
+    idea of running a machine backwards. A logarithm is that backwards machine — nothing more. Pick a base,
+    drag the exponent, and watch the same pair of numbers appear on both curves with their coordinates
+    swapped. <b>Like folding paper: one question is how thick it is after 6 folds, the other is how many
+    folds got it that thick.</b></p>
 
   <div class="v1-bridge">
     <div class="v1-half"><h5>already taught</h5><div class="vz-mono">f(x) = b^x
 input  = the exponent
 output = the value      (always &gt; 0)</div></div>
-    <div class="v1-half"><h5>this lesson</h5><div class="vz-mono">f'(x) = log_b(x)
+    <div class="v1-half"><h5>this lesson</h5><div class="vz-mono">f^-1(x) = log_b(x)
 input  = the value      (must be &gt; 0)
 output = the exponent</div></div>
   </div>
@@ -68,7 +68,7 @@ output = the exponent</div></div>
     </div>
 
     <label class="vz-lab" for="v1-t">exponent t = <b><span id="v1-tl">3</span></b></label>
-    <input class="vz-range" type="range" id="v1-t" min="-100" max="100" value="96" step="1" aria-label="The exponent t">
+    <input class="vz-range" type="range" id="v1-t" min="-92" max="63" value="60" step="1" aria-label="The exponent t">
 
     <div class="vz-plot" id="v1-plot"></div>
     <div class="v1-read" id="v1-read"></div>
@@ -109,28 +109,38 @@ output = the exponent</div></div>
 
     // The window shows values from 0.04 to 9, so the exponent range depends on the
     // base — otherwise 10^3 would fly off the top while 2^3 sat in the middle.
-    var U_LO = 0.04, U_HI = 9;
+    // The slider carries the exponent ITSELF, in twentieths, so whole exponents are
+    // exactly reachable: base 2 at notch 60 is t = 3 and reads 2^3 = 8, not 8.076.
+    var U_LO = 0.04, U_HI = 9, Q = 20;
 
     function baseVal(){
       for (var i = 0; i < BASES.length; i++) if (BASES[i].k === bKey) return BASES[i].v;
       return 2;
     }
-    function tLo(){ return Math.log(U_LO) / Math.log(baseVal()); }
-    function tHi(){ return Math.log(U_HI) / Math.log(baseVal()); }
+    function bounds(){
+      var lb = Math.log(baseVal());
+      if (!isFinite(lb) || lb === 0) return { lo:-Q, hi:Q };
+      var lo = Math.ceil(Math.log(U_LO) / lb * Q);
+      var hi = Math.floor(Math.log(U_HI) / lb * Q);
+      if (!isFinite(lo) || !isFinite(hi) || hi <= lo) return { lo:-Q, hi:Q };
+      return { lo:lo, hi:hi };
+    }
+    function applyBounds(){
+      var b = bounds();
+      slider.min = String(b.lo);
+      slider.max = String(b.hi);
+    }
     function tNow(){
       var s = Number(slider.value);
-      if (!isFinite(s)) s = 0;
-      var lo = tLo(), hi = tHi();
-      if (!isFinite(lo) || !isFinite(hi) || hi === lo) return 1;
-      return lo + (s + 100) / 200 * (hi - lo);
+      if (!isFinite(s)) return 1;
+      return s / Q;
     }
     function setT(t){
-      var lo = tLo(), hi = tHi();
-      if (!isFinite(lo) || !isFinite(hi) || hi === lo) return;
-      var c = Math.min(hi, Math.max(lo, t));
-      var s = Math.round((c - lo) / (hi - lo) * 200 - 100);
-      slider.value = String(Math.max(-100, Math.min(100, s)));
+      if (!isFinite(t)) return;
+      var b = bounds();
+      slider.value = String(Math.max(b.lo, Math.min(b.hi, Math.round(t * Q))));
     }
+    function lgName(){ return bKey === 'e' ? 'ln' : 'log_' + bKey; }
     function n(v, d){
       if (!isFinite(v)) return '—';
       var p = Math.pow(10, d === undefined ? 3 : d);
@@ -193,14 +203,14 @@ output = the exponent</div></div>
         svg += '<text x="' + (px(u) + 8).toFixed(1) + '" y="' + (py(t) + 14).toFixed(1) + '" style="font-size:10px;fill:var(--viz-accent);font-weight:700">(' + n(u, 2) + ', ' + n(t, 2) + ')</text>';
       }
       svg += '<text x="' + (W - 6) + '" y="' + (py(8.6)).toFixed(1) + '" text-anchor="end" style="font-size:10.5px;fill:var(--viz-green);font-weight:700">y = ' + bKey + '^x</text>';
-      svg += '<text x="' + (W - 6) + '" y="' + (py(2.1)).toFixed(1) + '" text-anchor="end" style="font-size:10.5px;fill:var(--viz-accent);font-weight:700">y = log_' + bKey + '(x)</text>';
+      svg += '<text x="' + (W - 6) + '" y="' + (py(2.1)).toFixed(1) + '" text-anchor="end" style="font-size:10.5px;fill:var(--viz-accent);font-weight:700">y = ' + lgName() + '(x)</text>';
       svg += '<text x="' + px(7.4).toFixed(1) + '" y="' + (py(7.4) - 6).toFixed(1) + '" style="font-size:10px;fill:var(--viz-violet);font-weight:700">y = x</text>';
       svg += '</svg>';
       plot.innerHTML = svg;
 
       read.innerHTML =
         pill(bKey + '^' + n(t, 2) + ' = ' + n(u, 3), 'var(--viz-green)') +
-        pill('log_' + bKey + '(' + n(u, 3) + ') = ' + n(t, 2), 'var(--viz-accent)') +
+        pill(lgName() + '(' + n(u, 3) + ') = ' + n(t, 2), 'var(--viz-accent)') +
         pill(u < 1 ? 'value below 1, so the log is negative' : (u === 1 ? 'value 1, so the log is 0' : 'value above 1, so the log is positive'),
           u < 1 ? 'var(--viz-amber)' : 'var(--viz-muted)');
 
@@ -208,8 +218,8 @@ output = the exponent</div></div>
         'start from the exponent      t = ' + n(t, 2) + '\n' +
         'raise the base to it         ' + bKey + '^' + n(t, 2) + ' = ' + n(u, 3) + '\n' +
         'now ask the log its question "' + bKey + ' to the what gives ' + n(u, 3) + '?"\n' +
-        'the answer IS the exponent   log_' + bKey + '(' + n(u, 3) + ') = ' + n(t, 2) + '\n' +
-        'round trip, both ways        log_' + bKey + '(' + bKey + '^t) = t   and   ' + bKey + '^(log_' + bKey + '(x)) = x';
+        'the answer IS the exponent   ' + lgName() + '(' + n(u, 3) + ') = ' + n(t, 2) + '\n' +
+        'round trip, both ways        ' + lgName() + '(' + bKey + '^t) = t   and   ' + bKey + '^(' + lgName() + '(x)) = x';
 
       if (Math.abs(t) < 0.005) {
         why.innerHTML = '<b style="color:var(--viz-violet)">Exponent 0: every base agrees here.</b>' +
@@ -219,7 +229,7 @@ output = the exponent</div></div>
           '<br><br>Its partner is one step along: b^1 = b, so log_b(b) = 1 always. Two free values you never have to compute.';
       } else if (u < 1) {
         why.innerHTML = '<b style="color:var(--viz-amber)">A negative output is ordinary — it is the input that must stay positive.</b>' +
-          'Here ' + bKey + '^' + n(t, 2) + ' = ' + n(u, 3) + ', a value below 1, so log_' + bKey + '(' + n(u, 3) + ') = ' + n(t, 2) + ' comes back negative. ' +
+          'Here ' + bKey + '^' + n(t, 2) + ' = ' + n(u, 3) + ', a value below 1, so ' + lgName() + '(' + n(u, 3) + ') = ' + n(t, 2) + ' comes back negative. ' +
           'This is exactly the bank question log_10(0.1): 10^-1 = 0.1, so the answer is -1, and answering 10 or 1 is reading the wrong slot. ' +
           '<br><br>The asymmetry matters: the <b>output</b> of a log ranges over every real number, positive and negative, while the ' +
           '<b>input</b> can only ever be positive. log_b(0) and log_b(-4) do not exist, because no exponent drives a positive base to zero or below.';
@@ -244,18 +254,20 @@ output = the exponent</div></div>
     PRESETS.forEach(function(p){
       var btn = document.createElement('button');
       btn.textContent = p.t;
-      btn.addEventListener('click', function(){ bKey = p.b; setT(p.e); render(); });
+      btn.addEventListener('click', function(){ bKey = p.b; applyBounds(); setT(p.e); render(); });
       pres.appendChild(btn);
     });
     [].slice.call(bases.children).forEach(function(btn){
       btn.addEventListener('click', function(){
-        var t = tNow();
+        var t = tNow();          // read the exponent BEFORE the window moves
         bKey = btn.getAttribute('data-b');
+        applyBounds();
         setT(t);                 // keep the exponent, not the slider position
         render();
       });
     });
     slider.addEventListener('input', render);
+    applyBounds();
     render();
   })();
   </script>
@@ -326,7 +338,7 @@ output = the exponent</div></div>
 
       forms.innerHTML =
         '<div class="v2-f"><h6>exponential form</h6><div class="v2-eq">' +
-          slot(String(b), BC) + '<sup>' + '</sup>^' + slot(String(c), EC) + '  =  ' + slot(num(a), RC) + frac +
+          slot(String(b), BC) + '^' + slot(String(c), EC) + '  =  ' + slot(num(a), RC) + frac +
         '</div></div>' +
         '<div class="v2-f"><h6>logarithmic form — the same claim</h6><div class="v2-eq">' +
           'log<sub>' + slot(String(b), BC) + '</sub>( ' + slot(num(a), RC) + ' )  =  ' + slot(String(c), EC) +
@@ -482,8 +494,12 @@ output = the exponent</div></div>
         rhsTxt = 'log(' + x + ') + log(' + y + ')';                        rhs = lg(x) + lg(y);
       }
 
-      var ok = isFinite(lhs) && isFinite(rhs) && Math.abs(lhs - rhs) < 1e-9;
-      var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
+      // x + y = x * y happens at exactly one legal pair, x = y = 2. Never let that read
+      // as MATCH: an identity has to hold everywhere, and this one holds at a single point.
+      var same = isFinite(lhs) && isFinite(rhs) && Math.abs(lhs - rhs) < 1e-9;
+      var fluke = (law === 3) && same;
+      var ok = same && law !== 3;
+      var col = ok ? 'var(--viz-green)' : (fluke ? 'var(--viz-amber)' : 'var(--viz-red)');
       var gap = (isFinite(lhs) && isFinite(rhs)) ? Math.abs(lhs - rhs) : NaN;
       check.innerHTML =
         '<div class="v3-row"><span>left side&nbsp; ' + lhsTxt + '</span><b style="color:' + col + '">' + f(lhs) + '</b></div>' +
@@ -491,6 +507,7 @@ output = the exponent</div></div>
         '<div class="v3-row"><span style="color:var(--viz-muted)">difference</span><b style="color:' + col + '">' + f(gap) + '</b></div>' +
         '<div class="v3-verdict" style="color:' + col + '">' +
           (ok ? '✓ MATCH — identical for every legal x and y, because it is an exponent law in disguise'
+              : fluke ? '⚠ COINCIDENCE, NOT A RULE — 2 + 2 and 2 × 2 are both 4, so the sides agree at this one point only'
               : '✗ MISMATCH — the two sides are different numbers, so this is not a rule') + '</div>';
 
       if (law === 0) {
@@ -531,8 +548,13 @@ output = the exponent</div></div>
           '<br><br><b style="display:inline">The trap it is paired with:</b> log(x^2) is NOT 2 + log(x). Drag p to 2 and read the two numbers — ' +
           'the coefficient multiplies. Adding the exponent instead is the single most common wrong option in this topic.';
       } else if (law === 3) {
-        why.innerHTML = '<b style="color:var(--viz-red)">The most tempting false rule, killed by one substitution.</b>' +
-          'With x = ' + x + ' and y = ' + y + ' the two sides differ by ' + f(gap) + '. Try base 10 with x = 100 and y = 10: log(110) is about 2.041, ' +
+        why.innerHTML = (fluke
+          ? '<b style="color:var(--viz-amber)">You have found the single accident — and it proves the point rather than rescuing the rule.</b>' +
+            'At x = 2 and y = 2 the sides agree, because 2 + 2 and 2 × 2 both make 4, so the two logarithms have identical inputs. ' +
+            'An identity must hold for <em>every</em> legal input; agreeing at one point is arithmetic luck, not a law. Move either slider one notch and the gap opens. '
+          : '<b style="color:var(--viz-red)">The most tempting false rule, killed by one substitution.</b>' +
+            'With x = ' + x + ' and y = ' + y + ' the two sides differ by ' + f(gap) + '. ') +
+          'Try base 10 with x = 100 and y = 10: log(110) is about 2.041, ' +
           'while log(100) + log(10) = 3. Not close, and no choice of numbers rescues it. ' +
           '<br><br><b style="display:inline">Why it feels right and is not:</b> the product rule turns multiplication into addition. People remember ' +
           '"logs turn things into sums" and drop the multiplication half. The correct sentence is: <em>a product inside becomes a sum outside</em>. ' +

@@ -1,0 +1,903 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, sliders, the segmented control. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour —
+   each visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 8px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);background:var(--viz-bg)}
+.vz-seg button[aria-pressed="true"]::before{content:"\2713\00a0"}
+.vz-range{width:100%;min-height:44px;accent-color:var(--viz-accent)}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:0}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+.vz-pills{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid var(--viz-line);
+  color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:4px 12px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Modulus Becomes Magnitude</button>
+  <button class="viz-tab" data-viz-tab="2">2. Length And Heading</button>
+  <button class="viz-tab" data-viz-tab="3">3. Stretch Flip Collapse</button>
+  <button class="viz-tab" data-viz-tab="4">4. Tip To Tail</button>
+  <button class="viz-tab" data-viz-tab="5">5. Boat And Current</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Modulus Becomes Magnitude</h2>
+  <p class="vz-lede">You already carry a point in the plane as one object with a length and a heading — that
+    was <b>The complex plane</b>, <b>Modulus and argument</b> and <b>Polar form of complex numbers</b>. Move the
+    two numbers and watch the same arrow answer to both names. Then pick an operation and see where the two
+    stories agree, and the one place they part.
+    <b>Like the same street address written as a postcode or as "two blocks north, one east".</b></p>
+
+  <div class="vz-seg" id="v1-ops" role="group" aria-label="Operation to compare"></div>
+
+  <div class="vz-card">
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v1-a">across (real part) <b id="v1-al">a = 3</b></label>
+        <input class="vz-range" type="range" id="v1-a" min="-6" max="6" step="1" value="3" aria-label="a, the horizontal component">
+      </div>
+      <div>
+        <label class="vz-lab" for="v1-b">up (imaginary part) <b id="v1-bl">b = 4</b></label>
+        <input class="vz-range" type="range" id="v1-b" min="-6" max="6" step="1" value="4" aria-label="b, the vertical component">
+      </div>
+    </div>
+
+    <div id="v1-plane" style="margin-top:8px"></div>
+    <div id="v1-cols"></div>
+    <div id="v1-op"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">Keep one difference in view. Two complex numbers can be <b>multiplied</b>, and in polar
+    form that multiplies the moduli and adds the arguments — a rotation. Two vectors have no such product in
+    this lesson: they are scaled, added and subtracted, and that is the whole toolkit. A vector is the arrow
+    without the rotation rule attached.</p>
+
+  <style>
+    .v1-svg{width:100%;height:auto;max-width:300px;display:block;margin:0 auto;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+    .v1-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v1-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v1-arrow{stroke:var(--viz-accent);stroke-width:2.6;fill:none}
+    .v1-head{fill:var(--viz-accent)}
+    .v1-leg{stroke:var(--viz-violet);stroke-width:1.4;fill:none;stroke-dasharray:4 3}
+    .v1-arc{stroke:var(--viz-green);stroke-width:1.6;fill:none}
+    .v1-t{font-size:10px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v1-tk{fill:var(--viz-accent)} .v1-tv{fill:var(--viz-violet)} .v1-tg{fill:var(--viz-green)}
+    .v1-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px;margin-top:12px}
+    .v1-c{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;background:var(--viz-bg)}
+    .v1-c.is-now{border-color:var(--viz-accent)}
+    .v1-ch{font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      font-weight:800;margin-bottom:6px}
+    .v1-l{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.75}
+    .v1-r{display:flex;align-items:center;gap:8px;flex-wrap:wrap;border:1.5px solid var(--viz-line);
+      border-radius:9px;padding:7px 9px;margin-top:6px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11px}
+    .v1-r.is-same{border-color:var(--viz-green)}
+    .v1-r.is-only{border-color:var(--viz-amber)}
+    .v1-tag{margin-left:auto;font-weight:800;font-size:10px;letter-spacing:.03em;font-family:inherit}
+    .v1-who{flex:0 0 auto;font-weight:800;color:var(--viz-muted);width:62px}
+  </style>
+  <script>
+  (function(){
+    var S = 260, R = 6.5, K = S / (2 * R);
+    var sa = document.getElementById('v1-a'), sb = document.getElementById('v1-b');
+    var la = document.getElementById('v1-al'), lb = document.getElementById('v1-bl');
+    var plane = document.getElementById('v1-plane'), cols = document.getElementById('v1-cols');
+    var opBox = document.getElementById('v1-op'), why = document.getElementById('v1-why');
+    var seg = document.getElementById('v1-ops');
+
+    var OPS = [
+      { tab: 'add 2 + i', key: 'add' },
+      { tab: 'scale by 2', key: 'scale' },
+      { tab: 'multiply by i', key: 'imul' }
+    ];
+    var cur = 0;
+
+    function n(x){ return isFinite(x) ? String(Math.round(x * 100) / 100) : '—'; }
+    function PX(x){ return S / 2 + x * K; }
+    function PY(y){ return S / 2 - y * K; }
+    function deg(a, b){
+      if (!isFinite(a) || !isFinite(b) || (a === 0 && b === 0)) return NaN;
+      var d = Math.atan2(b, a) * 180 / Math.PI;
+      return d < 0 ? d + 360 : d;
+    }
+
+    function arrow(x2raw, y2raw){
+      var x1 = PX(0), y1 = PY(0), x2 = PX(x2raw), y2 = PY(y2raw);
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      var out = '<line class="v1-arrow" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 8) {
+        var t = Math.atan2(dy, dx), h = 9, w = 4.6;
+        var bx = x2 - h * Math.cos(t), by = y2 - h * Math.sin(t);
+        out += '<polygon class="v1-head" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w * Math.sin(t)) + ',' + (by - w * Math.cos(t)) + ' ' +
+          (bx - w * Math.sin(t)) + ',' + (by + w * Math.cos(t)) + '"/>';
+      }
+      return out;
+    }
+
+    function grid(){
+      var g = '';
+      for (var i = -6; i <= 6; i++) {
+        g += '<line class="v1-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v1-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v1-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v1-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      return g;
+    }
+
+    function render(){
+      var a = Number(sa.value), b = Number(sb.value);
+      la.textContent = 'a = ' + a; lb.textContent = 'b = ' + b;
+      [].slice.call(seg.children).forEach(function(btn, i){
+        btn.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+      });
+
+      var r = Math.sqrt(a * a + b * b);
+      var th = deg(a, b);
+      var known = r > 1e-9;
+
+      var legs = '<line class="v1-leg" x1="' + PX(0) + '" y1="' + PY(0) + '" x2="' + PX(a) + '" y2="' + PY(0) + '"/>' +
+        '<line class="v1-leg" x1="' + PX(a) + '" y1="' + PY(0) + '" x2="' + PX(a) + '" y2="' + PY(b) + '"/>' +
+        '<text class="v1-t v1-tv" x="' + (PX(a / 2) - 6) + '" y="' + (PY(0) + 13) + '">a=' + a + '</text>' +
+        '<text class="v1-t v1-tv" x="' + (PX(a) + 4) + '" y="' + PY(b / 2) + '">b=' + b + '</text>';
+      var arc = known
+        ? '<path class="v1-arc" d="M ' + PX(0.9) + ' ' + PY(0) + ' A ' + (0.9 * K) + ' ' + (0.9 * K) +
+          ' 0 ' + (th > 180 ? 1 : 0) + ' 0 ' + PX(0.9 * Math.cos(th * Math.PI / 180)) + ' ' +
+          PY(0.9 * Math.sin(th * Math.PI / 180)) + '"/>' +
+          '<text class="v1-t v1-tg" x="' + (PX(0) + 8) + '" y="' + (PY(0) - 16) + '">' + n(th) + '&#176;</text>'
+        : '';
+
+      plane.innerHTML = '<svg class="v1-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="One arrow from the origin, its two component legs, and the angle it makes with the positive x axis">' +
+        grid() + legs + arc + arrow(a, b) +
+        '<text class="v1-t v1-tk" x="' + (PX(a) + 5) + '" y="' + (PY(b) - 6) + '">(' + a + ', ' + b + ')</text>' +
+        '</svg>';
+
+      cols.className = 'v1-cols';
+      cols.innerHTML =
+        '<div class="v1-c"><div class="v1-ch">earlier &#183; z = a + bi</div><div class="v1-l">' +
+          'z = ' + a + ' + (' + b + ')i<br>' +
+          '|z| = sqrt(' + (a * a) + ' + ' + (b * b) + ') = ' + n(r) + '<br>' +
+          'arg(z) = ' + (known ? n(th) + '&#176;' : 'undefined') + '<br>' +
+          'polar: ' + n(r) + '(cos ' + (known ? n(th) : '?') + '&#176; + i sin ' + (known ? n(th) : '?') + '&#176;)' +
+        '</div></div>' +
+        '<div class="v1-c is-now"><div class="v1-ch">this lesson &#183; vector</div><div class="v1-l">' +
+          'components &#60;' + a + ', ' + b + '&#62;<br>' +
+          'magnitude = sqrt(' + (a * a) + ' + ' + (b * b) + ') = ' + n(r) + '<br>' +
+          'direction = ' + (known ? n(th) + '&#176;' : 'undefined') + '<br>' +
+          'rebuilt: &#60;' + n(r * Math.cos(th * Math.PI / 180)) + ', ' + n(r * Math.sin(th * Math.PI / 180)) + '&#62;' +
+        '</div></div>';
+
+      var op = OPS[cur].key, rows = '', verdict = '';
+      if (op === 'add') {
+        rows =
+          '<div class="v1-r is-same"><span class="v1-who">complex</span><span>(' + a + ' + ' + b + 'i) + (2 + i) = ' +
+            (a + 2) + ' + ' + (b + 1) + 'i</span><span class="v1-tag" style="color:var(--viz-green)">SAME</span></div>' +
+          '<div class="v1-r is-same"><span class="v1-who">vector</span><span>&#60;' + a + ', ' + b + '&#62; + &#60;2, 1&#62; = &#60;' +
+            (a + 2) + ', ' + (b + 1) + '&#62;</span><span class="v1-tag" style="color:var(--viz-green)">SAME</span></div>';
+        verdict = '<b style="color:var(--viz-green)">Addition transfers exactly.</b>' +
+          'Real parts add, imaginary parts add — which is componentwise addition with different labels on the two slots. ' +
+          'Nothing new has to be learned for vector addition; you have been doing it since the complex plane.';
+      } else if (op === 'scale') {
+        rows =
+          '<div class="v1-r is-same"><span class="v1-who">complex</span><span>2(' + a + ' + ' + b + 'i) = ' +
+            (2 * a) + ' + ' + (2 * b) + 'i</span><span class="v1-tag" style="color:var(--viz-green)">SAME</span></div>' +
+          '<div class="v1-r is-same"><span class="v1-who">vector</span><span>2&#183;&#60;' + a + ', ' + b + '&#62; = &#60;' +
+            (2 * a) + ', ' + (2 * b) + '&#62;</span><span class="v1-tag" style="color:var(--viz-green)">SAME</span></div>';
+        verdict = '<b style="color:var(--viz-green)">Scaling by a real number transfers too.</b>' +
+          'Both components double, so the modulus doubles from ' + n(r) + ' to ' + n(2 * r) + ' while the argument does not move at all. ' +
+          'That is the fact visual 3 is built on: a real multiplier changes length only, never heading.';
+      } else {
+        rows =
+          '<div class="v1-r is-only"><span class="v1-who">complex</span><span>i(' + a + ' + ' + b + 'i) = ' +
+            (-b) + ' + ' + a + 'i &#183; rotated 90&#176;</span><span class="v1-tag" style="color:var(--viz-amber)">ONLY COMPLEX</span></div>' +
+          '<div class="v1-r"><span class="v1-who">vector</span><span>no product of two vectors in this lesson</span>' +
+            '<span class="v1-tag" style="color:var(--viz-muted)">NOT DEFINED</span></div>';
+        verdict = '<b style="color:var(--viz-amber)">Here the two stories part.</b>' +
+          'Multiplying by i sends ' + n(th) + '&#176; to ' + (known ? n((th + 90) % 360) : '?') + '&#176; with the modulus unchanged at ' + n(r) + ' — a pure rotation, and the reason polar form was worth learning. ' +
+          'Vectors keep the geometry and drop that rule: the only multiplication here is by a plain number. ' +
+          'Rotation comes back in the next lesson, as something a matrix does to a vector.';
+      }
+      opBox.innerHTML = rows;
+
+      why.innerHTML = verdict +
+        '<br><br><b>The formula never changed, only the name.</b>' +
+        'Modulus sqrt(a^2 + b^2) is magnitude. Argument is direction. Polar form r(cos t + i sin t) is the ' +
+        'statement that components come from magnitude and direction as &#60;r cos t, r sin t&#62;. ' +
+        (known
+          ? 'Right now the arrow is ' + n(r) + ' long and points ' + n(th) + '&#176; counterclockwise from the positive x-axis.'
+          : 'Both sliders are at 0, so this is the <b>zero vector</b>: magnitude 0 and no direction at all — the one arrow whose heading is undefined rather than merely awkward.');
+    }
+
+    OPS.forEach(function(o, i){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('aria-pressed', 'false');
+      btn.textContent = o.tab;
+      btn.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(btn);
+    });
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Length And Heading</h2>
+  <p class="vz-lede">One arrow, two readings, and a round trip between them. Set a magnitude and a direction
+    and watch the components appear; the panel then recomputes the magnitude and direction back out of those
+    components, so you can see the two descriptions are the same information.
+    <b>Like giving a taxi a distance and a compass bearing, or giving it street-grid steps — same corner.</b></p>
+
+  <div class="vz-card">
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v2-r">magnitude <b id="v2-rl">r = 6</b></label>
+        <input class="vz-range" type="range" id="v2-r" min="0" max="8" step="0.5" value="6" aria-label="Magnitude of the vector">
+      </div>
+      <div>
+        <label class="vz-lab" for="v2-t">direction <b id="v2-tl">0&#176;</b></label>
+        <input class="vz-range" type="range" id="v2-t" min="0" max="350" step="10" value="0" aria-label="Direction in degrees counterclockwise from the positive x axis">
+      </div>
+    </div>
+
+    <div id="v2-plane" style="margin-top:8px"></div>
+    <div class="vz-pills" id="v2-read"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">The four quarter-turns are worth knowing cold, because questions ask for them by angle
+    and answer in components: <b>0&#176; is &#60;1, 0&#62;</b>, <b>90&#176; is &#60;0, 1&#62;</b>,
+    <b>180&#176; is &#60;-1, 0&#62;</b>, <b>270&#176; is &#60;0, -1&#62;</b>, all times the magnitude. Counterclockwise
+    from the positive x-axis is the convention; read it clockwise and every answer is reflected.</p>
+
+  <style>
+    .v2-svg{width:100%;height:auto;max-width:300px;display:block;margin:0 auto;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+    .v2-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v2-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v2-circ{stroke:var(--viz-line);stroke-width:1;fill:none;stroke-dasharray:3 3}
+    .v2-arrow{stroke:var(--viz-accent);stroke-width:2.8;fill:none}
+    .v2-head{fill:var(--viz-accent)}
+    .v2-leg{stroke:var(--viz-violet);stroke-width:1.5;fill:none;stroke-dasharray:4 3}
+    .v2-t{font-size:10px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v2-tk{fill:var(--viz-accent)} .v2-tv{fill:var(--viz-violet)}
+    .v2-quad{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;margin-top:12px;
+      background:var(--viz-bg);font-size:11.5px;line-height:1.55}
+  </style>
+  <script>
+  (function(){
+    var S = 270, R = 9, K = S / (2 * R);
+    var sr = document.getElementById('v2-r'), st = document.getElementById('v2-t');
+    var rl = document.getElementById('v2-rl'), tl = document.getElementById('v2-tl');
+    var plane = document.getElementById('v2-plane'), read = document.getElementById('v2-read');
+    var why = document.getElementById('v2-why');
+
+    function n(x){ return isFinite(x) ? String(Math.round(x * 100) / 100) : '—'; }
+    function PX(x){ return S / 2 + x * K; }
+    function PY(y){ return S / 2 - y * K; }
+
+    function grid(){
+      var g = '';
+      for (var i = -8; i <= 8; i += 2) {
+        g += '<line class="v2-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v2-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v2-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v2-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      return g;
+    }
+
+    function render(){
+      var r = Number(sr.value), t = Number(st.value);
+      var rad = t * Math.PI / 180;
+      var a = r * Math.cos(rad), b = r * Math.sin(rad);
+      if (Math.abs(a) < 1e-12) a = 0;
+      if (Math.abs(b) < 1e-12) b = 0;
+
+      rl.textContent = 'r = ' + n(r);
+      tl.innerHTML = n(t) + '&#176;';
+
+      var back = Math.sqrt(a * a + b * b);
+      var known = back > 1e-9;
+      var recovered = known ? (Math.atan2(b, a) * 180 / Math.PI + 360) % 360 : NaN;
+      var vertical = known && Math.abs(a) < 1e-9;
+      var calcOnly = (!known || vertical) ? NaN : Math.atan(b / a) * 180 / Math.PI;
+      var needsFix = isFinite(calcOnly) && Math.abs(((calcOnly + 360) % 360) - recovered) > 1;
+
+      var x2 = PX(a), y2 = PY(b), x1 = PX(0), y1 = PY(0);
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      var head = '';
+      if (L > 8) {
+        var ang = Math.atan2(dy, dx), h = 10, w = 5;
+        var bx = x2 - h * Math.cos(ang), by = y2 - h * Math.sin(ang);
+        head = '<polygon class="v2-head" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w * Math.sin(ang)) + ',' + (by - w * Math.cos(ang)) + ' ' +
+          (bx - w * Math.sin(ang)) + ',' + (by + w * Math.cos(ang)) + '"/>';
+      }
+
+      plane.innerHTML = '<svg class="v2-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="An arrow of the chosen magnitude and direction, with its horizontal and vertical components drawn as dashed legs">' +
+        grid() +
+        (r > 0.01 ? '<circle class="v2-circ" cx="' + PX(0) + '" cy="' + PY(0) + '" r="' + (r * K) + '"/>' : '') +
+        '<line class="v2-leg" x1="' + PX(0) + '" y1="' + PY(0) + '" x2="' + PX(a) + '" y2="' + PY(0) + '"/>' +
+        '<line class="v2-leg" x1="' + PX(a) + '" y1="' + PY(0) + '" x2="' + PX(a) + '" y2="' + PY(b) + '"/>' +
+        '<line class="v2-arrow" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>' + head +
+        '<text class="v2-t v2-tv" x="' + (PX(a / 2) - 10) + '" y="' + (PY(0) + 13) + '">r&#183;cos = ' + n(a) + '</text>' +
+        '<text class="v2-t v2-tv" x="' + (PX(a) + 5) + '" y="' + PY(b / 2) + '">r&#183;sin = ' + n(b) + '</text>' +
+        '<text class="v2-t v2-tk" x="' + (PX(a) + 5) + '" y="' + (PY(b) - 7) + '">&#60;' + n(a) + ', ' + n(b) + '&#62;</text>' +
+        '</svg>';
+
+      var quarter = (t % 90 === 0);
+      read.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-ink);border-color:var(--viz-accent)">components &#60;' + n(a) + ', ' + n(b) + '&#62;</span>' +
+        '<span class="vz-pill">magnitude back out = ' + n(back) + '</span>' +
+        '<span class="vz-pill">direction back out = ' + (known ? n(recovered) + '&#176;' : 'undefined') + '</span>' +
+        '<span class="vz-pill" style="color:' + (quarter ? 'var(--viz-green)' : 'var(--viz-muted)') +
+          ';border-color:' + (quarter ? 'var(--viz-green)' : 'var(--viz-line)') + '">' +
+          (quarter ? 'quarter turn &#183; exact' : 'not a quarter turn') + '</span>';
+
+      var quadrant = !known ? 'no quadrant — this is the zero vector'
+        : (a > 0 && b >= 0) ? 'quadrant I · both components positive'
+        : (a <= 0 && b > 0) ? 'quadrant II · across negative, up positive'
+        : (a < 0 && b <= 0) ? 'quadrant III · both negative'
+        : 'quadrant IV · across positive, up negative';
+
+      why.innerHTML = '<b>Components out: &#60;r cos t, r sin t&#62; = &#60;' + n(a) + ', ' + n(b) + '&#62;.</b>' +
+        'The two dashed legs are the components, and the arrow is the hypotenuse — which is why the magnitude comes back as ' +
+        'sqrt(' + n(a * a) + ' + ' + n(b * b) + ') = <b>' + n(back) + '</b>, matching the r you set. ' +
+        'Set r = 6 and the direction to 0&#176; and you get exactly &#60;6, 0&#62;; nudge the direction to 90&#176; and the same length becomes &#60;0, 6&#62;. ' +
+        'The length never moved — only how it was split between across and up. ' +
+        '<br><br><b>' + quadrant + '.</b>' +
+        (!known
+          ? 'Magnitude 0 means every direction is equally true, so the angle is genuinely undefined rather than 0&#176;. Any formula that divides by the magnitude fails here, which is why the readout says "undefined" instead of showing a number.'
+          : vertical
+            ? 'Going backwards fails outright here: the across-component is 0, so b/a is a division by zero and the inverse tangent has nothing to work with. ' +
+              'Straight up is <b>90&#176;</b> and straight down is <b>270&#176;</b>, read off the picture rather than computed — the two directions a tangent can never name.'
+            : needsFix
+              ? 'Going backwards is the step with a trap in it. A calculator\'s inverse tangent of (' + n(b) + ' / ' + n(a) + ') returns <b>' + n(calcOnly) + '&#176;</b>, ' +
+                'because its principal range only covers two quadrants. The true direction is <b>' + n(recovered) + '&#176;</b> — add 180&#176; ' +
+                'when the across-component is negative, then add 360&#176; if needed to land back in [0, 360). The same restricted-domain rule you met with the inverse trig functions.'
+              : 'Going backwards, inverse tangent of (' + n(b) + ' / ' + n(a) + ') gives <b>' + n(recovered) + '&#176;</b> directly, because this arrow points into a quadrant the principal range already covers. ' +
+                'Drag the direction past 90&#176; and watch that stop being true.');
+    }
+
+    sr.addEventListener('input', render);
+    st.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Stretch Flip Collapse</h2>
+  <p class="vz-lede">A scalar has exactly three things it can do to an arrow, and rotating by a quarter turn
+    is not one of them. Drag the multiplier through positive, zero and negative and watch the copy slide along
+    one fixed line through the origin.
+    <b>Like a volume knob: it makes the same song louder, quieter, or silent — it never changes the song.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-k">multiplier <b id="v3-kl">k = 3</b></label>
+    <input class="vz-range" type="range" id="v3-k" min="-3" max="3" step="0.25" value="3" aria-label="Scalar multiplier k">
+    <div class="vz-grid2" style="margin-top:6px">
+      <div>
+        <label class="vz-lab" for="v3-a">vector across <b id="v3-vl">v = &#60;1, -2&#62;</b></label>
+        <input class="vz-range" type="range" id="v3-a" min="-4" max="4" step="1" value="1" aria-label="v horizontal component">
+      </div>
+      <div>
+        <label class="vz-lab" for="v3-b">vector up</label>
+        <input class="vz-range" type="range" id="v3-b" min="-4" max="4" step="1" value="-2" aria-label="v vertical component">
+      </div>
+    </div>
+
+    <div id="v3-plane" style="margin-top:8px"></div>
+    <div class="vz-pills" id="v3-read"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">The arithmetic trap is scaling <b>one</b> component. Watch the readout: at k = 3 the
+    vector &#60;1, -2&#62; becomes &#60;3, -6&#62;, and the two half-done answers &#60;3, -2&#62; and
+    &#60;1, -6&#62; would both leave the dotted line the arrow is confined to. If your answer is off the line,
+    you scaled half the vector.</p>
+
+  <style>
+    .v3-svg{width:100%;height:auto;max-width:300px;display:block;margin:0 auto;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+    .v3-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v3-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v3-span{stroke:var(--viz-muted);stroke-width:1;stroke-dasharray:3 4;opacity:.8}
+    .v3-v{stroke:var(--viz-accent);stroke-width:2.6;fill:none} .v3-vh{fill:var(--viz-accent)}
+    .v3-kv{stroke:var(--viz-amber);stroke-width:3.4;fill:none} .v3-kvh{fill:var(--viz-amber)}
+    .v3-bad{fill:var(--viz-red)}
+    .v3-t{font-size:10px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v3-tv{fill:var(--viz-accent)} .v3-tk{fill:var(--viz-amber)} .v3-tb{fill:var(--viz-red)}
+  </style>
+  <script>
+  (function(){
+    var S = 270, R = 8, K = S / (2 * R);
+    var sk = document.getElementById('v3-k'), sa = document.getElementById('v3-a'), sb = document.getElementById('v3-b');
+    var kl = document.getElementById('v3-kl'), vl = document.getElementById('v3-vl');
+    var plane = document.getElementById('v3-plane'), read = document.getElementById('v3-read');
+    var why = document.getElementById('v3-why');
+
+    function n(x){ return isFinite(x) ? String(Math.round(x * 100) / 100) : '—'; }
+    function PX(x){ return S / 2 + x * K; }
+    function PY(y){ return S / 2 - y * K; }
+
+    function arw(p, cls, label, tcls){
+      var x1 = PX(0), y1 = PY(0), x2 = PX(p[0]), y2 = PY(p[1]);
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      var out = '<line class="' + cls + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 8) {
+        var t = Math.atan2(dy, dx), h = 10, w = 5;
+        var bx = x2 - h * Math.cos(t), by = y2 - h * Math.sin(t);
+        out += '<polygon class="' + cls + 'h" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w * Math.sin(t)) + ',' + (by - w * Math.cos(t)) + ' ' +
+          (bx - w * Math.sin(t)) + ',' + (by + w * Math.cos(t)) + '"/>';
+      }
+      if (label) out += '<text class="v3-t ' + tcls + '" x="' + (x2 + 5) + '" y="' + (y2 - 6) + '">' + label + '</text>';
+      return out;
+    }
+
+    function grid(){
+      var g = '';
+      for (var i = -8; i <= 8; i += 2) {
+        g += '<line class="v3-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v3-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v3-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v3-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      return g;
+    }
+
+    function render(){
+      var k = Number(sk.value), a = Number(sa.value), b = Number(sb.value);
+      kl.textContent = 'k = ' + n(k);
+      vl.innerHTML = 'v = &#60;' + a + ', ' + b + '&#62;';
+
+      var kv = [k * a, k * b];
+      var len = Math.sqrt(a * a + b * b);
+      var klen = Math.sqrt(kv[0] * kv[0] + kv[1] * kv[1]);
+      var zero = len < 1e-9;
+
+      var span = '';
+      if (!zero) {
+        var m = 8 / Math.max(Math.abs(a), Math.abs(b));
+        span = '<line class="v3-span" x1="' + PX(-a * m) + '" y1="' + PY(-b * m) + '" x2="' + PX(a * m) + '" y2="' + PY(b * m) + '"/>';
+      }
+      var halfA = [k * a, b], halfB = [a, k * b];
+      var wrong = (Math.abs(k - 1) > 1e-9 && !zero)
+        ? '<circle class="v3-bad" cx="' + PX(halfA[0]) + '" cy="' + PY(halfA[1]) + '" r="3.4"/>' +
+          '<circle class="v3-bad" cx="' + PX(halfB[0]) + '" cy="' + PY(halfB[1]) + '" r="3.4"/>' +
+          '<text class="v3-t v3-tb" x="' + (PX(halfA[0]) + 5) + '" y="' + (PY(halfA[1]) + 12) + '">half-scaled</text>'
+        : '';
+
+      plane.innerHTML = '<svg class="v3-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="The original vector, its scaled copy, the line through the origin they both lie on, and two marked half-scaled mistakes">' +
+        grid() + span + wrong + arw(kv, 'v3-kv', 'k&#183;v', 'v3-tk') + arw([a, b], 'v3-v', 'v', 'v3-tv') +
+        '</svg>';
+
+      var effect = zero ? 'zero vector in, zero vector out'
+        : Math.abs(k) < 1e-9 ? 'COLLAPSED to a point'
+        : k > 1 ? 'LONGER, same direction'
+        : k === 1 ? 'unchanged'
+        : k > 0 ? 'SHORTER, same direction'
+        : k === -1 ? 'REVERSED, same length'
+        : Math.abs(k) > 1 ? 'REVERSED and longer' : 'REVERSED and shorter';
+      var col = (Math.abs(k) < 1e-9 || zero) ? 'var(--viz-muted)' : (k < 0 ? 'var(--viz-violet)' : 'var(--viz-green)');
+
+      read.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-ink);border-color:var(--viz-amber)">k&#183;v = &#60;' + n(kv[0]) + ', ' + n(kv[1]) + '&#62;</span>' +
+        '<span class="vz-pill">|v| = ' + n(len) + '</span>' +
+        '<span class="vz-pill">|k&#183;v| = |k|&#183;|v| = ' + n(Math.abs(k)) + ' &#215; ' + n(len) + ' = ' + n(klen) + '</span>' +
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + effect + '</span>';
+
+      why.innerHTML = zero
+        ? '<b>Start from the zero vector and nothing can happen.</b>' +
+          'Every multiple of &#60;0, 0&#62; is &#60;0, 0&#62;, and there is no line to slide along because there is no direction. ' +
+          'Move the component sliders to give the arrow something to scale.'
+        : Math.abs(k) < 1e-9
+          ? '<b style="color:var(--viz-muted)">k = 0 collapses the arrow to a point.</b>' +
+            '0&#183;&#60;' + a + ', ' + b + '&#62; = &#60;0, 0&#62;, the zero vector. This is the only multiplier that destroys the direction, ' +
+            'and it is why "multiply by a scalar" and "keep the same line" stop being equivalent at exactly one value of k.'
+          : '<b style="color:' + col + '">' + effect + ' — and it never leaves the dotted line.</b>' +
+            'Componentwise, k&#183;&#60;' + a + ', ' + b + '&#62; = &#60;' + n(k) + '&#215;' + a + ', ' + n(k) + '&#215;' + b + '&#62; = &#60;' + n(kv[0]) + ', ' + n(kv[1]) + '&#62;. ' +
+            'Both components are multiplied, so the ratio between them is untouched — and that ratio is the direction. ' +
+            'The length obeys |k&#183;v| = |k|&#183;|v| = <b>' + n(klen) + '</b>: it is the <em>absolute value</em> of k that stretches, ' +
+            (k < 0
+              ? 'and the minus sign does its work separately, turning the arrow through 180&#176; onto the far half of the same line. Not 90&#176; — a reversal, not a rotation.'
+              : 'and with k positive the heading is exactly what it was.') +
+            (Math.abs(k) > 1 ? '<br><br>Any k with |k| greater than 1 lengthens the arrow; that is the whole content of "a positive scalar greater than 1 lengthens the magnitude".' : '') +
+            '<br><br>The two red dots are the answers you get by scaling only one component. They sit <b>off the line</b>, which means they point somewhere else entirely — a different direction, not just a different length.';
+    }
+
+    [sk, sa, sb].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Tip To Tail</h2>
+  <p class="vz-lede">Add the components and the picture takes care of itself: slide the second arrow's tail to
+    the first arrow's tip, and the answer runs from start to finish. Switch to subtraction and watch it become
+    "add the opposite". <b>Like two legs of a walk: the total is where you ended up, not how far you trudged.</b></p>
+
+  <div class="vz-seg" id="v4-ops" role="group" aria-label="Addition or subtraction">
+    <button type="button" id="v4-add" aria-pressed="true">u + v</button>
+    <button type="button" id="v4-sub" aria-pressed="false">u &#8722; v</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="vz-grid2">
+      <div>
+        <label class="vz-lab" for="v4-ux">u across <b id="v4-ul">u = &#60;2, 3&#62;</b></label>
+        <input class="vz-range" type="range" id="v4-ux" min="-6" max="6" step="1" value="2" aria-label="u horizontal component">
+        <label class="vz-lab" for="v4-uy">u up</label>
+        <input class="vz-range" type="range" id="v4-uy" min="-6" max="6" step="1" value="3" aria-label="u vertical component">
+      </div>
+      <div>
+        <label class="vz-lab" for="v4-vx">v across <b id="v4-vl">v = &#60;4, -1&#62;</b></label>
+        <input class="vz-range" type="range" id="v4-vx" min="-6" max="6" step="1" value="4" aria-label="v horizontal component">
+        <label class="vz-lab" for="v4-vy">v up</label>
+        <input class="vz-range" type="range" id="v4-vy" min="-6" max="6" step="1" value="-1" aria-label="v vertical component">
+      </div>
+    </div>
+
+    <div id="v4-plane" style="margin-top:8px"></div>
+    <div class="vz-pills" id="v4-read"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Order is the whole difference between the two subtractions. u &#8722; v and v &#8722; u
+    have the same length and opposite signs in every component, so a question that swaps them is not testing
+    arithmetic — it is testing whether you read which vector came first. Addition has no such trap:
+    u + v and v + u are the same arrow.</p>
+
+  <style>
+    .v4-svg{width:100%;height:auto;max-width:310px;display:block;margin:0 auto;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+    .v4-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v4-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v4-u{stroke:var(--viz-accent);stroke-width:2.6;fill:none} .v4-uh{fill:var(--viz-accent)}
+    .v4-v{stroke:var(--viz-violet);stroke-width:2.6;fill:none} .v4-vh{fill:var(--viz-violet)}
+    .v4-s{stroke:var(--viz-green);stroke-width:3.2;fill:none} .v4-sh{fill:var(--viz-green)}
+    .v4-gh{stroke:var(--viz-violet);stroke-width:1.4;fill:none;stroke-dasharray:4 3;opacity:.8} .v4-ghh{fill:none}
+    .v4-t{font-size:10px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v4-tu{fill:var(--viz-accent)} .v4-tv{fill:var(--viz-violet)} .v4-ts{fill:var(--viz-green)}
+    .v4-sum{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;margin-top:12px;
+      border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var S = 280, R = 9, K = S / (2 * R);
+    var bAdd = document.getElementById('v4-add'), bSub = document.getElementById('v4-sub');
+    var ux = document.getElementById('v4-ux'), uy = document.getElementById('v4-uy');
+    var vx = document.getElementById('v4-vx'), vy = document.getElementById('v4-vy');
+    var ul = document.getElementById('v4-ul'), vlab = document.getElementById('v4-vl');
+    var plane = document.getElementById('v4-plane'), read = document.getElementById('v4-read');
+    var why = document.getElementById('v4-why');
+    var adding = true;
+
+    function n(x){ return isFinite(x) ? String(Math.round(x * 100) / 100) : '—'; }
+    function vs(p){ return '&#60;' + n(p[0]) + ', ' + n(p[1]) + '&#62;'; }
+    function PX(x){ return S / 2 + x * K; }
+    function PY(y){ return S / 2 - y * K; }
+
+    function seg(p, q, cls, label, tcls){
+      var x1 = PX(p[0]), y1 = PY(p[1]), x2 = PX(q[0]), y2 = PY(q[1]);
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      var out = '<line class="' + cls + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 8) {
+        var t = Math.atan2(dy, dx), h = 10, w = 5;
+        var bx = x2 - h * Math.cos(t), by = y2 - h * Math.sin(t);
+        out += '<polygon class="' + cls + 'h" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w * Math.sin(t)) + ',' + (by - w * Math.cos(t)) + ' ' +
+          (bx - w * Math.sin(t)) + ',' + (by + w * Math.cos(t)) + '"/>';
+      }
+      if (label) out += '<text class="v4-t ' + tcls + '" x="' + (x2 + 5) + '" y="' + (y2 - 6) + '">' + label + '</text>';
+      return out;
+    }
+
+    function grid(){
+      var g = '';
+      for (var i = -8; i <= 8; i += 2) {
+        g += '<line class="v4-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v4-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v4-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v4-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      return g;
+    }
+
+    function render(){
+      var u = [Number(ux.value), Number(uy.value)];
+      var v = [Number(vx.value), Number(vy.value)];
+      bAdd.setAttribute('aria-pressed', adding ? 'true' : 'false');
+      bSub.setAttribute('aria-pressed', adding ? 'false' : 'true');
+      ul.innerHTML = 'u = ' + vs(u);
+      vlab.innerHTML = 'v = ' + vs(v);
+
+      var w = adding ? v : [-v[0], -v[1]];
+      var res = [u[0] + w[0], u[1] + w[1]];
+      var tip = [u[0] + w[0], u[1] + w[1]];
+
+      var lu = Math.sqrt(u[0] * u[0] + u[1] * u[1]);
+      var lv = Math.sqrt(v[0] * v[0] + v[1] * v[1]);
+      var lr = Math.sqrt(res[0] * res[0] + res[1] * res[1]);
+      var sumOfLens = lu + lv;
+
+      plane.innerHTML = '<svg class="v4-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="Vectors u and v from the origin, the second one redrawn from the tip of the first, and the result running from the origin to that tip">' +
+        grid() +
+        seg([0, 0], u, 'v4-u', 'u', 'v4-tu') +
+        seg([0, 0], v, 'v4-v', 'v', 'v4-tv') +
+        seg(u, tip, 'v4-gh', adding ? 'v moved' : '&#8722;v moved', 'v4-tv') +
+        seg([0, 0], res, 'v4-s', adding ? 'u+v' : 'u&#8722;v', 'v4-ts') +
+        '</svg>';
+
+      read.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-ink);border-color:var(--viz-green)">' +
+          (adding ? 'u + v = ' : 'u &#8722; v = ') + vs(res) + '</span>' +
+        '<span class="vz-pill">|u| = ' + n(lu) + '</span>' +
+        '<span class="vz-pill">|v| = ' + n(lv) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">|result| = ' + n(lr) + '</span>' +
+        '<span class="vz-pill">|u| + |v| = ' + n(sumOfLens) + '</span>' +
+        '<span class="vz-pill">reverse order = ' + vs(adding ? res : [-res[0], -res[1]]) + '</span>';
+
+      var arith = adding
+        ? 'across: ' + n(u[0]) + ' + ' + n(v[0]) + ' = ' + n(res[0]) + '<br>up:&nbsp;&nbsp;&nbsp;&nbsp; ' + n(u[1]) + ' + ' + n(v[1]) + ' = ' + n(res[1])
+        : 'across: ' + n(u[0]) + ' &#8722; ' + n(v[0]) + ' = ' + n(u[0]) + ' + (' + n(-v[0]) + ') = ' + n(res[0]) +
+          '<br>up:&nbsp;&nbsp;&nbsp;&nbsp; ' + n(u[1]) + ' &#8722; ' + n(v[1]) + ' = ' + n(u[1]) + ' + (' + n(-v[1]) + ') = ' + n(res[1]);
+
+      var gap = sumOfLens - lr;
+      why.innerHTML = '<b>' + (adding ? 'Add each slot on its own.' : 'Subtract by adding the opposite.') + '</b>' +
+        '<div class="v4-sum">' + arith + '<br>result ' + vs(res) + '</div>' +
+        (adding
+          ? 'The dashed copy of <b>v</b> starting at the tip of <b>u</b> is the same statement drawn instead of written: walk u, then walk v, and the green arrow is where you ended up. ' +
+            'Because each axis is independent, what happens across never disturbs what happens up.'
+          : 'u &#8722; v is <b>u + (&#8722;v)</b>, and &#8722;v is v scaled by &#8722;1 — the reversal from visual 3. ' +
+            'The dashed arrow is that flipped copy, walked from the tip of u. Drawn from a common tail instead, the green arrow is the one that runs <b>from the tip of v to the tip of u</b>, which is why differences answer "what change gets me from here to there".') +
+        '<br><br><b style="color:var(--viz-amber)">Magnitudes do not add.</b>' +
+        (lr > 1e-9 || sumOfLens > 1e-9
+          ? 'Here |u| + |v| = ' + n(sumOfLens) + ' but the result is only <b>' + n(lr) + '</b> long' +
+            (gap < 1e-9
+              ? ' — equal, because the two arrows point exactly the same way. That is the one case where lengths do add.'
+              : ', short by ' + n(gap) + '. The shortfall is the geometry: the two arrows point in different directions, so part of one cancels part of the other. ') +
+            ' Try u = &#60;3, 0&#62; with v = &#60;0, 4&#62;: lengths 3 and 4, result length 5, never 7.'
+          : 'Both vectors are zero, so there is nothing to compare.') +
+        '<br><br>Always add the components first and take the magnitude at the end. Taking magnitudes first throws the directions away, and the directions were the point.';
+    }
+
+    bAdd.addEventListener('click', function(){ adding = true; render(); });
+    bSub.addEventListener('click', function(){ adding = false; render(); });
+    [ux, uy, vx, vy].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Boat And Current</h2>
+  <p class="vz-lede">A word problem is the last three visuals with units attached. Pick a scenario, move the
+    second vector, and watch the sentence, the components and the resultant stay in step — including the
+    moment a helpful current becomes a hostile one.
+    <b>Like walking up a moving escalator: your speed and its speed only combine once you agree which way is up.</b></p>
+
+  <div class="vz-seg" id="v5-scen" role="group" aria-label="Choose a scenario"></div>
+
+  <div class="vz-card">
+    <div id="v5-story" class="vz-mono"></div>
+    <div class="vz-grid2" style="margin-top:10px">
+      <div>
+        <label class="vz-lab" for="v5-x">second vector, east <b id="v5-xl">+1</b></label>
+        <input class="vz-range" type="range" id="v5-x" min="-6" max="6" step="1" value="1" aria-label="Second vector east component">
+      </div>
+      <div>
+        <label class="vz-lab" for="v5-y">second vector, north <b id="v5-yl">-1</b></label>
+        <input class="vz-range" type="range" id="v5-y" min="-6" max="6" step="1" value="-1" aria-label="Second vector north component">
+      </div>
+    </div>
+
+    <div id="v5-plane" style="margin-top:8px"></div>
+    <div class="vz-pills" id="v5-read"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Everything here rests on one line written before any arithmetic: <b>east is +x, north is
+    +y</b>. Fix that and "2 units west" becomes &#60;-2, 0&#62; without thinking, signs stop being guesswork,
+    and the answer at the end is converted back to plain English only when the question asks for it —
+    a magnitude if it wants "how fast" or "how strong", a direction if it wants "which way".</p>
+
+  <style>
+    .v5-svg{width:100%;height:auto;max-width:310px;display:block;margin:0 auto;
+      background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:10px}
+    .v5-gr{stroke:var(--viz-line);stroke-width:.6}
+    .v5-ax{stroke:var(--viz-muted);stroke-width:1.1}
+    .v5-a{stroke:var(--viz-accent);stroke-width:2.6;fill:none} .v5-ah{fill:var(--viz-accent)}
+    .v5-b{stroke:var(--viz-violet);stroke-width:2.6;fill:none} .v5-bh{fill:var(--viz-violet)}
+    .v5-r{stroke:var(--viz-green);stroke-width:3.2;fill:none} .v5-rh{fill:var(--viz-green)}
+    .v5-t{font-size:10px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
+    .v5-ta{fill:var(--viz-accent)} .v5-tb{fill:var(--viz-violet)} .v5-tr{fill:var(--viz-green)}
+    .v5-cmp{font-size:9.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace;fill:var(--viz-muted)}
+    .v5-story{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7}
+  </style>
+  <script>
+  (function(){
+    var S = 280, R = 9, K = S / (2 * R);
+    var seg = document.getElementById('v5-scen');
+    var sx = document.getElementById('v5-x'), sy = document.getElementById('v5-y');
+    var xl = document.getElementById('v5-xl'), yl = document.getElementById('v5-yl');
+    var story = document.getElementById('v5-story'), plane = document.getElementById('v5-plane');
+    var read = document.getElementById('v5-read'), why = document.getElementById('v5-why');
+
+    var SCEN = [
+      { tab: 'boat and current', base: [6, 2], unit: 'km/h', aName: 'boat', bName: 'current', rName: 'resultant velocity',
+        line: 'A boat moves with velocity &#60;6, 2&#62; km/h. The current adds its own velocity. What velocity results?',
+        quantity: 'speed', start: [1, -1] },
+      { tab: 'walk east, then west', base: [5, 0], unit: 'units', aName: 'first leg', bName: 'second leg', rName: 'net displacement',
+        line: 'A person walks 5 units east, then walks a second leg. What is the net displacement?',
+        quantity: 'distance from start', start: [-2, 0] },
+      { tab: 'two forces', base: [3, 4], unit: 'N', aName: 'force 1', bName: 'force 2', rName: 'total force',
+        line: 'A force is given by the vector &#60;3, 4&#62; N. Add a second force and read the total.',
+        quantity: 'strength', start: [0, 0] }
+    ];
+    var cur = 0;
+
+    function n(x){ return isFinite(x) ? String(Math.round(x * 100) / 100) : '—'; }
+    function vs(p){ return '&#60;' + n(p[0]) + ', ' + n(p[1]) + '&#62;'; }
+    function PX(x){ return S / 2 + x * K; }
+    function PY(y){ return S / 2 - y * K; }
+
+    function arw(p, q, cls, label, tcls){
+      var x1 = PX(p[0]), y1 = PY(p[1]), x2 = PX(q[0]), y2 = PY(q[1]);
+      var dx = x2 - x1, dy = y2 - y1, L = Math.sqrt(dx * dx + dy * dy);
+      var out = '<line class="' + cls + '" x1="' + x1 + '" y1="' + y1 + '" x2="' + x2 + '" y2="' + y2 + '"/>';
+      if (L > 8) {
+        var t = Math.atan2(dy, dx), h = 10, w = 5;
+        var bx = x2 - h * Math.cos(t), by = y2 - h * Math.sin(t);
+        out += '<polygon class="' + cls + 'h" points="' + x2 + ',' + y2 + ' ' +
+          (bx + w * Math.sin(t)) + ',' + (by - w * Math.cos(t)) + ' ' +
+          (bx - w * Math.sin(t)) + ',' + (by + w * Math.cos(t)) + '"/>';
+      }
+      if (label && L > 8) out += '<text class="v5-t ' + tcls + '" x="' + (x2 + 5) + '" y="' + (y2 - 6) + '">' + label + '</text>';
+      return out;
+    }
+
+    function grid(){
+      var g = '';
+      for (var i = -8; i <= 8; i += 2) {
+        g += '<line class="v5-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
+        g += '<line class="v5-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
+      }
+      g += '<line class="v5-ax" x1="0" y1="' + PY(0) + '" x2="' + S + '" y2="' + PY(0) + '"/>';
+      g += '<line class="v5-ax" x1="' + PX(0) + '" y1="0" x2="' + PX(0) + '" y2="' + S + '"/>';
+      g += '<text class="v5-cmp" x="' + (S - 34) + '" y="' + (PY(0) - 6) + '">EAST +x</text>';
+      g += '<text class="v5-cmp" x="' + (PX(0) + 6) + '" y="12">NORTH +y</text>';
+      return g;
+    }
+
+    function compass(a, b){
+      if (Math.abs(a) < 1e-9 && Math.abs(b) < 1e-9) return 'nowhere';
+      var ew = Math.abs(a) < 1e-9 ? '' : (a > 0 ? 'east' : 'west');
+      var ns = Math.abs(b) < 1e-9 ? '' : (b > 0 ? 'north' : 'south');
+      if (!ns) return n(Math.abs(a)) + ' ' + ew;
+      if (!ew) return n(Math.abs(b)) + ' ' + ns;
+      return n(Math.abs(a)) + ' ' + ew + ' and ' + n(Math.abs(b)) + ' ' + ns;
+    }
+
+    function render(){
+      var sc = SCEN[cur];
+      var a = sc.base;
+      var b = [Number(sx.value), Number(sy.value)];
+      [].slice.call(seg.children).forEach(function(btn, i){
+        btn.setAttribute('aria-pressed', i === cur ? 'true' : 'false');
+      });
+      xl.textContent = (b[0] >= 0 ? '+' : '') + b[0];
+      yl.textContent = (b[1] >= 0 ? '+' : '') + b[1];
+
+      var res = [a[0] + b[0], a[1] + b[1]];
+      var la = Math.sqrt(a[0] * a[0] + a[1] * a[1]);
+      var lb = Math.sqrt(b[0] * b[0] + b[1] * b[1]);
+      var lr = Math.sqrt(res[0] * res[0] + res[1] * res[1]);
+      var dir = lr > 1e-9 ? (Math.atan2(res[1], res[0]) * 180 / Math.PI + 360) % 360 : NaN;
+
+      story.className = 'v5-story';
+      story.innerHTML = sc.line + '<br>' +
+        '<span style="color:var(--viz-accent)">' + sc.aName + ' = ' + vs(a) + ' ' + sc.unit + '</span> &#183; ' +
+        '<span style="color:var(--viz-violet)">' + sc.bName + ' = ' + vs(b) + ' ' + sc.unit + '</span>';
+
+      plane.innerHTML = '<svg class="v5-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
+        'aria-label="The scenario as arrows: the given vector, the second vector drawn from its tip, and the resultant from the origin">' +
+        grid() +
+        arw([0, 0], a, 'v5-a', sc.aName, 'v5-ta') +
+        arw(a, res, 'v5-b', sc.bName, 'v5-tb') +
+        arw([0, 0], res, 'v5-r', 'result', 'v5-tr') +
+        '</svg>';
+
+      var helping = (la > 1e-9 && lb > 1e-9) ? (a[0] * b[0] + a[1] * b[1]) : 0;
+      var mood = lb < 1e-9 ? 'second vector is zero'
+        : helping > 1e-9 ? 'HELPING &#183; leans the same way'
+        : helping < -1e-9 ? 'HINDERING &#183; leans against' : 'SIDEWAYS &#183; at right angles';
+      var moodCol = lb < 1e-9 ? 'var(--viz-muted)'
+        : helping > 1e-9 ? 'var(--viz-green)' : helping < -1e-9 ? 'var(--viz-red)' : 'var(--viz-amber)';
+
+      read.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-ink);border-color:var(--viz-green)">' + sc.rName + ' = ' + vs(res) + ' ' + sc.unit + '</span>' +
+        '<span class="vz-pill">' + sc.quantity + ' = |result| = ' + n(lr) + ' ' + sc.unit + '</span>' +
+        '<span class="vz-pill">direction = ' + (lr > 1e-9 ? n(dir) + '&#176;' : 'undefined') + '</span>' +
+        '<span class="vz-pill">in words: ' + compass(res[0], res[1]) + '</span>' +
+        '<span class="vz-pill" style="color:' + moodCol + ';border-color:' + moodCol + '">' + mood + '</span>';
+
+      why.innerHTML =
+        '<b>Translate, add, then translate back — never in the other order.</b>' +
+        'Each phrase becomes components under the fixed convention: ' + sc.aName + ' is ' + vs(a) + ', ' + sc.bName + ' is ' + vs(b) + ', ' +
+        'and the ' + sc.rName + ' is ' + vs(a) + ' + ' + vs(b) + ' = <b>' + vs(res) + '</b>. ' +
+        'Only now does it turn back into English: ' + (lr > 1e-9 ? n(lr) + ' ' + sc.unit + ' of ' + sc.quantity + ', heading ' + compass(res[0], res[1]) + '.' : 'everything cancelled, so the result is the zero vector.') +
+        '<br><br>' +
+        (cur === 1
+          ? '<b>The one-dimensional case is the same machinery.</b>' +
+            'Walking 5 east then 2 west is &#60;5, 0&#62; + &#60;-2, 0&#62; = &#60;3, 0&#62; — a net 3 units east, not 7. ' +
+            'The word "west" is not a separate concept, it is a minus sign on the east axis, and that is the entire trick to signed word problems.'
+          : cur === 2
+            ? '<b>A force is a vector, so "how strong" is a magnitude.</b>' +
+              'With the second force at zero, the total is &#60;3, 4&#62; and its strength is sqrt(9 + 16) = 5 N — not 7, not 12, not 4. ' +
+              'Add a second force and watch the total swing: two forces of 3 and 4 units only give 7 when they push the same way.'
+            : '<b>The current does not care what the boat intended.</b>' +
+              'Boat &#60;6, 2&#62; plus current &#60;1, -1&#62; gives &#60;7, 1&#62; — faster east, and pushed south of the intended track. ' +
+              'Slide the current to point back against the boat and watch the resultant shrink below the boat\'s own speed; that is a headwind, in components.') +
+        '<br><br><b>Why vectors and not plain numbers?</b> A single number can carry the size of the motion or the size of the force, but not where it goes. ' +
+        'A vector <b>encodes both magnitude and direction</b> in one object, which is exactly what these problems need — and it is also why the units survive the arithmetic untouched.';
+    }
+
+    SCEN.forEach(function(s, i){
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('aria-pressed', 'false');
+      btn.textContent = s.tab;
+      btn.addEventListener('click', function(){
+        cur = i;
+        sx.value = String(s.start[0]);
+        sy.value = String(s.start[1]);
+        render();
+      });
+      seg.appendChild(btn);
+    });
+    sx.addEventListener('input', render);
+    sy.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

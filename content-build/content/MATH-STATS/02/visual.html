@@ -1,0 +1,756 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:2px}
+.vz-lab span{color:var(--viz-accent)}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-pills{margin-top:12px;display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Labels Or Ruler</button>
+  <button class="viz-tab" data-viz-tab="2">2. Binning A Histogram</button>
+  <button class="viz-tab" data-viz-tab="3">3. Same Box, Different Data</button>
+  <button class="viz-tab" data-viz-tab="4">4. Naming The Shape</button>
+  <button class="viz-tab" data-viz-tab="5">5. Two Groups Compared</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Labels Or Ruler</h2>
+  <p class="vz-lede"><b>Analyzing one categorical variable</b> and <b>Two-way tables</b> put categories on an
+    axis, where order was arbitrary and distance meant nothing. Quantitative values will not sit still for
+    that. Drag one page-load time away from the pack and watch which axis notices.
+    <b>Like seat numbers versus a tape measure: both are in order, but only one tells you how far apart
+    things are.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-x">One load time, dragged: <span id="v1-xl">70 s</span></label>
+    <input type="range" id="v1-x" min="30" max="300" value="70" step="1" aria-label="The value of one load time">
+
+    <div class="v1-row">
+      <h5 class="v1-cap">read as labels — equal slots, text order</h5>
+      <div class="v1-chips" id="v1-labels"></div>
+    </div>
+    <div class="v1-row">
+      <h5 class="v1-cap">read as numbers — position is the value</h5>
+      <div class="v1-track" id="v1-line"></div>
+    </div>
+
+    <div class="vz-why" id="v1-read"></div>
+  </div>
+  <p class="vz-note">This is the whole reason a new family of displays exists. A bar chart, a pie chart and a
+    two-way table all take a <b>categorical</b> axis; dot plots, stem-and-leaf plots, histograms and box plots
+    all take a <b>numerical</b> one. Pick from the variable type first and the rest of the lesson is
+    bookkeeping.</p>
+
+  <style>
+    .v1-row{margin-top:16px}
+    .v1-cap{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);font-weight:700}
+    .v1-chips{display:flex;gap:3px;flex-wrap:wrap}
+    .v1-chip{flex:1 1 34px;text-align:center;border:1.5px solid var(--viz-line);border-radius:6px;padding:6px 2px;
+      font-family:ui-monospace,Consolas,monospace;font-size:10.5px;background:var(--viz-bg)}
+    .v1-chip.is-hot{border-color:var(--viz-violet);color:var(--viz-violet);font-weight:800}
+    .v1-track{position:relative;height:46px;border:1.5px solid var(--viz-line);border-radius:8px;background:var(--viz-bg)}
+    .v1-dot{position:absolute;top:14px;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;background:var(--viz-accent)}
+    .v1-dot.is-hot{background:var(--viz-violet);width:13px;height:13px;top:12px;margin-left:-6.5px}
+    .v1-tick{position:absolute;bottom:3px;font-size:9.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;transform:translateX(-50%)}
+  </style>
+  <script>
+  (function(){
+    var BASE = [30, 38, 42, 45, 47, 49, 52, 55, 58, 63, 70];   // eleven fixed load times, seconds
+    var s = document.getElementById('v1-x');
+    var xl = document.getElementById('v1-xl');
+    var chips = document.getElementById('v1-labels');
+    var line = document.getElementById('v1-line');
+    var read = document.getElementById('v1-read');
+
+    function render(){
+      var x = Number(s.value);
+      if (!isFinite(x)) x = 70;
+      xl.textContent = x + ' s';
+
+      var vals = BASE.concat([x]);
+      var num = vals.slice().sort(function(a, b){ return a - b; });
+      var str = vals.map(String).sort();                 // the categorical reading: labels, in text order
+
+      chips.innerHTML = str.map(function(v){
+        return '<span class="v1-chip' + (Number(v) === x ? ' is-hot' : '') + '">' + v + '</span>';
+      }).join('');
+
+      var lo = num[0], hi = num[num.length - 1];
+      var span = Math.max(1, hi - lo);
+      var html = num.map(function(v){
+        return '<i class="v1-dot' + (v === x ? ' is-hot' : '') + '" style="left:' +
+          ((v - lo) / span * 100).toFixed(2) + '%"></i>';
+      }).join('');
+      html += '<span class="v1-tick" style="left:3%">' + lo + ' s</span>' +
+              '<span class="v1-tick" style="left:97%">' + hi + ' s</span>';
+      line.innerHTML = html;
+
+      var gap = num[num.length - 1] - num[num.length - 2];
+      var packPct = Math.round((70 - 30) / span * 100);
+      var strSlot = str.indexOf(String(x)) + 1;
+      var numSlot = num.indexOf(x) + 1;
+
+      var orderLine = strSlot === numSlot
+        ? 'Sorted as text and sorted as a number, ' + x + ' lands in the same slot (' + numSlot + ' of 12) — the label axis happens to agree here.'
+        : 'Sorted as <b>text</b>, "' + x + '" lands in slot <b>' + strSlot + ' of 12</b>; sorted as a <b>number</b> it is slot <b>' + numSlot + '</b>. The label axis has quietly filed a large value among the small ones, and nothing on that axis looks wrong.';
+
+      var gapLine = gap === 0
+        ? 'On the number line the two largest values are tied at ' + hi + ' s, so they land on the same spot, '
+        : 'On the number line the largest value, ' + hi + ' s, stands <b>' + gap + ' s</b> clear of the next one, ';
+      var packLine = packPct >= 100
+        ? 'and the eleven fixed times fill the axis end to end. '
+        : 'and the eleven fixed times are squeezed into <b>' + packPct + '%</b> of the axis. ';
+
+      read.innerHTML =
+        '<b>The ruler sees distance. The label strip cannot.</b>' + gapLine + packLine +
+        'On the label strip that same value is always exactly <b>one slot</b> from its neighbour, whatever it is — ' +
+        'equal boxes, equal gaps, no scale. ' +
+        '<br><br>' + orderLine +
+        '<br><br>Order alone is not enough: a quantitative variable carries order <em>and</em> distance, so its axis has to be ' +
+        'a ruler. Every display in this lesson is a different way of drawing data onto that ruler.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Binning A Histogram</h2>
+  <p class="vz-lede">Each bar of a histogram is one numerical interval and its frequency — never a category,
+    never a single value. Drag the bin width and watch the same 20 load times tell three different stories.
+    Tap any bar to read its interval. <b>Like the zoom on a map: too close and it is all street names, too
+    far and the whole city is one dot.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-w">Bin width: <span id="v2-wl">10 s</span></label>
+    <input type="range" id="v2-w" min="0" max="6" value="4" step="1" aria-label="Histogram bin width">
+    <div class="v2-plot" id="v2-bars"></div>
+    <div class="v2-axis" id="v2-axis"></div>
+    <div class="vz-why" id="v2-read"></div>
+  </div>
+  <p class="vz-note">The bin width is a decision <em>you</em> make, and the reader of your chart cannot see it.
+    That is the honesty problem with histograms: two analysts can hand the same data to the same audience and
+    show a smooth single peak or a jagged three-peaked mess. Say what width you used, and check the shape
+    survives a couple of nearby widths before you believe it.</p>
+
+  <style>
+    .v2-plot{margin-top:14px;display:flex;align-items:flex-end;gap:1px;height:150px;
+      border-bottom:2px solid var(--viz-line);padding-bottom:0}
+    .v2-bar{flex:1 1 0;background:var(--viz-accent);opacity:.75;border-radius:3px 3px 0 0;min-height:2px;
+      position:relative;border:0;padding:0}
+    .v2-bar.is-sel{opacity:1;background:var(--viz-violet)}
+    .v2-bar.is-zero{background:var(--viz-line);opacity:1}
+    .v2-cnt{position:absolute;top:-15px;left:0;right:0;text-align:center;font-size:9.5px;font-weight:800;color:var(--viz-muted)}
+    .v2-axis{display:flex;gap:1px;margin-top:4px}
+    .v2-tk{flex:1 1 0;text-align:center;font-size:9px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;overflow:hidden}
+  </style>
+  <script>
+  (function(){
+    var D = [30,38,41,42,43,45,46,47,48,49,51,52,53,54,55,57,58,60,63,70];
+    var WIDTHS = [1, 2, 4, 5, 10, 20, 40];
+    var START = 30, TOP = 70;
+    var sel = -1;
+    var s = document.getElementById('v2-w');
+    var wl = document.getElementById('v2-wl');
+    var bars = document.getElementById('v2-bars');
+    var axis = document.getElementById('v2-axis');
+    var read = document.getElementById('v2-read');
+
+    function bin(w){
+      var nb = Math.floor((TOP - START) / w) + 1;
+      var c = [];
+      for (var i = 0; i < nb; i++) c.push(0);
+      D.forEach(function(v){ c[Math.floor((v - START) / w)] += 1; });
+      return c;
+    }
+
+    function render(){
+      var w = WIDTHS[Number(s.value)] || 10;
+      wl.textContent = w + ' s';
+      var c = bin(w), nb = c.length;
+      var max = Math.max.apply(null, c) || 1;
+      var total = c.reduce(function(a, b){ return a + b; }, 0);
+      var empty = c.filter(function(n){ return n === 0; }).length;
+      var peak = c.indexOf(max);
+      if (sel < 0 || sel >= nb) sel = peak;
+
+      bars.innerHTML = '';
+      c.forEach(function(n, i){
+        var b = document.createElement('button');
+        b.className = 'v2-bar' + (i === sel ? ' is-sel' : '') + (n === 0 ? ' is-zero' : '');
+        b.setAttribute('aria-label', 'bin ' + (START + i * w) + ' to ' + (START + (i + 1) * w) + ', count ' + n);
+        b.setAttribute('style', 'height:' + Math.max(2, Math.round(n / max * 128)) + 'px');
+        b.innerHTML = nb <= 12 ? '<span class="v2-cnt">' + n + '</span>' : '';
+        b.addEventListener('click', function(){ sel = i; render(); });
+        bars.appendChild(b);
+      });
+
+      var every = Math.ceil(nb / 6);
+      axis.innerHTML = c.map(function(n, i){
+        return '<span class="v2-tk">' + (i % every === 0 ? (START + i * w) : '') + '</span>';
+      }).join('');
+
+      var a = START + sel * w, b2 = a + w;
+      var pct = total > 0 ? Math.round(c[sel] / total * 100) : 0;
+      var verdict;
+      if (nb >= 20) {
+        verdict = '<b style="color:var(--viz-red)">Too narrow — ' + nb + ' bars, tallest only ' + max + '.</b>' +
+          'At this width almost every bar is one or two values, so the ups and downs you see are which individual times happened to be recorded, not the shape of the process. This is a dot plot with extra steps, and it costs you the one thing a histogram is for.';
+      } else if (nb <= 3) {
+        verdict = '<b style="color:var(--viz-red)">Too wide — ' + nb + ' bars, and ' + max + ' of ' + total + ' values inside one of them.</b>' +
+          'The peak in the 40s, the thinning through the 50s and the empty stretch before the last value are all averaged away inside a single interval. A summary this coarse cannot be wrong, and cannot be useful either.';
+      } else {
+        verdict = '<b style="color:var(--viz-green)">Readable — ' + nb + ' bars, one peak of ' + max + ' at ' +
+          (START + peak * w) + '–' + (START + (peak + 1) * w) + ' s.</b>' +
+          'Wide enough that each bar is a real count, narrow enough that the shape survives: a bulk in the 40s, a thinner right shoulder, and the largest value alone in the final bar.';
+      }
+
+      read.innerHTML = verdict +
+        '<br><br><b style="display:inline;font-size:12.5px">Selected bar:</b> covers <b>[' + a + ', ' + b2 + ')</b> s and holds <b>' + c[sel] + ' of ' + total + '</b> values (' + pct + '%). ' +
+        empty + ' of the ' + nb + ' bars are empty — a genuinely empty interval, which is information a bar chart could never show. ' +
+        'The counts always sum to <b>' + total + '</b>, whatever the width: binning moves values between bars, it never creates or destroys one.';
+    }
+    s.addEventListener('input', function(){ sel = -1; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Same Box, Different Data</h2>
+  <p class="vz-lede">Four displays, one data set — then swap the data set. Three of the four displays change
+    completely. The box plot does not move a pixel, because it only ever saw five numbers.
+    <b>Like a passport: name, height, date of birth — enough to identify you, nowhere near enough to
+    describe you.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Data set" id="v3-set"></div>
+  <div class="vz-seg" role="group" aria-label="Display" id="v3-mode"></div>
+
+  <div class="vz-card">
+    <div class="v3-stage" id="v3-view"></div>
+    <div class="vz-pills" id="v3-five"></div>
+    <div class="vz-why" id="v3-read"></div>
+  </div>
+  <p class="vz-note">The judgment: the five-number summary is a <b>lossy</b> summary, and the loss is not
+    random. It is blind to modality, to gaps, and to everything inside the box — exactly the features that
+    usually mean two populations got mixed together. Reach for the box plot to compare centre, spread and
+    outliers across groups; reach for a dot plot, a stem-and-leaf plot or a histogram before you believe a
+    distribution has one peak.</p>
+
+  <style>
+    .v3-stage{min-height:170px}
+    .v3-dots{position:relative;height:150px;border-bottom:2px solid var(--viz-line)}
+    .v3-d{position:absolute;width:9px;height:9px;margin-left:-4.5px;border-radius:50%;background:var(--viz-accent)}
+    .v3-hist{display:flex;align-items:flex-end;gap:2px;height:140px;border-bottom:2px solid var(--viz-line)}
+    .v3-hb{flex:1 1 0;background:var(--viz-accent);opacity:.75;border-radius:3px 3px 0 0;min-height:2px;position:relative}
+    .v3-hc{position:absolute;top:-15px;left:0;right:0;text-align:center;font-size:9.5px;font-weight:800;color:var(--viz-muted)}
+    .v3-ax{display:flex;gap:2px;margin-top:4px}
+    .v3-at{flex:1 1 0;text-align:center;font-size:9px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace}
+    .v3-stem{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;line-height:1.9;white-space:pre}
+    .v3-key{font-size:11px;color:var(--viz-muted);margin-top:8px}
+    .v3-box{position:relative;height:120px}
+    .v3-wh{position:absolute;top:56px;height:2px;background:var(--viz-muted)}
+    .v3-cap{position:absolute;top:44px;width:2px;height:26px;background:var(--viz-muted)}
+    .v3-bx{position:absolute;top:40px;height:34px;border:2px solid var(--viz-accent);border-radius:4px;background:var(--viz-bg)}
+    .v3-md{position:absolute;top:40px;width:3px;height:34px;background:var(--viz-violet)}
+    .v3-lb{position:absolute;font-size:9.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;transform:translateX(-50%)}
+  </style>
+  <script>
+  (function(){
+    var SETS = {
+      A: { name: 'set A', v: [30,38,41,42,43,45,46,47,48,49,51,52,53,54,55,57,58,60,63,70] },
+      B: { name: 'set B', v: [30,38,41,42,43,45,45,46,46,47,53,54,54,55,55,57,57,58,63,70] }
+    };
+    var MODES = [
+      { k: 'dot',  t: 'dot plot' },
+      { k: 'stem', t: 'stem-and-leaf' },
+      { k: 'hist', t: 'histogram' },
+      { k: 'box',  t: 'box plot' }
+    ];
+    var setKey = 'A', mode = 'dot';
+    var LO = 25, HI = 75;
+    var setBar = document.getElementById('v3-set');
+    var modeBar = document.getElementById('v3-mode');
+    var view = document.getElementById('v3-view');
+    var five = document.getElementById('v3-five');
+    var read = document.getElementById('v3-read');
+
+    function med(a){ var n = a.length; if (!n) return 0; var m = Math.floor(n / 2); return n % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+    function summary(v){
+      var a = v.slice().sort(function(p, q){ return p - q; });
+      var h = Math.floor(a.length / 2);
+      return { min: a[0], q1: med(a.slice(0, h)), md: med(a), q3: med(a.slice(a.length - h)), max: a[a.length - 1] };
+    }
+    function hist(v){
+      var c = [0,0,0,0,0,0,0,0,0];
+      v.forEach(function(x){ c[Math.min(8, Math.floor((x - 30) / 5))] += 1; });
+      return c;
+    }
+    function peaks(c){
+      var m = Math.max.apply(null, c) || 1, n = 0;
+      for (var i = 0; i < c.length; i++) {
+        var L = i > 0 ? c[i - 1] : 0, R = i < c.length - 1 ? c[i + 1] : 0;
+        if (c[i] > L && c[i] > R && c[i] >= m * 0.5) n += 1;
+      }
+      return n;
+    }
+    function pos(x){ return (x - LO) / (HI - LO) * 100; }
+
+    function drawDots(v){
+      var seen = {}, h = '';
+      v.slice().sort(function(p, q){ return p - q; }).forEach(function(x){
+        seen[x] = (seen[x] || 0) + 1;
+        h += '<span class="v3-d" style="left:' + pos(x).toFixed(2) + '%;bottom:' + (2 + (seen[x] - 1) * 11) + 'px"></span>';
+      });
+      return '<div class="v3-dots">' + h + '</div><div class="v3-ax">' +
+        [30,40,50,60,70].map(function(t){ return '<span class="v3-at">' + t + '</span>'; }).join('') +
+        '</div><p class="v3-key">One dot per observation, positioned at its value. Every individual value is on the page.</p>';
+    }
+    function drawStem(v){
+      var rows = {}, order = [];
+      v.slice().sort(function(p, q){ return p - q; }).forEach(function(x){
+        var st = Math.floor(x / 10);
+        if (!rows[st]) { rows[st] = []; order.push(st); }
+        rows[st].push(x % 10);
+      });
+      var txt = order.map(function(st){ return ' ' + st + ' | ' + rows[st].join(' '); }).join('\n');
+      return '<div class="v3-stem">' + txt + '</div>' +
+        '<p class="v3-key">Key: a stem of <b>4</b> with a leaf of <b>7</b> is the value <b>47</b> — not 74 and not 4.7. Every value is retained, organised by place value, and the row lengths are a histogram of width 10 lying on its side.</p>';
+    }
+    function drawHist(v){
+      var c = hist(v), m = Math.max.apply(null, c) || 1;
+      return '<div class="v3-hist">' + c.map(function(n){
+        return '<div class="v3-hb" style="height:' + Math.max(2, Math.round(n / m * 118)) + 'px"><span class="v3-hc">' + n + '</span></div>';
+      }).join('') + '</div><div class="v3-ax">' + c.map(function(n, i){
+        return '<span class="v3-at">' + (30 + i * 5) + '</span>';
+      }).join('') + '</div><p class="v3-key">Bins of width 5 s. Bar height is the count in that interval.</p>';
+    }
+    function drawBox(v){
+      var s = summary(v);
+      var h = '<div class="v3-box">' +
+        '<span class="v3-wh" style="left:' + pos(s.min).toFixed(2) + '%;width:' + (pos(s.max) - pos(s.min)).toFixed(2) + '%"></span>' +
+        '<span class="v3-cap" style="left:' + pos(s.min).toFixed(2) + '%"></span>' +
+        '<span class="v3-cap" style="left:' + pos(s.max).toFixed(2) + '%"></span>' +
+        '<span class="v3-bx" style="left:' + pos(s.q1).toFixed(2) + '%;width:' + (pos(s.q3) - pos(s.q1)).toFixed(2) + '%"></span>' +
+        '<span class="v3-md" style="left:' + pos(s.md).toFixed(2) + '%"></span>' +
+        '<span class="v3-lb" style="left:' + pos(s.min).toFixed(2) + '%;top:80px">min ' + s.min + '</span>' +
+        '<span class="v3-lb" style="left:' + pos(s.q1).toFixed(2) + '%;top:16px">Q1 ' + s.q1 + '</span>' +
+        '<span class="v3-lb" style="left:' + pos(s.md).toFixed(2) + '%;top:0px">med ' + s.md + '</span>' +
+        '<span class="v3-lb" style="left:' + pos(s.q3).toFixed(2) + '%;top:16px">Q3 ' + s.q3 + '</span>' +
+        '<span class="v3-lb" style="left:' + pos(s.max).toFixed(2) + '%;top:80px">max ' + s.max + '</span>' +
+        '</div>';
+      var iqr = s.q3 - s.q1;
+      return h + '<p class="v3-key">Box spans Q1 to Q3 (IQR = ' + iqr + ' s), the violet line is the median, whiskers reach the furthest values within 1.5 &times; IQR — fences at ' +
+        (s.q1 - 1.5 * iqr) + ' s and ' + (s.q3 + 1.5 * iqr) + ' s, so nothing here is flagged as a possible outlier.</p>';
+    }
+
+    function render(){
+      [].slice.call(setBar.children).forEach(function(b){
+        b.setAttribute('aria-pressed', b.getAttribute('data-k') === setKey ? 'true' : 'false');
+      });
+      [].slice.call(modeBar.children).forEach(function(b){
+        b.setAttribute('aria-pressed', b.getAttribute('data-k') === mode ? 'true' : 'false');
+      });
+
+      var cur = SETS[setKey].v, other = SETS[setKey === 'A' ? 'B' : 'A'].v;
+      view.innerHTML = mode === 'dot' ? drawDots(cur)
+        : mode === 'stem' ? drawStem(cur)
+        : mode === 'hist' ? drawHist(cur)
+        : drawBox(cur);
+
+      var s1 = summary(cur), s2 = summary(other);
+      var same = s1.min === s2.min && s1.q1 === s2.q1 && s1.md === s2.md && s1.q3 === s2.q3 && s1.max === s2.max;
+      five.innerHTML = ['min ' + s1.min, 'Q1 ' + s1.q1, 'med ' + s1.md, 'Q3 ' + s1.q3, 'max ' + s1.max]
+        .map(function(t){ return '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">' + t + '</span>'; }).join('') +
+        '<span class="vz-pill" style="color:' + (same ? 'var(--viz-amber)' : 'var(--viz-muted)') + ';border-color:' + (same ? 'var(--viz-amber)' : 'var(--viz-line)') + '">' +
+        (same ? 'the other set: IDENTICAL five numbers' : 'the other set: different five numbers') + '</span>';
+
+      var diff = 0;
+      var a1 = cur.slice().sort(function(p, q){ return p - q; });
+      var a2 = other.slice().sort(function(p, q){ return p - q; });
+      for (var i = 0; i < a1.length; i++) if (a1[i] !== a2[i]) diff += 1;
+      var pk1 = peaks(hist(cur)), pk2 = peaks(hist(other));
+      var word = function(n){ return n >= 2 ? 'bimodal (' + n + ' peaks)' : n === 1 ? 'unimodal (1 peak)' : 'no clear peak'; };
+
+      read.innerHTML = mode === 'box'
+        ? '<b style="color:var(--viz-amber)">Switch data set: nothing on this display moves.</b>' +
+          'Both sets have min ' + s1.min + ', Q1 ' + s1.q1 + ', median ' + s1.md + ', Q3 ' + s1.q3 + ', max ' + s1.max + ' — so both draw the same box, the same median line and the same whiskers, ' +
+          'even though <b>' + diff + ' of the ' + a1.length + ' values differ</b>. A box plot condenses the data into the five-number summary, and everything the summary does not carry is gone. ' +
+          '<br><br>That is the trade, not a fault: the same condensation is exactly why box plots line up so well side by side.'
+        : '<b style="color:var(--viz-green)">Switch data set: this display changes immediately.</b>' +
+          diff + ' of the ' + a1.length + ' values differ between the two sets, and it shows here. On bins of width 5 s, ' +
+          SETS[setKey].name + ' is <b>' + word(pk1) + '</b> and the other set is <b>' + word(pk2) + '</b> — two clusters with a hollow in the middle usually means two populations got mixed together. ' +
+          '<br><br>The dot plot and the stem-and-leaf plot keep <em>every individual value</em>; the histogram keeps the shape but not the values; the box plot keeps five numbers. ' +
+          'Switch to <b>box plot</b> and watch this difference disappear entirely.';
+    }
+
+    ['A', 'B'].forEach(function(k){
+      var b = document.createElement('button');
+      b.setAttribute('data-k', k);
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = SETS[k].name;
+      b.addEventListener('click', function(){ setKey = k; render(); });
+      setBar.appendChild(b);
+    });
+    MODES.forEach(function(m){
+      var b = document.createElement('button');
+      b.setAttribute('data-k', m.k);
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = m.t;
+      b.addEventListener('click', function(){ mode = m.k; render(); });
+      modeBar.appendChild(b);
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Naming The Shape</h2>
+  <p class="vz-lede">Shape is two questions: how many peaks, and which way does the tail run. Choose a
+    modality, then drag the tail. Every word in the verdict is read back off the bars and the numbers — never
+    off the buttons you pressed. <b>Like describing a hill: first how many summits, then which side is the
+    long slow slope down.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Modality" id="v4-mode"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-k">Tail: <span id="v4-kl">balanced</span></label>
+    <input type="range" id="v4-k" min="-8" max="8" value="4" step="1" aria-label="Which way the tail runs">
+    <div class="v4-plot" id="v4-bars"></div>
+    <div class="v4-marks" id="v4-marks"></div>
+    <div class="vz-pills" id="v4-pills"></div>
+    <div class="vz-why" id="v4-read"></div>
+  </div>
+  <p class="vz-note">Two habits worth keeping. <b>Name the skew after the tail, never after the bulk</b> — "most
+    values are small" describes a <em>right</em>-skewed distribution. And when the mean and the median pull
+    apart, that gap is itself a measurement: it is the distribution telling you it is not symmetric, and it is
+    why reporting an average alone on skewed data quietly misleads.</p>
+
+  <style>
+    .v4-plot{margin-top:14px;display:flex;align-items:flex-end;gap:2px;height:140px;border-bottom:2px solid var(--viz-line)}
+    .v4-b{flex:1 1 0;background:var(--viz-accent);opacity:.75;border-radius:3px 3px 0 0;min-height:2px}
+    .v4-marks{position:relative;height:38px;margin-top:2px}
+    .v4-m{position:absolute;top:0;font-size:9.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace;transform:translateX(-50%);white-space:nowrap}
+    .v4-m i{display:block;width:2px;height:9px;margin:0 auto 2px}
+  </style>
+  <script>
+  (function(){
+    var NB = 13, MID = 6;
+    var mode = 'one';
+    var MODES = [{ k: 'one', t: 'one peak' }, { k: 'two', t: 'two peaks' }, { k: 'flat', t: 'flat' }];
+    var s = document.getElementById('v4-k');
+    var kl = document.getElementById('v4-kl');
+    var modeBar = document.getElementById('v4-mode');
+    var bars = document.getElementById('v4-bars');
+    var marks = document.getElementById('v4-marks');
+    var pills = document.getElementById('v4-pills');
+    var read = document.getElementById('v4-read');
+
+    function val(i){ return 10 + 5 * i; }
+    function bell(i, c, base, k){
+      var sL = base * (1 - 0.7 * k), sR = base * (1 + 0.7 * k);
+      var sd = i < c ? sL : sR;
+      if (!(sd > 0)) return 0;
+      var z = (i - c) / sd;
+      return Math.exp(-0.5 * z * z);
+    }
+    function weights(k){
+      var w = [], i;
+      for (i = 0; i < NB; i++) {
+        if (mode === 'one') w.push(bell(i, MID, 2.4, k));
+        else if (mode === 'two') w.push(bell(i, 3, 1.4, k) + bell(i, 9, 1.4, k));
+        else w.push(1 - 0.75 * k * (i - MID) / MID);
+      }
+      return w;
+    }
+    function counts(k){
+      var w = weights(k);
+      var mx = Math.max.apply(null, w);
+      if (!(mx > 0)) return w.map(function(){ return 0; });
+      return w.map(function(x){ return Math.max(0, Math.round(x / mx * 12)); });
+    }
+    function stats(c){
+      var vals = [], i, j;
+      for (i = 0; i < c.length; i++) for (j = 0; j < c[i]; j++) vals.push(val(i));
+      var n = vals.length;
+      if (!n) return { n: 0, mean: 0, med: 0, sd: 0 };
+      var sum = vals.reduce(function(a, b){ return a + b; }, 0);
+      var mean = sum / n;
+      var m = Math.floor(n / 2);
+      var md = n % 2 ? vals[m] : (vals[m - 1] + vals[m]) / 2;
+      var vr = vals.reduce(function(a, b){ return a + (b - mean) * (b - mean); }, 0) / n;
+      return { n: n, mean: mean, med: md, sd: Math.sqrt(vr) };
+    }
+    function peaks(c){
+      var m = Math.max.apply(null, c) || 1, n = 0, i;
+      for (i = 0; i < c.length; i++) {
+        var L = i > 0 ? c[i - 1] : 0, R = i < c.length - 1 ? c[i + 1] : 0;
+        if (c[i] > L && c[i] > R && c[i] >= m * 0.5) n += 1;
+      }
+      return n;
+    }
+
+    function render(){
+      [].slice.call(modeBar.children).forEach(function(b){
+        b.setAttribute('aria-pressed', b.getAttribute('data-k') === mode ? 'true' : 'false');
+      });
+      var raw = Number(s.value);
+      if (!isFinite(raw)) raw = 0;
+      var k = raw / 8;
+      kl.textContent = raw === 0 ? 'balanced' : (raw > 0 ? 'stretched right (+' + raw + ')' : 'stretched left (' + raw + ')');
+
+      var c = counts(k);
+      var mx = Math.max.apply(null, c) || 1;
+      var mn = Math.min.apply(null, c);
+      var st = stats(c);
+      var pk = peaks(c);
+      var flat = (mx - mn) <= mx * 0.15;
+
+      bars.innerHTML = c.map(function(n){
+        return '<div class="v4-b" style="height:' + Math.max(2, Math.round(n / mx * 120)) + 'px"></div>';
+      }).join('');
+
+      function px(v){ return Math.max(0, Math.min(100, (v - 10) / 60 * 100)); }
+      marks.innerHTML = st.n
+        ? '<span class="v4-m" style="left:' + px(st.med).toFixed(1) + '%;color:var(--viz-violet)">' +
+            '<i style="background:var(--viz-violet)"></i>median ' + st.med.toFixed(1) + '</span>' +
+          '<span class="v4-m" style="left:' + px(st.mean).toFixed(1) + '%;top:19px;color:var(--viz-amber)">' +
+            '<i style="background:var(--viz-amber)"></i>mean ' + st.mean.toFixed(1) + '</span>'
+        : '';
+
+      var r = st.sd > 0 ? (st.mean - st.med) / st.sd : 0;
+      var skew = r > 0.05 ? 'right-skewed' : r < -0.05 ? 'left-skewed' : 'roughly symmetric';
+      var shape = flat ? 'uniform — no peak' : pk >= 2 ? 'bimodal — ' + pk + ' peaks' : pk === 1 ? 'unimodal — 1 peak' : 'no clear peak';
+      var col = skew === 'roughly symmetric' ? 'var(--viz-accent)' : 'var(--viz-amber)';
+
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">shape: ' + shape + '</span>' +
+        '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">skew: ' + skew + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">n = ' + st.n + '</span>';
+
+      var gap = st.mean - st.med;
+      var pull = Math.abs(gap) < 0.05
+        ? 'The mean and the median sit on top of each other, which is what symmetry looks like in numbers.'
+        : gap > 0
+          ? 'The mean sits <b>' + gap.toFixed(1) + ' s above</b> the median. Every value pulls on the mean in proportion to its distance, so the long right tail drags it out; the median is a rank, so it barely moved.'
+          : 'The mean sits <b>' + (-gap).toFixed(1) + ' s below</b> the median, dragged down by the long left tail. The median, being a rank, stayed where the bulk of the data is.';
+
+      var extra = mode === 'flat' && Math.abs(raw) > 0
+        ? '<br><br><b style="display:inline;font-size:12.5px">Note:</b> you pressed <em>flat</em>, but a tilted uniform is no longer uniform — and the verdict above says so, because it is computed from the bars rather than from the button.'
+        : mode === 'two' && Math.abs(raw) > 0
+          ? '<br><br>Both peaks kept their place while the tails stretched: modality and skew are <b>independent</b> descriptions, and a distribution can be bimodal and skewed at once.'
+          : '';
+
+      read.innerHTML =
+        '<b>Read it off the picture: ' + shape + ', ' + skew + '.</b>' + pull + extra +
+        '<br><br>Say the four features in order and you have described the distribution: <b>shape</b> (' + shape + ', ' + skew + '), ' +
+        '<b>center</b> (median ' + st.med.toFixed(1) + ' s), <b>spread</b> (values run from 10 to 70 s about that centre), and <b>outliers</b> (none flagged here). ' +
+        'Anything else — domain and range, slope and intercept — belongs to a different question.';
+    }
+
+    MODES.forEach(function(m){
+      var b = document.createElement('button');
+      b.setAttribute('data-k', m.k);
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = m.t;
+      b.addEventListener('click', function(){ mode = m.k; render(); });
+      modeBar.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Two Groups Compared</h2>
+  <p class="vz-lede">Comparing distributions means one shared axis and four sentences: shape, center, spread,
+    outliers. Shift group B's whole distribution, then drop one straggler into it and watch which statistics
+    move and which refuse to. <b>Like a class photo: one tall student changes the tallest person in the room
+    and nothing about the typical one.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Display" id="v5-mode"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-shift">Shift all of group B: <span id="v5-shiftl">+0 s</span></label>
+    <input type="range" id="v5-shift" min="-20" max="30" value="12" step="1" aria-label="Shift group B">
+    <label class="vz-lab" for="v5-x" style="margin-top:10px">One straggler added to B: <span id="v5-xl">60 s</span></label>
+    <input type="range" id="v5-x" min="0" max="200" value="60" step="1" aria-label="The straggler value in group B">
+    <div class="v5-stage" id="v5-plot"></div>
+    <div class="vz-pills" id="v5-pills"></div>
+    <div class="vz-why" id="v5-read"></div>
+  </div>
+  <p class="vz-note">Both rows are drawn against the <b>same</b> horizontal axis — that is not decoration, it
+    is the whole validity of the comparison. Two box plots or two histograms on different scales can be
+    individually correct and jointly show the opposite of the truth, and it is the single easiest way to
+    mislead with a chart that contains no false numbers at all.</p>
+
+  <style>
+    .v5-stage{margin-top:16px}
+    .v5-row{position:relative;height:72px;margin-bottom:6px}
+    .v5-name{position:absolute;left:0;top:0;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--viz-muted)}
+    .v5-bed{position:absolute;left:0;right:0;top:18px;height:50px}
+    .v5-wh{position:absolute;top:24px;height:2px;background:var(--viz-muted)}
+    .v5-cap{position:absolute;top:12px;width:2px;height:26px;background:var(--viz-muted)}
+    .v5-bx{position:absolute;top:8px;height:34px;border:2px solid var(--viz-accent);border-radius:4px;background:var(--viz-bg)}
+    .v5-md{position:absolute;top:8px;width:3px;height:34px;background:var(--viz-violet)}
+    .v5-out{position:absolute;top:19px;width:11px;height:11px;margin-left:-5.5px;border-radius:50%;border:2px solid var(--viz-red)}
+    .v5-otag{position:absolute;top:0px;font-size:9px;font-weight:800;color:var(--viz-red);transform:translateX(-50%);white-space:nowrap}
+    .v5-d{position:absolute;width:8px;height:8px;margin-left:-4px;border-radius:50%;background:var(--viz-accent)}
+    .v5-axis{position:relative;height:16px;border-top:2px solid var(--viz-line)}
+    .v5-tk{position:absolute;top:2px;font-size:9.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;transform:translateX(-50%)}
+  </style>
+  <script>
+  (function(){
+    var A = [30,38,41,42,43,45,46,47,48,49,51,52,53,54,55,57,58,60,63,70];
+    var mode = 'box';
+    var MODES = [{ k: 'box', t: 'side-by-side box plots' }, { k: 'dot', t: 'dot plots' }];
+    var sh = document.getElementById('v5-shift');
+    var shl = document.getElementById('v5-shiftl');
+    var sx = document.getElementById('v5-x');
+    var sxl = document.getElementById('v5-xl');
+    var modeBar = document.getElementById('v5-mode');
+    var plot = document.getElementById('v5-plot');
+    var pills = document.getElementById('v5-pills');
+    var read = document.getElementById('v5-read');
+
+    function med(a){ var n = a.length; if (!n) return 0; var m = Math.floor(n / 2); return n % 2 ? a[m] : (a[m - 1] + a[m]) / 2; }
+    function describe(v){
+      var a = v.slice().sort(function(p, q){ return p - q; });
+      var h = Math.floor(a.length / 2);
+      var q1 = med(a.slice(0, h)), q3 = med(a.slice(a.length - h)), iqr = q3 - q1;
+      var loF = q1 - 1.5 * iqr, hiF = q3 + 1.5 * iqr;
+      var out = a.filter(function(x){ return x < loF || x > hiF; });
+      var inn = a.filter(function(x){ return x >= loF && x <= hiF; });
+      return {
+        a: a, min: a[0], max: a[a.length - 1], md: med(a), q1: q1, q3: q3, iqr: iqr,
+        range: a[a.length - 1] - a[0], out: out,
+        wLo: inn.length ? inn[0] : a[0], wHi: inn.length ? inn[inn.length - 1] : a[a.length - 1]
+      };
+    }
+
+    function render(){
+      [].slice.call(modeBar.children).forEach(function(b){
+        b.setAttribute('aria-pressed', b.getAttribute('data-k') === mode ? 'true' : 'false');
+      });
+      var shift = Number(sh.value); if (!isFinite(shift)) shift = 0;
+      var x = Number(sx.value); if (!isFinite(x)) x = 60;
+      shl.textContent = (shift >= 0 ? '+' : '') + shift + ' s';
+      sxl.textContent = x + ' s';
+
+      var B = A.map(function(v){ return v + shift; }).concat([x]);
+      var da = describe(A), db = describe(B);
+      var lo = Math.min(da.min, db.min), hi = Math.max(da.max, db.max);
+      var span = Math.max(1, hi - lo);
+      var pad = span * 0.06;
+      var LO = lo - pad, HI = hi + pad, W = Math.max(1, HI - LO);
+      function pos(v){ return (v - LO) / W * 100; }
+
+      function boxRow(name, d, tag){
+        var h = '<div class="v5-row"><span class="v5-name">' + name + '</span><span class="v5-bed">';
+        h += '<span class="v5-wh" style="left:' + pos(d.wLo).toFixed(2) + '%;width:' + (pos(d.wHi) - pos(d.wLo)).toFixed(2) + '%"></span>';
+        h += '<span class="v5-cap" style="left:' + pos(d.wLo).toFixed(2) + '%"></span>';
+        h += '<span class="v5-cap" style="left:' + pos(d.wHi).toFixed(2) + '%"></span>';
+        h += '<span class="v5-bx" style="left:' + pos(d.q1).toFixed(2) + '%;width:' + Math.max(0.6, pos(d.q3) - pos(d.q1)).toFixed(2) + '%"></span>';
+        h += '<span class="v5-md" style="left:' + pos(d.md).toFixed(2) + '%"></span>';
+        d.out.forEach(function(v){
+          h += '<span class="v5-out" style="left:' + pos(v).toFixed(2) + '%"></span>' +
+               '<span class="v5-otag" style="left:' + pos(v).toFixed(2) + '%">outlier ' + v + '</span>';
+        });
+        return h + '</span></div>' + (tag || '');
+      }
+      function dotRow(name, d){
+        var seen = {}, h = '<div class="v5-row"><span class="v5-name">' + name + '</span><span class="v5-bed">';
+        d.a.forEach(function(v){
+          seen[v] = (seen[v] || 0) + 1;
+          h += '<span class="v5-d" style="left:' + pos(v).toFixed(2) + '%;bottom:' + (2 + (seen[v] - 1) * 10) + 'px"></span>';
+        });
+        return h + '</span></div>';
+      }
+
+      var axis = '<div class="v5-axis">' + [0, 0.25, 0.5, 0.75, 1].map(function(f){
+        return '<span class="v5-tk" style="left:' + (f * 100) + '%">' + Math.round(LO + f * W) + '</span>';
+      }).join('') + '</div>';
+
+      plot.innerHTML = (mode === 'box'
+        ? boxRow('group A', da) + boxRow('group B', db)
+        : dotRow('group A', da) + dotRow('group B', db)) + axis;
+
+      var dMed = db.md - da.md;
+      var ratio = da.iqr > 0 ? db.iqr / da.iqr : 0;
+      var cc = Math.abs(dMed) < 0.5 ? 'var(--viz-muted)' : 'var(--viz-amber)';
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + cc + ';border-color:' + cc + '">center: median ' + da.md + ' vs ' + db.md + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">spread: IQR ' + da.iqr + ' vs ' + db.iqr + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">range ' + da.range + ' vs ' + db.range + '</span>' +
+        '<span class="vz-pill" style="color:' + (db.out.length ? 'var(--viz-red)' : 'var(--viz-muted)') + ';border-color:' + (db.out.length ? 'var(--viz-red)' : 'var(--viz-line)') + '">' +
+        (db.out.length ? db.out.length + ' possible outlier' + (db.out.length === 1 ? '' : 's') + ' in B' : 'no outliers flagged in B') + '</span>';
+
+      var centreLine = Math.abs(dMed) < 0.5
+        ? 'B’s median sits on A’s, so the two groups have the same centre.'
+        : 'B’s median is <b>' + Math.abs(dMed).toFixed(1) + ' s ' + (dMed > 0 ? 'higher' : 'lower') + '</b> than A’s.';
+      var spreadLine = 'B’s box is <b>' + db.iqr + ' s</b> wide against A’s <b>' + da.iqr + ' s</b> (' + ratio.toFixed(2) + '&times;), ' +
+        'while B’s full range is <b>' + db.range + ' s</b> against A’s <b>' + da.range + ' s</b>. ' +
+        'Drag the straggler: the range chases it value for value, the IQR and the median hardly notice. That is what "resistant" means.';
+      var outLine = db.out.length
+        ? 'The straggler now lies beyond B’s fence at ' + db.q3.toFixed(1) + ' + 1.5 &times; ' + db.iqr + ' = <b>' + (db.q3 + 1.5 * db.iqr).toFixed(1) + ' s</b> (or below ' + (db.q1 - 1.5 * db.iqr).toFixed(1) + ' s), so the box plot draws it as its own point and stops the whisker at ' + db.wHi + ' s.'
+        : 'Nothing in B is past the 1.5 &times; IQR fences (' + (db.q1 - 1.5 * db.iqr).toFixed(1) + ' s and ' + (db.q3 + 1.5 * db.iqr).toFixed(1) + ' s), so the whiskers run all the way to ' + db.min + ' and ' + db.max + ' s and nothing is flagged.';
+      var modeLine = mode === 'box'
+        ? 'Side-by-side box plots are built for exactly this comparison: two medians, two box widths and any flagged points, read in one glance on a shared axis.'
+        : 'The dot plots show every individual value, which is what you need to compare <em>shape</em> — but you now have to eyeball the quartiles the box plot handed you for free. Switch back and forth: neither display is the better one, they answer different questions.';
+
+      read.innerHTML =
+        '<b>Shape, center, spread, outliers — in that order.</b>' +
+        '<b style="display:inline;font-size:12.5px">Center.</b> ' + centreLine + ' ' +
+        '<b style="display:inline;font-size:12.5px">Spread.</b> ' + spreadLine +
+        '<br><br><b style="display:inline;font-size:12.5px">Outliers.</b> ' + outLine +
+        '<br><br>' + modeLine;
+    }
+
+    MODES.forEach(function(m){
+      var b = document.createElement('button');
+      b.setAttribute('data-k', m.k);
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = m.t;
+      b.addEventListener('click', function(){ mode = m.k; render(); });
+      modeBar.appendChild(b);
+    });
+    sh.addEventListener('input', render);
+    sx.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

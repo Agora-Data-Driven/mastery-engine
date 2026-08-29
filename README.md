@@ -252,6 +252,20 @@ reconnect. Note: smaller local models are fine for hints/explanations/reviews,
 but JSON-heavy paths (question generation, LaTeX conversion) need a capable
 model to match Gemini's reliability.
 
+### When an AI answer fails: the 🐞 button
+
+Every AI call that breaks is recorded in your browser and readable from the **🐞** button in the
+Study Assistant's header (or **"Why did this fail?"** on the answer that failed). Each report says
+what broke in one line — *ran out of room mid-answer*, *an unescaped quote inside the answer*,
+*the provider stopped the response* — then which engine ran, why it stopped, and the model's raw
+output with a `⟪break⟫` marker at the exact character the parse died on. **Copy this report**
+gives you the whole thing as plain text.
+
+This is deliberately readable rather than technical: the point is to be able to tell a flaky model
+from a broken prompt from a request that was simply too long, without guessing. The log holds the
+last 12 failures, survives a reload, never leaves your browser, and never contains the prompt —
+only what came back. Clear it any time from the panel.
+
 ---
 
 ## Visual guides ("✨ Visuals")

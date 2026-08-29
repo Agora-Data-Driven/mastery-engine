@@ -1,0 +1,728 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes. */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.vz-pre button{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 130px}
+.vz-pre button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot svg{width:100%;height:auto;display:block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two Machines In Series</button>
+  <button class="viz-tab" data-viz-tab="2">2. Which Function Last</button>
+  <button class="viz-tab" data-viz-tab="3">3. Substitute The Whole Thing</button>
+  <button class="viz-tab" data-viz-tab="4">4. Horizontal Line Test</button>
+  <button class="viz-tab" data-viz-tab="5">5. The Round Trip</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two Machines In Series</h2>
+  <p class="vz-lede">You have read a single function off a formula ten thousand times, and every chain rule
+    you ever applied took the object on the right for granted. Drag one input and watch it run through
+    <b>one</b> machine, then through <b>two wired end to end</b>.
+    <b>Like a factory line: the second station can only work on what the first one hands it.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-x">input value = <b><span id="v1-xl">20</span></b></label>
+    <input class="vz-range" type="range" id="v1-x" min="0" max="30" value="20" step="1"
+      aria-label="Input value fed to both machines">
+
+    <div class="v1-panes">
+      <div class="v1-pane" id="v1-one"></div>
+      <div class="v1-pane" id="v1-two"></div>
+    </div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">Notation runs right to left: in <b>(f ∘ g)(x) = f(g(x))</b> the machine written
+    <em>second</em> runs <em>first</em>. That is the same convention as the matrix product AB from linear
+    algebra — apply B, then A — and the same evaluation order Python uses for <code>f(g(x))</code>. Nothing
+    new is being defined here; it is being named so you can reason about it.</p>
+
+  <style>
+    .v1-panes{display:flex;flex-direction:column;gap:10px;margin-top:14px}
+    .v1-pane{border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+    .v1-tag{font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted);
+      font-weight:800;margin-bottom:7px}
+    .v1-flow{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.75;white-space:pre-wrap}
+    .v1-mark{font-weight:800}
+    .v1-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v1-x'), xl = document.getElementById('v1-xl');
+    var one = document.getElementById('v1-one'), two = document.getElementById('v1-two');
+    var why = document.getElementById('v1-why');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : 'undefined'; }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var x = Number(s.value);
+      if (!isFinite(x)) x = 0;
+      xl.textContent = n(x);
+
+      /* ONE machine — the taxi fare, read the way you already read any one-feature model. */
+      var fare = 3 + 2 * x;
+      one.innerHTML =
+        '<div class="v1-tag">one machine · f(x) = 3 + 2x, x in miles</div>' +
+        '<div class="v1-flow">' +
+        'x = ' + n(x) + ' miles\n' +
+        '  3          fixed part, charged before any miles\n' +
+        '+ 2 × ' + n(x) + '    = ' + n(2 * x) + '   the per-mile part\n' +
+        '  f(' + n(x) + ')     = ' + n(fare) + '</div>' +
+        '<div class="v1-row">' +
+        pill('f(0) = 3 · the fixed fee', 'var(--viz-green)') +
+        pill('f(1) = 5 · not the rate', 'var(--viz-amber)') +
+        '</div>';
+
+      /* TWO machines in series — minutes to temperature to cost. */
+      var T = 2 * x + 60, E = 0.5 * T - 10, comp = x + 20, sum = 2.5 * x + 50;
+      var agree = Math.abs(E - comp) < 1e-9;
+      two.innerHTML =
+        '<div class="v1-tag">two machines · T(m) = 2m + 60, then E(T) = 0.5T − 10</div>' +
+        '<div class="v1-flow">' +
+        'm = ' + n(x) + ' minutes\n' +
+        '   ↓  T(m) = 2m + 60\n' +
+        'T = ' + n(T) + ' degrees\n' +
+        '   ↓  E(T) = 0.5T − 10\n' +
+        'E = ' + n(E) + '</div>' +
+        '<div class="v1-flow" style="margin-top:8px">' +
+        'compose:  E(T(m)) = 0.5(2m + 60) − 10 = m + 20  →  <span class="v1-mark" style="color:var(--viz-green)">' + n(comp) + (agree ? '  ✓ same number' : '') + '</span>\n' +
+        'add them: (2m + 60) + (0.5m − 10) = 2.5m + 50   →  <span class="v1-mark" style="color:var(--viz-red)">' + n(sum) + '  ✗ measures nothing</span></div>';
+
+      why.innerHTML = x === 0
+        ? '<b style="color:var(--viz-green)">At zero the machines show their fixed parts.</b>' +
+          'The taxi returns 3 with no miles driven, so 3 is the <b>fixed initial fee</b> — not the price of the first mile, which is f(1) = 5. Evaluate at zero, never at one. ' +
+          'On the right, m = 0 gives a room already at 60 degrees and a cost of 20: the composite <b>E(T(m)) = m + 20</b> carries that starting cost as its own constant term.'
+        : x === 1
+          ? '<b style="color:var(--viz-amber)">f(1) = 5 is neither the fee nor the rate.</b>' +
+            'It is the fee plus one rate — 3 + 2 — and it is the distractor that catches people who read a linear model at x = 1 instead of x = 0. The fixed part is <b>f(0)</b>; the per-unit part is the coefficient on x.'
+          : '<b>Two machines wired in series are one new machine.</b>' +
+            'The composite E(T(m)) = m + 20 is a function of <em>minutes</em> that returns <em>cost</em>: the inner variable becomes the input, the outer quantity becomes the output, and the middle quantity — temperature — vanishes from the description. ' +
+            'That is exactly how to read C(q(h)) when q(h) = 50h units after h hours and C(q) = 10q + 500 dollars: <b>C(q(h)) = 500h + 500 is total cost as a function of hours</b>, not the cost of one unit and not the hours needed to hit a cost. ' +
+            '<br><br>Adding the two formulas produces a number for every input, so nothing errors — and the number means nothing, because it adds degrees to dollars. <b>Substitution is the only combination whose units survive.</b>';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Which Function Last</h2>
+  <p class="vz-lede">The outer function is whatever the story does <em>last</em>. Pick a two-step process and
+    drag the input: both orders are computed, and you can see when they agree, by how much they differ, and
+    when one of them is simply nonsense.
+    <b>Like socks and shoes: some pairs of steps you can swap, and some ruin your morning.</b></p>
+
+  <div class="vz-pre" id="v2-scen" role="group" aria-label="Choose a two-step process"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-p">input: <b><span id="v2-pl">p = $50</span></b></label>
+    <input class="vz-range" type="range" id="v2-p" min="0" max="200" value="50" step="5"
+      aria-label="Input value for the two-step process">
+    <div class="v2-orders" id="v2-orders"></div>
+    <div class="v2-verdict" id="v2-verdict"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Composing is also a <b>type check</b>. The inner function must produce what the outer
+    function consumes, which is why C(K(F)) hands a Fahrenheit number to a machine built for Celsius:
+    arithmetic happens, meaning does not. Formally the domain of f ∘ g is the set of x in g's domain whose
+    output g(x) lands in f's domain — for f(u) = sqrt(u) and g(x) = x − 3 that is x ≥ 3, and nothing outside
+    it is in the composite at all.</p>
+
+  <style>
+    .v2-orders{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+    .v2-o{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7}
+    .v2-o.is-right{border-color:var(--viz-green)}
+    .v2-o.is-wrong{border-style:dashed}
+    .v2-o b{display:block;font-size:12px;margin-bottom:3px}
+    .v2-verdict{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    function n2(v){ return isFinite(v) ? v.toFixed(2) : 'undefined'; }
+    function n1(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : 'undefined'; }
+
+    var SCEN = [
+      { t:'20% off, then 5% tax', v:'p', fmt:function(x){ return '$' + n1(x); }, min:0, max:200, step:5, start:50,
+        a:{ nm:'D', ex:'D(p) = 0.80p', fn:function(p){ return 0.80 * p; }, show:function(v){ return '0.80 × ' + n2(v); } },
+        b:{ nm:'T', ex:'T(x) = 1.05x', fn:function(x){ return 1.05 * x; }, show:function(v){ return '1.05 × ' + n2(v); } },
+        why:['Two pure scalings commute — and that is a fact about <em>these</em> functions.',
+          'Tax is charged last, so T is the outer function and the price paid is <b>T(D(p))</b>. Here D(T(p)) happens to give the same number, because multiplying by 0.80 and by 1.05 can be done in either order: 0.80 × 1.05 = 0.84 either way. ' +
+          '<br><br>Do not generalise from it. The agreement is a coincidence of pure multiplication, it evaporates the moment a step adds a constant (try the handling fee), and the answer the question wants is still the one the story dictates: <b>the last step is the outer function</b>. ' +
+          'Note also what neither answer is: D(p) + T(p) and D(p) × T(p) are combinations nobody performed.'] },
+      { t:'20% off, then a $2 fee', v:'p', fmt:function(x){ return '$' + n1(x); }, min:0, max:200, step:5, start:50,
+        a:{ nm:'D', ex:'D(p) = 0.80p', fn:function(p){ return 0.80 * p; }, show:function(v){ return '0.80 × ' + n2(v); } },
+        b:{ nm:'H', ex:'H(x) = x + 2', fn:function(x){ return x + 2; }, show:function(v){ return n2(v) + ' + 2'; } },
+        why:['Add a constant anywhere and the two orders separate permanently.',
+          'H(D(p)) = 0.80p + 2 charges the fee after the discount; D(H(p)) = 0.80(p + 2) = 0.80p + 1.60 discounts the fee as well. The gap is a flat <b>0.40</b> at every price — drag the slider and watch it refuse to close. ' +
+          '<br><br>This is the general case and the previous scenario is the exception: <b>composition is not commutative</b>. Read the process, not the alphabet, and let the last thing that happens be the outer function.'] },
+      { t:'Fahrenheit → Celsius → Kelvin', v:'F', fmt:function(x){ return n1(x) + '°F'; }, min:-40, max:212, step:4, start:32,
+        a:{ nm:'C', ex:'C(F) = (5/9)(F − 32)', fn:function(F){ return (5 / 9) * (F - 32); }, show:function(v){ return '(5/9)(' + n2(v) + ' − 32)'; } },
+        b:{ nm:'K', ex:'K(C) = C + 273', fn:function(C){ return C + 273; }, show:function(v){ return n2(v) + ' + 273'; } },
+        why:['The inner function must produce what the outer function consumes.',
+          'K expects Celsius. Only C produces Celsius. So the Fahrenheit-to-Kelvin converter is <b>K(C(F))</b> and there is no second candidate. ' +
+          'C(K(F)) is not an error the computer can catch: it feeds a Fahrenheit number into a machine expecting Celsius, gets a number back, and that number is about nothing. ' +
+          '<br><br>The other distractors are worse still — K(F) + C(F) and K(F) − C(F) both evaluate K at a Fahrenheit reading and then do arithmetic on the wreckage. <b>Composition is a type check before it is a calculation.</b>'] }
+    ];
+
+    var cur = 0;
+    var scen = document.getElementById('v2-scen'), s = document.getElementById('v2-p');
+    var pl = document.getElementById('v2-pl'), orders = document.getElementById('v2-orders');
+    var verdict = document.getElementById('v2-verdict'), why = document.getElementById('v2-why');
+
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function render(){
+      var sc = SCEN[cur];
+      var p = Number(s.value);
+      if (!isFinite(p)) p = 0;
+      pl.textContent = sc.v + ' = ' + sc.fmt(p);
+
+      var mid1 = sc.a.fn(p), out1 = sc.b.fn(mid1);          // b last  — the story's order
+      var mid2 = sc.b.fn(p), out2 = sc.a.fn(mid2);          // a last  — the swap
+      var diff = (isFinite(out1) && isFinite(out2)) ? Math.abs(out1 - out2) : NaN;
+      var same = isFinite(diff) && diff < 1e-9;
+
+      function card(lbl, inner, outer, mid, out, right){
+        return '<div class="v2-o ' + (right ? 'is-right' : 'is-wrong') + '">' +
+          '<b style="color:' + (right ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+            (right ? '✓ ' : '✗ ') + lbl + (right ? '  — what the story says' : '  — the swap') + '</b>' +
+          'inner ' + inner.nm + ':  ' + inner.show(p) + '  =  ' + n2(mid) + '\n' +
+          'outer ' + outer.nm + ':  ' + outer.show(mid) + '  =  ' + n2(out) + '</div>';
+      }
+
+      orders.innerHTML =
+        card(sc.b.nm + '(' + sc.a.nm + '(' + sc.v + '))', sc.a, sc.b, mid1, out1, true) +
+        card(sc.a.nm + '(' + sc.b.nm + '(' + sc.v + '))', sc.b, sc.a, mid2, out2, false);
+
+      verdict.innerHTML =
+        pill(sc.a.ex, 'var(--viz-muted)') + pill(sc.b.ex, 'var(--viz-muted)') +
+        (same
+          ? pill('both orders agree — coincidence', 'var(--viz-amber)')
+          : pill('orders differ by ' + (isFinite(diff) ? n2(diff) : '—'), 'var(--viz-red)'));
+
+      why.innerHTML = '<b>' + sc.why[0] + '</b>' + sc.why[1];
+    }
+
+    SCEN.forEach(function(sc, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.textContent = sc.t;
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(scen.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        s.min = String(sc.min); s.max = String(sc.max); s.step = String(sc.step); s.value = String(sc.start);
+        render();
+      });
+      scen.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Substitute The Whole Thing</h2>
+  <p class="vz-lede">An oil spill's radius grows as r(t) = k·t and its area is A(r) = pi·r². Substituting the
+    <em>whole</em> inner expression is not a formality — the outer operation hits the coefficient too. Drag k
+    and t and watch the true spill next to the one you get by squaring only the t.
+    <b>Like doubling a recipe: you double every ingredient, not just the flour.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-k">growth rate: r(t) = <b><span id="v3-kl">4</span></b>t</label>
+    <input class="vz-range" type="range" id="v3-k" min="1" max="6" value="4" step="1"
+      aria-label="Growth rate coefficient k">
+    <label class="vz-lab" for="v3-t">time t = <b><span id="v3-tl">3</span></b> h</label>
+    <input class="vz-range" type="range" id="v3-t" min="0" max="5" value="3" step="0.5"
+      aria-label="Elapsed time in hours">
+
+    <div class="vz-plot" id="v3-plot"></div>
+    <div class="v3-legend" id="v3-legend"></div>
+    <div class="vz-mono" id="v3-steps" style="margin-top:11px"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">The size of the mistake is not a constant — it is exactly <b>k</b>, the coefficient you
+    failed to square. At k = 1 the two answers coincide and the error is invisible, which is why practising on
+    r(t) = t teaches you nothing. Only the identity and pure additions let a coefficient through untouched;
+    every non-linear outer function transforms it.</p>
+
+  <style>
+    .v3-legend{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .v3-sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+    .v3-key{font-size:11.5px;font-weight:700;border:1.5px solid var(--viz-line);border-radius:999px;padding:4px 11px}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 200, CX = 160, CY = 100, MAXR = 82;
+    var sk = document.getElementById('v3-k'), st = document.getElementById('v3-t');
+    var kl = document.getElementById('v3-kl'), tl = document.getElementById('v3-tl');
+    var plot = document.getElementById('v3-plot'), legend = document.getElementById('v3-legend');
+    var steps = document.getElementById('v3-steps'), why = document.getElementById('v3-why');
+
+    function n(v, d){ return isFinite(v) ? v.toFixed(d === undefined ? 2 : d) : '—'; }
+
+    function render(){
+      var k = Number(sk.value), t = Number(st.value);
+      if (!isFinite(k) || k < 1) k = 1;
+      if (!isFinite(t) || t < 0) t = 0;
+      kl.textContent = String(k);
+      tl.textContent = String(t);
+
+      var trueA = k * k * Math.PI * t * t;      // A(r(t)) = pi (kt)^2 = k^2 pi t^2
+      var wrongA = k * Math.PI * t * t;         // the error: square only the t
+      var sc = MAXR / (k * 5);                  // k >= 1 so the divisor is never zero
+      var rTrue = Math.min(MAXR, k * t * sc);
+      var rWrong = Math.min(MAXR, Math.sqrt(k) * t * sc);
+      if (!isFinite(rTrue)) rTrue = 0;
+      if (!isFinite(rWrong)) rWrong = 0;
+
+      plot.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" ' +
+          'aria-label="Two concentric circles comparing the true spill area with the mis-substituted one">' +
+        '<rect x="0.5" y="0.5" width="' + (W - 1) + '" height="' + (H - 1) + '" rx="10" fill="var(--viz-bg)" stroke="var(--viz-line)"/>' +
+        '<circle cx="' + CX + '" cy="' + CY + '" r="' + Math.max(0.6, rTrue) + '" fill="var(--viz-accent)" fill-opacity="0.16" stroke="var(--viz-accent)" stroke-width="2"/>' +
+        '<circle cx="' + CX + '" cy="' + CY + '" r="' + Math.max(0.6, rWrong) + '" fill="none" stroke="var(--viz-red)" stroke-width="2" stroke-dasharray="5 4"/>' +
+        '<line x1="' + CX + '" y1="' + CY + '" x2="' + (CX + rTrue) + '" y2="' + CY + '" stroke="var(--viz-accent)" stroke-width="1.5"/>' +
+        '<text x="' + (CX + 5) + '" y="' + (CY - 6) + '" font-size="10" fill="var(--viz-accent)">r = ' + n(k * t, 1) + '</text>' +
+        '<text x="12" y="18" font-size="10.5" fill="var(--viz-muted)">solid = true spill · dashed = the mis-substituted answer</text>' +
+        '</svg>';
+
+      legend.innerHTML =
+        '<span class="v3-key" style="color:var(--viz-accent);border-color:var(--viz-accent)">' +
+          '<span class="v3-sw" style="background:var(--viz-accent)"></span>true area ' + n(trueA) + '</span>' +
+        '<span class="v3-key" style="color:var(--viz-red);border-color:var(--viz-red)">' +
+          '<span class="v3-sw" style="background:var(--viz-red)"></span>error area ' + n(wrongA) + '</span>' +
+        '<span class="v3-key" style="color:var(--viz-muted)">understated ' + k + '×</span>';
+
+      steps.innerHTML =
+        'A(r(t)) = pi · (' + k + 't)²        substitute the WHOLE inner expression\n' +
+        '        = pi · ' + (k * k) + ' t²' + (k * k < 10 ? ' ' : '') + '        the square hits the coefficient too\n' +
+        '        = ' + (k * k) + ' pi t²        at t = ' + t + '  →  ' + n(trueA) + '\n\n' +
+        '<span style="color:var(--viz-red)">the error: square only the t\n' +
+        '        = ' + k + ' pi t²' + (k < 10 ? '  ' : '') + '         at t = ' + t + '  →  ' + n(wrongA) + '   ✗</span>';
+
+      why.innerHTML = k === 1
+        ? '<b style="color:var(--viz-amber)">At k = 1 the mistake is invisible.</b>' +
+          'r(t) = t makes pi(1·t)² and 1·pi·t² the same expression, so both routes give ' + n(trueA) + ' and nothing distinguishes a correct substitution from a careless one. Push k up and the two circles separate immediately.'
+        : '<b>Substituting r = ' + k + 't gives ' + (k * k) + ' pi t², not ' + k + ' pi t².</b>' +
+          'The outer function is squaring, and squaring a product squares <em>both</em> factors: (' + k + 't)² = ' + (k * k) + 't². Leaving the coefficient outside understates the area by a factor of ' + k + ' at every instant — at t = 3 hours with k = 4 that is 144pi ≈ 452 against 36pi ≈ 113. ' +
+          '<br><br>The circles make the geometry of the error plain: the dashed radius is sqrt(' + k + ') t rather than ' + k + 't. ' +
+          'Nothing about the arithmetic complains, which is exactly why this one survives into production code — <b>the wrong answer is smooth, plausible and consistently ' + k + '× too small</b>.';
+    }
+    sk.addEventListener('input', render);
+    st.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Horizontal Line Test</h2>
+  <p class="vz-lede">A function has an inverse exactly when it is one-to-one, and a horizontal line is that
+    property drawn. Pick a rule, drag the line, and then cut the domain down until the line can never hit
+    twice. <b>Like a coat check: two coats on one ticket and nobody gets their coat back.</b></p>
+
+  <div class="vz-pre" id="v4-fns" role="group" aria-label="Choose a function"></div>
+  <div class="vz-seg" id="v4-doms" role="group" aria-label="Choose a domain restriction"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-c">horizontal line y = <b><span id="v4-cl">9</span></b></label>
+    <input class="vz-range" type="range" id="v4-c" min="-4" max="19" value="18" step="1"
+      aria-label="Height of the horizontal line">
+    <div class="vz-plot" id="v4-plot"></div>
+    <div class="v4-hits" id="v4-hits"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Keep this apart from the <b>vertical</b> line test, which answers a different question —
+    whether the graph is a function at all. The two are linked by reflection: inverting reflects the graph
+    across y = x, which swaps horizontal for vertical, so a graph that fails the horizontal test reflects into
+    something that fails the vertical one. Not a function, just a relation. That reflection is visual 5.</p>
+
+  <style>
+    .v4-hits{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 210, L = 26, R = 12, T = 12, B = 22;
+
+    var FNS = [
+      { t:'y = x²', f:function(x){ return x * x; }, xs:[-3, 3], ys:[-2, 9.5], cdef:18,
+        solve:function(c){ if (c < 0) return []; if (c === 0) return [0]; var r = Math.sqrt(c); return [-r, r]; },
+        inv:{ ge0:'f⁻¹(x) = √x', le0:'f⁻¹(x) = −√x' } },
+      { t:'y = x³', f:function(x){ return x * x * x; }, xs:[-2, 2], ys:[-8.5, 8.5], cdef:16,
+        solve:function(c){ return [Math.cbrt(c)]; }, inv:{ any:'f⁻¹(x) = ∛x' } },
+      { t:'y = |x|', f:function(x){ return Math.abs(x); }, xs:[-3, 3], ys:[-1, 3.5], cdef:6,
+        solve:function(c){ if (c < 0) return []; if (c === 0) return [0]; return [-c, c]; },
+        inv:{ ge0:'f⁻¹(x) = x', le0:'f⁻¹(x) = −x' } },
+      { t:'y = 2x − 1', f:function(x){ return 2 * x - 1; }, xs:[-3, 3], ys:[-7.5, 5.5], cdef:10,
+        solve:function(c){ return [(c + 1) / 2]; }, inv:{ any:'f⁻¹(x) = (x + 1)/2' } }
+    ];
+    var DOMS = [
+      { k:'all', t:'all real x', ok:function(){ return true; } },
+      { k:'ge0', t:'x ≥ 0',  ok:function(x){ return x >= 0; } },
+      { k:'le0', t:'x ≤ 0',  ok:function(x){ return x <= 0; } },
+      { k:'ne0', t:'x ≠ 0',  ok:function(x){ return Math.abs(x) > 1e-9; } },
+      { k:'le1', t:'x ≤ 1',  ok:function(x){ return x <= 1; } }
+    ];
+
+    var fi = 0, di = 0;
+    var fns = document.getElementById('v4-fns'), doms = document.getElementById('v4-doms');
+    var s = document.getElementById('v4-c'), cl = document.getElementById('v4-cl');
+    var plot = document.getElementById('v4-plot'), hits = document.getElementById('v4-hits');
+    var why = document.getElementById('v4-why');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 100) / 100) : '—'; }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+
+    function roots(fn, dom, c){
+      return fn.solve(c).filter(function(x){ return isFinite(x) && dom.ok(x); });
+    }
+    /* Scan the whole visible band of heights for a line that hits twice. */
+    function witness(fn, dom){
+      var lo = fn.ys[0], hi = fn.ys[1], N = 240;
+      for (var i = 0; i <= N; i++) {
+        var c = lo + (hi - lo) * (i / N);
+        if (roots(fn, dom, c).length > 1) return c;
+      }
+      return null;
+    }
+    function invText(fn, dom, oneToOne){
+      if (!oneToOne) return null;
+      if (fn.inv.any) return fn.inv.any + (dom.k === 'all' ? '' : ' — this rule was already one-to-one, so the restriction changed nothing');
+      return fn.inv[dom.k] || null;
+    }
+
+    function render(){
+      var fn = FNS[fi], dom = DOMS[di];
+      var px = function(x){ return L + (x - fn.xs[0]) / (fn.xs[1] - fn.xs[0]) * (W - L - R); };
+      var py = function(y){ return T + (fn.ys[1] - y) / (fn.ys[1] - fn.ys[0]) * (H - T - B); };
+
+      var c = Number(s.value) / 2;
+      if (!isFinite(c)) c = 0;
+      cl.textContent = n(c);
+
+      /* the curve, split into kept and excluded runs so the restriction is visible */
+      var segs = [], run = null, prev = null, lastPt = null;
+      for (var i = 0; i <= 180; i++) {
+        var x = fn.xs[0] + (fn.xs[1] - fn.xs[0]) * (i / 180);
+        var y = fn.f(x);
+        if (!isFinite(y) || y < fn.ys[0] || y > fn.ys[1]) { run = null; prev = null; lastPt = null; continue; }
+        var keep = dom.ok(x);
+        var pt = px(x) + ',' + py(y);
+        if (run === null || prev !== keep) {
+          run = { keep: keep, pts: [] };
+          segs.push(run);
+          if (lastPt !== null) run.pts.push(lastPt);   // join to the previous run, no visual gap
+        }
+        run.pts.push(pt);
+        prev = keep; lastPt = pt;
+      }
+      var curve = segs.filter(function(sg){ return sg.pts.length > 1; }).map(function(sg){
+        return '<polyline points="' + sg.pts.join(' ') + '" fill="none" stroke="' +
+          (sg.keep ? 'var(--viz-accent)' : 'var(--viz-muted)') + '" stroke-width="' + (sg.keep ? 2.4 : 1.4) + '"' +
+          (sg.keep ? '' : ' stroke-dasharray="4 4" opacity="0.6"') + '/>';
+      }).join('');
+
+      var rts = roots(fn, dom, c);
+      var dots = rts.filter(function(x){ return x >= fn.xs[0] && x <= fn.xs[1]; }).map(function(x){
+        return '<circle cx="' + px(x) + '" cy="' + py(c) + '" r="4.5" fill="' +
+          (rts.length > 1 ? 'var(--viz-red)' : 'var(--viz-green)') + '"/>';
+      }).join('');
+      var hole = dom.k === 'ne0' && fn.f(0) >= fn.ys[0] && fn.f(0) <= fn.ys[1]
+        ? '<circle cx="' + px(0) + '" cy="' + py(fn.f(0)) + '" r="4" fill="var(--viz-bg)" stroke="var(--viz-muted)" stroke-width="1.6"/>' : '';
+
+      plot.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" ' +
+          'aria-label="Graph with a horizontal line and its intersections with the kept part of the domain">' +
+        '<rect x="0.5" y="0.5" width="' + (W - 1) + '" height="' + (H - 1) + '" rx="10" fill="var(--viz-bg)" stroke="var(--viz-line)"/>' +
+        (fn.ys[0] <= 0 && fn.ys[1] >= 0 ? '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" stroke="var(--viz-line)"/>' : '') +
+        (fn.xs[0] <= 0 && fn.xs[1] >= 0 ? '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - B) + '" stroke="var(--viz-line)"/>' : '') +
+        curve + hole +
+        '<line x1="' + L + '" y1="' + py(c) + '" x2="' + (W - R) + '" y2="' + py(c) + '" stroke="var(--viz-violet)" stroke-width="2"/>' +
+        '<text x="' + (W - R - 2) + '" y="' + (py(c) - 5) + '" text-anchor="end" font-size="10" fill="var(--viz-violet)">y = ' + n(c) + '</text>' +
+        dots +
+        '<text x="12" y="' + (H - 7) + '" font-size="10" fill="var(--viz-muted)">solid = domain kept · dashed = domain thrown away</text>' +
+        '</svg>';
+
+      var w = witness(fn, dom);
+      var oneToOne = w === null;
+      var inv = invText(fn, dom, oneToOne);
+
+      hits.innerHTML =
+        pill(rts.length + ' hit' + (rts.length === 1 ? '' : 's') + ' at this height', rts.length > 1 ? 'var(--viz-red)' : 'var(--viz-muted)') +
+        pill(rts.length ? 'x = ' + rts.map(n).join(', ') : 'no solution here', 'var(--viz-muted)') +
+        pill(oneToOne ? 'one-to-one — invertible' : 'not one-to-one — no inverse', oneToOne ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      why.innerHTML = oneToOne
+        ? '<b style="color:var(--viz-green)">Every horizontal line meets this graph at most once.</b>' +
+          'No two inputs in <b>' + dom.t + '</b> share an output, so each output traces back to exactly one input and the return trip is single-valued. That is the whole definition of invertible — one-to-one, also called <b>injective</b>. ' +
+          (inv ? 'Reading it off: <b>' + inv + '</b>. ' : '') +
+          '<br><br>Notice what the test does <em>not</em> ask about: continuity, smoothness, linearity, or being increasing. f(x) = −x decreases everywhere and inverts perfectly, so "increasing everywhere" is sufficient and not necessary. ' +
+          'And inverting swaps the two sets — the inverse takes as its domain exactly the range you have here.'
+        : '<b style="color:var(--viz-red)">Some horizontal line hits twice, so there is no inverse on ' + dom.t + '.</b>' +
+          'Drag the line to y = ' + n(w) + ' and you will find two inputs sharing one output: ' +
+          'x = ' + roots(fn, dom, w).map(n).join(' and x = ') + '. An inverse would have to send that one output back to both of them at once, and a function cannot. ' +
+          (dom.k === 'ne0' || dom.k === 'le1'
+            ? '<br><br>This is why a restriction has to be <em>checked</em> rather than assumed. Removing a single point, or capping the domain at 1, still leaves a symmetric pair behind — and one surviving pair is enough to destroy invertibility.'
+            : '<br><br>Cut the domain to a single monotone branch and the inverse appears. Which branch you keep is a decision, not a discovery: x ≥ 0 and x ≤ 0 both work and give different inverses.');
+    }
+
+    FNS.forEach(function(fn, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.textContent = fn.t;
+      b.addEventListener('click', function(){
+        fi = i;
+        [].slice.call(fns.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        s.min = String(Math.round(fn.ys[0] * 2)); s.max = String(Math.round(fn.ys[1] * 2)); s.value = String(fn.cdef);
+        render();
+      });
+      fns.appendChild(b);
+    });
+    DOMS.forEach(function(d, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.textContent = d.t;
+      b.addEventListener('click', function(){
+        di = i;
+        [].slice.call(doms.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+      doms.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. The Round Trip</h2>
+  <p class="vz-lede">Two functions are inverses when both round trips hand back x — not when the formulas look
+    alike. Pick a candidate pair, drag the test value, and watch each direction separately; one can pass while
+    the other fails. <b>Like a translation: English to French and back must return your sentence, both ways.</b></p>
+
+  <div class="vz-pre" id="v5-pairs" role="group" aria-label="Choose a candidate pair"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-x">test value x = <b><span id="v5-xl">3</span></b></label>
+    <input class="vz-range" type="range" id="v5-x" min="-5" max="5" value="3" step="0.5"
+      aria-label="Test value pushed through both round trips">
+    <div class="v5-trips" id="v5-trips"></div>
+    <div class="vz-plot" id="v5-plot" style="margin-top:12px"></div>
+    <div class="v5-key" id="v5-key"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Remember what f⁻¹ is not. It is notation, never an exponent: for the restricted square
+    f⁻¹(x) = √x while 1/f(x) = 1/x², and at x = 9 those are 3 and 1/81. Nor is it an instruction to solve
+    f(x) = 0. The only test is the one on this panel, run in <b>both</b> directions.</p>
+
+  <style>
+    .v5-trips{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+    .v5-t{border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 11px;background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7}
+    .v5-t.is-ok{border-color:var(--viz-green)}
+    .v5-t.is-no{border-color:var(--viz-red);border-style:dashed}
+    .v5-key{margin-top:10px;display:flex;gap:7px;flex-wrap:wrap}
+  </style>
+  <script>
+  (function(){
+    var W = 320, H = 210, L = 26, R = 12, T = 12, B = 22, V = 5;
+
+    var PAIRS = [
+      { t:'2x−1  vs  (x+1)/2',
+        f:{ t:'f(x) = 2x − 1', fn:function(x){ return 2 * x - 1; } },
+        g:{ t:'g(x) = (x + 1)/2', fn:function(x){ return (x + 1) / 2; } },
+        why:'Undo the operations in reverse order: f multiplies then subtracts, so f⁻¹ adds then divides. Solving y = 2x − 1 for x gives x = (y + 1)/2, and renaming the variable gives f⁻¹(x) = (x + 1)/2.' },
+      { t:'2x−1  vs  (x−1)/2',
+        f:{ t:'f(x) = 2x − 1', fn:function(x){ return 2 * x - 1; } },
+        g:{ t:'g(x) = (x − 1)/2', fn:function(x){ return (x - 1) / 2; } },
+        why:'The classic distractor: it unwraps in the wrong order, subtracting when it should add. One test number kills it — g(f(1)) = g(1) = 0, and 0 is not 1. Notice how much cheaper that is than any algebra.' },
+      { t:'3x  vs  x/3',
+        f:{ t:'f(x) = 3x', fn:function(x){ return 3 * x; } },
+        g:{ t:'g(x) = x/3', fn:function(x){ return x / 3; } },
+        why:'The cleanest possible pair: multiply by 3, divide by 3. g(f(7)) = g(21) = 7, and in general f(g(x)) = 3(x/3) = x with no domain caveats at all.' },
+      { t:'x+5  vs  x−5',
+        f:{ t:'f(x) = x + 5', fn:function(x){ return x + 5; } },
+        g:{ t:'g(x) = x − 5', fn:function(x){ return x - 5; } },
+        why:'f(g(x)) = (x − 5) + 5 = x. The 5s cancel, which is what "undoing" looks like when the only operation is a shift — and it is why the answer is x rather than 5, x − 10 or x + 10.' },
+      { t:'x²  vs  √x',
+        f:{ t:'f(x) = x²', fn:function(x){ return x * x; } },
+        g:{ t:'g(x) = √x', fn:function(x){ return x < 0 ? NaN : Math.sqrt(x); } },
+        why:'"On suitable domains" is load-bearing. f(g(x)) = x for every x ≥ 0, but g(f(x)) = |x|, which equals x only when x ≥ 0. Restrict f to x ≥ 0 and the pair becomes genuine; leave it on all of R and one direction quietly fails for every negative input.' }
+    ];
+
+    var cur = 0;
+    var pairs = document.getElementById('v5-pairs'), s = document.getElementById('v5-x');
+    var xl = document.getElementById('v5-xl'), trips = document.getElementById('v5-trips');
+    var plot = document.getElementById('v5-plot'), key = document.getElementById('v5-key');
+    var why = document.getElementById('v5-why');
+
+    function n(v){ return isFinite(v) ? String(Math.round(v * 1000) / 1000) : 'undefined'; }
+    function pill(txt, col){ return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>'; }
+    function px(x){ return L + (x + V) / (2 * V) * (W - L - R); }
+    function py(y){ return T + (V - y) / (2 * V) * (H - T - B); }
+
+    /* Sample the whole test range: does this direction return x wherever it is defined? */
+    function scan(inner, outer){
+      var fails = null, defined = 0;
+      for (var i = 0; i <= 80; i++) {
+        var x = -V + (2 * V) * (i / 80);
+        var mid = inner(x);
+        if (!isFinite(mid)) continue;
+        var out = outer(mid);
+        if (!isFinite(out)) continue;
+        defined += 1;
+        if (Math.abs(out - x) > 1e-9 && fails === null) fails = x;
+      }
+      return { fails: fails, defined: defined };
+    }
+
+    function curve(fn, col, dash){
+      var runs = [], cu = null;
+      for (var i = 0; i <= 160; i++) {
+        var x = -V + (2 * V) * (i / 160);
+        var y = fn(x);
+        if (!isFinite(y) || y < -V || y > V) { cu = null; continue; }
+        if (!cu) { cu = []; runs.push(cu); }
+        cu.push(px(x) + ',' + py(y));
+      }
+      return runs.filter(function(r){ return r.length > 1; }).map(function(r){
+        return '<polyline points="' + r.join(' ') + '" fill="none" stroke="' + col + '" stroke-width="2.2"' +
+          (dash ? ' stroke-dasharray="' + dash + '"' : '') + '/>';
+      }).join('');
+    }
+
+    function render(){
+      var p = PAIRS[cur];
+      var x = Number(s.value);
+      if (!isFinite(x)) x = 0;
+      xl.textContent = n(x);
+
+      var fx = p.f.fn(x), gfx = isFinite(fx) ? p.g.fn(fx) : NaN;
+      var gx = p.g.fn(x), fgx = isFinite(gx) ? p.f.fn(gx) : NaN;
+      var okA = isFinite(gfx) && Math.abs(gfx - x) < 1e-9;
+      var okB = isFinite(fgx) && Math.abs(fgx - x) < 1e-9;
+
+      function card(lbl, midLbl, mid, outLbl, out, ok){
+        var verdict = !isFinite(mid)
+          ? '✗ undefined — that input is outside the inner function\'s domain'
+          : !isFinite(out)
+            ? '✗ undefined — the middle value is outside the outer function\'s domain'
+            : ok ? '✓ returns x' : '✗ returns ' + n(out) + ', and x = ' + n(x);
+        return '<div class="v5-t ' + (ok ? 'is-ok' : 'is-no') + '">' +
+          '<b style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + lbl + '</b>\n' +
+          'x = ' + n(x) + '  →  ' + midLbl + '  →  ' + n(mid) + '  →  ' + outLbl + '  →  ' + n(out) + '\n' +
+          verdict + '</div>';
+      }
+
+      trips.innerHTML =
+        card('g(f(x))', 'f', fx, 'g', gfx, okA) +
+        card('f(g(x))', 'g', gx, 'f', fgx, okB);
+
+      /* the mirror: (x, f(x)) reflects to (f(x), x), which lands on g exactly when g is the inverse */
+      var mirror = '';
+      if (isFinite(fx) && Math.abs(x) <= V && Math.abs(fx) <= V) {
+        var gAt = p.g.fn(fx);
+        var onG = isFinite(gAt) && Math.abs(gAt - x) < 1e-9;
+        mirror =
+          '<line x1="' + px(x) + '" y1="' + py(fx) + '" x2="' + px(fx) + '" y2="' + py(x) + '" ' +
+            'stroke="var(--viz-muted)" stroke-width="1.2" stroke-dasharray="3 3"/>' +
+          '<circle cx="' + px(x) + '" cy="' + py(fx) + '" r="4.5" fill="var(--viz-accent)"/>' +
+          '<circle cx="' + px(fx) + '" cy="' + py(x) + '" r="4.5" fill="' + (onG ? 'var(--viz-green)' : 'var(--viz-red)') + '"/>' +
+          '<text x="' + Math.min(W - 60, px(fx) + 7) + '" y="' + (py(x) - 6) + '" font-size="10" fill="' +
+            (onG ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + (onG ? 'lands on g' : 'misses g') + '</text>';
+      }
+
+      plot.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="xMidYMid meet" role="img" ' +
+          'aria-label="f and g plotted with the line y = x and the reflected test point">' +
+        '<rect x="0.5" y="0.5" width="' + (W - 1) + '" height="' + (H - 1) + '" rx="10" fill="var(--viz-bg)" stroke="var(--viz-line)"/>' +
+        '<line x1="' + L + '" y1="' + py(0) + '" x2="' + (W - R) + '" y2="' + py(0) + '" stroke="var(--viz-line)"/>' +
+        '<line x1="' + px(0) + '" y1="' + T + '" x2="' + px(0) + '" y2="' + (H - B) + '" stroke="var(--viz-line)"/>' +
+        '<line x1="' + px(-V) + '" y1="' + py(-V) + '" x2="' + px(V) + '" y2="' + py(V) + '" stroke="var(--viz-muted)" stroke-width="1.4" stroke-dasharray="5 4"/>' +
+        curve(p.f.fn, 'var(--viz-accent)') + curve(p.g.fn, 'var(--viz-violet)') + mirror +
+        '<text x="12" y="' + (H - 7) + '" font-size="10" fill="var(--viz-muted)">dashed diagonal = the mirror line y = x</text>' +
+        '</svg>';
+
+      key.innerHTML =
+        pill('f — solid, accent', 'var(--viz-accent)') +
+        pill('g — solid, violet', 'var(--viz-violet)') +
+        pill(okA && okB ? 'inverses here' : 'not both directions', okA && okB ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      var sa = scan(p.f.fn, p.g.fn), sb = scan(p.g.fn, p.f.fn);
+      var bothClean = sa.fails === null && sb.fails === null;
+      var oneSided = (sa.fails === null) !== (sb.fails === null);
+
+      why.innerHTML = (bothClean
+          ? '<b style="color:var(--viz-green)">Both round trips return x everywhere they are defined.</b>' +
+            'That — and only that — is the condition: <b>(f ∘ g)(x) = x and (g ∘ f)(x) = x</b> on suitable domains, the identity function in both directions. '
+          : oneSided
+            ? '<b style="color:var(--viz-amber)">One direction returns x, the other does not.</b>' +
+              'Sampling the whole range, ' + (sa.fails === null ? 'g(f(x))' : 'f(g(x))') + ' holds up while ' +
+              (sa.fails === null ? 'f(g(x))' : 'g(f(x))') + ' first breaks at x = ' + n(sa.fails === null ? sb.fails : sa.fails) + '. ' +
+              'Checking one direction and declaring victory is the standard way to accept a pair that is not one. '
+            : '<b style="color:var(--viz-red)">Neither round trip returns x.</b>' +
+              'The first failure is at x = ' + n(sa.fails) + '. A single test value settles it — you never needed the algebra. ') +
+        p.why +
+        '<br><br>What verifies nothing: an identical graph (that says f = g), equal slopes, or f(x) = g(x) holding for every x. ' +
+        'Those describe two functions being <em>the same</em>; inverses are two functions that <em>undo</em> each other, and the mirror above is the picture of it — reflecting f across y = x should land you exactly on g.';
+    }
+
+    PAIRS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', i === 0 ? 'true' : 'false');
+      b.textContent = p.t;
+      b.addEventListener('click', function(){
+        cur = i;
+        [].slice.call(pairs.children).forEach(function(x, j){ x.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+      pairs.appendChild(b);
+    });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,655 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Table You Already Know</button>
+  <button class="viz-tab" data-viz-tab="2">2. One Variable, Counted</button>
+  <button class="viz-tab" data-viz-tab="3">3. Margins And Grand Total</button>
+  <button class="viz-tab" data-viz-tab="4">4. Three Ways To Divide</button>
+  <button class="viz-tab" data-viz-tab="5">5. Spotting Association</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Table You Already Know</h2>
+  <p class="vz-lede">You have read this table hundreds of times under another name: the <b>confusion
+    matrix</b>. It is a two-way table of two categorical variables — what a message actually is, and what the
+    filter called it. Recall reads <em>along a row</em>; precision reads <em>down a column</em>. Drag the
+    class balance and watch which one moves. <b>Like a scoreboard you can read across or down: same numbers,
+    two different stories.</b></p>
+
+  <div class="vz-card">
+    <label class="v1-lab" for="v1-p">Share of the 200 messages that really are spam:
+      <span id="v1-pl">50%</span></label>
+    <input type="range" class="v1-sl" id="v1-p" min="5" max="95" value="50" step="5"
+      aria-label="Share of messages that are actually spam">
+    <div class="v1-grid" id="v1-grid"></div>
+    <div class="v1-read" id="v1-read"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The filter never changes across this slider — it always catches 90% of spam and
+    wrongly flags 10% of the rest. Everything that moves, moves because the <b>margins</b> moved. That is the
+    whole lesson in one picture: a two-way table holds several different percentages of the same four counts,
+    and which one you get is decided entirely by the total you divide by.</p>
+
+  <style>
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:8px}
+    .v1-lab span{color:var(--viz-accent)}
+    .v1-sl{width:100%;min-height:44px}
+    .v1-grid{margin-top:12px;display:grid;grid-template-columns:1.15fr 1fr 1fr 1fr;gap:2px}
+    .v1-c{background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:5px;padding:7px 5px;
+      font-family:ui-monospace,Consolas,monospace;font-size:12.5px;font-weight:700;text-align:center;
+      display:flex;align-items:center;justify-content:center;min-height:38px;line-height:1.25}
+    .v1-c.v1-hd{background:transparent;border-color:transparent;color:var(--viz-muted);font-size:10px;
+      font-family:inherit;font-weight:800;letter-spacing:.03em;text-transform:uppercase}
+    .v1-c.v1-tot{color:var(--viz-muted);border-style:dashed}
+    .v1-c.v1-gt{color:var(--viz-violet);border-style:solid;border-color:var(--viz-violet)}
+    .v1-read{margin-top:12px;display:flex;flex-direction:column;gap:7px}
+    .v1-r{border:1.5px solid var(--viz-line);border-radius:9px;padding:8px 10px;font-size:12px;line-height:1.45}
+    .v1-r b{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 200, TPR = 0.90, FPR = 0.10;
+    var s = document.getElementById('v1-p'), pl = document.getElementById('v1-pl');
+    var grid = document.getElementById('v1-grid'), read = document.getElementById('v1-read');
+    var why = document.getElementById('v1-why');
+
+    // Every displayed percentage goes through this: a zero group total must read
+    // as "—", never as NaN or Infinity.
+    function rate(x, y){
+      if (!(y > 0)) return null;
+      var v = x / y * 100;
+      return isFinite(v) ? Math.round(v * 10) / 10 : null;
+    }
+    function show(v){ return v === null ? '—' : v.toFixed(1) + '%'; }
+    function cell(v, extra){ return '<div class="v1-c ' + (extra || '') + '">' + v + '</div>'; }
+
+    function render(){
+      var p = Number(s.value);
+      pl.textContent = p + '%';
+      var spam = Math.round(N * p / 100), ham = N - spam;
+      var tp = Math.round(spam * TPR), fn = spam - tp;
+      var fp = Math.round(ham * FPR), tn = ham - fp;
+      var flagged = tp + fp, cleared = fn + tn;
+
+      grid.innerHTML =
+        cell('', 'v1-hd') + cell('flagged', 'v1-hd') + cell('let through', 'v1-hd') + cell('row total', 'v1-hd') +
+        cell('really spam', 'v1-hd') + cell(tp) + cell(fn) + cell(spam, 'v1-tot') +
+        cell('really not', 'v1-hd') + cell(fp) + cell(tn) + cell(ham, 'v1-tot') +
+        cell('column total', 'v1-hd') + cell(flagged, 'v1-tot') + cell(cleared, 'v1-tot') + cell(N, 'v1-gt');
+
+      var recall = rate(tp, spam), prec = rate(tp, flagged);
+      read.innerHTML =
+        '<div class="v1-r" style="border-color:var(--viz-green)">ACROSS the top row — of the ' + spam +
+          ' messages that really are spam, ' + tp + ' were flagged: <b>' + tp + '/' + spam + ' = ' + show(recall) +
+          '</b> <span style="color:var(--viz-muted)">(you call this recall)</span></div>' +
+        '<div class="v1-r" style="border-color:var(--viz-violet)">DOWN the first column — of the ' + flagged +
+          ' messages flagged, ' + tp + ' really were spam: <b>' + tp + '/' + flagged + ' = ' + show(prec) +
+          '</b> <span style="color:var(--viz-muted)">(you call this precision)</span></div>';
+
+      var gap = (recall === null || prec === null) ? null : Math.abs(recall - prec);
+      why.innerHTML = (gap !== null && gap < 1)
+        ? '<b style="color:var(--viz-amber)">Here the two readings coincide, at ' + show(recall) + ' each.</b>' +
+          'That is arithmetic, not a rule. At this one balance the row total (' + spam + ') and the column ' +
+          'total (' + flagged + ') happen to be equal, so the same numerator over the two totals gives the ' +
+          'same answer. Nudge the slider either way and they separate immediately — which is the point: they ' +
+          'were never the same quantity, they just collided.'
+        : '<b style="color:var(--viz-green)">Same cell, two denominators, ' +
+            (gap === null ? 'two different questions' : gap.toFixed(1) + ' points apart') + '.</b>' +
+          'The numerator is the identical ' + tp + ' messages in both lines. The row reading divides by the ' +
+          spam + ' that really are spam; the column reading divides by the ' + flagged + ' that got flagged. ' +
+          'Nothing about the filter changed — <b>only the margins moved</b>. ' +
+          '<br><br>This is why "what percent" is an incomplete question in a two-way table. Percent of the ' +
+          'row, percent of the column, or percent of all ' + N + '? Three different numbers, all correct, ' +
+          'and the next three visuals are about telling them apart.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. One Variable, Counted</h2>
+  <p class="vz-lede">One categorical variable, and only two operations are defined on it: count, then divide
+    by the total. Move the counts and watch the relative frequencies. Then press <em>reorder</em> — the
+    picture is just as correct in any order, which is exactly what "categorical" means.
+    <b>Like a jar of coloured marbles: you can count them, but you cannot average their colours.</b></p>
+
+  <div class="vz-card">
+    <div class="v2-controls">
+      <label class="v2-lab" for="v2-a">apple <span id="v2-al">12</span></label>
+      <input type="range" class="v2-sl" id="v2-a" min="0" max="30" value="12" step="1" aria-label="Count for apple">
+      <label class="v2-lab" for="v2-b">banana <span id="v2-bl">8</span></label>
+      <input type="range" class="v2-sl" id="v2-b" min="0" max="30" value="8" step="1" aria-label="Count for banana">
+      <label class="v2-lab" for="v2-c">orange <span id="v2-cl">10</span></label>
+      <input type="range" class="v2-sl" id="v2-c" min="0" max="30" value="10" step="1" aria-label="Count for orange">
+    </div>
+    <div class="v2-bars" id="v2-bars"></div>
+    <button class="v2-btn" id="v2-shuffle" type="button">↻ reorder the categories</button>
+    <div class="v2-table vz-mono" id="v2-table"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Notice what is <em>not</em> on offer. A histogram needs bin boundaries, a box plot needs
+    quartiles, a scatterplot needs two numeric coordinates — and none of the three is definable when the
+    horizontal axis is made of names. The bar chart is not merely the conventional choice for one categorical
+    variable; it is the only one of the four that is even well defined.</p>
+
+  <style>
+    .v2-controls{display:grid;grid-template-columns:auto 1fr;gap:6px 10px;align-items:center}
+    .v2-lab{font-size:12.5px;font-weight:700;white-space:nowrap}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-sl{width:100%;min-height:44px}
+    .v2-bars{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+    .v2-row{display:flex;align-items:center;gap:8px;font-size:11.5px}
+    .v2-name{flex:0 0 58px;font-weight:700}
+    .v2-track{flex:1;height:18px;background:var(--viz-line);border-radius:4px;overflow:hidden}
+    .v2-track i{display:block;height:100%;background:var(--viz-accent)}
+    .v2-num{flex:0 0 34px;text-align:right;font-family:ui-monospace,Consolas,monospace;font-weight:700}
+    .v2-btn{margin-top:12px;min-height:44px;width:100%;border:1.5px solid var(--viz-line);border-radius:10px;
+      background:var(--viz-surface);color:var(--viz-muted);font:inherit;font-weight:700;font-size:12.5px}
+    .v2-table{margin-top:12px;border-top:1px dashed var(--viz-line);padding-top:10px;white-space:pre-wrap}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var CATS = [
+      { name:'apple',  sl:'v2-a', out:'v2-al' },
+      { name:'banana', sl:'v2-b', out:'v2-bl' },
+      { name:'orange', sl:'v2-c', out:'v2-cl' }
+    ];
+    var order = [0, 1, 2];
+    var a = document.getElementById('v2-a'), b = document.getElementById('v2-b'), c = document.getElementById('v2-c');
+    var al = document.getElementById('v2-al'), bl = document.getElementById('v2-bl'), cl = document.getElementById('v2-cl');
+    var bars = document.getElementById('v2-bars'), table = document.getElementById('v2-table');
+    var why = document.getElementById('v2-why'), shuf = document.getElementById('v2-shuffle');
+    var SL = [a, b, c], OUT = [al, bl, cl];
+
+    function pad(s, n){ s = String(s); while (s.length < n) s = ' ' + s; return s; }
+    function padR(s, n){ s = String(s); while (s.length < n) s = s + ' '; return s; }
+
+    function render(){
+      var counts = SL.map(function(el){ return Number(el.value); });
+      counts.forEach(function(v, i){ OUT[i].textContent = v; });
+      var n = counts.reduce(function(x, y){ return x + y; }, 0);
+      var max = Math.max.apply(null, counts);
+
+      bars.innerHTML = order.map(function(i){
+        var w = max > 0 ? counts[i] / max * 100 : 0;      // max = 0 would divide by zero
+        return '<div class="v2-row"><span class="v2-name">' + CATS[i].name + '</span>' +
+          '<span class="v2-track"><i style="width:' + w + '%"></i></span>' +
+          '<span class="v2-num">' + counts[i] + '</span></div>';
+      }).join('');
+
+      var lines = [padR('category', 10) + pad('count', 6) + pad('rel freq', 10) + pad('percent', 9)];
+      var pctSum = 0;
+      order.forEach(function(i){
+        var rf = n > 0 ? counts[i] / n : null;            // no denominator, no proportion
+        var pc = rf === null ? null : Math.round(rf * 1000) / 10;
+        if (pc !== null) pctSum += pc;
+        lines.push(padR(CATS[i].name, 10) + pad(counts[i], 6) +
+          pad(rf === null ? '—' : rf.toFixed(3), 10) + pad(pc === null ? '—' : pc.toFixed(1) + '%', 9));
+      });
+      lines.push(padR('TOTAL', 10) + pad(n, 6) + pad(n > 0 ? '1.000' : '—', 10) +
+        pad(n > 0 ? (Math.round(pctSum * 10) / 10).toFixed(1) + '%' : '—', 9));
+      table.textContent = lines.join('\n');
+
+      if (n === 0) {
+        why.innerHTML = '<b style="color:var(--viz-amber)">No responses yet, so there is no denominator.</b>' +
+          'A relative frequency is a count divided by the total, and the total here is 0 — the proportion is ' +
+          'undefined, not zero. Raise any slider and every row fills in at once. ' +
+          '<br><br>Worth pausing on: the counts are perfectly well defined at 0 each. It is only the act of ' +
+          'dividing that needs a non-empty sample.';
+        return;
+      }
+
+      var winners = [];
+      for (var i = 0; i < counts.length; i++) if (counts[i] === max) winners.push(CATS[i].name);
+      var top = winners.length === 1
+        ? '<b style="color:var(--viz-green)">' + winners[0] + ' has the highest frequency, at ' + max + ' of ' + n + '.</b>'
+        : '<b style="color:var(--viz-amber)">Tied at ' + max + ': ' +
+            (winners.length === 2 ? winners.join(' and ')
+              : winners.slice(0, -1).join(', ') + ' and ' + winners[winners.length - 1]) + '.</b>';
+      var rounded = Math.round(pctSum * 10) / 10;
+      var sumNote = Math.abs(rounded - 100) < 0.05
+        ? 'The percentages total exactly 100% — and they will for any sample size and any number of ' +
+          'categories, because the categories are mutually exclusive and exhaustive. That is precisely what ' +
+          'licenses a pie chart: a slice angle is 360° × relative frequency, so 0.25 is a quarter turn.'
+        : 'The printed percentages total ' + rounded.toFixed(1) + '%, which is a rounding artefact of the ' +
+          'one-decimal display, not a real gap — the exact relative frequencies still sum to 1. A total that ' +
+          'genuinely misses 100% means an individual was counted twice or the categories overlap.';
+      why.innerHTML = top + sumNote +
+        '<br><br>Press <em>reorder</em> and nothing about the data changes, because the horizontal axis ' +
+        'carries labels rather than distances. Values of a categorical variable are group names: you may ' +
+        'count them and divide by a total, and that is the entire toolkit.';
+    }
+
+    shuf.addEventListener('click', function(){
+      order = order.slice(1).concat(order.slice(0, 1));
+      render();
+    });
+    SL.forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Margins And Grand Total</h2>
+  <p class="vz-lede">Build a two-way table cell by cell. The margins are sums of cells, the grand total is
+    the sum of <em>every</em> cell, and the two routes to it must agree. Watch the conditional proportion
+    underneath rebuild itself from whichever row total you just changed.
+    <b>Like a receipt: the line items have to reach the same total whichever way you add them up.</b></p>
+
+  <div class="vz-card">
+    <div class="v3-controls">
+      <label class="v3-lab" for="v3-a">athletes · passed <span id="v3-alab">15</span></label>
+      <input type="range" class="v3-sl" id="v3-a" min="0" max="60" value="15" step="1" aria-label="Athletes who passed">
+      <label class="v3-lab" for="v3-b">athletes · failed <span id="v3-blab">5</span></label>
+      <input type="range" class="v3-sl" id="v3-b" min="0" max="60" value="5" step="1" aria-label="Athletes who failed">
+      <label class="v3-lab" for="v3-c">non-athletes · passed <span id="v3-clab">40</span></label>
+      <input type="range" class="v3-sl" id="v3-c" min="0" max="60" value="40" step="1" aria-label="Non-athletes who passed">
+      <label class="v3-lab" for="v3-d">non-athletes · failed <span id="v3-dlab">40</span></label>
+      <input type="range" class="v3-sl" id="v3-d" min="0" max="60" value="40" step="1" aria-label="Non-athletes who failed">
+    </div>
+    <div class="v3-grid" id="v3-grid"></div>
+    <div class="v3-check vz-mono" id="v3-check"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">The margins are <b>counts</b>, so they add to the grand total — never to 100. Only after
+    you divide does anything add to 100%. Keep that separation and a whole family of distractors dissolves:
+    the grand total is not a row total, not a column total, and never the difference of two margins.</p>
+
+  <style>
+    .v3-controls{display:grid;grid-template-columns:auto 1fr;gap:5px 10px;align-items:center}
+    .v3-lab{font-size:12px;font-weight:700;white-space:nowrap}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-sl{width:100%;min-height:44px}
+    .v3-grid{margin-top:12px;display:grid;grid-template-columns:1.1fr 1fr 1fr 1fr;gap:2px}
+    .v3-c{background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:5px;padding:7px 4px;
+      font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:700;text-align:center;
+      display:flex;align-items:center;justify-content:center;min-height:38px}
+    .v3-c.v3-hd{background:transparent;border-color:transparent;color:var(--viz-muted);font-size:10px;
+      font-family:inherit;font-weight:800;letter-spacing:.03em;text-transform:uppercase;line-height:1.2}
+    .v3-c.v3-tot{color:var(--viz-green);border-style:dashed;border-color:var(--viz-green)}
+    .v3-c.v3-gt{color:var(--viz-violet);border-color:var(--viz-violet)}
+    .v3-check{margin-top:11px;color:var(--viz-muted);white-space:pre-wrap}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v3-a'), B = document.getElementById('v3-b');
+    var C = document.getElementById('v3-c'), D = document.getElementById('v3-d');
+    var AL = document.getElementById('v3-alab'), BL = document.getElementById('v3-blab');
+    var CL = document.getElementById('v3-clab'), DL = document.getElementById('v3-dlab');
+    var grid = document.getElementById('v3-grid'), check = document.getElementById('v3-check');
+    var why = document.getElementById('v3-why');
+
+    function cell(v, extra){ return '<div class="v3-c ' + (extra || '') + '">' + v + '</div>'; }
+    function frac(x, y){
+      if (!(y > 0)) return null;
+      var v = x / y;
+      return isFinite(v) ? v : null;
+    }
+    function pc(v){ return v === null ? '—' : (Math.round(v * 1000) / 10).toFixed(1) + '%'; }
+
+    function render(){
+      var a = Number(A.value), b = Number(B.value), c = Number(C.value), d = Number(D.value);
+      AL.textContent = a; BL.textContent = b; CL.textContent = c; DL.textContent = d;
+      var r1 = a + b, r2 = c + d, c1 = a + c, c2 = b + d, gt = a + b + c + d;
+
+      grid.innerHTML =
+        cell('', 'v3-hd') + cell('passed', 'v3-hd') + cell('failed', 'v3-hd') + cell('row total', 'v3-hd') +
+        cell('athlete', 'v3-hd') + cell(a) + cell(b) + cell(r1, 'v3-tot') +
+        cell('non-athlete', 'v3-hd') + cell(c) + cell(d) + cell(r2, 'v3-tot') +
+        cell('column total', 'v3-hd') + cell(c1, 'v3-tot') + cell(c2, 'v3-tot') + cell(gt, 'v3-gt');
+
+      check.textContent =
+        'all four cells   ' + a + ' + ' + b + ' + ' + c + ' + ' + d + ' = ' + gt + '\n' +
+        'row totals       ' + r1 + ' + ' + r2 + ' = ' + (r1 + r2) + '\n' +
+        'column totals    ' + c1 + ' + ' + c2 + ' = ' + (c1 + c2) + '\n' +
+        'three routes, one grand total: ' + gt;
+
+      var pAth = frac(a, r1), pNon = frac(c, r2);
+      var line1 = r1 > 0
+        ? 'Among the ' + r1 + ' athletes, ' + a + ' passed: <b>' + a + '/' + r1 + ' = ' + pc(pAth) + '</b>.'
+        : '<b>There are 0 athletes, so there is no proportion to report</b> — the denominator is zero and the ' +
+          'conditional proportion is undefined, not 0%.';
+      var line2 = r2 > 0
+        ? 'Among the ' + r2 + ' non-athletes, ' + c + ' passed: <b>' + c + '/' + r2 + ' = ' + pc(pNon) + '</b>.'
+        : 'There are 0 non-athletes, so that row has no proportion either.';
+
+      var tail;
+      if (gt === 0) {
+        tail = 'The table is empty. Every margin is 0 and so is the grand total — consistent, and completely ' +
+          'uninformative. Raise a slider.';
+      } else if (pAth === null || pNon === null) {
+        tail = 'One row is empty, which is why comparing rows needs both denominators to exist. Give the ' +
+          'empty row some people and the comparison becomes available.';
+      } else {
+        var gap = Math.abs(pAth - pNon) * 100;
+        tail = gap < 1
+          ? 'The two rows currently pass at the same rate (' + pc(pAth) + ' and ' + pc(pNon) + '), so knowing ' +
+            'whether a student is an athlete tells you nothing about the exam result here. Visual 5 is about ' +
+            'exactly that reading.'
+          : 'The two rows differ by ' + gap.toFixed(1) + ' points, and notice you can only see that <em>after</em> ' +
+            'dividing — the raw counts ' + a + ' and ' + c + ' are not comparable while the row totals are ' +
+            r1 + ' and ' + r2 + '.';
+      }
+
+      why.innerHTML = '<b>Every conditional proportion needs that group’s own total.</b>' +
+        line1 + ' ' + line2 + '<br><br>' + tail;
+    }
+    [A, B, C, D].forEach(function(el){ el.addEventListener('input', render); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Three Ways To Divide</h2>
+  <p class="vz-lede">One frozen table, four readings. Switch the denominator and watch the same cell report
+    15%, 75% or 27% — every one of them true, every one of them answering a different question. Tap a cell to
+    see all of its readings side by side. <b>Like a slice of cake: a share of the whole cake, of one layer, or
+    of one plate — same slice, three fractions.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which total to divide by">
+    <button id="v4-m0" aria-pressed="true">counts</button>
+    <button id="v4-m1" aria-pressed="false">joint %</button>
+    <button id="v4-m2" aria-pressed="false">row %</button>
+    <button id="v4-m3" aria-pressed="false">column %</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-grid" id="v4-grid"></div>
+    <div class="v4-sum" id="v4-sum"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The marginal distribution is the fourth member of this family and it is hiding in plain
+    sight: divide a <em>margin</em> by the grand total (20/100 and 80/100) and you have recovered the
+    one-variable frequency table you would have built had you never recorded the exam result at all. Joint,
+    marginal and conditional are one table under three denominators.</p>
+
+  <style>
+    .v4-grid{display:grid;grid-template-columns:1.05fr 1fr 1fr 1fr;gap:2px}
+    .v4-c{background:var(--viz-bg);border:1.5px solid var(--viz-line);border-radius:6px;padding:6px 3px;
+      font-family:ui-monospace,Consolas,monospace;font-weight:700;text-align:center;min-height:46px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;
+      color:var(--viz-ink);font-size:13.5px;line-height:1.15}
+    .v4-c small{font-family:inherit;font-size:9.5px;font-weight:600;color:var(--viz-muted)}
+    .v4-c.v4-hd{background:transparent;border-color:transparent;color:var(--viz-muted);font-size:10px;
+      font-family:inherit;font-weight:800;letter-spacing:.03em;text-transform:uppercase;line-height:1.2}
+    .v4-c.v4-tot{color:var(--viz-muted);border-style:dashed}
+    .v4-c.v4-gt{color:var(--viz-violet);border-color:var(--viz-violet)}
+    .v4-c.v4-on{border-color:var(--viz-accent);background:var(--viz-surface)}
+    .v4-sum{margin-top:11px;font-size:12px;color:var(--viz-muted);line-height:1.5}
+    .v4-why{margin-top:12px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // 100 students: athlete status × exam result. Frozen on purpose — the only
+    // thing moving in this visual is the denominator.
+    var AP = 15, AF = 5, NP = 40, NF = 40;
+    var R = [AP + AF, NP + NF], C = [AP + NP, AF + NF], GT = AP + AF + NP + NF;
+    var CELLS = [
+      { v:AP, r:0, c:0, row:'athletes',     col:'passed' },
+      { v:AF, r:0, c:1, row:'athletes',     col:'failed' },
+      { v:NP, r:1, c:0, row:'non-athletes', col:'passed' },
+      { v:NF, r:1, c:1, row:'non-athletes', col:'failed' }
+    ];
+    var MODES = ['counts', 'joint %', 'row %', 'column %'];
+    var mode = 0, focus = 0;
+    var btns = [document.getElementById('v4-m0'), document.getElementById('v4-m1'),
+                document.getElementById('v4-m2'), document.getElementById('v4-m3')];
+    var grid = document.getElementById('v4-grid'), sum = document.getElementById('v4-sum');
+    var why = document.getElementById('v4-why');
+
+    function pc(x, y){
+      if (!(y > 0)) return null;
+      var v = x / y * 100;
+      return isFinite(v) ? Math.round(v * 10) / 10 : null;
+    }
+    function txt(v){ return v === null ? '—' : v.toFixed(1) + '%'; }
+    function denom(cl){ return mode === 1 ? GT : mode === 2 ? R[cl.r] : C[cl.c]; }
+    function box(main, sub, extra){
+      return '<div class="v4-c ' + (extra || '') + '">' + main +
+        (sub ? '<small>' + sub + '</small>' : '') + '</div>';
+    }
+    function cellBox(i){
+      var cl = CELLS[i], on = i === focus ? ' v4-on' : '';
+      if (mode === 0) return '<div class="v4-c' + on + '" data-i="' + i + '">' + cl.v + '</div>';
+      var d = denom(cl);
+      return '<div class="v4-c' + on + '" data-i="' + i + '">' + txt(pc(cl.v, d)) +
+        '<small>' + cl.v + '/' + d + '</small></div>';
+    }
+    function marg(v, d){ return mode === 0 ? String(v) : txt(pc(v, d)); }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === mode ? 'true' : 'false'); });
+
+      // Margins only carry a meaning in counts and joint %; under a row or column
+      // normalisation each line has been forced to 100% by construction.
+      var m = mode === 0 || mode === 1;
+      grid.innerHTML =
+        box('', '', 'v4-hd') + box('passed', '', 'v4-hd') + box('failed', '', 'v4-hd') + box('row total', '', 'v4-hd') +
+        box('athletes', '', 'v4-hd') + cellBox(0) + cellBox(1) +
+          box(m ? marg(R[0], GT) : (mode === 2 ? '100.0%' : '—'), '', 'v4-tot') +
+        box('non-athletes', '', 'v4-hd') + cellBox(2) + cellBox(3) +
+          box(m ? marg(R[1], GT) : (mode === 2 ? '100.0%' : '—'), '', 'v4-tot') +
+        box('column total', '', 'v4-hd') +
+          box(m ? marg(C[0], GT) : (mode === 3 ? '100.0%' : '—'), '', 'v4-tot') +
+          box(m ? marg(C[1], GT) : (mode === 3 ? '100.0%' : '—'), '', 'v4-tot') +
+          box(mode === 0 ? String(GT) : (mode === 1 ? '100.0%' : '—'), '', 'v4-gt');
+
+      [].slice.call(grid.querySelectorAll('[data-i]')).forEach(function(el){
+        el.addEventListener('click', function(){ focus = Number(el.getAttribute('data-i')); render(); });
+      });
+
+      sum.innerHTML = mode === 0
+        ? '<b>Counts.</b> Every cell is a number of students. All four add to the grand total, ' + GT + '.'
+        : mode === 1
+          ? '<b>Joint distribution — divide by the grand total ' + GT + '.</b> All four cells add to 100%.'
+          : mode === 2
+            ? '<b>Conditional by row — divide by that row’s own total.</b> Each ROW adds to 100%; the ' +
+              'columns do not, and are not meant to.'
+            : '<b>Conditional by column — divide by that column’s own total.</b> Each COLUMN adds to ' +
+              '100%; the rows do not.';
+
+      var f = CELLS[focus];
+      why.innerHTML = '<b>The ' + f.v + ' ' + f.row + ' who ' + f.col + ', read four ways</b>' +
+        '<span style="font-family:ui-monospace,Consolas,monospace;font-size:11.5px">' +
+        '· joint &nbsp;&nbsp; ' + f.v + '/' + GT + ' = ' + txt(pc(f.v, GT)) + ' &nbsp; of everyone<br>' +
+        '· by row &nbsp; ' + f.v + '/' + R[f.r] + ' = ' + txt(pc(f.v, R[f.r])) + ' &nbsp; of the ' + f.row + '<br>' +
+        '· by col &nbsp; ' + f.v + '/' + C[f.c] + ' = ' + txt(pc(f.v, C[f.c])) + ' &nbsp; of those who ' + f.col + '<br>' +
+        '· margins ' + R[f.r] + '/' + GT + ' = ' + txt(pc(R[f.r], GT)) + ' are ' + f.row + '</span>' +
+        '<br><br>The numerator never moved. If a question names a group — "among the ' + R[f.r] + ' ' + f.row +
+        '" — it has handed you the denominator, and the answer is the <em>by row</em> line. If it asks what ' +
+        'share of the whole class this is, the grand total is the denominator instead.';
+    }
+    btns.forEach(function(b, i){ b.addEventListener('click', function(){ mode = i; render(); }); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Spotting Association</h2>
+  <p class="vz-lede">Two hundred people, two groups, one yes/no outcome. Slide the group sizes apart and the
+    raw counts go wild while nothing about the groups changes. Slide the gap and the conditional
+    distributions separate. Only the second one is association. <b>Like two classrooms of different sizes:
+    the bigger one always has more hands up, which tells you nothing until you divide.</b></p>
+
+  <div class="vz-card">
+    <label class="v5-lab" for="v5-share">Share of the 200 people in group A: <span id="v5-sharel">50%</span></label>
+    <input type="range" class="v5-sl" id="v5-share" min="10" max="90" value="50" step="5"
+      aria-label="Share of people in group A">
+    <label class="v5-lab" for="v5-gap">Gap between the two groups’ yes rates: <span id="v5-gapl">0 points</span></label>
+    <input type="range" class="v5-sl" id="v5-gap" min="0" max="40" value="0" step="4"
+      aria-label="Gap between the two yes rates">
+    <div class="v5-bars" id="v5-bars"></div>
+    <div class="v5-stats" id="v5-stats"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Expected count is the whole idea in one formula: under independence a cell should hold
+    (row total × column total) ÷ grand total, because the joint table is then just the outer product of its
+    own margins — a rank-one matrix. Observed close to expected in every cell is what "little or no
+    association" looks like arithmetically. And an association, however large, still says nothing about which
+    variable drives the other, or whether anything does.</p>
+
+  <style>
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:0 0 4px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-sl{width:100%;min-height:44px;margin-bottom:6px}
+    .v5-bars{margin-top:10px;display:flex;flex-direction:column;gap:10px}
+    .v5-g h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v5-g h6 span{color:var(--viz-muted);font-weight:600;font-family:ui-monospace,Consolas,monospace}
+    .v5-bar{display:flex;height:26px;border-radius:6px;overflow:hidden;border:1px solid var(--viz-line)}
+    .v5-yes{background:var(--viz-accent);min-width:0}
+    .v5-no{background:var(--viz-line);min-width:0}
+    .v5-key{margin-top:4px;display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;font-weight:700;
+      font-family:ui-monospace,Consolas,monospace;color:var(--viz-muted)}
+    .v5-sw{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px;
+      border:1px solid var(--viz-line)}
+    .v5-stats{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var N = 200;
+    var sh = document.getElementById('v5-share'), shl = document.getElementById('v5-sharel');
+    var gp = document.getElementById('v5-gap'), gpl = document.getElementById('v5-gapl');
+    var bars = document.getElementById('v5-bars'), stats = document.getElementById('v5-stats');
+    var why = document.getElementById('v5-why');
+
+    function rate(x, y){
+      if (!(y > 0)) return null;
+      var v = x / y;
+      return isFinite(v) ? v : null;
+    }
+    function pc(v){ return v === null ? '—' : (Math.round(v * 1000) / 10).toFixed(1) + '%'; }
+
+    // The bar is drawn with no text inside it: a label that disappears when its
+    // slice gets thin is a label that lies at the extremes. Every number lives in
+    // the header and the key underneath, where colour is always paired with a word.
+    function bar(label, n, yes, r){
+      var w = r === null ? 0 : r * 100;
+      var no = n - yes;
+      return '<div class="v5-g"><h6><b>' + label + '</b><span>' + n + ' people · ' + yes + ' yes</span></h6>' +
+        '<div class="v5-bar">' +
+        '<div class="v5-yes" style="width:' + w + '%"></div>' +
+        '<div class="v5-no" style="width:' + (100 - w) + '%"></div>' +
+        '</div>' +
+        '<div class="v5-key">' +
+        '<span><i class="v5-sw" style="background:var(--viz-accent)"></i>yes ' + yes + ' = ' + pc(r) + '</span>' +
+        '<span><i class="v5-sw" style="background:var(--viz-line)"></i>no ' + no + ' = ' + pc(rate(no, n)) + '</span>' +
+        '</div></div>';
+    }
+
+    function render(){
+      var share = Number(sh.value), d = Number(gp.value);
+      shl.textContent = share + '%';
+      gpl.textContent = d + (d === 1 ? ' point' : ' points');
+
+      var nA = Math.round(N * share / 100), nB = N - nA;
+      var rA0 = (50 + d / 2) / 100, rB0 = (50 - d / 2) / 100;
+      var aYes = Math.round(nA * rA0), bYes = Math.round(nB * rB0);
+      var rA = rate(aYes, nA), rB = rate(bYes, nB);
+      var totYes = aYes + bYes;
+      var expA = rate(nA * totYes, N);          // (row total × column total) ÷ grand total
+
+      bars.innerHTML = bar('group A', nA, aYes, rA) + bar('group B', nB, bYes, rB);
+
+      var gapPP = (rA === null || rB === null) ? null : Math.abs(rA - rB) * 100;
+      var countGap = Math.abs(aYes - bYes);
+      var verdict = gapPP === null ? 'undefined'
+        : gapPP < 1.5 ? 'little or no association'
+        : gapPP < 8 ? 'a slight difference'
+        : 'a clear association';
+      var vcol = gapPP === null ? 'var(--viz-muted)'
+        : gapPP < 1.5 ? 'var(--viz-green)'
+        : gapPP < 8 ? 'var(--viz-amber)'
+        : 'var(--viz-red)';
+
+      stats.innerHTML =
+        '<span class="v5-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">raw yes counts ' +
+          aYes + ' vs ' + bYes + '</span>' +
+        '<span class="v5-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">rates ' +
+          pc(rA) + ' vs ' + pc(rB) + '</span>' +
+        '<span class="v5-pill" style="color:' + vcol + ';border-color:' + vcol + '">verdict: ' + verdict + '</span>';
+
+      var expLine = expA === null ? 'The expected count is undefined with an empty table.'
+        : 'Under independence, group A should hold (' + nA + ' × ' + totYes + ') ÷ ' + N + ' = <b>' +
+          (Math.round(expA * 10) / 10).toFixed(1) + '</b> yes answers; it actually holds <b>' + aYes + '</b>.';
+
+      var counts;
+      if (gapPP === null) {
+        counts = 'One group is empty, so there is no conditional distribution to compare.';
+      } else if (gapPP < 1.5) {
+        counts = countGap >= 5
+          ? 'The two conditional distributions are within ' + gapPP.toFixed(1) + ' of a point of each other, ' +
+            'and yet the raw counts differ by ' + countGap + ' (' + aYes + ' against ' + bYes + '). Every bit ' +
+            'of that gap is group size — ' + nA + ' people against ' + nB + '. This is the case the whole ' +
+            'topic exists for: <b>compare conditional distributions, not counts, when the group totals differ.</b>'
+          : 'The rates match, and here the group sizes are close too, so even the raw counts nearly agree ' +
+            '(' + aYes + ' against ' + bYes + '). Counts only mislead once the totals diverge — drag the top ' +
+            'slider and watch them come apart while the bars stay identical.';
+      } else if (countGap === 0) {
+        counts = 'Look carefully: <b>both groups show the same raw count, ' + aYes + '</b>, while the rates are ' +
+          pc(rA) + ' and ' + pc(rB) + '. The sizes have exactly cancelled the rates. Anyone reading the counts ' +
+          'alone would report no difference at all.';
+      } else if ((rA > rB) !== (aYes > bYes)) {
+        counts = 'Note the reversal: group ' + (aYes > bYes ? 'A' : 'B') + ' has the larger raw count (' +
+          Math.max(aYes, bYes) + ' against ' + Math.min(aYes, bYes) + '), while group ' + (rA > rB ? 'A' : 'B') +
+          ' has the higher rate (' + pc(Math.max(rA, rB)) + ' against ' + pc(Math.min(rA, rB)) + '). The counts ' +
+          'and the conditional distributions point in <b>opposite directions</b>, and it is the conditional ' +
+          'distribution that answers "does the outcome depend on the group?".'
+      } else {
+        counts = 'The bars differ by ' + gapPP.toFixed(1) + ' points, so the outcome does depend on the group. ' +
+          'Both the counts and the rates lean the same way here — but that agreement is a coincidence of these ' +
+          'group sizes, not a guarantee, so read the rates regardless.';
+      }
+
+      why.innerHTML = '<b style="color:' + vcol + '">Verdict: ' + verdict + '.</b>' + expLine + '<br><br>' + counts;
+    }
+    sh.addEventListener('input', render);
+    gp.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

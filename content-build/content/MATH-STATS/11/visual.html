@@ -1,0 +1,810 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, pills, the segmented control. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour —
+   each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment:
+   canSwapVisualPanel scans for tags textually and would read it as a real
+   page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 4px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 64px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 4px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-btn{min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);color:var(--viz-ink);
+  border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:8px 10px;text-align:center}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.75;white-space:pre-wrap;
+  overflow-x:auto;margin-top:12px}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:12px 0 0}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-pills{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+.vz-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Flip The Curve</button>
+  <button class="viz-tab" data-viz-tab="2">2. Three Dials, One Width</button>
+  <button class="viz-tab" data-viz-tab="3">3. Shift Or Stretch</button>
+  <button class="viz-tab" data-viz-tab="4">4. Counts To A Proportion</button>
+  <button class="viz-tab" data-viz-tab="5">5. Fifty Intervals, One Truth</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Flip The Curve</h2>
+  <p class="vz-lede">You already own the curve on top: the <b>sampling distribution of a sample mean</b>,
+    centred at μ with standard error σ/sqrt(n). It says where x-bar lands when you know μ. Drag your sample's
+    x-bar and watch the same inequality read backwards, as an interval that either reaches μ or does not.
+    <b>Like a tethered dog: if the dog is within 10 m of the post, the post is within 10 m of the dog — one
+    fact, two ways of saying it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Confidence level" id="v1-seg"></div>
+
+  <div class="vz-card">
+    <svg id="v1-svg" viewBox="0 0 320 196" width="100%" role="img"
+      aria-label="Sampling distribution of the sample mean with the confidence band, and the interval built around one sample"></svg>
+
+    <label class="vz-lab" for="v1-x">This sample's mean, x-bar = <span id="v1-xl">503.0</span> hours</label>
+    <input type="range" id="v1-x" min="4850" max="5150" value="5030" step="1"
+      aria-label="Where this sample's mean landed">
+
+    <div class="v1-pre">
+      <button class="vz-btn" id="v1-p1">typical: x-bar = 503.0</button>
+      <button class="vz-btn" id="v1-p2">unlucky: x-bar = 512.0</button>
+    </div>
+
+    <div class="vz-mono" id="v1-num"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+
+  <p class="vz-note">In real work μ is never on the screen — that is the whole reason the interval exists. The
+    dashed line is drawn here only so you can audit the machinery once. Notice what is <em>not</em> random:
+    the width. Every sample of this size produces the same margin of error; only the centre moves. So the
+    procedure's capture rate is decided before you collect a single observation.</p>
+
+  <style>
+    #v1-svg{display:block}
+    .v1-pre{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+    .v1-pre button{flex:1 1 132px}
+  </style>
+  <script>
+  (function(){
+    var MU = 500, SIGMA = 40, N = 64, SE = SIGMA / Math.sqrt(N);      // SE = 5.00 exactly
+    var LEVELS = [{ p: 80, z: 1.282 }, { p: 90, z: 1.645 }, { p: 95, z: 1.960 }, { p: 99, z: 2.576 }];
+    var li = 2;
+    var DMIN = 470, DMAX = 530, PX0 = 10, PXW = 300, BASE = 104, PEAK = 76;
+
+    // Round ONCE, then derive every displayed number from the rounded value, so the
+    // printed arithmetic always checks out by hand. The epsilon defeats the usual
+    // binary-fraction miss (1.645*5 is stored as 8.22499999..., which would print 8.22
+    // beside a z* the learner multiplies out to 8.225).
+    function r2(v){ return Math.round((v + 1e-9) * 100) / 100; }
+    function f(v, d){ return v.toFixed(d); }
+
+    var seg = document.getElementById('v1-seg');
+    var sx = document.getElementById('v1-x');
+    var xl = document.getElementById('v1-xl');
+    var svg = document.getElementById('v1-svg');
+    var num = document.getElementById('v1-num');
+    var why = document.getElementById('v1-why');
+    var p1 = document.getElementById('v1-p1');
+    var p2 = document.getElementById('v1-p2');
+    var btns = [];
+
+    LEVELS.forEach(function(L, i){
+      var b = document.createElement('button');
+      b.textContent = L.p + '%';
+      b.setAttribute('aria-pressed', i === li ? 'true' : 'false');
+      b.addEventListener('click', function(){ li = i; render(); });
+      seg.appendChild(b);
+      btns.push(b);
+    });
+
+    function X(v){ return PX0 + (Math.max(DMIN, Math.min(DMAX, v)) - DMIN) / (DMAX - DMIN) * PXW; }
+    function pdf(v){ return Math.exp(-0.5 * Math.pow((v - MU) / SE, 2)); }
+    function Y(v){ return BASE - pdf(v) * PEAK; }
+
+    function path(from, to, close){
+      var d = '', first = true, v;
+      for (v = from; v <= to + 1e-9; v += 0.4) {
+        d += (first ? 'M' : 'L') + f(X(v), 2) + ' ' + f(Y(v), 2);
+        first = false;
+      }
+      if (close) d += 'L' + f(X(to), 2) + ' ' + BASE + 'L' + f(X(from), 2) + ' ' + BASE + 'Z';
+      return d;
+    }
+
+    function render(){
+      var L = LEVELS[li];
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === li ? 'true' : 'false'); });
+
+      var xbar = Number(sx.value) / 10;
+      var m = r2(L.z * SE);
+      var lo = r2(xbar - m), hi = r2(xbar + m);
+      var dist = Math.abs(xbar - MU);
+      var cap = dist <= m + 1e-9;
+      var edge = Math.abs(dist - m) < 0.005;
+      var col = edge ? 'var(--viz-amber)' : (cap ? 'var(--viz-green)' : 'var(--viz-red)');
+      var word = edge ? 'ENDPOINT ON μ' : (cap ? 'CAPTURES μ' : 'MISSES μ');
+      xl.textContent = f(xbar, 1);
+
+      var tagX = Math.min(Math.max(X(xbar), 34), 286);
+      var barX = Math.min(Math.max((X(lo) + X(hi)) / 2, 44), 276);
+
+      svg.innerHTML =
+        '<text x="10" y="14" font-size="9.5" fill="var(--viz-muted)">shaded: the middle ' + L.p +
+          '% of all sample means, μ ± ' + f(m, 2) + '</text>' +
+        '<path d="' + path(MU - m, MU + m, true) + '" fill="var(--viz-accent)" opacity="0.22"></path>' +
+        '<path d="' + path(DMIN, DMAX, false) + '" fill="none" stroke="var(--viz-line)" stroke-width="1.6"></path>' +
+        '<line x1="' + PX0 + '" y1="' + BASE + '" x2="' + (PX0 + PXW) + '" y2="' + BASE +
+          '" stroke="var(--viz-line)" stroke-width="1.2"></line>' +
+        '<line x1="' + f(X(MU), 2) + '" y1="18" x2="' + f(X(MU), 2) +
+          '" y2="172" stroke="var(--viz-violet)" stroke-width="1.6" stroke-dasharray="4 3"></line>' +
+        '<line x1="' + f(X(xbar), 2) + '" y1="' + f(Y(xbar), 2) + '" x2="' + f(X(xbar), 2) +
+          '" y2="112" stroke="var(--viz-ink)" stroke-width="1.4"></line>' +
+        '<circle cx="' + f(X(xbar), 2) + '" cy="' + f(Y(xbar), 2) +
+          '" r="3.6" fill="var(--viz-ink)"></circle>' +
+        '<text x="' + f(tagX, 2) + '" y="126" font-size="9.5" text-anchor="middle" fill="var(--viz-ink)">x-bar = ' +
+          f(xbar, 1) + '</text>' +
+        '<rect x="' + f(X(lo), 2) + '" y="138" width="' + f(Math.max(2, X(hi) - X(lo)), 2) +
+          '" height="12" rx="4" fill="' + col + '" opacity="0.85"></rect>' +
+        '<line x1="' + f(X(xbar), 2) + '" y1="134" x2="' + f(X(xbar), 2) +
+          '" y2="154" stroke="var(--viz-ink)" stroke-width="1.4"></line>' +
+        '<text x="' + f(barX, 2) + '" y="166" font-size="10" font-weight="700" text-anchor="middle" fill="' +
+          col + '">' + word + '</text>' +
+        '<text x="10" y="188" font-size="9" fill="var(--viz-muted)">470</text>' +
+        '<text x="' + f(X(MU), 2) + '" y="188" font-size="9" text-anchor="middle" fill="var(--viz-violet)">μ = 500</text>' +
+        '<text x="310" y="188" font-size="9" text-anchor="end" fill="var(--viz-muted)">530</text>';
+
+      num.textContent =
+        'SE     = σ / sqrt(n)  = 40 / 8          = ' + f(SE, 2) + '\n' +
+        'z*     at ' + L.p + '%                     = ' + f(L.z, 3) + '\n' +
+        'margin = z* × SE      = ' + f(L.z, 3) + ' × ' + f(SE, 2) + '  = ' + f(m, 2) + '\n' +
+        'z      = (x-bar - μ)/SE                = ' + f((xbar - MU) / SE, 2) + '\n' +
+        'interval = ' + f(xbar, 2) + ' ± ' + f(m, 2) + ' = (' + f(lo, 2) + ', ' + f(hi, 2) + ')';
+
+      why.innerHTML = '<b style="color:' + col + '">' + word + ' — |z| = ' + f(dist / SE, 2) +
+          ' against z* = ' + f(L.z, 3) + '.</b>' +
+        (edge
+          ? 'You have landed on the boundary itself: this sample\'s x-bar is exactly one margin of error from μ, so one endpoint of the interval sits on μ. One step of the slider either way decides it. Everything interesting about confidence intervals happens at this line.'
+          : cap
+            ? 'x-bar landed inside the shaded band, so the interval built around it reaches back and covers μ. Those are the same event: <b>|x-bar − μ| &lt; margin</b> and <b>μ inside (x-bar − margin, x-bar + margin)</b> are one inequality rearranged. That rearrangement is the entire idea of the lesson.'
+            : 'x-bar landed outside the shaded band, so the interval misses μ completely — and nothing in the data says so. The report reads exactly like a good one. About ' + (100 - L.p) + '% of samples do this at the ' + L.p + '% level; that is not a bug in the method, it is the price printed on the label.') +
+        '<br><br>Note what the slider does <em>not</em> change: the width stays ' + f(2 * m, 2) +
+        ' hours at every position, because it is built from σ, n and z* — never from the data\'s location. ' +
+        'Move the confidence level instead and the band and the bar resize together, which is why they can never disagree.';
+    }
+
+    sx.addEventListener('input', render);
+    p1.addEventListener('click', function(){ sx.value = '5030'; render(); });
+    p2.addEventListener('click', function(){ sx.value = '5120'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Three Dials, One Width</h2>
+  <p class="vz-lede">Every margin of error is <em>critical value × standard error</em>, so exactly three things
+    can move it: how much data you have, how noisy it is, and how much confidence you demand. Two of them cost
+    money. <b>Like a camera: more light and a steadier hand sharpen the picture, but you can always cheat a
+    blurry shot by claiming less about what is in it.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-n">Sample size n = <span id="v2-nl">64</span> &nbsp;(sqrt(n) = <span id="v2-rl">8</span>)</label>
+    <input type="range" id="v2-n" min="0" max="11" value="6" step="1" aria-label="Sample size">
+
+    <label class="vz-lab" for="v2-s">Data variability σ = <span id="v2-sl">40</span> hours</label>
+    <input type="range" id="v2-s" min="5" max="60" value="40" step="1" aria-label="Population standard deviation">
+
+    <label class="vz-lab" for="v2-seg">Confidence level</label>
+    <div class="vz-seg" role="group" aria-label="Confidence level" id="v2-seg"></div>
+
+    <div class="vz-mono" id="v2-num"></div>
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="vz-pills" id="v2-pills"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <p class="vz-note">Only one of these three dials buys real information. More data genuinely shrinks the
+    uncertainty; raising the confidence level shrinks nothing — it widens the claim until it is safe, which is
+    why a 99% interval can be so wide that it rules nothing out. And σ is not a dial at all in most projects:
+    it is a property of the thing you are measuring, which you can only change by measuring something cleaner.</p>
+
+  <style>
+    .v2-bars{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+    .v2-b{display:flex;align-items:center;gap:8px}
+    .v2-bl{flex:0 0 78px;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;color:var(--viz-muted)}
+    .v2-bt{flex:1;height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v2-bt i{display:block;height:100%;background:var(--viz-accent);opacity:.45}
+    .v2-b.is-on .v2-bt i{opacity:1}
+    .v2-b.is-on .v2-bl{color:var(--viz-ink);font-weight:800}
+    .v2-bv{flex:0 0 52px;text-align:right;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+  </style>
+  <script>
+  (function(){
+    // Perfect squares only: sqrt(n) is then an exact integer, so every printed
+    // division checks out by hand and the "quadruple n" comparison lands on a real
+    // slider value rather than a number the grid cannot reach.
+    var NS = [4, 9, 16, 25, 36, 49, 64, 100, 144, 225, 400, 900];
+    var LEVELS = [{ p: 80, z: 1.282 }, { p: 90, z: 1.645 }, { p: 95, z: 1.960 }, { p: 99, z: 2.576 }];
+    var li = 2;
+
+    function r2(v){ return Math.round((v + 1e-9) * 100) / 100; }
+    function r3(v){ return Math.round((v + 1e-9) * 1000) / 1000; }
+    function f(v, d){ return v.toFixed(d); }
+
+    var sn = document.getElementById('v2-n');
+    var ss = document.getElementById('v2-s');
+    var nl = document.getElementById('v2-nl');
+    var rl = document.getElementById('v2-rl');
+    var seg = document.getElementById('v2-seg');
+    var num = document.getElementById('v2-num');
+    var bars = document.getElementById('v2-bars');
+    var pills = document.getElementById('v2-pills');
+    var why = document.getElementById('v2-why');
+    var btns = [];
+
+    LEVELS.forEach(function(L, i){
+      var b = document.createElement('button');
+      b.textContent = L.p + '%';
+      b.setAttribute('aria-pressed', i === li ? 'true' : 'false');
+      b.addEventListener('click', function(){ li = i; render(); });
+      seg.appendChild(b);
+      btns.push(b);
+    });
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === li ? 'true' : 'false'); });
+
+      var n = NS[Number(sn.value)];
+      var root = Math.sqrt(n);                 // exact integer by construction
+      var sd = Number(ss.value);               // never 0: the slider floors at 5
+      var se = r3(sd / root);
+      var L = LEVELS[li];
+      var m = r2(L.z * se);
+      nl.textContent = String(n);
+      rl.textContent = String(root);
+
+      var all = LEVELS.map(function(V){ return r2(V.z * se); });
+      var widest = Math.max.apply(null, all.concat([0.01]));
+
+      num.textContent =
+        'SE     = σ / sqrt(n)  = ' + sd + ' / ' + root + '   = ' + f(se, 3) + '\n' +
+        'margin = z* × SE      = ' + f(L.z, 3) + ' × ' + f(se, 3) + ' = ' + f(m, 2) + '\n' +
+        'width  = 2 × margin                 = ' + f(r2(2 * m), 2);
+
+      bars.innerHTML = LEVELS.map(function(V, i){
+        var w = Math.max(2, all[i] / widest * 100);
+        return '<div class="v2-b' + (i === li ? ' is-on' : '') + '">' +
+          '<span class="v2-bl">' + V.p + '%  z*=' + f(V.z, 3) + '</span>' +
+          '<span class="v2-bt"><i style="width:' + f(w, 1) + '%"></i></span>' +
+          '<span class="v2-bv">' + f(all[i], 2) + '</span></div>';
+      }).join('');
+
+      var se4 = r3(sd / (2 * root));
+      var m4 = r2(L.z * se4);
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">n = ' + n +
+          ' → margin ' + f(m, 2) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">n = ' + (4 * n) +
+          ' → margin ' + f(m4, 2) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">ratio exactly 2.00</span>';
+
+      why.innerHTML =
+        '<b>Larger n narrows it; higher confidence widens it; noisier data widens it.</b>' +
+        'At n = ' + n + ' and σ = ' + sd + ' the standard error is ' + f(se, 3) + ', so the ' + L.p +
+        '% margin is ' + f(m, 2) + ' and the interval spans ' + f(r2(2 * m), 2) + '. ' +
+        'Quadruple the data to n = ' + (4 * n) + ' and the margin falls to ' + f(m4, 2) +
+        ' — the ratio is exactly 2, because n enters only through sqrt(n) and sqrt(4) = 2. ' +
+        '<b style="display:inline;font-size:inherit">Precision costs data quadratically:</b> halving a margin means four times the sample, and halving it again means sixteen. ' +
+        '<br><br>Now compare the four bars. They come from the <em>same</em> ' + n +
+        ' observations: ' + f(all[0], 2) + ' at 80% up to ' + f(all[3], 2) +
+        ' at 99%. Raising the level added no information at all; it only widened the claim until it was safe enough to make. ' +
+        'And σ multiplies straight through — double the noise and every one of those four numbers doubles, with n untouched.';
+    }
+
+    sn.addEventListener('input', render);
+    ss.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Shift Or Stretch</h2>
+  <p class="vz-lede">An interval has exactly two degrees of freedom: where its centre is, and how far the
+    margin of error reaches from that centre. Move one at a time and watch which of the two things happens —
+    they are tested separately and confused constantly. <b>Like a spotlight on a stage: you can walk it left
+    and right, or open the iris wider. Never mistake one for the other.</b></p>
+
+  <div class="vz-card">
+    <svg id="v3-svg" viewBox="0 0 320 120" width="100%" role="img"
+      aria-label="A number line with a reference interval and the live interval built from the sliders"></svg>
+
+    <label class="vz-lab" for="v3-x">Centre: x-bar = <span id="v3-xl">72.0</span></label>
+    <input type="range" id="v3-x" min="80" max="180" value="144" step="1" aria-label="Sample mean">
+
+    <label class="vz-lab" for="v3-m">Margin of error = <span id="v3-ml">3.0</span></label>
+    <input type="range" id="v3-m" min="2" max="24" value="6" step="1" aria-label="Margin of error">
+
+    <div class="v3-pre">
+      <button class="vz-btn" id="v3-p1">x-bar 72, margin 3</button>
+      <button class="vz-btn" id="v3-p2">x-bar 50, margin 2</button>
+      <button class="vz-btn" id="v3-p3">x-bar 72, margin 5</button>
+    </div>
+
+    <div class="vz-mono" id="v3-num"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <p class="vz-note">The centre is the <b>point estimate</b> — x-bar for a mean, p-hat for a proportion. It is
+    never the margin of error, never the sample standard deviation, never the confidence level. And the pair
+    you report is the two endpoints, smallest first: (72, 3) is the estimate sitting next to its margin, which
+    is the ingredients list rather than the interval.</p>
+
+  <style>
+    #v3-svg{display:block}
+    .v3-pre{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+    .v3-pre button{flex:1 1 96px}
+  </style>
+  <script>
+  (function(){
+    var DMIN = 26, DMAX = 104, PX0 = 10, PXW = 300;
+    var REF_X = 72, REF_M = 3;                 // the interval every readout compares against
+
+    function f(v, d){ return v.toFixed(d); }
+    function key(v){ return Math.round(v * 10); }   // exact comparison on a 0.5 grid
+
+    var sx = document.getElementById('v3-x');
+    var sm = document.getElementById('v3-m');
+    var xl = document.getElementById('v3-xl');
+    var ml = document.getElementById('v3-ml');
+    var svg = document.getElementById('v3-svg');
+    var num = document.getElementById('v3-num');
+    var why = document.getElementById('v3-why');
+
+    function X(v){ return PX0 + (Math.max(DMIN, Math.min(DMAX, v)) - DMIN) / (DMAX - DMIN) * PXW; }
+
+    function bar(y, lo, hi, ctr, col, op){
+      return '<rect x="' + f(X(lo), 2) + '" y="' + y + '" width="' + f(Math.max(2, X(hi) - X(lo)), 2) +
+        '" height="11" rx="4" fill="' + col + '" opacity="' + op + '"></rect>' +
+        '<line x1="' + f(X(ctr), 2) + '" y1="' + (y - 4) + '" x2="' + f(X(ctr), 2) + '" y2="' + (y + 15) +
+        '" stroke="var(--viz-ink)" stroke-width="1.3" opacity="' + op + '"></line>';
+    }
+
+    function render(){
+      var xbar = Number(sx.value) / 2;
+      var m = Number(sm.value) / 2;            // floors at 1.0, so the width is never 0
+      var lo = xbar - m, hi = xbar + m;
+      xl.textContent = f(xbar, 1);
+      ml.textContent = f(m, 1);
+
+      var sameC = key(xbar) === key(REF_X);
+      var sameW = key(m) === key(REF_M);
+      var ticks = '';
+      var t;
+      for (t = 30; t <= 100; t += 10) {
+        ticks += '<line x1="' + f(X(t), 2) + '" y1="86" x2="' + f(X(t), 2) +
+          '" y2="91" stroke="var(--viz-line)" stroke-width="1.2"></line>' +
+          '<text x="' + f(X(t), 2) + '" y="102" font-size="9" text-anchor="middle" fill="var(--viz-muted)">' +
+          t + '</text>';
+      }
+
+      svg.innerHTML =
+        '<text x="10" y="14" font-size="9.5" fill="var(--viz-muted)">reference: x-bar 72.0, margin 3.0 → (69.0, 75.0)</text>' +
+        bar(22, REF_X - REF_M, REF_X + REF_M, REF_X, 'var(--viz-muted)', '0.35') +
+        '<text x="10" y="54" font-size="9.5" fill="var(--viz-muted)">yours: (' + f(lo, 1) + ', ' + f(hi, 1) + ')</text>' +
+        bar(60, lo, hi, xbar, 'var(--viz-accent)', '0.9') +
+        '<line x1="' + PX0 + '" y1="86" x2="' + (PX0 + PXW) +
+          '" y2="86" stroke="var(--viz-line)" stroke-width="1.2"></line>' + ticks +
+        '<text x="' + f(Math.min(Math.max(X(xbar), 26), 294), 2) +
+          '" y="118" font-size="9" text-anchor="middle" fill="var(--viz-ink)">x-bar</text>';
+
+      num.textContent =
+        'centre   = x-bar            = ' + f(xbar, 1) + '\n' +
+        'margin   = m                = ' + f(m, 1) + '\n' +
+        'lower    = x-bar - m        = ' + f(xbar, 1) + ' - ' + f(m, 1) + ' = ' + f(lo, 1) + '\n' +
+        'upper    = x-bar + m        = ' + f(xbar, 1) + ' + ' + f(m, 1) + ' = ' + f(hi, 1) + '\n' +
+        'interval                    = (' + f(lo, 1) + ', ' + f(hi, 1) + ')   smaller endpoint first\n' +
+        'width    = 2 × m            = ' + f(2 * m, 1) + '\n' +
+        'NOT the interval: (' + f(xbar, 1) + ', ' + f(m, 1) + ') is the estimate beside its margin.';
+
+      var head, body;
+      if (sameC && sameW) {
+        head = 'IDENTICAL — this is the reference interval.';
+        why.style.borderTopColor = 'var(--viz-line)';
+        body = 'Move either slider and the two bars come apart. Watch which way they come apart: the centre slider slides the bar, the margin slider resizes it about a fixed point.';
+      } else if (sameW) {
+        head = 'SHIFTED, not stretched — width still ' + f(2 * m, 1) + '.';
+        body = 'The centre moved by ' + f(xbar - REF_X, 1) + ' and the width did not move at all, because the margin of error is untouched. ' +
+          'That is the answer to "the sample mean increased but the margin of error stayed the same": the interval <b>shifts ' +
+          (xbar > REF_X ? 'upward' : 'downward') + '</b>. It does not become wider, narrower, or invalid — a different sample simply points somewhere else.';
+      } else if (sameC) {
+        head = 'STRETCHED, not shifted — centre still ' + f(xbar, 1) + '.';
+        body = 'Both intervals sit on the same point estimate, and this one is ' +
+          (m > REF_M ? 'wider' : 'narrower') + ' by ' + f(Math.abs(2 * m - 2 * REF_M), 1) + '. ' +
+          'So when two intervals share a centre and one is wider, only one thing can be different: <b>the wider one has the larger margin of error</b>. ' +
+          'Not a smaller confidence level, not a larger sample — those are the <em>causes</em> that could produce it, and both of them work by changing the margin.';
+      } else {
+        head = 'SHIFTED AND STRETCHED — both dials moved.';
+        body = 'Centre ' + f(xbar, 1) + ' against ' + f(REF_X, 1) + ', width ' + f(2 * m, 1) + ' against ' + f(2 * REF_M, 1) +
+          '. Exam questions almost never do this: they move one dial and ask what happened, so the first thing to check is which one is being held fixed.';
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body +
+        '<br><br>Reading it back: the interval says the plausible values for the population mean run from <b>' +
+        f(lo, 1) + '</b> to <b>' + f(hi, 1) + '</b>. It never says the parameter is ' + f(xbar, 1) +
+        ' — that is only where the sample happened to land.';
+    }
+
+    sx.addEventListener('input', render);
+    sm.addEventListener('input', render);
+    document.getElementById('v3-p1').addEventListener('click', function(){ sx.value = '144'; sm.value = '6'; render(); });
+    document.getElementById('v3-p2').addEventListener('click', function(){ sx.value = '100'; sm.value = '4'; render(); });
+    document.getElementById('v3-p3').addEventListener('click', function(){ sx.value = '144'; sm.value = '10'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Counts To A Proportion</h2>
+  <p class="vz-lede">A proportion starts life as two counts. Divide, then let the point estimate supply its own
+    standard error — a yes/no variable has no separate spread to estimate, because p decides the variance by
+    itself. Push the counts to the edges and watch the approximation break in public.
+    <b>Like a poll: it is only ever "so many said yes out of so many asked", and everything else is arithmetic
+    on those two numbers.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-n">Sample size n = <span id="v4-nl">80</span></label>
+    <input type="range" id="v4-n" min="10" max="400" value="80" step="1" aria-label="Sample size">
+
+    <label class="vz-lab" for="v4-x">Successes x = <span id="v4-xl">48</span></label>
+    <input type="range" id="v4-x" min="0" max="80" value="48" step="1" aria-label="Number of successes">
+
+    <label class="vz-lab" for="v4-seg">Confidence level</label>
+    <div class="vz-seg" role="group" aria-label="Confidence level" id="v4-seg"></div>
+
+    <div class="v4-split" id="v4-split"></div>
+    <svg id="v4-svg" viewBox="0 0 320 78" width="100%" role="img"
+      aria-label="The confidence interval for the proportion drawn on a zero-to-one scale"></svg>
+
+    <div class="vz-mono" id="v4-num"></div>
+    <div class="vz-pills" id="v4-pills"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">Everything from visual 2 carries over unchanged — larger n narrows, higher confidence
+    widens — but the noise term is no longer free to vary. It is sqrt(p-hat(1 − p-hat)), which peaks at
+    p-hat = 0.5 and shrinks toward the edges. A near-unanimous result is estimated more precisely than a split
+    one from exactly the same number of people, right up until there are too few of the rare outcome for any
+    of this to apply.</p>
+
+  <style>
+    #v4-svg{display:block;margin-top:10px}
+    .v4-split{margin-top:14px;display:flex;height:30px;border-radius:8px;overflow:hidden;border:1.5px solid var(--viz-line)}
+    .v4-s1,.v4-s2{display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;
+      font-family:ui-monospace,Consolas,monospace;overflow:hidden;white-space:nowrap}
+    .v4-s1{background:var(--viz-accent);color:var(--viz-bg)}
+    .v4-s2{background:var(--viz-line);color:var(--viz-muted)}
+    .v4-pre{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+    .v4-pre button{flex:1 1 92px}
+  </style>
+  <script>
+  (function(){
+    var LEVELS = [{ p: 80, z: 1.282 }, { p: 90, z: 1.645 }, { p: 95, z: 1.960 }, { p: 99, z: 2.576 }];
+    var li = 2;
+    var DMIN = -0.2, DMAX = 1.2, PX0 = 10, PXW = 300;
+
+    function r3(v){ return Math.round((v + 1e-9) * 1000) / 1000; }
+    function r4(v){ return Math.round((v + 1e-9) * 10000) / 10000; }
+    function f(v, d){ return v.toFixed(d); }
+
+    var sn = document.getElementById('v4-n');
+    var sx = document.getElementById('v4-x');
+    var nl = document.getElementById('v4-nl');
+    var xl = document.getElementById('v4-xl');
+    var seg = document.getElementById('v4-seg');
+    var split = document.getElementById('v4-split');
+    var svg = document.getElementById('v4-svg');
+    var num = document.getElementById('v4-num');
+    var pills = document.getElementById('v4-pills');
+    var why = document.getElementById('v4-why');
+    var btns = [];
+
+    LEVELS.forEach(function(L, i){
+      var b = document.createElement('button');
+      b.textContent = L.p + '%';
+      b.setAttribute('aria-pressed', i === li ? 'true' : 'false');
+      b.addEventListener('click', function(){ li = i; render(); });
+      seg.appendChild(b);
+      btns.push(b);
+    });
+
+    var pre = document.createElement('div');
+    pre.className = 'v4-pre';
+    [[80, 48], [145, 87], [20, 3], [60, 60]].forEach(function(P){
+      var b = document.createElement('button');
+      b.className = 'vz-btn';
+      b.textContent = P[1] + ' of ' + P[0];
+      b.addEventListener('click', function(){
+        sn.value = String(P[0]);
+        sx.max = String(P[0]);
+        sx.value = String(P[1]);
+        render();
+      });
+      pre.appendChild(b);
+    });
+    seg.parentNode.insertBefore(pre, split);
+
+    function X(v){ return PX0 + (Math.max(DMIN, Math.min(DMAX, v)) - DMIN) / (DMAX - DMIN) * PXW; }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === li ? 'true' : 'false'); });
+
+      var n = Number(sn.value);
+      sx.max = String(n);
+      var x = Math.min(Number(sx.value), n);
+      if (Number(sx.value) !== x) sx.value = String(x);
+      nl.textContent = String(n);
+      xl.textContent = String(x);
+
+      var L = LEVELS[li];
+      var ph = r3(x / n);                       // n >= 10 always, so this never divides by zero
+      var qh = r3(1 - ph);
+      var se = r4(Math.sqrt(Math.max(0, ph * qh / n)));
+      var m = r3(L.z * se);
+      var lo = r3(ph - m), hi = r3(ph + m);
+      var fails = n - x;
+      var okCounts = x >= 10 && fails >= 10;
+      var outside = lo < 0 || hi > 1;
+      var degenerate = x === 0 || x === n;
+
+      var pctS = n > 0 ? (x / n * 100) : 0;
+      split.innerHTML =
+        '<span class="v4-s1" style="flex:0 0 ' + f(pctS, 2) + '%">' + (pctS >= 22 ? x + ' yes' : '') + '</span>' +
+        '<span class="v4-s2" style="flex:0 0 ' + f(100 - pctS, 2) + '%">' + (pctS <= 78 ? fails + ' no' : '') + '</span>';
+
+      var band = degenerate
+        ? '<line x1="' + f(X(ph), 2) + '" y1="26" x2="' + f(X(ph), 2) +
+            '" y2="44" stroke="var(--viz-red)" stroke-width="3"></line>'
+        : '<rect x="' + f(X(lo), 2) + '" y="29" width="' + f(Math.max(2, X(hi) - X(lo)), 2) +
+            '" height="12" rx="4" fill="' + (outside ? 'var(--viz-amber)' : 'var(--viz-accent)') + '" opacity="0.85"></rect>';
+
+      svg.innerHTML =
+        '<text x="10" y="14" font-size="9.5" fill="var(--viz-muted)">the interval on the 0-to-1 scale a proportion has to live on</text>' +
+        '<line x1="' + f(X(0), 2) + '" y1="20" x2="' + f(X(0), 2) +
+          '" y2="52" stroke="var(--viz-violet)" stroke-width="1.5" stroke-dasharray="4 3"></line>' +
+        '<line x1="' + f(X(1), 2) + '" y1="20" x2="' + f(X(1), 2) +
+          '" y2="52" stroke="var(--viz-violet)" stroke-width="1.5" stroke-dasharray="4 3"></line>' +
+        '<line x1="' + PX0 + '" y1="55" x2="' + (PX0 + PXW) +
+          '" y2="55" stroke="var(--viz-line)" stroke-width="1.2"></line>' + band +
+        '<line x1="' + f(X(ph), 2) + '" y1="24" x2="' + f(X(ph), 2) +
+          '" y2="47" stroke="var(--viz-ink)" stroke-width="1.4"></line>' +
+        '<text x="' + f(X(0), 2) + '" y="70" font-size="9" text-anchor="middle" fill="var(--viz-violet)">0</text>' +
+        '<text x="' + f(X(1), 2) + '" y="70" font-size="9" text-anchor="middle" fill="var(--viz-violet)">1</text>' +
+        '<text x="' + f(Math.min(Math.max(X(ph), 30), 290), 2) +
+          '" y="70" font-size="9" text-anchor="middle" fill="var(--viz-ink)">p-hat ' + f(ph, 3) + '</text>';
+
+      num.textContent =
+        'p-hat  = x / n                        = ' + x + ' / ' + n + ' = ' + f(ph, 3) + '\n' +
+        'SE     = sqrt(p-hat(1-p-hat)/n) = sqrt(' + f(ph, 3) + ' × ' + f(qh, 3) + ' / ' + n + ') = ' + f(se, 4) + '\n' +
+        'margin = z* × SE                = ' + f(L.z, 3) + ' × ' + f(se, 4) + ' = ' + f(m, 3) + '\n' +
+        'interval = ' + f(ph, 3) + ' ± ' + f(m, 3) + ' = (' + f(lo, 3) + ', ' + f(hi, 3) + ')';
+
+      var cGood = 'var(--viz-green)', cBad = 'var(--viz-red)', cWarn = 'var(--viz-amber)';
+      pills.innerHTML =
+        '<span class="vz-pill" style="color:' + (x >= 10 ? cGood : cBad) + ';border-color:' + (x >= 10 ? cGood : cBad) +
+          '">successes ' + x + (x >= 10 ? ' — at least 10' : ' — FEWER than 10') + '</span>' +
+        '<span class="vz-pill" style="color:' + (fails >= 10 ? cGood : cBad) + ';border-color:' + (fails >= 10 ? cGood : cBad) +
+          '">failures ' + fails + (fails >= 10 ? ' — at least 10' : ' — FEWER than 10') + '</span>' +
+        (outside
+          ? '<span class="vz-pill" style="color:' + cWarn + ';border-color:' + cWarn +
+              '">interval leaves 0-to-1</span>'
+          : '');
+
+      var head, body;
+      if (degenerate) {
+        head = 'A standard error of exactly 0 — and that is not certainty.';
+        body = 'With ' + (x === 0 ? 'no successes' : 'no failures') + ', p-hat(1 − p-hat) is 0, so the formula returns a margin of 0 and an interval of zero width: it claims the population proportion is exactly ' +
+          f(ph, 3) + ' with ' + L.p + '% confidence. Nonsense, obviously. ' +
+          'The formula has not malfunctioned — it was only ever valid when both counts were reasonably large, and the success/failure check is what refuses to let you use it here.';
+      } else if (!okCounts) {
+        head = 'The success/failure condition FAILS — ' + (x < 10 ? x + ' successes' : fails + ' failures') + ', and 10 is the working minimum.';
+        body = 'The whole method leans on the sampling distribution of p-hat being roughly normal, and it is not, this close to an edge: the true distribution is skewed, so a symmetric ± margin is the wrong shape. ' +
+          (outside
+            ? 'You can see the damage without any theory — the interval runs to ' + f(lo, 3) + ' at one end, outside the 0-to-1 range a proportion is confined to. Impossible endpoints are the arithmetic reporting its own failure.'
+            : 'The interval still lands inside 0 to 1 here, which is exactly why the condition has to be checked rather than eyeballed: an unusable interval can look perfectly ordinary.');
+      } else {
+        head = 'p-hat = ' + x + '/' + n + ' = ' + f(ph, 3) + ', and the interval is (' + f(lo, 3) + ', ' + f(hi, 3) + ').';
+        body = 'The count over the sample size, and nothing else: ' + x + ' of ' + n + ' is <b>' + f(ph, 3) +
+          '</b> — not ' + f(r3(x / 100), 2) + ' (the count read as if out of 100) and not ' + n +
+          ' (the sample size). p-hat is the point estimate of the unknown population proportion p, so it is what the interval is centred on. ' +
+          'Both counts clear 10, the sampling distribution of p-hat is close enough to normal, and the ± margin is the right shape.';
+      }
+      why.innerHTML = '<b>' + head + '</b>' + body +
+        '<br><br>Notice the standard error is built from p-hat itself. There is no s here and no t*: for a yes/no variable the mean <em>is</em> the spread parameter, so z* is correct and one number does both jobs.';
+    }
+
+    sn.addEventListener('input', render);
+    sx.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Fifty Intervals, One Truth</h2>
+  <p class="vz-lede">Fifty independent samples, one fixed μ, one procedure. Each sample gets its own interval;
+    some reach μ and some do not, and no interval knows which kind it is. Redraw the batch and watch the
+    capture count wobble around the level you asked for. <b>Like a factory that stamps rings for a peg: the
+    machine's 95% is about the machine, and tells you nothing about the ring in your hand.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Confidence level" id="v5-seg"></div>
+
+  <div class="vz-card">
+    <svg id="v5-svg" viewBox="0 0 320 274" width="100%" role="img"
+      aria-label="Fifty confidence intervals drawn against the fixed population mean"></svg>
+
+    <button class="vz-btn v5-draw" id="v5-draw">draw 50 new samples</button>
+
+    <label class="vz-lab" for="v5-i">Inspect sample <span id="v5-il">17</span> of 50</label>
+    <input type="range" id="v5-i" min="1" max="50" value="17" step="1" aria-label="Which sample to inspect">
+
+    <div class="vz-mono" id="v5-num"></div>
+    <div class="v5-claims" id="v5-claims"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">This is the judgment the whole lesson turns on. Confidence is a property of the
+    <b>procedure</b>, measured over repetitions you will never actually run — and you get exactly one sample,
+    with no way to tell a hit from a miss. That is not a weakness to apologise for; it is the honest shape of
+    inference from a sample, and it is what makes the next lesson's error probabilities meaningful.</p>
+
+  <style>
+    #v5-svg{display:block}
+    .v5-draw{width:100%;margin-top:12px}
+    .v5-claims{margin-top:14px;display:flex;flex-direction:column;gap:6px}
+    .v5-c{display:flex;gap:9px;align-items:flex-start;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;font-size:11.5px;line-height:1.45}
+    .v5-m{flex:0 0 auto;font-weight:800;font-size:12.5px;width:14px;text-align:center}
+  </style>
+  <script>
+  (function(){
+    var MU = 500, SIGMA = 40, N = 64, SE = SIGMA / Math.sqrt(N);     // SE = 5.00
+    var LEVELS = [{ p: 80, z: 1.282 }, { p: 90, z: 1.645 }, { p: 95, z: 1.960 }, { p: 99, z: 2.576 }];
+    var li = 2, seed = 20260811, zs = [];
+    var DMIN = 470, DMAX = 530, PX0 = 12, PXW = 296, ROWS = 50;
+
+    function r2(v){ return Math.round((v + 1e-9) * 100) / 100; }
+    function f(v, d){ return v.toFixed(d); }
+
+    var seg = document.getElementById('v5-seg');
+    var svg = document.getElementById('v5-svg');
+    var draw = document.getElementById('v5-draw');
+    var si = document.getElementById('v5-i');
+    var il = document.getElementById('v5-il');
+    var num = document.getElementById('v5-num');
+    var claims = document.getElementById('v5-claims');
+    var why = document.getElementById('v5-why');
+    var btns = [];
+
+    LEVELS.forEach(function(L, i){
+      var b = document.createElement('button');
+      b.textContent = L.p + '%';
+      b.setAttribute('aria-pressed', i === li ? 'true' : 'false');
+      b.addEventListener('click', function(){ li = i; render(); });
+      seg.appendChild(b);
+      btns.push(b);
+    });
+
+    // A seeded generator, so the picture is reproducible and "draw again" is a real
+    // new batch rather than a reshuffle. u1 is floored above 0 because log(0) would
+    // hand every downstream number an Infinity.
+    function sample(s){
+      var st = s >>> 0;
+      function u(){ st = (st * 1664525 + 1013904223) >>> 0; return st / 4294967296; }
+      var out = [];
+      while (out.length < ROWS) {
+        var u1 = Math.max(u(), 1e-12), u2 = u();
+        var mag = Math.sqrt(-2 * Math.log(u1));
+        var a = mag * Math.cos(2 * Math.PI * u2), b = mag * Math.sin(2 * Math.PI * u2);
+        // Clamped only so every interval stays on the drawing; +/-3.2 is already a miss
+        // at every level offered here, so no verdict is changed by the clamp.
+        out.push(Math.max(-3.2, Math.min(3.2, a)));
+        if (out.length < ROWS) out.push(Math.max(-3.2, Math.min(3.2, b)));
+      }
+      return out;
+    }
+
+    function X(v){ return PX0 + (Math.max(DMIN, Math.min(DMAX, v)) - DMIN) / (DMAX - DMIN) * PXW; }
+
+    function render(){
+      btns.forEach(function(b, i){ b.setAttribute('aria-pressed', i === li ? 'true' : 'false'); });
+      if (!zs.length) zs = sample(seed);
+
+      var L = LEVELS[li];
+      var m = r2(L.z * SE);
+      var pick = Number(si.value) - 1;
+      il.textContent = String(pick + 1);
+
+      var rows = '', caught = 0, i, sel = null;
+      for (i = 0; i < ROWS; i++) {
+        var xb = r2(MU + zs[i] * SE);
+        var lo = r2(xb - m), hi = r2(xb + m);
+        var hit = Math.abs(xb - MU) <= m + 1e-9;
+        if (hit) caught += 1;
+        var y = 16 + i * 4.8;
+        var col = hit ? 'var(--viz-green)' : 'var(--viz-red)';
+        var on = i === pick;
+        if (on) sel = { xb: xb, lo: lo, hi: hi, hit: hit };
+        rows += '<line x1="' + f(X(lo), 2) + '" y1="' + f(y, 1) + '" x2="' + f(X(hi), 2) + '" y2="' + f(y, 1) +
+          '" stroke="' + col + '" stroke-width="' + (on ? 4.6 : 2.6) + '" stroke-linecap="round"' +
+          (hit ? '' : ' stroke-dasharray="3 2"') + '></line>';
+        if (on) {
+          rows += '<circle cx="' + f(X(xb), 2) + '" cy="' + f(y, 1) + '" r="2.6" fill="var(--viz-ink)"></circle>';
+        }
+      }
+
+      svg.innerHTML =
+        '<text x="12" y="10" font-size="9" fill="var(--viz-muted)">solid = captures μ &#183; dashed = misses μ</text>' +
+        '<line x1="' + f(X(MU), 2) + '" y1="14" x2="' + f(X(MU), 2) +
+          '" y2="260" stroke="var(--viz-violet)" stroke-width="1.6" stroke-dasharray="4 3"></line>' + rows +
+        '<text x="' + f(X(MU), 2) + '" y="271" font-size="9" text-anchor="middle" fill="var(--viz-violet)">μ = 500 (fixed, unknown in real life)</text>';
+
+      var pct = caught / ROWS * 100;
+      num.textContent =
+        ROWS + ' samples of n = ' + N + ',  σ = ' + SIGMA + ',  SE = ' + f(SE, 2) + '\n' +
+        'z* at ' + L.p + '% = ' + f(L.z, 3) + ',  margin = ' + f(m, 2) + ',  every interval is ' + f(r2(2 * m), 2) + ' wide\n' +
+        'captured ' + caught + ' of ' + ROWS + ' = ' + f(pct, 1) + '%   ·   missed ' + (ROWS - caught) + '\n' +
+        'sample ' + (pick + 1) + ': x-bar = ' + f(sel.xb, 2) + '  →  (' + f(sel.lo, 2) + ', ' + f(sel.hi, 2) + ')  ' +
+        (sel.hit ? 'captures μ' : 'MISSES μ');
+
+      var CL = [
+        [true, 'About ' + L.p + '% of intervals <b>built this way</b> capture μ.', 'The confidence level is the long-run capture rate of the procedure. It is the one reading that survives.'],
+        [false, L.p + '% of the population falls inside this interval.', 'An interval for a mean narrows as n grows; the spread of individuals does not move at all. Different objects entirely.'],
+        [false, 'There is a ' + L.p + '% chance μ is inside <b>this</b> interval.', 'μ is a fixed number and the endpoints are now fixed numbers. This one either contains it or it does not — probability 0 or 1, and you cannot tell which.'],
+        [false, L.p + '% of sample values fall inside the interval.', 'Same confusion as above, applied to the sample. The interval estimates a parameter, never the data.']
+      ];
+      claims.innerHTML = CL.map(function(c){
+        var col = c[0] ? 'var(--viz-green)' : 'var(--viz-red)';
+        return '<div class="v5-c"><span class="v5-m" style="color:' + col + '">' + (c[0] ? 'YES' : 'NO') +
+          '</span><span><b>' + c[1] + '</b><br><span style="color:var(--viz-muted)">' + c[2] + '</span></span></div>';
+      }).join('');
+
+      why.innerHTML =
+        '<b style="color:' + (sel.hit ? 'var(--viz-green)' : 'var(--viz-red)') + '">Sample ' + (pick + 1) + ' ' +
+          (sel.hit ? 'captured μ. So did ' + (caught - 1) + ' of the other ' + (ROWS - 1) + '.' :
+                     'missed μ entirely — and its report looks exactly like the ' + caught + ' that did not.') + '</b>' +
+        'This batch captured ' + caught + ' of ' + ROWS + ' (' + f(pct, 1) + '%) against a promised ' + L.p +
+        '%. Fifty repetitions is not the long run, so the count wobbles — press <em>draw 50 new samples</em> a few times and watch it. What never wobbles is the width: every interval here is ' +
+        f(r2(2 * m), 2) + ' wide, because the width is fixed by σ, n and z* before any data arrives.' +
+        '<br><br>Now raise the level. Every bar grows, more of them reach μ, and not one extra observation was collected — you bought capture with vagueness. ' +
+        'Drop to 80% and the misses multiply, from the same fifty samples. <b style="display:inline;font-size:inherit">The data never changed; only the claim did.</b>';
+    }
+
+    seg.parentNode.appendChild(document.createComment(''));
+    draw.addEventListener('click', function(){ seed = (seed + 7919) >>> 0; zs = sample(seed); render(); });
+    si.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

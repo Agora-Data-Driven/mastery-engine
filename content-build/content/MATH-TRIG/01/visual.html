@@ -1,0 +1,891 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the slider. Nothing here
+   reaches inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   The range-input rules live HERE on purpose: a bare input[type=range] rule inside
+   one panel's own style block would silently style all five, so rewriting that panel
+   alone would strip the others.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 0}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-slider{-webkit-appearance:none;appearance:none;width:100%;height:44px;background:transparent;margin:0;display:block}
+.vz-slider::-webkit-slider-runnable-track{height:6px;border-radius:3px;background:var(--viz-line)}
+.vz-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:28px;height:28px;margin-top:-11px;
+  border-radius:50%;background:var(--viz-accent);border:none}
+.vz-slider::-moz-range-track{height:6px;border-radius:3px;background:var(--viz-line)}
+.vz-slider::-moz-range-thumb{width:28px;height:28px;border-radius:50%;background:var(--viz-accent);border:none}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-flag{margin-top:11px;border:1.5px dashed var(--viz-amber);border-radius:10px;padding:9px 11px;
+  font-size:12px;line-height:1.55}
+.vz-flag b{color:var(--viz-amber)}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Ratios Not Lengths</button>
+  <button class="viz-tab" data-viz-tab="2">2. Pick The Ratio</button>
+  <button class="viz-tab" data-viz-tab="3">3. Inverse Undoes It</button>
+  <button class="viz-tab" data-viz-tab="4">4. Flip Or Complement</button>
+  <button class="viz-tab" data-viz-tab="5">5. Ladder Ramp Elevation</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Ratios Not Lengths</h2>
+  <p class="vz-lede">You already own <b>similar triangles</b>: fix one acute angle and the shape is fixed, so
+    every side scales by the same factor. Drag the legs to change the shape — then drag the scale and watch
+    six lengths move while three ratios refuse to. <b>Like a photo enlargement: everything gets bigger, and
+    nobody's face gets wider.</b></p>
+
+  <div class="vz-card">
+    <div class="v1-wrap">
+      <div class="v1-fig" id="v1-fig"></div>
+      <div class="v1-side">
+        <label class="vz-lab" for="v1-opp">opposite leg <b id="v1-oppL">3</b></label>
+        <input class="vz-slider" type="range" id="v1-opp" min="1" max="12" value="3" step="1" aria-label="Opposite leg">
+        <label class="vz-lab" for="v1-adj">adjacent leg <b id="v1-adjL">4</b></label>
+        <input class="vz-slider" type="range" id="v1-adj" min="1" max="12" value="4" step="1" aria-label="Adjacent leg">
+        <label class="vz-lab" for="v1-k">scale the whole triangle <b id="v1-kL">&times;1</b></label>
+        <input class="vz-slider" type="range" id="v1-k" min="0" max="3" value="0" step="1" aria-label="Scale factor">
+      </div>
+    </div>
+    <div class="v1-eqs" id="v1-eqs"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">This is why a calculator can have a <b>sin</b> key at all. If the ratio depended on the
+    triangle rather than only on the angle, there would be no such number as "the sine of 37&deg;" — only "the
+    sine of <em>this</em> triangle", and no table, no key and no closed form could exist. Everything in the
+    next three visuals is bookkeeping on top of this one fact.</p>
+
+  <style>
+    .v1-wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+    .v1-fig{flex:1 1 210px;min-width:190px}
+    .v1-fig svg{width:100%;height:auto;display:block}
+    .v1-side{flex:1 1 168px;min-width:168px}
+    .v1-face{fill:var(--viz-accent);fill-opacity:.13;stroke:var(--viz-accent);stroke-width:2;stroke-linejoin:round}
+    .v1-sq{fill:none;stroke:var(--viz-muted);stroke-width:1.5}
+    .v1-arc{fill:none;stroke:var(--viz-accent);stroke-width:1.6}
+    .v1-t{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;fill:var(--viz-ink)}
+    .v1-t.is-acc{fill:var(--viz-accent);font-weight:700}
+    .v1-eqs{margin-top:13px;display:flex;flex-direction:column;gap:6px}
+    .v1-r{display:flex;align-items:center;gap:9px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);flex-wrap:wrap}
+    .v1-tag{flex:0 0 auto;font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--viz-violet);
+      border:1.5px solid var(--viz-violet);border-radius:6px;padding:2px 5px}
+    .v1-eq{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.5}
+    .v1-eq b{color:var(--viz-green);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var K = [1, 1.5, 2, 3], FIT = [0.45, 0.62, 0.78, 1.0];
+    var so = document.getElementById('v1-opp'), sa = document.getElementById('v1-adj'), sk = document.getElementById('v1-k');
+    var lo = document.getElementById('v1-oppL'), la = document.getElementById('v1-adjL'), lk = document.getElementById('v1-kL');
+    var fig = document.getElementById('v1-fig'), eqs = document.getElementById('v1-eqs'), why = document.getElementById('v1-why');
+
+    function n(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+    function exact(x, d){ var p = Math.pow(10, d); return isFinite(x) && Math.abs(x * p - Math.round(x * p)) < 1e-9; }
+    function gcd(x, y){ return y ? gcd(y, x % y) : x; }
+    function frac(x, y){ var g = gcd(Math.round(x), Math.round(y)) || 1; return (Math.round(x) / g) + '/' + (Math.round(y) / g); }
+
+    function draw(o, a, s){
+      var x0 = 70, y0 = 180;
+      var bx = x0 + a * s, ay = y0 - o * s;
+      var hp = Math.sqrt(a * a + o * o) * s;
+      var r = Math.max(5, Math.min(22, a * s * 0.5, hp * 0.4));
+      var th = Math.atan(o / Math.max(a, 1e-9));
+      var arc = '';
+      for (var i = 0; i <= 14; i++) {
+        var g = Math.PI - (i / 14) * th;
+        arc += (bx + r * Math.cos(g)).toFixed(1) + ',' + (y0 - r * Math.sin(g)).toFixed(1) + ' ';
+      }
+      var mid = Math.PI - th / 2, lx = bx + (r + 15) * Math.cos(mid), ly = y0 - (r + 15) * Math.sin(mid) + 4;
+      return '<svg viewBox="0 0 320 210" role="img" aria-label="Right triangle with the angle theta at the lower right vertex">' +
+        '<polygon class="v1-face" points="' + x0 + ',' + y0 + ' ' + bx.toFixed(1) + ',' + y0 + ' ' + x0 + ',' + ay.toFixed(1) + '"/>' +
+        '<polyline class="v1-sq" points="' + (x0 + 11) + ',' + y0 + ' ' + (x0 + 11) + ',' + (y0 - 11) + ' ' + x0 + ',' + (y0 - 11) + '"/>' +
+        '<polyline class="v1-arc" points="' + arc + '"/>' +
+        '<text class="v1-t is-acc" x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle">&#952;</text>' +
+        '<text class="v1-t" x="' + (x0 - 9) + '" y="' + ((y0 + ay) / 2 + 4).toFixed(1) + '" text-anchor="end">opp ' + n(o, 2) + '</text>' +
+        '<text class="v1-t" x="' + ((x0 + bx) / 2).toFixed(1) + '" y="' + (y0 + 20) + '" text-anchor="middle">adj ' + n(a, 2) + '</text>' +
+        '<text class="v1-t" x="' + ((x0 + bx) / 2 + 13).toFixed(1) + '" y="' + ((y0 + ay) / 2 - 6).toFixed(1) + '" text-anchor="start">hyp ' + n(Math.sqrt(o * o + a * a), 2) + '</text>' +
+        '</svg>';
+    }
+
+    function row(tag, name, sides, p, q, v){
+      var sym = (exact(p, 2) && exact(q, 2) && exact(v, 4)) ? '=' : '&asymp;';
+      return '<div class="v1-r"><span class="v1-tag">' + tag + '</span>' +
+        '<span class="v1-eq">' + name + ' &#952; ' + sym + ' ' + sides + ' ' + sym + ' ' + n(p, 2) + ' / ' + n(q, 2) +
+        ' ' + sym + ' <b>' + n(v, 4) + '</b></span></div>';
+    }
+
+    function render(){
+      var o0 = Number(so.value), a0 = Number(sa.value), k = K[Number(sk.value)];
+      lo.textContent = o0; la.textContent = a0; lk.innerHTML = '&times;' + k;
+      var h0 = Math.sqrt(o0 * o0 + a0 * a0);
+      var o = o0 * k, a = a0 * k, h = h0 * k;
+      var s = (140 / Math.max(o0, a0)) * FIT[Number(sk.value)];
+      fig.innerHTML = draw(o0, a0, s);
+
+      eqs.innerHTML =
+        row('SOH', 'sin', 'opp / hyp', o, h, o / h) +
+        row('CAH', 'cos', 'adj / hyp', a, h, a / h) +
+        row('TOA', 'tan', 'opp / adj', o, a, o / a);
+
+      var deg = Math.atan(o0 / a0) * 180 / Math.PI;
+      var triple = Math.abs(h0 - Math.round(h0)) < 1e-9;
+      var out = '<b>&#952; = ' + n(deg, 2) + '&deg; — and all three numbers above are functions of that angle alone.</b>';
+      out += (k > 1)
+        ? 'You scaled every side by <b style="display:inline">&times;' + k + '</b>, so all three lengths moved. The three ratios did not shift a digit, because numerator and denominator were both multiplied by that same ' + k + ' and it cancels. <b style="display:inline">That</b> cancellation is what similar triangles buy you.'
+        : 'Now drag the bottom slider. Every length will change and the three ratios will refuse to — which is the entire reason they deserve names of their own.';
+      if (triple) {
+        out += '<br><br>Legs ' + o0 + ' and ' + a0 + ' give hypotenuse exactly ' + Math.round(h0) + ' — a <b style="display:inline">Pythagorean triple</b>, so the ratios are exact fractions: sin&#952; = ' +
+          frac(o0, h0) + ', cos&#952; = ' + frac(a0, h0) + ', tan&#952; = ' + frac(o0, a0) + '. The 3-4-5 and 5-12-13 triangles are worth recognising on sight.';
+      }
+      if (o0 === a0) {
+        out += '<br><br><b style="display:inline">Equal legs &rArr; &#952; = 45&deg;</b>, and here sin&#952; and cos&#952; both read 0.7071. That is the one acute angle where those two agree — a coincidence, not a rule. Visual 4 is about exactly that.';
+      }
+      out += '<br><br><b style="display:inline">SOH-CAH-TOA does one job:</b> it pairs each ratio with the correct <em>two sides</em>. Opposite and adjacent are named relative to &#952; and swap if you stand at the other acute corner; the hypotenuse faces the right angle and never changes role. Nearly everything that goes wrong in this lesson goes wrong at that pairing, not in the arithmetic.';
+      why.innerHTML = out;
+    }
+    so.addEventListener('input', render);
+    sa.addEventListener('input', render);
+    sk.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Pick The Ratio</h2>
+  <p class="vz-lede">Solving for a side is one decision followed by algebra. Name the side you have and the
+    side you want; exactly one ratio relates that pair. Pick a pair, then watch all three ratios answer and
+    only one be right. <b>Like choosing a spanner by the bolt: three will turn, one actually fits.</b></p>
+
+  <div class="vz-seg" id="v2-pairs" role="group" aria-label="Which side you know and which you want"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-ang">angle &#952; <b id="v2-angL">40&deg;</b></label>
+    <input class="vz-slider" type="range" id="v2-ang" min="10" max="80" value="40" step="1" aria-label="Angle theta in degrees">
+    <label class="vz-lab" for="v2-len">the side you know <b id="v2-lenL">8</b></label>
+    <input class="vz-slider" type="range" id="v2-len" min="1" max="20" value="8" step="1" aria-label="Length of the known side">
+    <div class="v2-fig" id="v2-fig"></div>
+    <div class="v2-work" id="v2-work"></div>
+    <div class="v2-rows" id="v2-rows"></div>
+    <div id="v2-flag"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Notice what never happens: the arithmetic does not complain. Feed a well-formed equation
+    the wrong pair of sides and it returns a clean, plausible, wrong number with no warning attached. That is
+    why the discipline is <b>name the two sides first, choose the ratio second</b> — and why "assigning the
+    sides to the wrong parts of the ratio" is the most common wrong answer in this whole lesson.</p>
+
+  <style>
+    .v2-fig{margin-top:12px}
+    .v2-fig svg{width:100%;height:auto;display:block}
+    .v2-face{fill:var(--viz-accent);fill-opacity:.10;stroke:var(--viz-line);stroke-width:1.5;stroke-linejoin:round}
+    .v2-known{stroke:var(--viz-accent);stroke-width:5;stroke-linecap:round}
+    .v2-want{stroke:var(--viz-violet);stroke-width:5;stroke-linecap:round;stroke-dasharray:7 5}
+    .v2-sq{fill:none;stroke:var(--viz-muted);stroke-width:1.5}
+    .v2-arc{fill:none;stroke:var(--viz-accent);stroke-width:1.6}
+    .v2-t{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;fill:var(--viz-ink)}
+    .v2-t.is-acc{fill:var(--viz-accent);font-weight:700}
+    .v2-t.is-vio{fill:var(--viz-violet);font-weight:700}
+    .v2-work{margin-top:12px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.8;
+      border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+    .v2-work em{color:var(--viz-muted);font-style:normal;font-family:inherit}
+    .v2-work b{color:var(--viz-green);font-size:12.5px}
+    .v2-rows{margin-top:11px;display:flex;flex-direction:column;gap:5px}
+    .v2-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;font-family:ui-monospace,Consolas,monospace;font-size:11px;flex-wrap:wrap}
+    .v2-r.is-yes{border-color:var(--viz-green)}
+    .v2-r.is-no{opacity:.62;border-style:dashed}
+    .v2-nm{font-weight:800;flex:0 0 46px}
+    .v2-num{margin-left:auto;font-weight:800}
+    .v2-vd{flex:0 0 auto;font-size:9.5px;font-weight:800;letter-spacing:.03em;font-family:inherit;width:100%}
+  </style>
+  <script>
+  (function(){
+    var PAIRS = [
+      { k:'adj', w:'hyp', r:'cos', op:'div' },
+      { k:'adj', w:'opp', r:'tan', op:'mul' },
+      { k:'opp', w:'adj', r:'tan', op:'div' },
+      { k:'opp', w:'hyp', r:'sin', op:'div' },
+      { k:'hyp', w:'opp', r:'sin', op:'mul' },
+      { k:'hyp', w:'adj', r:'cos', op:'mul' }
+    ];
+    var RELATES = { sin:'opposite &amp; hypotenuse', cos:'adjacent &amp; hypotenuse', tan:'opposite &amp; adjacent' };
+    var FULL = { adj:'adjacent', opp:'opposite', hyp:'hypotenuse' };
+    var cur = 0;
+    var seg = document.getElementById('v2-pairs');
+    var sang = document.getElementById('v2-ang'), slen = document.getElementById('v2-len');
+    var lang = document.getElementById('v2-angL'), llen = document.getElementById('v2-lenL');
+    var fig = document.getElementById('v2-fig'), work = document.getElementById('v2-work');
+    var rows = document.getElementById('v2-rows'), flag = document.getElementById('v2-flag'), why = document.getElementById('v2-why');
+
+    function n(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+
+    function draw(o, a, kind, want){
+      var x0 = 70, y0 = 170, m = Math.max(o, a);
+      var s = 132 / (m > 0 ? m : 1);
+      var bx = x0 + a * s, ay = y0 - o * s;
+      var hp = Math.sqrt(a * a + o * o) * s;
+      var r = Math.max(5, Math.min(22, a * s * 0.5, hp * 0.4));
+      var th = Math.atan(o / Math.max(a, 1e-9));
+      var arc = '';
+      for (var i = 0; i <= 14; i++) {
+        var g = Math.PI - (i / 14) * th;
+        arc += (bx + r * Math.cos(g)).toFixed(1) + ',' + (y0 - r * Math.sin(g)).toFixed(1) + ' ';
+      }
+      var mid = Math.PI - th / 2, lx = bx + (r + 15) * Math.cos(mid), ly = y0 - (r + 15) * Math.sin(mid) + 4;
+      var seg2 = {
+        opp: [x0, y0, x0, ay],
+        adj: [x0, y0, bx, y0],
+        hyp: [x0, ay, bx, y0]
+      };
+      function line(id, cls){
+        var p = seg2[id];
+        return '<line class="' + cls + '" x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) +
+          '" x2="' + p[2].toFixed(1) + '" y2="' + p[3].toFixed(1) + '"/>';
+      }
+      return '<svg viewBox="0 0 320 200" role="img" aria-label="Right triangle with the known side solid and the wanted side dashed">' +
+        '<polygon class="v2-face" points="' + x0 + ',' + y0 + ' ' + bx.toFixed(1) + ',' + y0 + ' ' + x0 + ',' + ay.toFixed(1) + '"/>' +
+        line(kind, 'v2-known') + line(want, 'v2-want') +
+        '<polyline class="v2-sq" points="' + (x0 + 11) + ',' + y0 + ' ' + (x0 + 11) + ',' + (y0 - 11) + ' ' + x0 + ',' + (y0 - 11) + '"/>' +
+        '<polyline class="v2-arc" points="' + arc + '"/>' +
+        '<text class="v2-t is-acc" x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle">&#952;</text>' +
+        '<text class="v2-t" x="' + (x0 - 9) + '" y="' + ((y0 + ay) / 2 + 4).toFixed(1) + '" text-anchor="end">opp</text>' +
+        '<text class="v2-t" x="' + ((x0 + bx) / 2).toFixed(1) + '" y="' + (y0 + 20) + '" text-anchor="middle">adj</text>' +
+        '<text class="v2-t" x="' + ((x0 + bx) / 2 + 13).toFixed(1) + '" y="' + ((y0 + ay) / 2 - 6).toFixed(1) + '" text-anchor="start">hyp</text>' +
+        '<text class="v2-t is-acc" x="14" y="18">&#9644; solid = known</text>' +
+        '<text class="v2-t is-vio" x="14" y="34">&#9647; dashed = wanted</text>' +
+        '</svg>';
+    }
+
+    function render(){
+      var p = PAIRS[cur];
+      var deg = Number(sang.value), known = Number(slen.value);
+      var t = deg * Math.PI / 180;
+      var R = { sin:Math.sin(t), cos:Math.cos(t), tan:Math.tan(t) };
+      lang.innerHTML = deg + '&deg;'; llen.textContent = known;
+
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      var answer = {};
+      ['sin', 'cos', 'tan'].forEach(function(nm){
+        answer[nm] = p.op === 'mul' ? known * R[nm] : known / R[nm];
+      });
+      var right = answer[p.r];
+
+      // Rebuild the whole triangle from the one side we know plus the angle.
+      var sides = { adj:0, opp:0, hyp:0 };
+      if (p.k === 'hyp') { sides.hyp = known; sides.opp = known * R.sin; sides.adj = known * R.cos; }
+      else if (p.k === 'adj') { sides.adj = known; sides.hyp = known / R.cos; sides.opp = known * R.tan; }
+      else { sides.opp = known; sides.hyp = known / R.sin; sides.adj = known / R.tan; }
+      fig.innerHTML = draw(sides.opp, sides.adj, p.k, p.w);
+
+      var shape = p.op === 'mul'
+        ? FULL[p.w] + ' = ' + FULL[p.k] + ' &times; ' + p.r + ' ' + deg + '&deg;'
+        : FULL[p.w] + ' = ' + FULL[p.k] + ' &divide; ' + p.r + ' ' + deg + '&deg;';
+      work.innerHTML =
+        '<em>1 · name the two sides &nbsp;&rarr;</em> ' + FULL[p.k] + ' and ' + FULL[p.w] + '<br>' +
+        '<em>2 · one ratio relates them &rarr;</em> ' + p.r + ' &#952; = ' + RELATES[p.r] + '<br>' +
+        '<em>3 · write it &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr;</em> ' + p.r + ' ' + deg + '&deg; = ' +
+          (p.op === 'mul' ? FULL[p.w] + ' / ' + FULL[p.k] : FULL[p.k] + ' / ' + FULL[p.w]) + '<br>' +
+        '<em>4 · rearrange &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr;</em> ' + shape + '<br>' +
+        '<em>5 · solve &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr;</em> ' + known + ' ' +
+          (p.op === 'mul' ? '&times;' : '&divide;') + ' ' + n(R[p.r], 4) + ' = <b>' + n(right, 3) + '</b>';
+
+      // Any two rows that PRINT the same number have to be called out, including the
+      // case where the two colliding rows are both wrong (correct ratio = tan at 45°,
+      // where sin and cos agree with each other but not with the answer). A silent
+      // coincidence teaches "these ratios are interchangeable", which is the opposite
+      // of the panel.
+      var strs = {}, groups = {}, dup = null;
+      ['sin', 'cos', 'tan'].forEach(function(nm){
+        strs[nm] = n(answer[nm], 3);
+        (groups[strs[nm]] = groups[strs[nm]] || []).push(nm);
+      });
+      Object.keys(groups).forEach(function(g){ if (groups[g].length > 1) dup = groups[g]; });
+      var hidesTheError = !!dup && dup.indexOf(p.r) >= 0;
+
+      rows.innerHTML = ['sin', 'cos', 'tan'].map(function(nm){
+        var ok = nm === p.r;
+        return '<div class="v2-r ' + (ok ? 'is-yes' : 'is-no') + '">' +
+          '<span class="v2-nm">' + nm + ' &#952;</span><span>relates ' + RELATES[nm] + '</span>' +
+          '<span class="v2-num" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' + strs[nm] + '</span>' +
+          '<span class="v2-vd" style="color:' + (ok ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (ok ? '&#10003; YOUR PAIR — this is the answer' : '&#10007; WRONG PAIR — a clean number that is not the side') + '</span></div>';
+      }).join('');
+
+      flag.innerHTML = dup
+        ? '<div class="vz-flag"><b>&#9888; ' +
+          (hidesTheError
+            ? 'At &#952; = ' + deg + '&deg; the wrong ratio (' + dup.filter(function(x){ return x !== p.r; }).join(' and ') + ') returns the right number.'
+            : 'At &#952; = ' + deg + '&deg; the ' + dup.join(' and ') + ' rows read the same number — and both of them are wrong.') + '</b> ' +
+          (deg === 45
+            ? 'sin 45&deg; and cos 45&deg; are both 0.7071, because 45&deg; is its own complement and the opposite and adjacent sides of this triangle are equal. So at exactly this angle a mislabelled side is invisible in the arithmetic. It is the single angle where that happens.'
+            : 'Two of these ratios happen to agree to three decimals at this angle.') +
+          ' Move the angle slider one degree and they separate. Agreement at one angle is never evidence that a setup is right.</div>'
+        : '';
+
+      why.innerHTML = '<b>The choice is made by the pair of sides, never by the shape of the question.</b>' +
+        'You have the ' + FULL[p.k] + ' and you want the ' + FULL[p.w] + '. That pair appears in exactly one of sin, cos and tan, and the moment you have named it the rest is one line of algebra. ' +
+        'Note the two shapes it can take: when the side you want is on top of the fraction you <em>multiply</em>; when it is underneath you <em>divide</em>. ' +
+        '<br><br>Worked, off the slider grid: with tan&#952; = 3/4 and the adjacent side 8, the opposite side is 8 &times; 0.75 = 6. With sin&#952; = 3/5 and the hypotenuse 10, the opposite side is 10 &times; 0.6 = 6. Same 6, different route in, because a different pair of sides was named.';
+    }
+
+    PAIRS.forEach(function(p, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = 'know ' + p.k + '<br>want ' + p.w;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(b);
+    });
+    sang.addEventListener('input', render);
+    slen.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Inverse Undoes It</h2>
+  <p class="vz-lede">Two sides known and the angle missing reverses the machine: build the ratio, then apply
+    an <em>inverse</em> trigonometric function. Drag the legs, switch which pair you were handed, and compare
+    the inverse key against the forward key pressed by mistake. <b>Like a postcode lookup: the address gives
+    you the code, and you need the reverse directory to go back.</b></p>
+
+  <div class="vz-seg" id="v3-modes" role="group" aria-label="Which two sides you were given"></div>
+
+  <div class="vz-card">
+    <div class="v3-wrap">
+      <div class="v3-fig" id="v3-fig"></div>
+      <div class="v3-side">
+        <label class="vz-lab" for="v3-opp">opposite <b id="v3-oppL">3</b></label>
+        <input class="vz-slider" type="range" id="v3-opp" min="1" max="20" value="3" step="1" aria-label="Opposite side">
+        <label class="vz-lab" for="v3-adj">adjacent <b id="v3-adjL">4</b></label>
+        <input class="vz-slider" type="range" id="v3-adj" min="1" max="20" value="4" step="1" aria-label="Adjacent side">
+      </div>
+    </div>
+    <div class="v3-work" id="v3-work"></div>
+    <div class="v3-cmp" id="v3-cmp"></div>
+    <div id="v3-flag"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">Two notations get confused here and they are unrelated operations. <b>sin<sup>-1</sup></b>
+    is the inverse <em>function</em> — feed it a ratio, it returns an angle. <b>csc</b> is the reciprocal
+    <em>ratio</em>, 1/sin, and returns a ratio. Visual 4 is the reciprocals; the superscript &minus;1 next to a
+    trig name never means "one over" in this course.</p>
+
+  <style>
+    .v3-wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+    .v3-fig{flex:1 1 200px;min-width:180px}
+    .v3-fig svg{width:100%;height:auto;display:block}
+    .v3-side{flex:1 1 168px;min-width:168px}
+    .v3-face{fill:var(--viz-accent);fill-opacity:.10;stroke:var(--viz-line);stroke-width:1.5;stroke-linejoin:round}
+    .v3-lit{stroke:var(--viz-accent);stroke-width:5;stroke-linecap:round}
+    .v3-sq{fill:none;stroke:var(--viz-muted);stroke-width:1.5}
+    .v3-arc{fill:none;stroke:var(--viz-violet);stroke-width:1.8}
+    .v3-t{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;fill:var(--viz-ink)}
+    .v3-t.is-vio{fill:var(--viz-violet);font-weight:700}
+    .v3-t.is-acc{fill:var(--viz-accent);font-weight:700}
+    .v3-work{margin-top:12px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.8;
+      border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+    .v3-work em{color:var(--viz-muted);font-style:normal;font-family:inherit}
+    .v3-work b{color:var(--viz-green);font-size:12.5px}
+    .v3-cmp{margin-top:11px;display:flex;gap:8px;flex-wrap:wrap}
+    .v3-c{flex:1 1 152px;border:1.5px solid var(--viz-line);border-radius:10px;padding:9px 10px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.55}
+    .v3-c.is-ok{border-color:var(--viz-green)}
+    .v3-c.is-bad{border-color:var(--viz-red)}
+    .v3-c h6{margin:0 0 4px;font-size:9.5px;font-weight:800;letter-spacing:.04em;font-family:inherit}
+    .v3-c strong{font-size:14px;display:block;margin-top:3px}
+    .v3-agree{margin-top:11px;font-family:ui-monospace,Consolas,monospace;font-size:11px;color:var(--viz-muted);line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var MODES = [
+      { lab:'opposite &amp; adjacent', num:'opp', den:'adj', r:'tan', inv:'tan', arc:'&#8315;&#185;' },
+      { lab:'opposite &amp; hypotenuse', num:'opp', den:'hyp', r:'sin', inv:'sin', arc:'&#8315;&#185;' },
+      { lab:'adjacent &amp; hypotenuse', num:'adj', den:'hyp', r:'cos', inv:'cos', arc:'&#8315;&#185;' }
+    ];
+    var cur = 0;
+    var seg = document.getElementById('v3-modes');
+    var so = document.getElementById('v3-opp'), sa = document.getElementById('v3-adj');
+    var lo = document.getElementById('v3-oppL'), la = document.getElementById('v3-adjL');
+    var fig = document.getElementById('v3-fig'), work = document.getElementById('v3-work');
+    var cmp = document.getElementById('v3-cmp'), flag = document.getElementById('v3-flag'), why = document.getElementById('v3-why');
+
+    function n(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+    function gcd(x, y){ return y ? gcd(y, x % y) : x; }
+
+    function draw(o, a, lit){
+      var x0 = 66, y0 = 168, s = 128 / Math.max(o, a);
+      var bx = x0 + a * s, ay = y0 - o * s;
+      var hp = Math.sqrt(a * a + o * o) * s;
+      var r = Math.max(5, Math.min(22, a * s * 0.5, hp * 0.4));
+      var th = Math.atan(o / a), arc = '';
+      for (var i = 0; i <= 14; i++) {
+        var g = Math.PI - (i / 14) * th;
+        arc += (bx + r * Math.cos(g)).toFixed(1) + ',' + (y0 - r * Math.sin(g)).toFixed(1) + ' ';
+      }
+      var mid = Math.PI - th / 2, lx = bx + (r + 16) * Math.cos(mid), ly = y0 - (r + 16) * Math.sin(mid) + 4;
+      var segs = { opp:[x0, y0, x0, ay], adj:[x0, y0, bx, y0], hyp:[x0, ay, bx, y0] };
+      function line(id){
+        var p = segs[id];
+        return '<line class="v3-lit" x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) + '" x2="' + p[2].toFixed(1) + '" y2="' + p[3].toFixed(1) + '"/>';
+      }
+      return '<svg viewBox="0 0 310 200" role="img" aria-label="Right triangle with the two known sides highlighted and the angle unknown">' +
+        '<polygon class="v3-face" points="' + x0 + ',' + y0 + ' ' + bx.toFixed(1) + ',' + y0 + ' ' + x0 + ',' + ay.toFixed(1) + '"/>' +
+        line(lit[0]) + line(lit[1]) +
+        '<polyline class="v3-sq" points="' + (x0 + 11) + ',' + y0 + ' ' + (x0 + 11) + ',' + (y0 - 11) + ' ' + x0 + ',' + (y0 - 11) + '"/>' +
+        '<polyline class="v3-arc" points="' + arc + '"/>' +
+        '<text class="v3-t is-vio" x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle">&#952; = ?</text>' +
+        '<text class="v3-t" x="' + (x0 - 9) + '" y="' + ((y0 + ay) / 2 + 4).toFixed(1) + '" text-anchor="end">opp ' + o + '</text>' +
+        '<text class="v3-t" x="' + ((x0 + bx) / 2).toFixed(1) + '" y="' + (y0 + 20) + '" text-anchor="middle">adj ' + a + '</text>' +
+        '<text class="v3-t" x="' + ((x0 + bx) / 2 + 12).toFixed(1) + '" y="' + ((y0 + ay) / 2 - 6).toFixed(1) + '" text-anchor="start">hyp ' + n(Math.sqrt(o * o + a * a), 2) + '</text>' +
+        '<text class="v3-t is-acc" x="12" y="18">thick = the two sides you were given</text>' +
+        '</svg>';
+    }
+
+    function render(){
+      var o = Number(so.value), a = Number(sa.value);
+      lo.textContent = o; la.textContent = a;
+      var h = Math.sqrt(o * o + a * a);
+      var V = { opp:o, adj:a, hyp:h };
+      var m = MODES[cur];
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      fig.innerHTML = draw(o, a, [m.num, m.den]);
+
+      var ratio = V[m.num] / V[m.den];
+      var rad = m.r === 'tan' ? Math.atan(ratio) : (m.r === 'sin' ? Math.asin(ratio) : Math.acos(ratio));
+      var deg = rad * 180 / Math.PI;
+      var fwd = m.r === 'tan' ? Math.tan(ratio * Math.PI / 180)
+        : (m.r === 'sin' ? Math.sin(ratio * Math.PI / 180) : Math.cos(ratio * Math.PI / 180));
+
+      var exactFrac = (m.den === 'hyp' && Math.abs(h - Math.round(h)) < 1e-9) || m.den === 'adj';
+      var fr = '';
+      if (exactFrac) {
+        var p = Math.round(V[m.num]), q = Math.round(V[m.den]), g = gcd(p, q) || 1;
+        fr = ' = ' + (p / g) + '/' + (q / g);
+      }
+
+      work.innerHTML =
+        '<em>1 · build the ratio &rarr;</em> ' + m.r + ' &#952; = ' + m.num + ' / ' + m.den + fr + ' = ' + n(ratio, 4) + '<br>' +
+        '<em>2 · invert &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&rarr;</em> &#952; = ' + m.inv + '&#8315;&#185;(' + n(ratio, 4) + ')<br>' +
+        '<em>3 · read it off &nbsp;&nbsp;&nbsp;&rarr;</em> <b>' + n(deg, 2) + '&deg;</b> &nbsp; (' + Math.round(deg) + '&deg; to the nearest degree)';
+
+      cmp.innerHTML =
+        '<div class="v3-c is-ok"><h6 style="color:var(--viz-green)">&#10003; INVERSE KEY — correct</h6>' +
+          m.inv + '&#8315;&#185;(' + n(ratio, 4) + ')<strong style="color:var(--viz-green)">' + n(deg, 2) + '&deg;</strong>an angle, as asked for</div>' +
+        '<div class="v3-c is-bad"><h6 style="color:var(--viz-red)">&#10007; FORWARD KEY — the classic error</h6>' +
+          m.inv + '(' + n(ratio, 4) + '&deg;)<strong style="color:var(--viz-red)">' + n(fwd, 4) + '</strong>a ratio, not an angle</div>';
+
+      var t1 = Math.atan(o / a) * 180 / Math.PI, t2 = Math.asin(o / h) * 180 / Math.PI, t3 = Math.acos(a / h) * 180 / Math.PI;
+      var agree = (n(t1, 2) === n(t2, 2) && n(t2, 2) === n(t3, 2));
+
+      flag.innerHTML = (n(deg, 2) === n(fwd, 2))
+        ? '<div class="vz-flag"><b>&#9888; The two panels above are reading the same number right now.</b> That is a coincidence of this slider position, not a sign the forward key works. Move a leg by one and they separate.</div>'
+        : '';
+
+      why.innerHTML = '<b>Three different pairs of sides, three different inverse functions, one angle.</b>' +
+        'tan&#8315;&#185;(' + o + '/' + a + ') = ' + n(t1, 2) + '&deg; &nbsp;·&nbsp; sin&#8315;&#185;(' + n(o / h, 4) + ') = ' + n(t2, 2) + '&deg; &nbsp;·&nbsp; cos&#8315;&#185;(' + n(a / h, 4) + ') = ' + n(t3, 2) + '&deg;' +
+        (agree ? ' — <b style="display:inline;color:var(--viz-green)">identical, as they must be</b>: it is one triangle, so whichever pair you are handed you recover the same &#952;.' : '') +
+        '<br><br>Why the forward key fails so quietly: sin, cos and tan take an <em>angle</em> in and give a <em>ratio</em> out. Hand one a ratio and it dutifully treats that ratio as an angle in degrees — ' +
+        m.inv + '(' + n(ratio, 4) + '&deg;) — and returns ' + n(fwd, 4) + '. No error, just a suspiciously tiny decimal where an angle should be. If you write &#952; = tan(7/10) you get 0.0122; the tell is always "why is my angle almost zero?". ' +
+        '<br><br>The same reversal answers every phrasing in the bank: sin A = 0.8 &rArr; A = sin&#8315;&#185;(0.8) = 53.13&deg;. cos&#952; = 3/7 &rArr; &#952; = cos&#8315;&#185;(3/7) = 64.62&deg;. sin A = 0.7071 &rArr; A = 45&deg;. You cannot divide, square-root or cross-multiply your way out of a trig function — only its inverse undoes it.';
+    }
+
+    MODES.forEach(function(m, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = 'given<br>' + m.lab;
+      b.addEventListener('click', function(){ cur = i; render(); });
+      seg.appendChild(b);
+    });
+    so.addEventListener('input', render);
+    sa.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Flip Or Complement</h2>
+  <p class="vz-lede">Six ratios, three sides, one triangle. Two different moves generate the extra names:
+    <em>flipping</em> a fraction gives cosecant, secant and cotangent, and <em>walking to the other acute
+    corner</em> gives the complementary-angle identities. Switch between them on the same triangle.
+    <b>Like a photograph and its negative versus the same photograph seen from the other side of the room.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which relationship to show">
+    <button id="v4-mc" aria-pressed="true">complementary angles</button>
+    <button id="v4-mr" aria-pressed="false">reciprocal ratios</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-wrap">
+      <div class="v4-fig" id="v4-fig"></div>
+      <div class="v4-side">
+        <label class="vz-lab" for="v4-opp">opposite leg <b id="v4-oppL">3</b></label>
+        <input class="vz-slider" type="range" id="v4-opp" min="1" max="12" value="3" step="1" aria-label="Opposite leg">
+        <label class="vz-lab" for="v4-adj">adjacent leg <b id="v4-adjL">4</b></label>
+        <input class="vz-slider" type="range" id="v4-adj" min="1" max="12" value="4" step="1" aria-label="Adjacent leg">
+      </div>
+    </div>
+    <div class="v4-rows" id="v4-rows"></div>
+    <div id="v4-flag"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">Neither move adds geometry. The complement identities are a <b>relabelling</b> — the same
+    physical side is "opposite" one acute angle and "adjacent" to the other — and the reciprocals are a
+    <b>rearrangement</b>, so the side you want sits on top of the fraction and the equation stays linear. Every
+    one of the six values is still opposite, adjacent or hypotenuse over one of the other two.</p>
+
+  <style>
+    .v4-wrap{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-start}
+    .v4-fig{flex:1 1 205px;min-width:185px}
+    .v4-fig svg{width:100%;height:auto;display:block}
+    .v4-side{flex:1 1 168px;min-width:168px}
+    .v4-face{fill:var(--viz-accent);fill-opacity:.10;stroke:var(--viz-line);stroke-width:1.5;stroke-linejoin:round}
+    .v4-mark{stroke:var(--viz-green);stroke-width:5;stroke-linecap:round}
+    .v4-sq{fill:none;stroke:var(--viz-muted);stroke-width:1.5}
+    .v4-a1{fill:none;stroke:var(--viz-accent);stroke-width:1.8}
+    .v4-a2{fill:none;stroke:var(--viz-violet);stroke-width:1.8}
+    .v4-t{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;fill:var(--viz-ink)}
+    .v4-t.is-acc{fill:var(--viz-accent);font-weight:700}
+    .v4-t.is-vio{fill:var(--viz-violet);font-weight:700}
+    .v4-t.is-grn{fill:var(--viz-green);font-weight:700}
+    .v4-rows{margin-top:12px;display:flex;flex-direction:column;gap:5px}
+    .v4-r{display:flex;align-items:center;gap:10px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:9px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11px;flex-wrap:wrap}
+    .v4-r.is-key{border-color:var(--viz-green)}
+    .v4-r.is-warn{border-color:var(--viz-amber)}
+    .v4-l{flex:1 1 118px}
+    .v4-op{flex:0 0 auto;font-size:10px;font-weight:800;color:var(--viz-muted);letter-spacing:.03em}
+    .v4-rr{flex:1 1 118px;text-align:right}
+    .v4-tail{width:100%;font-family:inherit;font-size:10px;font-weight:800;letter-spacing:.03em}
+  </style>
+  <script>
+  (function(){
+    var mode = 'comp';
+    var bC = document.getElementById('v4-mc'), bR = document.getElementById('v4-mr');
+    var so = document.getElementById('v4-opp'), sa = document.getElementById('v4-adj');
+    var lo = document.getElementById('v4-oppL'), la = document.getElementById('v4-adjL');
+    var fig = document.getElementById('v4-fig'), rows = document.getElementById('v4-rows');
+    var flag = document.getElementById('v4-flag'), why = document.getElementById('v4-why');
+
+    function n(x, d){ return isFinite(x) ? x.toFixed(d) : 'undefined'; }
+    function gcd(x, y){ return y ? gcd(y, x % y) : x; }
+    function fr(p, q){
+      if (Math.abs(p - Math.round(p)) > 1e-9 || Math.abs(q - Math.round(q)) > 1e-9) return '';
+      var g = gcd(Math.round(p), Math.round(q)) || 1;
+      return (Math.round(p) / g) + '/' + (Math.round(q) / g) + ' = ';
+    }
+
+    function draw(o, a, hl){
+      var x0 = 66, y0 = 170, s = 126 / Math.max(o, a);
+      var bx = x0 + a * s, ay = y0 - o * s;
+      var hp = Math.sqrt(a * a + o * o) * s;
+      var th = Math.atan(o / a);
+      var r1 = Math.max(5, Math.min(21, a * s * 0.5, hp * 0.4));
+      var r2 = Math.max(5, Math.min(21, o * s * 0.5, hp * 0.4));
+      var arc1 = '', arc2 = '';
+      for (var i = 0; i <= 14; i++) {
+        var g1 = Math.PI - (i / 14) * th;
+        arc1 += (bx + r1 * Math.cos(g1)).toFixed(1) + ',' + (y0 - r1 * Math.sin(g1)).toFixed(1) + ' ';
+        var g2 = -Math.PI / 2 + (i / 14) * (Math.PI / 2 - th);
+        arc2 += (x0 + r2 * Math.cos(g2)).toFixed(1) + ',' + (ay - r2 * Math.sin(g2)).toFixed(1) + ' ';
+      }
+      var m1 = Math.PI - th / 2, l1x = bx + (r1 + 15) * Math.cos(m1), l1y = y0 - (r1 + 15) * Math.sin(m1) + 4;
+      var m2 = -Math.PI / 2 + (Math.PI / 2 - th) / 2, l2x = x0 + (r2 + 22) * Math.cos(m2), l2y = ay - (r2 + 22) * Math.sin(m2) + 4;
+      var segs = { opp:[x0, y0, x0, ay], adj:[x0, y0, bx, y0], hyp:[x0, ay, bx, y0] };
+      var hline = '';
+      if (hl) {
+        var p = segs[hl];
+        hline = '<line class="v4-mark" x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) + '" x2="' + p[2].toFixed(1) + '" y2="' + p[3].toFixed(1) + '"/>';
+      }
+      return '<svg viewBox="0 0 312 208" role="img" aria-label="Right triangle with both acute angles marked">' +
+        '<polygon class="v4-face" points="' + x0 + ',' + y0 + ' ' + bx.toFixed(1) + ',' + y0 + ' ' + x0 + ',' + ay.toFixed(1) + '"/>' +
+        hline +
+        '<polyline class="v4-sq" points="' + (x0 + 11) + ',' + y0 + ' ' + (x0 + 11) + ',' + (y0 - 11) + ' ' + x0 + ',' + (y0 - 11) + '"/>' +
+        '<polyline class="v4-a1" points="' + arc1 + '"/><polyline class="v4-a2" points="' + arc2 + '"/>' +
+        '<text class="v4-t is-acc" x="' + l1x.toFixed(1) + '" y="' + l1y.toFixed(1) + '" text-anchor="middle">&#952;</text>' +
+        '<text class="v4-t is-vio" x="' + l2x.toFixed(1) + '" y="' + l2y.toFixed(1) + '" text-anchor="middle">90&minus;&#952;</text>' +
+        '<text class="v4-t" x="' + (x0 - 9) + '" y="' + ((y0 + ay) / 2 + 4).toFixed(1) + '" text-anchor="end">' + o + '</text>' +
+        '<text class="v4-t" x="' + ((x0 + bx) / 2).toFixed(1) + '" y="' + (y0 + 20) + '" text-anchor="middle">' + a + '</text>' +
+        '<text class="v4-t" x="' + ((x0 + bx) / 2 + 12).toFixed(1) + '" y="' + ((y0 + ay) / 2 - 6).toFixed(1) + '" text-anchor="start">' + n(Math.sqrt(o * o + a * a), 2) + '</text>' +
+        (hl ? '<text class="v4-t is-grn" x="10" y="17">thick = the one side both names point at</text>' : '') +
+        '</svg>';
+    }
+
+    function row(cls, left, op, right, tail, tcol){
+      return '<div class="v4-r ' + cls + '"><span class="v4-l">' + left + '</span>' +
+        '<span class="v4-op">' + op + '</span><span class="v4-rr">' + right + '</span>' +
+        (tail ? '<span class="v4-tail" style="color:' + tcol + '">' + tail + '</span>' : '') + '</div>';
+    }
+
+    function render(){
+      var o = Number(so.value), a = Number(sa.value);
+      lo.textContent = o; la.textContent = a;
+      var h = Math.sqrt(o * o + a * a);
+      var deg = Math.atan(o / a) * 180 / Math.PI, co = 90 - deg;
+      var isolateral = (o === a);
+      bC.setAttribute('aria-pressed', mode === 'comp' ? 'true' : 'false');
+      bR.setAttribute('aria-pressed', mode === 'recip' ? 'true' : 'false');
+
+      if (mode === 'comp') {
+        fig.innerHTML = draw(o, a, 'opp');
+        rows.innerHTML =
+          row('is-key', 'sin &#952; = opp(&#952;)/hyp = ' + fr(o, h) + n(o / h, 4), 'SAME TWO SIDES', 'cos(90&minus;&#952;) = adj(90&minus;&#952;)/hyp = ' + fr(o, h) + n(o / h, 4),
+            '&#10003; the thick side is OPPOSITE &#952; (' + n(deg, 2) + '&deg;) and ADJACENT to its complement (' + n(co, 2) + '&deg;) — one side, two names', 'var(--viz-green)') +
+          row('', 'cos &#952; = adj(&#952;)/hyp = ' + fr(a, h) + n(a / h, 4), 'SAME TWO SIDES', 'sin(90&minus;&#952;) = opp(90&minus;&#952;)/hyp = ' + fr(a, h) + n(a / h, 4), '', '') +
+          row('', 'tan &#952; = opp(&#952;)/adj(&#952;) = ' + fr(o, a) + n(o / a, 4), 'SAME TWO SIDES', 'cot(90&minus;&#952;) = adj(90&minus;&#952;)/opp(90&minus;&#952;) = ' + fr(o, a) + n(o / a, 4), '', '') +
+          row(isolateral ? 'is-warn' : '', 'sin &#952; = ' + n(o / h, 4), isolateral ? 'EQUAL — HERE ONLY' : 'NOT EQUAL', 'cos &#952; = ' + n(a / h, 4),
+            isolateral
+              ? '&#9888; a coincidence at 45&deg;, not the identity — the identity compares &#952; with 90&minus;&#952;'
+              : '&#10007; sin &#952; = cos &#952; is FALSE in general, and this is the row that proves it',
+            isolateral ? 'var(--viz-amber)' : 'var(--viz-red)');
+
+        flag.innerHTML = isolateral
+          ? '<div class="vz-flag"><b>&#9888; You have landed on the one angle that fakes the wrong rule.</b> With equal legs &#952; = 45&deg;, so &#952; <em>is</em> its own complement and sin&#952; = cos&#952; = 0.7071. That single fixed point is why "sin&#952; = cos&#952; always" looks plausible and is wrong everywhere else. Move either leg by one and the last row splits apart.</div>'
+          : '';
+
+        why.innerHTML = '<b>The acute angles of a right triangle always sum to 90&deg;, so each is the other\'s complement.</b>' +
+          'Read <b style="display:inline">opp(&#952;)</b> as "the side opposite &#952;". The naming is <em>relative</em>, which is the entire trick: one physical side is opp(&#952;) and adj(90&minus;&#952;) simultaneously, so any ratio built from it has to come out to the same number under either name. ' +
+          'The three angles sum to 180&deg; and one of them is the right angle, so ' + n(deg, 2) + '&deg; + ' + n(co, 2) + '&deg; = 90&deg;. ' +
+          'Now stand at the other acute corner: the leg of length ' + o + ' was <em>opposite</em> &#952;, and from over there it is <em>adjacent</em>. Nothing moved but the label, so the ratio built from it has to come out the same number — which is the whole content of sin&#952; = cos(90&minus;&#952;).' +
+          '<br><br>Read the bank items straight off it: sin&#952; = 4/5 &rArr; cos(90&minus;&#952;) = 4/5. sin 25&deg; = cos 65&deg; = 0.4226, because 25 + 65 = 90. And cos 60&deg; = sin 30&deg; = 1/2 without a calculator. The pairs that are <em>not</em> equal are the ones whose measures do not sum to 90&deg; — sin 25&deg; and sin 65&deg;, cos 25&deg; and cos 65&deg;.';
+      } else {
+        fig.innerHTML = draw(o, a, '');
+        rows.innerHTML =
+          row('is-key', 'sin &#952; = opp/hyp = ' + fr(o, h) + n(o / h, 4), '&#8644; FLIP', 'csc &#952; = hyp/opp = ' + fr(h, o) + n(h / o, 4),
+            '&#10003; product = ' + n((o / h) * (h / o), 4) + ' — cosecant partners SINE', 'var(--viz-green)') +
+          row('', 'cos &#952; = adj/hyp = ' + fr(a, h) + n(a / h, 4), '&#8644; FLIP', 'sec &#952; = hyp/adj = ' + fr(h, a) + n(h / a, 4),
+            '&#10003; product = ' + n((a / h) * (h / a), 4) + ' — secant partners COSINE, not sine', 'var(--viz-green)') +
+          row(isolateral ? 'is-warn' : '', 'tan &#952; = opp/adj = ' + fr(o, a) + n(o / a, 4), '&#8644; FLIP', 'cot &#952; = adj/opp = ' + fr(a, o) + n(a / o, 4),
+            isolateral
+              ? '&#9888; both read 1.0000 because 1 is its own reciprocal — the flip is invisible at 45&deg; only'
+              : '&#10003; product = ' + n((o / a) * (a / o), 4) + ' — cotangent partners TANGENT',
+            isolateral ? 'var(--viz-amber)' : 'var(--viz-green)');
+
+        flag.innerHTML = isolateral
+          ? '<div class="vz-flag"><b>&#9888; Equal legs put you at 45&deg;, where tan&#952; = cot&#952; = 1.</b> They agree because 1 is the one number equal to its own reciprocal, not because the two ratios are the same thing. Move a leg by one and they part company immediately.</div>'
+          : '';
+
+        why.innerHTML = '<b>A reciprocal ratio is the same fraction upside down — nothing more.</b>' +
+          'csc&#952; = 1/sin&#952; = hyp/opp, sec&#952; = 1/cos&#952; = hyp/adj, cot&#952; = 1/tan&#952; = adj/opp. Read them off the bank instantly: sin&#952; = 3/5 &rArr; csc&#952; = 5/3. cos&#952; = 12/13 &rArr; sec&#952; = 13/12 (not 13/5 — that would be flipping the wrong pair of sides). tan&#952; = 7 &rArr; cot&#952; = 1/7.' +
+          '<br><br><b style="display:inline">Watch the naming.</b> The "co-" in cosecant does not mean it partners cosine: <b style="display:inline">se</b>cant goes with <b style="display:inline">co</b>sine, and <b style="display:inline">co</b>secant with <b style="display:inline">si</b>ne. Cotangent is the only one that pairs the way the spelling suggests.' +
+          '<br><br><b style="display:inline">Why bother?</b> They keep an unknown out of a denominator. "hypotenuse = adj &times; sec&#952;" is the same statement as "hypotenuse = adj / cos&#952;", but the first is linear in the thing you want. And each is undefined exactly where its partner hits zero — csc and cot blow up as &#952; approaches 0&deg;, sec as it approaches 90&deg; — which is why this panel keeps both legs at 1 or more.';
+      }
+    }
+
+    bC.addEventListener('click', function(){ mode = 'comp'; render(); });
+    bR.addEventListener('click', function(){ mode = 'recip'; render(); });
+    so.addEventListener('input', render);
+    sa.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Ladder Ramp Elevation</h2>
+  <p class="vz-lede">Every right-triangle word problem is the same four moves: sketch it, label what is known
+    relative to the angle, choose the one ratio, solve. Pick a scenario and drag its givens — the sketch, the
+    labels and the chosen ratio all follow. <b>Like reading a recipe before turning on the hob: the sketch is
+    where the problem is actually solved.</b></p>
+
+  <div class="vz-seg" id="v5-scn" role="group" aria-label="Choose a scenario"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-a"><span id="v5-aT">ladder length</span> <b id="v5-aL">6 m</b></label>
+    <input class="vz-slider" type="range" id="v5-a" min="3" max="12" value="6" step="1" aria-label="First given quantity">
+    <label class="vz-lab" for="v5-b"><span id="v5-bT">angle with the ground</span> <b id="v5-bL">75&deg;</b></label>
+    <input class="vz-slider" type="range" id="v5-b" min="30" max="85" value="75" step="1" aria-label="Second given quantity">
+    <div class="v5-fig" id="v5-fig"></div>
+    <div class="v5-work" id="v5-work"></div>
+    <div id="v5-flag"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">A right-triangle model is appropriate whenever a genuine <b>90&deg; angle links the sides
+    and the angles</b> — a wall meeting the ground, a rise over a run, a plumb line against a sight line. It is
+    the wrong tool for anything with no right angle in it (that is lesson 03's law of sines and law of cosines)
+    and for anything cyclical rather than static. Sketching first is what stops you solving a perfectly correct
+    equation for the wrong side.</p>
+
+  <style>
+    .v5-fig{margin-top:12px}
+    .v5-fig svg{width:100%;height:auto;display:block}
+    .v5-face{fill:var(--viz-accent);fill-opacity:.10;stroke:var(--viz-line);stroke-width:1.5;stroke-linejoin:round}
+    .v5-hyp{stroke:var(--viz-accent);stroke-width:5;stroke-linecap:round}
+    .v5-vert{stroke:var(--viz-violet);stroke-width:5;stroke-linecap:round}
+    .v5-horiz{stroke:var(--viz-muted);stroke-width:5;stroke-linecap:round}
+    .v5-sq{fill:none;stroke:var(--viz-muted);stroke-width:1.5}
+    .v5-arc{fill:none;stroke:var(--viz-accent);stroke-width:1.8}
+    .v5-ground{stroke:var(--viz-line);stroke-width:2;stroke-dasharray:5 5}
+    .v5-t{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;fill:var(--viz-ink)}
+    .v5-t.is-acc{fill:var(--viz-accent);font-weight:700}
+    .v5-t.is-vio{fill:var(--viz-violet);font-weight:700}
+    .v5-t.is-mut{fill:var(--viz-muted)}
+    .v5-work{margin-top:12px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.85;
+      border:1.5px solid var(--viz-line);border-radius:10px;padding:10px 11px;background:var(--viz-bg)}
+    .v5-work em{color:var(--viz-muted);font-style:normal;font-family:inherit;font-weight:700;font-size:10px;letter-spacing:.04em}
+    .v5-work b{color:var(--viz-green);font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var seg = document.getElementById('v5-scn');
+    var sa = document.getElementById('v5-a'), sb = document.getElementById('v5-b');
+    var la = document.getElementById('v5-aL'), lb = document.getElementById('v5-bL');
+    var ta = document.getElementById('v5-aT'), tb = document.getElementById('v5-bT');
+    var fig = document.getElementById('v5-fig'), work = document.getElementById('v5-work');
+    var flag = document.getElementById('v5-flag'), why = document.getElementById('v5-why');
+
+    function n(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+    var SCN = [
+      { name:'ladder', tab:'ladder on a wall',
+        a:{ t:'ladder length', min:3, max:12, step:1, v:6, u:' m' },
+        b:{ t:'angle with the ground', min:30, max:85, step:1, v:75, u:'&deg;' } },
+      { name:'ramp', tab:'ramp rise &amp; run',
+        a:{ t:'rise', min:1, max:12, step:1, v:3, u:' m' },
+        b:{ t:'run', min:1, max:24, step:1, v:4, u:' m' } },
+      { name:'elev', tab:'angle of elevation',
+        a:{ t:'horizontal distance to the base', min:10, max:100, step:5, v:40, u:' m' },
+        b:{ t:'angle of elevation', min:5, max:70, step:1, v:32, u:'&deg;' } }
+    ];
+    var cur = 0;
+
+    function draw(o, a, labels, hypCls) {
+      var x0 = 66, y0 = 168, s = 128 / Math.max(o, a, 1e-9);
+      var bx = x0 + a * s, ay = y0 - o * s;
+      var hp = Math.sqrt(a * a + o * o) * s;
+      var r = Math.max(5, Math.min(22, a * s * 0.5, hp * 0.4));
+      var th = Math.atan(o / Math.max(a, 1e-9)), arc = '';
+      for (var i = 0; i <= 14; i++) {
+        var g = Math.PI - (i / 14) * th;
+        arc += (bx + r * Math.cos(g)).toFixed(1) + ',' + (y0 - r * Math.sin(g)).toFixed(1) + ' ';
+      }
+      var mid = Math.PI - th / 2, lx = bx + (r + 17) * Math.cos(mid), ly = y0 - (r + 17) * Math.sin(mid) + 4;
+      return '<svg viewBox="0 0 316 200" role="img" aria-label="Labelled right triangle for the chosen scenario">' +
+        '<line class="v5-ground" x1="20" y1="' + y0 + '" x2="300" y2="' + y0 + '"/>' +
+        '<polygon class="v5-face" points="' + x0 + ',' + y0 + ' ' + bx.toFixed(1) + ',' + y0 + ' ' + x0 + ',' + ay.toFixed(1) + '"/>' +
+        '<line class="v5-vert" x1="' + x0 + '" y1="' + y0 + '" x2="' + x0 + '" y2="' + ay.toFixed(1) + '"/>' +
+        '<line class="v5-horiz" x1="' + x0 + '" y1="' + y0 + '" x2="' + bx.toFixed(1) + '" y2="' + y0 + '"/>' +
+        '<line class="' + hypCls + '" x1="' + x0 + '" y1="' + ay.toFixed(1) + '" x2="' + bx.toFixed(1) + '" y2="' + y0 + '"/>' +
+        '<polyline class="v5-sq" points="' + (x0 + 11) + ',' + y0 + ' ' + (x0 + 11) + ',' + (y0 - 11) + ' ' + x0 + ',' + (y0 - 11) + '"/>' +
+        '<polyline class="v5-arc" points="' + arc + '"/>' +
+        '<text class="v5-t is-acc" x="' + lx.toFixed(1) + '" y="' + ly.toFixed(1) + '" text-anchor="middle">' + labels.ang + '</text>' +
+        '<text class="v5-t is-vio" x="' + (x0 - 9) + '" y="' + ((y0 + ay) / 2 + 4).toFixed(1) + '" text-anchor="end">' + labels.vert + '</text>' +
+        '<text class="v5-t is-mut" x="' + ((x0 + bx) / 2).toFixed(1) + '" y="' + (y0 + 20) + '" text-anchor="middle">' + labels.horiz + '</text>' +
+        '<text class="v5-t is-acc" x="' + ((x0 + bx) / 2 + 13).toFixed(1) + '" y="' + ((y0 + ay) / 2 - 8).toFixed(1) + '" text-anchor="start">' + labels.hyp + '</text>' +
+        '</svg>';
+    }
+
+    function setSlider(el, cfg){
+      el.min = cfg.min; el.max = cfg.max; el.step = cfg.step; el.value = cfg.v;
+    }
+
+    function render(){
+      var S = SCN[cur];
+      [].slice.call(seg.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+      S.a.v = Number(sa.value); S.b.v = Number(sb.value);
+      ta.textContent = S.a.t; tb.textContent = S.b.t;
+      la.innerHTML = S.a.v + S.a.u; lb.innerHTML = S.b.v + S.b.u;
+
+      var o, a, w = '', f = '', y = '';
+      if (S.name === 'ladder') {
+        var L = S.a.v, t = S.b.v * Math.PI / 180;
+        o = L * Math.sin(t); a = L * Math.cos(t);
+        fig.innerHTML = draw(o, a, { ang: S.b.v + '&deg;', vert:'height ' + n(o, 2), horiz:'foot ' + n(a, 2), hyp:'ladder ' + L }, 'v5-hyp');
+        w = '<em>SKETCH</em> the wall and the ground are the two perpendicular legs; the ladder is the hypotenuse<br>' +
+          '<em>LABEL</em> hypotenuse = ' + L + ' m, angle at the foot = ' + S.b.v + '&deg;<br>' +
+          '<em>RATIO</em> height is OPPOSITE the angle &rarr; sin &nbsp;·&nbsp; foot is ADJACENT &rarr; cos<br>' +
+          '<em>SOLVE</em> height = ' + L + ' &times; sin ' + S.b.v + '&deg; = <b>' + n(o, 2) + ' m</b> &nbsp; foot = ' + L + ' &times; cos ' + S.b.v + '&deg; = <b>' + n(a, 2) + ' m</b>';
+        if (S.b.v === 75 || S.b.v === 76) {
+          f = '<div class="vz-flag"><b>This is where the four-to-one rule comes from.</b> At ' + S.b.v + '&deg; the foot stands at ' + n(a / L, 3) +
+            ' of the ladder\'s length — near enough one unit out for every four along. It is not a separate fact to memorise: it is cos ' + S.b.v + '&deg;, and cos&#8315;&#185;(0.25) = 75.52&deg; is the exact angle.</div>';
+        }
+        y = '<b>One given side plus one given angle, so both unknowns are forward calculations.</b>' +
+          'The hypotenuse is known here, which is what puts sine and cosine (not tangent) on the menu: tangent relates the two legs and neither of those is known yet. ' +
+          'Watch the trade as you drag the angle — at ' + S.b.v + '&deg; the ladder reaches ' + n(o, 2) + ' m up a wall while its foot stands ' + n(a, 2) + ' m out. ' +
+          (S.b.v < 50 ? 'Down here the foot is further out than the height is up, which is a shallow, unstable ladder and a very tall triangle problem you would never actually set. ' : '') +
+          'Push it to 85&deg; and the height approaches the full ladder length while the foot approaches zero — sin 90&deg; = 1 and cos 90&deg; = 0, which is the boundary this triangle can never quite reach.';
+      } else if (S.name === 'ramp') {
+        o = S.a.v; a = S.b.v;
+        var hyp = Math.sqrt(o * o + a * a), ang = Math.atan(o / a) * 180 / Math.PI;
+        var exactH = Math.abs(hyp - Math.round(hyp)) < 1e-9;
+        fig.innerHTML = draw(o, a, { ang:n(ang, 1) + '&deg;', vert:'rise ' + o, horiz:'run ' + a, hyp:'ramp ' + n(hyp, 2) }, 'v5-hyp');
+        w = '<em>SKETCH</em> the rise and the run are the two perpendicular legs; the ramp surface is the hypotenuse<br>' +
+          '<em>LABEL</em> rise = ' + o + ' m (opposite), run = ' + a + ' m (adjacent)<br>' +
+          '<em>RATIO</em> both legs known &rarr; the angle comes from tan, the length from Pythagoras<br>' +
+          '<em>SOLVE</em> ramp = &#8730;(' + o + '&sup2; + ' + a + '&sup2;) = <b>' + n(hyp, 2) + ' m</b> &nbsp; slope = tan&#8315;&#185;(' + o + '/' + a + ') = <b>' + n(ang, 2) + '&deg;</b>';
+        if (exactH) {
+          f = '<div class="vz-flag"><b>Whole-number hypotenuse: ' + o + '-' + a + '-' + Math.round(hyp) + '.</b> ' +
+            (Math.round(hyp) === 5 && o + a === 7 ? 'The 3-4-5 ramp — its hypotenuse is exactly 5, no decimals and no calculator. ' : '') +
+            'Pythagorean triples are worth recognising on sight because every ratio in the triangle then comes out as a tidy fraction.</div>';
+        } else if (ang > 25) {
+          f = '<div class="vz-flag"><b>' + n(ang, 1) + '&deg; is a staircase, not a ramp.</b> The mathematics is still exactly right — the model simply stopped describing the thing it was named after. Checking that the answer is physically sensible is part of the modelling, not an optional extra.</div>';
+        }
+        y = '<b>Both legs given, so this one runs the other way: two sides in, an angle out.</b>' +
+          'That is the inverse move from visual 3, arriving in a word problem. The ramp length needs no trigonometry at all — Pythagoras gives &#8730;(' + o + '&sup2; + ' + a + '&sup2;) = ' + n(hyp, 2) + ' — while the slope angle does need tan&#8315;&#185;, because it is the ratio of the two legs that carries the steepness. ' +
+          '<br><br>Set the rise to 1 and the run to 12 and you get ' + '4.76&deg;, the standard 1:12 accessibility gradient. Set 3 and 4 and the ramp is exactly 5.';
+      } else {
+        var d = S.a.v, al = S.b.v, tr = al * Math.PI / 180;
+        a = d; o = d * Math.tan(tr);
+        fig.innerHTML = draw(o, a, { ang:al + '&deg;', vert:'height ' + n(o, 1), horiz:'distance ' + d, hyp:'line of sight' }, 'v5-hyp');
+        w = '<em>SKETCH</em> you stand at the angle; the tower is the far vertical leg; the ground is the horizontal one<br>' +
+          '<em>LABEL</em> adjacent = ' + d + ' m, angle of elevation = ' + al + '&deg;, opposite = the unknown height<br>' +
+          '<em>RATIO</em> the two legs, opposite over adjacent &rarr; <b style="color:var(--viz-accent);display:inline">tangent</b><br>' +
+          '<em>SOLVE</em> height = ' + d + ' &times; tan ' + al + '&deg; = ' + d + ' &times; ' + n(Math.tan(tr), 4) + ' = <b>' + n(o, 2) + ' m</b>';
+        y = '<b>Height from a horizontal distance and an angle of elevation is the tangent, every time.</b>' +
+          'Both quantities in play are legs — the distance along the ground and the height above it — and the only ratio built from two legs is tan. Sine or cosine would drag in the line of sight, which nobody measured. ' +
+          '<br><br>Because height = d &times; tan&#945; is <em>linear in d</em>, doubling your distance from the tower doubles the height you compute for the same angle: at ' + d + ' m and ' + al + '&deg; you get ' + n(o, 2) + ' m, at ' + (d * 2) + ' m you would get ' + n(o * 2, 2) + ' m. That is the check to run when a surveying answer looks wrong — a distance measured to the wrong landmark scales the answer proportionally. ' +
+          '<br><br>Worked from the guide: 40 m at 32&deg; gives 40 &times; 0.6249 = 24.99 m — 25.0 m to one decimal, which is all the precision an angle read off an instrument ever justifies.';
+      }
+
+      work.innerHTML = w;
+      flag.innerHTML = f;
+      why.innerHTML = y;
+    }
+
+    SCN.forEach(function(S, i){
+      var b = document.createElement('button');
+      b.setAttribute('aria-pressed', 'false');
+      b.innerHTML = S.tab;
+      b.addEventListener('click', function(){
+        SCN[cur].a.v = Number(sa.value); SCN[cur].b.v = Number(sb.value);
+        cur = i;
+        setSlider(sa, SCN[i].a); setSlider(sb, SCN[i].b);
+        render();
+      });
+      seg.appendChild(b);
+    });
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    setSlider(sa, SCN[0].a); setSlider(sb, SCN[0].b);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,56 @@
+**The big idea**: **Analyzing one categorical variable** had you counting labels and turning counts into relative frequencies; **Two-way tables** crossed two label variables into one grid; **Distributions in two-way tables** pulled marginal, joint and conditional distributions out of that grid. Every display there put *categories* along an axis, in arbitrary order — swap two bars of a bar chart and nothing is lost. Change the variable to a quantitative one and that freedom disappears: numbers carry order *and* distance, so the axis stops being a list of names and becomes a ruler. Everything here follows from that one fact. **Displaying quantitative data with graphs** is the set of displays that respect the ruler, **More on data displays** is what each display keeps and what it silently throws away, and **Describing and comparing distributions** is the vocabulary — shape, center, spread, outliers — for saying what a display shows without pointing at it. Running example throughout: 20 page-load times in seconds, sorted — 30, 38, 41, 42, 43, 45, 46, 47, 48, 49, 51, 52, 53, 54, 55, 57, 58, 60, 63, 70.
+
+**Key concepts**
+
+- **A histogram is the default graph for quantitative data grouped into numerical intervals, and each bar is one interval together with its frequency.** Mechanism: chop the number line into equal-width **bins**, count how many values land in each, draw the count as a bar height. Worked, with bins of width 10 anchored at 30: $[30,40)$ holds 2, $[40,50)$ holds 8, $[50,60)$ holds 7, $[60,70)$ holds 2, $[70,80)$ holds 1 — twenty in total. A bar is emphatically not a named category (that is a bar chart), not one individual paired point (that is a scatterplot), and not one data value (that is a dot plot). Equal widths make the heights comparable, so unequal bins are the first thing to check.
+- **Bin width is the histogram's one dial, and it is wrong in both directions.** Too narrow and nearly every bar is height 1 or 2, so you are reading noise as structure. Too wide and the shape disappears: at width 40 those same 20 values collapse to two bars, 19 and 1, and every peak, gap and cluster is gone. A bar chart has no equivalent dial, because its categories are handed to you.
+- **A bar chart leaves gaps between bars; a histogram's bars touch.** The gap says "separate labels", the contact says "adjacent stretches of one continuous number line" — so a gap inside a histogram is information, an interval that contains no values at all.
+- **A dot plot shows every individual value in a small quantitative data set.** One dot per observation, stacked above its position on the number line. Nothing is binned, so repeats, gaps and clusters are visible directly: our 20 times give a lone dot at 30, a clump of 8 between 41 and 49, and another lone dot far right at 70. That fidelity is its limit: a few hundred points and the stacks become unreadable.
+- **A stem-and-leaf plot retains every individual data value while it organizes the values by place value.** The leading digits become the **stem**, the final digit the **leaf**: a stem of 4 with a leaf of 7 is the value **47** — not 74, and not 4.7. Our data becomes `3 | 0 8`, `4 | 1 2 3 5 6 7 8 9`, `5 | 1 2 3 4 5 7 8`, `6 | 0 3`, `7 | 0`. Rotate it a quarter-turn and the leaf rows are a histogram with bins of width 10 — shape *and* raw numbers in one picture.
+- **A box plot condenses the data into its five-number summary and flags possible outliers, which is why it is the display for quartiles.** The five numbers are minimum, $Q_1$, median, $Q_3$, maximum; the box spans $Q_1$ to $Q_3$ (the interquartile range), the line inside is the median, and the whiskers reach the most extreme values still within $1.5 \times IQR$ of the box. Anything past that is drawn as an individual point and read as a **possible outlier**. Worked: our summary is 30, 44, 50, 56, 70, so $IQR = 12$, the fences sit at $44 - 18 = 26$ and $56 + 18 = 74$, nothing lies beyond them, and the whiskers stop at 30 and 70.
+- **Everything a box plot condenses, it also conceals.** Compare our set with 30, 38, 41, 42, 43, 45, 45, 46, 46, 47, 53, 54, 54, 55, 55, 57, 57, 58, 63, 70. Identical minimum, quartiles, median and maximum — identical box plots — yet the second is plainly **bimodal**, two clusters with a hole at the middle, and the first has one central peak. A dot plot, a stem-and-leaf plot or a histogram separates them instantly. Losing detail is the price of the summary, not a defect of it.
+- **A pie chart is the least appropriate display for the actual values of a quantitative variable.** Its angles encode each slice's share of a whole, so it needs parts that sum to a meaningful total — categories. A load time of 47 seconds is not a share of anything, and a pair of pie charts compares two quantitative groups badly.
+- **Side-by-side box plots are the fastest way to compare two quantitative distributions.** On one shared numerical axis the two boxes give the difference in center (median lines), the difference in spread (box widths) and any flagged outliers at a glance. A two-way frequency table handles two *categorical* variables and a single shared bar chart compares category counts — neither displays quantitative values.
+- **Describing a distribution conventionally means four features: shape, center, spread and outliers.** Say all four, in context, in the units of the variable. Anything else — domain and range, slope and intercept, colour and orientation — belongs to another question.
+- **Shape has two parts: modality and symmetry.** Modality counts the clear peaks — **unimodal** is exactly one, **bimodal** is two (usually two subgroups quietly mixed together), **uniform** is a flat profile with no peak at all. Symmetry asks whether the two sides mirror each other.
+- **Skew is named for the tail, never for the bulk.** Bars concentrated on the left with a long tail stretching right is **right-skewed**; the mirror image is left-skewed. Worked: 2, 3, 3, 4, 4, 4, 5, 5, 6, 40 piles up at the left and trails right, so it is right-skewed, and the mean 7.6 sits well above the median 4. Of two histograms with the same center, the one whose tail runs further right is the more right-skewed.
+- **The median is the measure of center most resistant to outliers; the mean is not resistant at all.** Mechanism: the mean is a sum, so every value exerts leverage proportional to its distance, while the median is a *rank*, so moving the largest value further out changes nothing about which value sits in the middle. Worked: 2, 3, 3, 4, 4, 4, 5, 5, 6, 7 has mean 4.3 and median 4; replace the 7 with 70 and the mean jumps to 10.6 while the median stays exactly 4.
+- **Spread means dispersion about the center, and it means nothing else.** A distribution with larger spread has values more scattered around its center — that is the whole claim. It does not imply a larger mean, does not imply symmetry, and does not imply the presence or absence of outliers. Worked: 48, 49, 50, 51, 52 and 10, 30, 50, 70, 90 share the median 50 exactly, and the second is spread twenty times wider.
+- **Comparing two distributions is a sentence, not a picture.** "Group B's median is 12 seconds higher, its spread is about twice as wide, both are unimodal and right-skewed, and B has two possible outliers above 140 s." And it requires the same scale on both displays — two graphs on different axes will happily show the opposite of the truth.
+
+**Rules to remember**
+
+- Categorical variable, categorical axis: bar chart, pie chart, two-way table. Quantitative variable, number line: dot plot, stem-and-leaf plot, histogram, box plot.
+- One histogram bar = one numerical interval + its frequency. Equal bin widths, bars touching.
+- Stem 4, leaf 7 means 47. Read the stem as the leading digits.
+- Five-number summary: minimum, $Q_1$, median, $Q_3$, maximum. Box plot = that summary plus the $1.5 \times IQR$ outlier rule.
+- Quartiles or possible outliers in the question means box plot; every individual value means dot plot or stem-and-leaf.
+- Comparing two quantitative distributions means side-by-side box plots on one shared axis.
+- Describe a distribution as shape, center, spread, outliers.
+- Skew is named for the tail: bulk left, tail right, right-skewed.
+- Unimodal is one clear peak; bimodal is two; uniform is flat.
+- More spread means more dispersed about the center — no other conclusion follows.
+- The median resists outliers. The mean, the range and the standard deviation do not.
+
+**Common pitfalls**
+
+- Calling a histogram a bar chart, then treating its bins as reorderable categories. Bins have a fixed position on a ruler.
+- Reading a histogram bar as one data point, or as a category label, rather than as a count inside an interval.
+- Choosing the bin width to make the story you already believe, then reporting the shape as if the data chose it.
+- Naming the skew after the side where the data piles up. The tail names it, so "most values are small" is right-skewed.
+- Believing identical box plots imply identical data sets — the five-number summary is blind to modality and to structure inside the box.
+- Using a pie chart, or a pair of them, for quantitative values, where slice angles have no meaning.
+- Answering a spread question with a claim about the mean, about symmetry, or about outliers. Spread is dispersion about the center, full stop.
+- Calling the mean the resistant measure of center, or expecting the range to resist an outlier — a single extreme value moves both.
+- Reporting only the center when asked to compare distributions. Two groups can share a median and be nothing alike.
+
+**How to approach the questions**
+
+1. First classify the variable. Categorical answers — bar chart, pie chart, two-way table, mosaic plot — are distractors the moment the variable is quantitative, and they appear in almost every one of these items.
+2. For "which display", read what the question wants preserved. Every individual value points to a dot plot or a stem-and-leaf plot; quartiles and outliers point to a box plot; shape over numerical intervals points to a histogram; comparing two groups points to side-by-side box plots.
+3. For skew, locate the tail and name the distribution after it. Sketch the bulk on the left, sketch the tail on the right, and read off "right-skewed".
+4. For shape vocabulary, count the peaks first: one is unimodal, two is bimodal, none is uniform. Symmetric is a separate axis and can be true alongside any of them.
+5. For resistance, ask which statistic is computed from *ranks* rather than from a *sum*. Ranks resist; sums do not.
+6. For any claim about spread, test it against the definition — more dispersed about the center — and reject options that smuggle in the mean, symmetry or outliers.
+
+**Where this leads**: this lesson has been about seeing a distribution and naming it, borrowing the median and the quartiles as marks on a picture rather than as computations. The next lesson, **03 Summarizing quantitative data**, does the arithmetic properly: measuring center in quantitative data and more on mean and median, the interquartile range and box and whisker plots, variance and standard deviation for a population and for a sample, other measures of spread, and covariance and correlation. What you learned to read off a graph becomes a number you can compute.

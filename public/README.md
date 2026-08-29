@@ -67,6 +67,14 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    `assistant.geo`, clamped so a saved box can never strand the panel off-screen. Every entry
    point is guarded by `panelFloats()`: **never** in Sentinel's `?embed=assistant` frame (the
    panel IS the document there) and never under 560px (the stylesheet goes edge-to-edge).
+6d. **Show WHY an AI turn failed** — the 🐞 header button + "Why did this fail?" on the failed
+   bubble. One recorder (`recordFailure`) is called from the transport itself — `api()` on any
+   rejected `/api` call and `apiSlow` on an in-band SSE `error` — so a new AI feature gets the
+   panel for free and needs no wiring. The report comes from the server (`err.diag`, built by
+   `describeJsonFailure` in [../lib/gemini.js](../lib/gemini.js)) and is rendered by
+   `failDetailHtml`, shared by the bubble and the panel so there is one thing to keep right. The
+   log is `localStorage` (last 12), never the server — AGENTS.md §7 says why.
+   🔴 Everything in it is MODEL OUTPUT: it goes through `esc()`, never `renderMarkdown`.
 7. **Edit the NUL line** (app.js:559) — Node script only (`fs.readFileSync` → `replace` →
    `writeFileSync`); `Edit` cannot match it and the file must never be open-and-rewritten.
 8. **Change what the progress/roadmap trees score** — every ring, bar and % in both trees

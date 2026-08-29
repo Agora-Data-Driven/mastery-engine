@@ -175,9 +175,9 @@
         '<span style="width:' + pf + '%;background:var(--viz-amber);color:#1b1b1b">' + nul + ' free col' + (nul === 1 ? '' : 's') + ' = nullity</span>';
 
       boxes.innerHTML =
-        box('Row space', r, N, 'basis: the ' + r + ' nonzero row' + (r === 1 ? '' : 's') + ' of the RREF', 'var(--viz-violet)') +
+        box('Row space', r, N, r ? 'basis: the ' + r + ' nonzero row' + (r === 1 ? '' : 's') + ' of the RREF' : 'every row is zero, so the row space is just {0}', 'var(--viz-violet)') +
         box('Null space', nul, N, nul ? 'basis: ' + nul + ' special solution' + (nul === 1 ? '' : 's') + ', one per free column' : 'only the zero vector', 'var(--viz-amber)') +
-        box('Column space', r, M, 'basis: columns ' + piv.map(function(c){ return c + 1; }).join(', ') + ' of A itself', 'var(--viz-green)') +
+        box('Column space', r, M, r ? 'basis: column' + (r === 1 ? ' ' : 's ') + piv.map(function(c){ return c + 1; }).join(', ') + ' of A itself' : 'no pivot columns at all, so Col A is just {0}', 'var(--viz-green)') +
         box('Left null space', lnul, M, lnul ? 'basis: ' + lnul + ' relationship' + (lnul === 1 ? '' : 's') + ' among the rows' : 'only the zero vector', 'var(--viz-red)');
 
       why.innerHTML = '<b>rank ' + r + ' &rarr; ' + r + ' + ' + nul + ' = ' + N + ' columns, and ' + r + ' + ' + lnul + ' = ' + M + ' rows.</b>' +
@@ -449,6 +449,10 @@
         var trial = basis.concat([chosen[j]]);
         if (rank(trial) > basis.length) { basis = trial; basisI.push(chosenI[j]); }
       }
+      var kept = {};
+      basisI.forEach(function(i){ kept[i] = true; });
+      var extra = chosenI.filter(function(i){ return !kept[i]; }).map(function(i){ return names[i]; });
+      var basisNames = basisI.map(function(i){ return names[i]; });
 
       var g = '';
       g += line([-3, 0, 0], [3, 0, 0], 'var(--viz-line)', 1.5, false) +
@@ -486,15 +490,17 @@
         (minimal ? 'basis: yes' : 'basis: no') + '</span>';
 
       var parallel = Math.abs(c - 2) < 1e-9;
-      why.innerHTML = '<b>' + chosen.length + ' vectors, ' + d + ' independent direction' + (d === 1 ? '' : 's') + ' &rarr; ' + shape + '.</b>' +
-        (parallel && on[1]
+      why.innerHTML = '<b>' + chosen.length + ' vector' + (chosen.length === 1 ? '' : 's') + ', ' + d + ' independent direction' + (d === 1 ? '' : 's') + ' &rarr; ' + shape + '.</b>' +
+        (parallel && on[0] && on[1]
           ? 'At this setting v = (2,4,2) = 2u, so v repeats a direction you already had and the span does not grow — the same reason adding w = 2v1 - 3v2 to a spanning set changes nothing. Nudge the slider off 2 and watch the line open into a plane the instant v leaves it. '
           : 'Each listed vector that adds a genuinely new direction lifts the dimension by exactly one; each one that is already reachable adds nothing at all. ') +
         (minimal
           ? '<br><br>Listed vectors = dimension, so this set is independent AND spanning: it is a <b>basis</b>, and its size is the dimension of the space it spans. Every basis of that space has the same size.'
           : d === 0
             ? '<br><br>With nothing selected the span is {0}, the trivial subspace: dimension 0, and the empty set is its basis. A single zero vector would span exactly the same thing.'
-            : '<br><br>' + chosen.length + ' vectors spanning a ' + d + '-dimensional space is one too many to be minimal, so this is <b>not a basis</b> — drop the redundant one and the span is unchanged. This is precisely the u, v, w case: dim = 2, and {u, w} is the basis.');
+            : '<br><br>' + chosen.length + ' vectors spanning a ' + d + '-dimensional space cannot be minimal, so this is <b>not a basis</b>: ' + extra.join(' and ') +
+              (extra.length === 1 ? ' is' : ' are') + ' already reachable from the rest, and dropping ' + (extra.length === 1 ? 'it' : 'them') +
+              ' leaves the span untouched. A basis here is <b>{' + basisNames.join(', ') + '}</b> — and every basis of this space has exactly ' + d + ' vector' + (d === 1 ? '' : 's') + '.');
     }
     [].slice.call(seg.querySelectorAll('button')).forEach(function(b, i){
       b.addEventListener('click', function(){
@@ -523,8 +529,8 @@
   </div>
 
   <div class="vz-card">
-    <label class="v4-lab" for="v4-k">bottom-right entry k = <span id="v4-kl">1</span></label>
-    <input type="range" id="v4-k" min="-2" max="3" value="1" step="1" aria-label="The entry k in the corner of A">
+    <label class="v4-lab" for="v4-k">row 4 of A is (1, k, 2), with k = <span id="v4-kl">2</span></label>
+    <input type="range" id="v4-k" min="-1" max="4" value="2" step="1" aria-label="The entry k in row 4 of A">
     <div class="vz-mono" id="v4-mat" style="margin-top:10px"></div>
     <div class="v4-table" id="v4-table"></div>
     <div class="v4-why" id="v4-why"></div>
@@ -604,6 +610,7 @@
         return '  [ ' + row.map(function(x, j){ return pad(fmt(x), 5) + (mark && mark[j] ? '*' : ' '); }).join('') + ']';
       }).join('\n');
     }
+    function listOf(a){ return a.length <= 1 ? a.join('') : a.slice(0, -1).join(', ') + ' and ' + a[a.length - 1]; }
     function line(txt, ok, tag){
       var col = ok ? 'var(--viz-green)' : 'var(--viz-red)';
       return '<div class="v4-r" style="border-color:' + col + '"><span>' + txt + '</span>' +
@@ -612,19 +619,19 @@
 
     function render(){
       var k = Number(sk.value);
-      if (!isFinite(k)) k = 1;
+      if (!isFinite(k)) k = 2;
       skl.textContent = String(k);
-      var A = [[1, 2, 1, 0], [2, 4, 3, 1], [3, 6, 4, 1], [1, 2, 2, k]];
+      var A = [[1, 2, 1], [2, 4, 3], [3, 6, 4], [1, k, 2]];
       var res = rref(A), R = res.R, piv = res.piv, r = piv.length;
       var isP = {};
       piv.forEach(function(c){ isP[c] = true; });
       var cols = function(M, j){ return M.map(function(row){ return row[j]; }); };
 
-      mat.textContent = 'A  (4 x 4)\n' + grid(A, null) + '\n\nrref(A)   * marks a pivot column\n' + grid(R, isP);
+      mat.textContent = 'A  (4 rows x 3 cols)\n' + grid(A, null) + '\n\nrref(A)   * marks a pivot column\n' + grid(R, isP);
 
       var rowsA = A;
       var rowsR = R.filter(function(row){ return row.some(function(x){ return Math.abs(x) > 1e-9; }); });
-      var colsA = [0, 1, 2, 3].map(function(j){ return cols(A, j); });
+      var colsA = [0, 1, 2].map(function(j){ return cols(A, j); });
       var colsRpiv = piv.map(function(j){ return cols(R, j); });
       var colsApiv = piv.map(function(j){ return cols(A, j); });
 
@@ -641,8 +648,9 @@
           html += line('row ' + (i + 1) + ' of R = ' + vecs(row), ok, ok ? 'YES — in the row space' : 'NO');
         });
         why.innerHTML = '<b style="color:var(--viz-green)">Same subspace, both directions: the row space is unchanged.</b>' +
-          'Every row operation replaces a row by a combination of rows, so a new row can never leave the span of the old ones — and each operation is reversible, which gives the other inclusion. The basis is therefore the <b>' + rowsR.length + ' nonzero row' + (rowsR.length === 1 ? '' : 's') + ' of the RREF</b>, a ' + rowsR.length + '-dimensional subspace of R^4 (four entries per row, so R^4 — not R^' + A.length + ' by coincidence of shape). ' +
-          '<br><br>They are independent for a reason you can see in the matrix above: each pivot sits in a column where <em>every other row holds a zero</em>, so no combination of the others could ever reproduce it. Zero rows are not part of the basis and never count toward the dimension.';
+          'Every row operation replaces a row by a combination of rows, so a new row can never leave the span of the old ones — and each operation is reversible, which gives the other inclusion. The basis is therefore the <b>' + rowsR.length + ' nonzero row' + (rowsR.length === 1 ? '' : 's') + ' of the RREF</b>, and its dimension is ' + rowsR.length + '. ' +
+          '<br><br><b>Mind the home space.</b> Each row of this matrix carries 3 entries, so the row space is a subspace of <b>R^3</b> — while the column space, built from 4-entry columns, sits in <b>R^4</b>. One matrix, two different ambient spaces, and a quiz will offer you both numbers: the row space of a 3 x 4 matrix with two nonzero RREF rows is 2-dimensional inside R^4, never inside R^3. ' +
+          '<br><br>Those rows are independent for a reason you can see in the matrix above: each pivot sits in a column where <em>every other row holds a zero</em>, so no combination of the others could ever reproduce it. Zero rows are not part of the basis and never count toward the dimension.';
       } else {
         html += '<div class="v4-head">is each column of A reachable from the PIVOT COLUMNS OF R?</div>';
         colsA.forEach(function(col, j){
@@ -655,8 +663,10 @@
           html += line('col ' + (j + 1) + ' of A = ' + vecs(col), ok, ok ? 'YES — in Col A' : 'no');
         });
         why.innerHTML = '<b style="color:var(--viz-red)">The pivot POSITIONS survive elimination; the columns themselves do not.</b>' +
-          'Pivots landed in column' + (r === 1 ? ' ' : 's ') + piv.map(function(c){ return c + 1; }).join(' and ') + ', so a basis for Col A is those columns <b>of A</b> — dimension ' + r + ' inside R^4. Take the same positions from R and you get a span of coordinate vectors that misses every column of A, as the top block shows. ' +
-          '<br><br>What elimination <em>does</em> preserve is the dependency pattern: a free column is the same combination of the pivot columns before and after. Drag k and watch the pivot set jump — the basis follows the pivots, always taken from A.';
+          'Pivots landed in column' + (r === 1 ? ' ' : 's ') + listOf(piv.map(function(c){ return c + 1; })) + ', so a basis for Col A is those columns <b>of A</b> — dimension ' + r + ' inside R^4, because every column carries 4 entries. Take the same positions from R and you get a span of coordinate vectors that misses every column of A, exactly as the first block reports. ' +
+          '<br><br>' + (r < 3
+            ? 'What elimination <em>does</em> preserve is the dependency pattern: column 2 is twice column 1 in A, and still twice column 1 in R. Drag k off 2 and that dependency breaks — column 2 becomes a pivot column, the basis grows to 3 vectors, and it is still read off A.'
+            : 'At k = ' + k + ' every column is a pivot column, so the three columns are independent and Col A is a 3-dimensional slice of R^4. Drag k back to 2 and column 2 collapses onto twice column 1: the rank drops to 2 and the basis loses a vector, but it is still taken from A, never from R.');
       }
       table.innerHTML = html;
     }
@@ -775,7 +785,7 @@
       var prod = mul(P.R, x);
       var zero = prod.every(function(v){ return Math.abs(v) < 1e-9; });
       var eqs = P.piv.map(function(p, i){
-        var terms = P.free.map(function(f){
+        var terms = P.free.filter(function(f){ return Math.abs(P.R[i][f]) > 1e-9; }).map(function(f){
           var co = -P.R[i][f];
           return (co >= 0 ? '+ ' : '- ') + fmt(Math.abs(co)) + '*x' + (f + 1);
         }).join(' ');
@@ -906,7 +916,12 @@
         '<div class="v6-row"><span style="color:' + (yb === 0 ? 'var(--viz-green)' : 'var(--viz-red)') + '">y&#183;b = ' + fmt(yb) +
         ' &nbsp;for&nbsp; b = ' + vecs(b) + '</span></div>';
 
-      why.innerHTML = isNull && (y[0] !== 0 || y[1] !== 0 || y[2] !== 0)
+      var trivial = y[0] === 0 && y[1] === 0 && y[2] === 0;
+      why.innerHTML = trivial
+        ? '<b>y = (0, 0, 0) sits in the left null space of every matrix — and tells you nothing.</b>' +
+          'Take none of any row and the rows trivially cancel, which is why the zero vector belongs to every subspace, including this one. Only a <em>nonzero</em> y states a real relationship, so move a dial and go hunting. ' +
+          '<br><br>Note that y&#183;b = 0 here for both choices of b, which is exactly why the trivial y proves nothing about solvability: the consistency test only bites when you feed it a nonzero left null vector.'
+        : isNull
         ? '<b style="color:var(--viz-green)">y = ' + vecs(y) + ' is in the left null space: y-transpose times A = 0.</b>' +
           'Written out, that is a relationship among the rows — row 1 + row 2 - row 3 = 0 up to your scaling — and every such y is a multiple of (1, 1, -1), so this left null space is a line: dimension m - r = 3 - 2 = 1. ' +
           'The two numbers just above are y dotted with each <b>column</b>, and they are the same two numbers, which is the whole reason the left null space is the set of vectors <b>orthogonal to the column space</b> inside R^3. ' +
