@@ -28,7 +28,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 | [sentinel.js](sentinel.js) | Sentinel bridge, all HMAC (`SSO_SECRET`, `SENTINEL_URL`), all null-safe. People roster (admin enrollment UI) · `sentinelUserLookup` (the /api gate) · `holisticProfile` + `growthDetail` (development, small-to-big) · `mentorSearch` · **`workDigest` + `workDetail`** (their TASK BOARD, scoped by Sentinel to what the caller may see). | Purposes must match Sentinel's `internal.py` exactly; `workDetail` ids capped by `WORK_MAX_IDS` in server.js |
 | [bigquery.js](bigquery.js) [csv.js](csv.js) [migrate.js](migrate.js) | Import/analytics side-paths (BQ sink, CSV parser, one-time importer). | — |
 | [watcher.js](watcher.js) | Atrium's Watcher archive, both ways. `listClients`/`listChannels`/`listVideos`/`getVideo` READ the shared bucket; `addSource`/`fetchBodies` ADD a source by calling Atrium's HMAC bridge (`SSO_SECRET`, `ATRIUM_URL`) — never a bucket write. Reads degrade to a message, writes throw. | — |
-| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` `_priority_test.js` `_visual_test.js` `_deep_test.js` `_usage_test.js` | The **eight** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
+| `_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js` `_priority_test.js` `_visual_test.js` `_deep_test.js` `_usage_test.js` `_aidiag_test.js` | The **nine** unit tests — `node lib\_x_test.js`, exit 0 = pass. | — |
 
 ## Data contract — Firestore doc → lib accessor → app.js consumer
 
@@ -52,6 +52,12 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
    `getScopeTranscripts()` (lesson grain, equality-only filters, no composite index) via
    `scopeSourceText` in server.js. Both study-guide prompts spent a year re-deriving lessons from
    their own quiz questions while 934k chars of hand-authored `doc.md` sat unread — AGENTS.md §7.
+1c. **Parse a model's JSON** — `parseAiJson(label, raw, { meta, route })`, never a bare
+   `try { parseLooseJson } catch { throw new Error('… non-JSON content') }`: the bare form drops
+   the payload, which is why "it fails sometimes, then works on a re-send" went unexplained for
+   months. And **ask for an envelope only when it carries something** — the assistant's spoken
+   path returns plain text because a voice reply has no `visual` to wrap, while the typed path
+   keeps the envelope and SALVAGES (`salvageJsonString`) rather than failing. AGENTS.md §7.
 2. **Build a cached AI ARTIFACT (not prose)** — the visual guide is the pattern:
    `generateVisualGuide()` here emits a fenced index + a self-contained HTML page,
    `parseVisualGuide()` splits them tolerantly, `visualGuideLooksComplete()` refuses to let a
@@ -76,9 +82,9 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 7. **Edit a NUL line** (firestore.js:1788/:1790, `tupleKey`) — Node script only:
    `fs.readFileSync` → `s.replace('… …', '…')` → `fs.writeFileSync`. `Edit` cannot match
    these lines; never open-and-rewrite the file.
-8. **Verify → deploy → re-port** — `node --check` every edited file; run the eight tests
+8. **Verify → deploy → re-port** — `node --check` every edited file; run the nine tests
    (`node lib\_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js`
-   `_priority_test.js` `_visual_test.js` `_deep_test.js` `_usage_test.js`);
+   `_priority_test.js` `_visual_test.js` `_deep_test.js` `_usage_test.js` `_aidiag_test.js`);
    then `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed
    (`gcloud run services describe mastery-engine --region us-central1

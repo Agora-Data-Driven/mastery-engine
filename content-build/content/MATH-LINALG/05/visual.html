@@ -17,6 +17,7 @@
   color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
 .vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
 .vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+input[type=range]{width:100%;min-height:44px}
 </style>
 </head>
 <body>
@@ -63,7 +64,6 @@
       font-family:ui-monospace,Consolas,monospace}
     .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
     .v1-why b{display:block;font-size:13px;margin-bottom:4px}
-    input[type=range]{width:100%;min-height:44px}
   </style>
   <script>
   (function(){
@@ -339,7 +339,7 @@
       g += '<circle cx="' + (CX + q[0] * SX) + '" cy="' + (CY - q[1] * SX) + '" r="4.5" fill="' + (atMin ? 'var(--viz-green)' : 'var(--viz-accent)') + '"/>';
       g += '<text x="' + (CX + q[0] * SX - 4) + '" y="' + (CY - q[1] * SX + 17) + '" font-size="11" font-weight="700" fill="' + (atMin ? 'var(--viz-green)' : 'var(--viz-accent)') + '">q</text>';
 
-      var GX = 175, GY = 175, GW = 110, GH = 120, T0 = -0.6, T1 = 2.8, DMAX = 6.5;
+      var GX = 175, GY = 175, GW = 110, GH = 120, T0 = -0.6, T1 = 2.8, DMAX = 7.2;   // true max over this t range is 6.77, so the curve is never flat-topped
       var pts = [];
       for (var i = 0; i <= 40; i++) {
         var tt = T0 + (T1 - T0) * i / 40;
@@ -425,6 +425,13 @@
       if (Math.abs(r) < 0.5 / k) r = 0;
       return r.toFixed(d === undefined ? 3 : d);
     }
+    /* 3 dp would print a genuinely nonzero det as "0.000" right beside the label
+       "INDEPENDENT columns", which reads as a contradiction. */
+    function small(x){
+      if (!isFinite(x)) return '--';
+      if (x !== 0 && Math.abs(x) < 0.001) return x.toExponential(1);
+      return num(x);
+    }
     function kap(x){
       if (!isFinite(x) || x > 1e8) return 'infinite';
       return x >= 1000 ? String(Math.round(x)) : num(x, 2);
@@ -453,7 +460,7 @@
       g += '<line x1="' + OX + '" y1="' + OY + '" x2="' + (OX + L * c2[0]).toFixed(1) + '" y2="' + (OY - L * c2[1]).toFixed(1) + '" stroke="var(--viz-violet)" stroke-width="2.5"/>';
       g += '<text x="' + (OX + L + 6) + '" y="' + (OY + 4) + '" font-size="11" font-weight="700" fill="var(--viz-accent)">col 1</text>';
       g += '<text x="' + (OX + L * c2[0] + 6).toFixed(1) + '" y="' + (OY - L * c2[1] - 6).toFixed(1) + '" font-size="11" font-weight="700" fill="var(--viz-violet)">col 2</text>';
-      g += '<text x="175" y="40" font-size="11" fill="var(--viz-muted)">det(A^T A) = ' + num(det) + '</text>';
+      g += '<text x="175" y="40" font-size="11" fill="var(--viz-muted)">det(A^T A) = ' + small(det) + '</text>';
       g += '<text x="175" y="58" font-size="11" fill="' + (singular ? 'var(--viz-red)' : 'var(--viz-green)') + '" font-weight="700">' + (singular ? 'DEPENDENT columns' : 'INDEPENDENT columns') + '</text>';
       g += '<text x="175" y="80" font-size="10.5" fill="var(--viz-muted)">area of the shaded</text>';
       g += '<text x="175" y="94" font-size="10.5" fill="var(--viz-muted)">parallelogram = ' + num(Math.abs(c2[1])) + '</text>';
@@ -467,7 +474,7 @@
         'normal equations:  A^T A x = A^T b';
 
       read.innerHTML =
-        pill('det = ' + num(det), singular ? 'var(--viz-red)' : 'var(--viz-green)') +
+        pill('det = ' + small(det), singular ? 'var(--viz-red)' : 'var(--viz-green)') +
         pill('cond(A) = ' + kap(kA), 'var(--viz-muted)') +
         pill('cond(A^T A) = ' + kap(kGram), singular ? 'var(--viz-red)' : 'var(--viz-amber)') +
         pill('cond(A) squared = ' + kap(isFinite(kA) ? kA * kA : Infinity), 'var(--viz-amber)');
@@ -707,12 +714,16 @@
       var sse = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
       var exact = Math.sqrt(sse) < 1e-9;
 
-      var X0 = 40, X1 = 265, Y0 = 165, Y1 = 20;
+      /* the domain spans every value the fit can reach (intercept -1.67 .. 11.67 at the
+         slider extremes), so the line and the residual bars are never drawn clipped. */
+      var X0 = 40, X1 = 265, Y0 = 165, Y1 = 20, LO = -2, HI = 12;
       function X(t){ return X0 + (X1 - X0) * t / 2; }
-      function Y(v){ return Y0 + (Y1 - Y0) * Math.max(0, Math.min(11, v)) / 11; }
+      function Y(v){ return Y0 + (Y1 - Y0) * (Math.max(LO, Math.min(HI, v)) - LO) / (HI - LO); }
       var g = '<svg viewBox="0 0 300 185" width="100%" height="180" role="img" aria-label="three measurements, the least squares line, and the vertical residuals">';
       g += '<line x1="' + X0 + '" y1="' + Y0 + '" x2="' + X1 + '" y2="' + Y0 + '" stroke="var(--viz-line)" stroke-width="1"/>';
       g += '<line x1="' + X0 + '" y1="' + Y1 + '" x2="' + X0 + '" y2="' + Y0 + '" stroke="var(--viz-line)" stroke-width="1"/>';
+      g += '<line x1="' + X0 + '" y1="' + Y(0).toFixed(1) + '" x2="' + X1 + '" y2="' + Y(0).toFixed(1) + '" stroke="var(--viz-line)" stroke-width="1" stroke-dasharray="2 4"/>';
+      g += '<text x="' + (X0 - 26) + '" y="' + (Y(0) + 3).toFixed(1) + '" font-size="9.5" fill="var(--viz-muted)">y = 0</text>';
       g += '<line x1="' + X(0) + '" y1="' + Y(c).toFixed(1) + '" x2="' + X(2) + '" y2="' + Y(c + 2 * d).toFixed(1) + '" stroke="var(--viz-green)" stroke-width="2.5"/>';
       for (var i = 0; i < 3; i++) {
         g += '<line x1="' + X(T[i]) + '" y1="' + Y(fit[i]).toFixed(1) + '" x2="' + X(T[i]) + '" y2="' + Y(b[i]).toFixed(1) + '" stroke="var(--viz-red)" stroke-width="2" stroke-dasharray="3 3"/>';

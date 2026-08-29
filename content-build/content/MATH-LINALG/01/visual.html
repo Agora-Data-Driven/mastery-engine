@@ -226,6 +226,7 @@
     .v2-s{stroke:var(--viz-green);stroke-width:2.6;fill:none}    .v2-sh{fill:var(--viz-green)}
     .v2-c{stroke:var(--viz-amber);stroke-width:2.6;fill:none}    .v2-ch{fill:var(--viz-amber)}
     .v2-gh{stroke:var(--viz-violet);stroke-width:1.4;fill:none;stroke-dasharray:4 3;opacity:.75}
+    .v2-ghh{fill:var(--viz-violet);opacity:.75}
     .v2-t{font-size:10.5px;font-weight:800;font-family:ui-monospace,Consolas,monospace}
     .v2-tu{fill:var(--viz-accent)} .v2-tv{fill:var(--viz-violet)}
     .v2-ts{fill:var(--viz-green)} .v2-tc{fill:var(--viz-amber)}
@@ -602,6 +603,8 @@
   <script>
   (function(){
     var A = [[2, -1], [1, 3]];
+    // R (the half-width of the window) and K are refitted on every render, because
+    // Ax reaches (9, 12) at the slider extremes and a silently clipped arrow teaches nothing.
     var S = 240, R = 6, K = S / (2*R);
     var MODES = ['row reading', 'column reading'];
     var mode = 0;
@@ -635,9 +638,18 @@
       if (label) out += '<text class="v4-t ' + tcls + '" x="' + (x2 + 5) + '" y="' + (y2 - 5) + '">' + label + '</text>';
       return out;
     }
+    function fit(pts){
+      var m = 0;
+      pts.forEach(function(p){
+        if (isFinite(p[0])) m = Math.max(m, Math.abs(p[0]));
+        if (isFinite(p[1])) m = Math.max(m, Math.abs(p[1]));
+      });
+      R = Math.max(6, Math.ceil(m) + 1);
+      K = S / (2*R);
+    }
     function grid(){
-      var g = '';
-      for (var i = -R; i <= R; i++) {
+      var g = '', step = R > 8 ? 2 : 1;
+      for (var i = -Math.floor(R/step)*step; i <= R; i += step) {
         g += '<line class="v4-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
         g += '<line class="v4-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
       }
@@ -666,6 +678,7 @@
           '    = <span class="v4-hi">' + vs(s1) + '</span> + <span class="v4-hi2">' + vs(s2) + '</span>\n' +
           '    = <span class="v4-res">' + vs(out) + '</span>   ← a linear combination of the columns';
 
+      fit([s1, out]);
       plane.innerHTML = '<svg class="v4-svg" viewBox="0 0 ' + S + ' ' + S + '" role="img" ' +
         'aria-label="the two scaled columns laid tip to tail reaching the output">' + grid() +
         arw([0,0], s1, 'v4-c1', 'x·col1', 'v4-t1') +
@@ -773,6 +786,8 @@
       { key:'F', tab:'reflect x-axis', m:[1,0,0,-1], word:'reflection across the x-axis' }
     ];
     var first = 1, second = 0, cell = 0;
+    // One shared window across all three stages, so the squares stay comparable — but
+    // refitted per render, because shear-after-shear pushes a corner out to (5, 1).
     var S = 118, R = 3.2, K = S / (2*R);
 
     var segA = document.getElementById('v5-first'), segB = document.getElementById('v5-second');
@@ -801,9 +816,18 @@
       }
       return out;
     }
+    function fit(ms){
+      var m = 1;
+      ms.forEach(function(x){
+        m = Math.max(m, Math.abs(x[0]), Math.abs(x[1]), Math.abs(x[2]), Math.abs(x[3]),
+                     Math.abs(x[0] + x[1]), Math.abs(x[2] + x[3]));
+      });
+      R = m + 0.6;
+      K = S / (2*R);
+    }
     function stage(title, m, isStart){
       var g = '';
-      for (var i = -3; i <= 3; i++) {
+      for (var i = -Math.floor(R); i <= R; i++) {
         g += '<line class="v5-gr" x1="' + PX(i) + '" y1="0" x2="' + PX(i) + '" y2="' + S + '"/>';
         g += '<line class="v5-gr" x1="0" y1="' + PY(i) + '" x2="' + S + '" y2="' + PY(i) + '"/>';
       }
@@ -826,7 +850,9 @@
       var P = mul(B.m, A.m);
       var Q = mul(A.m, B.m);
       var commutes = same(P, Q);
+      var identical = (first === second);
 
+      fit([[1,0,0,1], A.m, P]);
       stages.innerHTML =
         stage('start', [1,0,0,1], true) +
         stage('after ' + A.key + ' (' + A.tab + ')', A.m, false) +
@@ -857,12 +883,17 @@
           ? '\n\ncolumn 1 of the product is also just ' + B.key + ' applied to column 1 of ' + A.key + ' — where the pair sends e1.'
           : '\n\ncolumn 2 of the product is also just ' + B.key + ' applied to column 2 of ' + A.key + ' — where the pair sends e2.');
 
-      why.innerHTML = '<b>' + (commutes
-          ? 'These two happen to commute — rare, and never the rule.'
-          : 'Swap the order and you get a different transformation.') + '</b>' +
+      why.innerHTML = '<b>' + (identical
+          ? 'The same transformation twice — there is no order to swap, so this one says nothing about commuting.'
+          : commutes
+            ? 'These two happen to commute — rare, and never the rule.'
+            : 'Swap the order and you get a different transformation.') + '</b>' +
         'Doing <b>' + A.word + '</b> first and <b>' + B.word + '</b> second is the single matrix <code>' + mstr(P) + '</code>. ' +
-        'The reverse order is <code>' + mstr(Q) + '</code>' + (commutes ? ' — identical here, which is the exception.' : ' — a different rule entirely, so <code>' + B.key + A.key + ' ≠ ' + A.key + B.key + '</code>.') +
-        '<br><br>Track <code>e1 = (1, 0)</code> through the panes: it ends at <code>(' + P[0] + ', ' + P[2] + ')</code> this way round and at <code>(' + Q[0] + ', ' + Q[2] + ')</code> the other. ' +
+        (identical
+          ? 'Applying it twice is <code>' + A.key + '<sup>2</sup></code>, and a matrix always commutes with itself — pick two <em>different</em> ones to see the real behaviour.'
+          : 'The reverse order is <code>' + mstr(Q) + '</code>' + (commutes ? ' — identical here, which is the exception.' : ' — a different rule entirely, so <code>' + B.key + A.key + ' ≠ ' + A.key + B.key + '</code>.')) +
+        '<br><br>Track <code>e1 = (1, 0)</code> through the panes: it ends at <code>(' + P[0] + ', ' + P[2] + ')</code>' +
+        (identical ? '. ' : ' this way round and at <code>(' + Q[0] + ', ' + Q[2] + ')</code> the other. ') +
         'That first column <em>is</em> the answer to "where does e1 end up", which is why the product matrix can replace both steps at once — one matrix, one multiplication, same result as running the pair. ' +
         '<br><br>And the written order is not a convention to memorise: <code>' + B.key + A.key + 'x</code> means <code>' + B.key + '(' + A.key + 'x)</code>, so reading right to left reads chronologically.';
     }

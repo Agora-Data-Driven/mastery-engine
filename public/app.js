@@ -80,6 +80,62 @@ const App = (() => {
     log: [],
   };
 
+  /* --------------------- AI failure log (the 🐞 panel) --------------------
+   * Why this exists: a failed AI turn used to leave exactly one sentence in the chat — "Sorry,
+   * that failed: …" — and nothing to look at. The evidence (which engine ran, whether the model
+   * was cut off, what its payload actually looked like) died with the request, so the same
+   * failure got re-guessed at every time instead of being read.
+   *
+   * Every rejected /api call is filed here with whatever the server could explain about it
+   * (lib/gemini.js describeJsonFailure, arriving as `diag` on the error body). Kept in
+   * localStorage so a reload doesn't lose the one you wanted to look at, and read by two things:
+   * the "Why did this fail?" button on the failed bubble, and the 🐞 panel in the assistant
+   * header, which also shows failures from elsewhere in the app (deck builds, guides).
+   *
+   * 🔴 Recording must never be able to break the thing it is describing — every entry point here
+   * swallows its own errors, and a full/blocked localStorage just means no history.
+   */
+  const FAILS_KEY = 'agora.aifails';
+  const FAILS_MAX = 12;
+  let lastFailEntry = null;   // so Copy still works for an entry localStorage refused to keep
+
+  function readFailures() {
+    try { const v = JSON.parse(localStorage.getItem(FAILS_KEY) || '[]'); return Array.isArray(v) ? v : []; }
+    catch { return []; }
+  }
+
+  // 401/403 are not failures to understand — a signed-out page fires several on boot and the app
+  // already answers them with a sign-in. Logging them would push the real AI failures out of a
+  // 12-entry ring and light the badge for something that isn't broken.
+  const worthLogging = (err) => !(err && (err.status === 401 || err.status === 403));
+
+  /** File one failure, newest first, and hand the entry back so the caller can hang a
+   *  "Why did this fail?" button off the exact bubble it belongs to. */
+  function recordFailure(where, err, extra) {
+    const entry = {
+      id: 'f' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      at: new Date().toISOString(),
+      where,
+      message: (err && err.message) || String(err || 'Request failed'),
+      status: (err && err.status) || null,
+      diag: (err && err.diag) || null,
+      ...(extra || {}),
+    };
+    lastFailEntry = entry;
+    try {
+      const all = [entry, ...readFailures()].slice(0, FAILS_MAX);
+      localStorage.setItem(FAILS_KEY, JSON.stringify(all));
+    } catch { /* private mode / quota — the entry still reaches the button below */ }
+    updateFailBadge();
+    return entry;
+  }
+
+  function clearFailures() {
+    try { localStorage.removeItem(FAILS_KEY); } catch { /* nothing to clear */ }
+    updateFailBadge();
+    renderFailList();
+  }
+
   /* ------------------------------- API ----------------------------------- */
   // With a program PIN, stamp ?program= onto every API call (query beats body in requestScope,
   // and endpoints that don't scope by program simply ignore it) — one hook pins the whole app.
@@ -95,7 +151,15 @@ const App = (() => {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      throw new Error(body.error || `Request failed (${res.status})`);
+      const err = new Error(body.error || `Request failed (${res.status})`);
+      err.status = res.status;
+      // The server's diagnosis of a broken model payload, when it had one. Carried on the Error so
+      // any caller's catch can show it — see recordFailure / the 🐞 panel.
+      if (body.diag) err.diag = body.diag;
+      // `logged` is the filed entry, so a caller rendering this failure attaches the button to
+      // THIS one rather than to whatever failed last (a network error never reaches here at all).
+      if (worthLogging(err)) err.logged = recordFailure(path.split('?')[0], err);
+      throw err;
     }
     return res.json();
   }
@@ -187,9 +251,12 @@ const App = (() => {
       if (ev === 'result') out = data;
       // The stream was already open, so the server could not send a status — it
       // reports the failure in-band and we re-raise it as a normal Error.
-      else if (ev === 'error') failed = new Error(data.error || 'Request failed');
+      else if (ev === 'error') {
+        failed = new Error(data.error || data.message || 'Request failed');
+        if (data.diag) failed.diag = data.diag;   // in-band failures reach the 🐞 panel too
+      }
     });
-    if (failed) throw failed;
+    if (failed) { failed.logged = recordFailure(path.split('?')[0], failed); throw failed; }
     if (!out) throw new Error('The connection closed before the result arrived');
     return out;
   }
@@ -4297,6 +4364,145 @@ const App = (() => {
     bubble.appendChild(btn);
   }
 
+  /* ------------------- The 🐞 panel: why an AI turn failed ---------------- */
+  // Reading order matters here: the plain-English cause first, then the engine that produced it,
+  // then the raw payload. Someone opening this wants "what broke" in one line and only then the
+  // evidence — the evidence is for learning, not for the first ten seconds.
+
+  const FAIL_CAUSE_LABEL = {
+    truncated: 'The model ran out of room mid-answer',
+    'stray-quote': 'An unescaped quote inside the answer',
+    'latex-backslash': 'An under-escaped LaTeX backslash',
+    'raw-control-char': 'A raw line break inside a JSON string',
+    'no-json': 'The model answered in prose, not JSON',
+    blocked: 'The provider stopped the response',
+    empty: 'The model returned nothing',
+    malformed: 'The model’s JSON would not parse',
+    unparseable: 'The model’s JSON would not parse',
+  };
+
+  const failWhen = (iso) => { try { return new Date(iso).toLocaleString(); } catch { return iso || ''; } };
+
+  /** A scrollable <pre> of raw model output, or nothing when there is none to show. */
+  function failPre(label, text) {
+    if (!text) return '';
+    return `<div class="diag-block"><div class="diag-label">${esc(label)}</div><pre class="diag-pre">${esc(text)}</pre></div>`;
+  }
+
+  /** The full report for one entry. Same markup in the bubble and in the panel, so there is one
+   *  thing to keep right. */
+  function failDetailHtml(entry) {
+    const d = entry.diag || null;
+    const rows = [];
+    if (d && d.provider) rows.push(['Engine', d.model ? `${d.provider} · ${d.model}` : d.provider]);
+    if (d && d.finishReason) rows.push(['Stopped because', d.finishReason]);
+    if (d && d.promptChars) rows.push(['Prompt size', `${d.promptChars.toLocaleString()} characters`]);
+    if (d && d.chars != null) rows.push(['Reply size', `${d.chars.toLocaleString()} characters`]);
+    if (d && d.position >= 0) rows.push(['Broke at', `character ${d.position.toLocaleString()}`]);
+    if (entry.status) rows.push(['HTTP status', String(entry.status)]);
+    rows.push(['When', failWhen(entry.at)]);
+    rows.push(['Where', entry.where || '—']);
+
+    const table = rows.map(([k, v]) => `<div class="diag-row"><span>${esc(k)}</span><b>${esc(String(v))}</b></div>`).join('');
+    const cause = d ? (FAIL_CAUSE_LABEL[d.cause] || d.cause) : 'The request failed before the model answered';
+    const explain = d ? d.explain : entry.message;
+
+    return `<div class="diag-detail">
+      <div class="diag-cause">${esc(cause)}</div>
+      <p class="diag-explain">${esc(explain || '')}</p>
+      <div class="diag-rows">${table}</div>
+      ${d && d.parserMessage ? `<div class="diag-block"><div class="diag-label">What the JSON parser said</div><pre class="diag-pre">${esc(d.parserMessage)}</pre></div>` : ''}
+      ${d ? failPre('The break, in context (⟪break⟫ marks where it died)', d.excerpt) : ''}
+      ${d ? failPre('What the model sent — first 700 characters', d.head) : ''}
+      ${d ? failPre('…and the last 700', d.tail) : ''}
+      ${!d ? failPre('Error', entry.message) : ''}
+      <button type="button" class="diag-copy" onclick="App.copyFailure('${entry.id}')">Copy this report</button>
+    </div>`;
+  }
+
+  /** Hang a "Why did this fail?" toggle off a failed chat bubble. `label` differs for a turn that
+   *  was RECOVERED rather than lost — the answer above it is real, and saying "failed" over a
+   *  perfectly good reply would just be confusing. The report is built on demand: most failures
+   *  are read once, and none are read while the panel is closed. */
+  function addFailButton(msgEl, entry, label) {
+    if (!msgEl || !entry) return;
+    const bubble = msgEl.querySelector('.chat-bubble') || msgEl;
+    if (bubble.querySelector('.chat-diag')) return;
+    const open = label || '🔍 Why did this fail?';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'chat-diag';
+    btn.textContent = open;
+    btn.title = 'Show what the AI actually returned and where it broke';
+    const box = document.createElement('div');
+    box.className = 'chat-diag-box hidden';
+    btn.onclick = () => {
+      if (!box.innerHTML) box.innerHTML = failDetailHtml(entry);
+      box.classList.toggle('hidden');
+      btn.textContent = box.classList.contains('hidden') ? open : '× Hide the details';
+    };
+    bubble.appendChild(btn);
+    bubble.appendChild(box);
+  }
+
+  /** Copy one report as plain text — the shape you'd paste into a bug note or at an AI to ask. */
+  function copyFailure(id) {
+    const entry = readFailures().find((f) => f.id === id) || lastFailEntry;
+    if (!entry) return;
+    const d = entry.diag || {};
+    const txt = [
+      `AI failure — ${failWhen(entry.at)}`,
+      `Where: ${entry.where}`,
+      `Error: ${entry.message}`,
+      d.cause ? `Cause: ${d.cause} — ${d.explain}` : '',
+      d.provider ? `Engine: ${d.provider} ${d.model || ''}`.trim() : '',
+      d.finishReason ? `Finish reason: ${d.finishReason}` : '',
+      d.promptChars ? `Prompt: ${d.promptChars} chars` : '',
+      d.chars != null ? `Reply: ${d.chars} chars, broke at ${d.position}` : '',
+      d.parserMessage ? `Parser: ${d.parserMessage}` : '',
+      d.excerpt ? `\n--- break ---\n${d.excerpt}` : '',
+      d.head ? `\n--- head ---\n${d.head}` : '',
+      d.tail ? `\n--- tail ---\n${d.tail}` : '',
+    ].filter(Boolean).join('\n');
+    try { navigator.clipboard.writeText(txt); } catch { /* no clipboard permission — the text is on screen */ }
+  }
+
+  /** The header badge: a count only when there is something to look at. */
+  function updateFailBadge() {
+    const btn = $('assistantDiagBtn');
+    if (!btn) return;
+    const n = readFailures().length;
+    btn.classList.toggle('has-fails', n > 0);
+    btn.title = n ? `${n} recent AI failure${n === 1 ? '' : 's'} — see what broke` : 'No AI failures recorded';
+  }
+
+  function renderFailList() {
+    const el = $('assistantDiagList');
+    if (!el) return;
+    const all = readFailures();
+    updateFailBadge();   // the log is shared across tabs; re-read it rather than trust our own count
+    if (!all.length) {
+      el.innerHTML = '<div class="chat-empty">Nothing has failed yet. When an AI answer breaks, it lands here with the payload that broke it.</div>';
+      return;
+    }
+    el.innerHTML = all.map((f) => {
+      const cause = f.diag ? (FAIL_CAUSE_LABEL[f.diag.cause] || f.diag.cause) : 'Request failed';
+      return `<details class="diag-item"><summary>
+          <span class="diag-item-cause">${esc(cause)}</span>
+          <span class="diag-item-meta">${esc(failWhen(f.at))} · ${esc(f.where || '')}</span>
+        </summary>${failDetailHtml(f)}</details>`;
+    }).join('');
+  }
+
+  function toggleAssistantDiag() {
+    const panel = $('assistantDiag');
+    if (!panel) return;
+    const opening = panel.classList.contains('hidden');
+    if (opening) renderFailList();
+    panel.classList.toggle('hidden', !opening);
+    $('assistantHistory')?.classList.add('hidden');   // the two overlays share the panel; one at a time
+  }
+
   /* -------------------- Card visuals: safe function plots ----------------- */
   // A tiny, dependency-free plotter. The AI supplies a declarative spec (never
   // SVG); we evaluate the function expressions with a hand-rolled parser (no
@@ -4761,6 +4967,7 @@ const App = (() => {
     const opening = hist.classList.contains('hidden');
     if (opening) { renderAssistantHistList(); hist.classList.remove('hidden'); }
     else hist.classList.add('hidden');
+    $('assistantDiag')?.classList.add('hidden');   // the two overlays share the panel; one at a time
   }
 
   // Pick a conversation from the history list, then drop back to the chat view.
@@ -4874,6 +5081,16 @@ const App = (() => {
       if (spoken && convo.abort === ac) convo.abort = null;
       thinking.remove();
       const bubble = appendBubble(log, 'assistant', r.reply, r.visual);
+      // The model's JSON envelope was broken and the server salvaged the answer out of it. The
+      // reply is real, so show it — but say the turn was patched up rather than pretend it was
+      // clean, and hang the report off it.
+      if (r.degraded) {
+        addFailButton(
+          bubble,
+          recordFailure('/api/assistant/chat (recovered)', { message: 'The reply was recovered from a malformed payload', diag: r.diag }),
+          '🔍 This answer was recovered — why?',
+        );
+      }
       assistant.loaded = true;
       // Speak it, and leave a ↻ Replay on the bubble so a misheard sentence costs nothing to
       // hear again — re-asking would regenerate AND re-synthesize the same answer.
@@ -4887,7 +5104,10 @@ const App = (() => {
     } catch (e) {
       thinking.remove();
       if (e.name === 'AbortError') return;      // superseded by a barge-in / Stop — stay quiet
-      appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
+      // api() filed this one already (e.logged); a network-level failure never got that far, so
+      // file it here. Either way the bubble carries the report.
+      const bubble = appendBubble(log, 'assistant', 'Sorry, that failed: ' + esc(e.message));
+      addFailButton(bubble, e.logged || recordFailure('/api/assistant/chat', e));
       if (spoken && convoActive()) ensureListening();  // keep the hands-free loop alive after a failure
     } finally {
       send.disabled = false;
@@ -5138,7 +5358,11 @@ const App = (() => {
             localStorage.setItem('assistant.activeId', assistant.activeId);
           }
         } else if (ev === 'error') {
-          throw new Error(data.message || 'AI request failed');
+          // In-band failure (the stream was already open, so there was no status to send). Carry
+          // the server's diagnosis across so the bubble's report is the same as a blocking turn's.
+          const err = new Error(data.message || data.error || 'AI request failed');
+          if (data.diag) err.diag = data.diag;
+          throw err;
         }
       }, ac.signal);
 
@@ -5159,6 +5383,8 @@ const App = (() => {
       els.think.classList.remove('is-live');
       els.controls.innerHTML = '';
       els.answer.innerHTML = renderMarkdown('Sorry, that failed: ' + e.message);
+      // The stream's own error events bypass api(), so file this one here (see the blocking sibling).
+      addFailButton(els.wrap, e.logged || recordFailure('/api/assistant/chat/stream', e));
     } finally {
       if (assistant.abort === ac) assistant.abort = null;
       send.disabled = false;
@@ -6880,6 +7106,10 @@ const App = (() => {
     // Keep the cost pill fresh when returning to the tab.
     window.addEventListener('focus', refreshCost);
 
+    // Mark the 🐞 button if this browser is still holding failures from an earlier session —
+    // the whole point of persisting them is that you can come back to one.
+    updateFailBadge();
+
     // Shared node-tree click handling (event delegation): AI Support menu, the
     // per-section Quiz/Cards/Review/Lesson launchers, the ＋/✓ engine toggle, and
     // row expand/collapse. Used by BOTH the Mastery Engine tree (#progressTree) and
@@ -7633,6 +7863,7 @@ const App = (() => {
     restartSpeaking, speakerNextCard, readAssessment,
     toggleAssistant, sendAssistant, newAssistantChat, deleteAssistantChat,
     toggleAssistantHistory, openAssistantChatById, toggleAssistantSettings,
+    toggleAssistantDiag, copyFailure, clearFailures,
     onAssistantFiles, removeAssistantFile,
     toggleCostDetail, msClear,
   };

@@ -1,0 +1,800 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 130px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.75;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block;margin:0 5px 5px 0}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-eq{margin-top:10px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+  border:1.5px solid var(--viz-line);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+  line-height:1.7;white-space:pre-wrap;overflow-x:auto}
+.vz-plot{margin-top:10px}
+.vz-plot svg{width:100%;height:auto;display:block}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. From Circle To Ellipse</button>
+  <button class="viz-tab" data-viz-tab="2">2. Sum Or Difference</button>
+  <button class="viz-tab" data-viz-tab="3">3. Foci Vertices Axes</button>
+  <button class="viz-tab" data-viz-tab="4">4. Name That Conic</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. From Circle To Ellipse</h2>
+  <p class="vz-lede">You already own the unit circle x^2 + y^2 = 1 and its point (cos t, sin t). Stretch it by
+    a in the x direction and by b in the y direction and you have written every ellipse there is. Drag a, b
+    and the angle, and watch one point travel from the circle to the curve.
+    <b>Like a photograph pulled wider on one side: nothing new is drawn, the same picture is scaled.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already taught — the unit circle</h5><div class="vz-mono">x^2 + y^2 = 1
+point (cos t, sin t)
+distance from centre = 1 always</div></div>
+    <div class="v1-half"><h5>this lesson — the ellipse</h5><div class="vz-mono">x^2/a^2 + y^2/b^2 = 1
+point (a cos t, b sin t)
+two distances, to two foci</div></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v1-a">stretch along x: a = <b><span id="v1-al">3</span></b></label>
+    <input class="vz-range" type="range" id="v1-a" min="1" max="6" value="3" step="0.5" aria-label="Semi-axis a">
+    <label class="vz-lab" for="v1-b">stretch along y: b = <b><span id="v1-bl">2</span></b></label>
+    <input class="vz-range" type="range" id="v1-b" min="1" max="6" value="2" step="0.5" aria-label="Semi-axis b">
+    <label class="vz-lab" for="v1-t">angle t = <b><span id="v1-tl">40</span></b></label>
+    <input class="vz-range" type="range" id="v1-t" min="0" max="360" value="40" step="2" aria-label="Angle t in degrees">
+
+    <div class="vz-plot" id="v1-plot"></div>
+    <div class="vz-eq" id="v1-eq"></div>
+    <div id="v1-pills" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+    <div class="vz-pre" id="v1-pre"></div>
+  </div>
+
+  <p class="vz-note">One warning the stretch hands you for free: the right-hand side must be <b>1</b> before any
+    denominator means anything. x^2/9 + y^2/4 = 4 is a perfectly good ellipse, but its semi-axes are 6 and 4,
+    not 3 and 2 — divide through first and read second.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+  </style>
+  <script>
+  (function(){
+    var A = document.getElementById('v1-a'), B = document.getElementById('v1-b'), T = document.getElementById('v1-t');
+    var al = document.getElementById('v1-al'), bl = document.getElementById('v1-bl'), tl = document.getElementById('v1-tl');
+    var plot = document.getElementById('v1-plot'), eq = document.getElementById('v1-eq');
+    var pills = document.getElementById('v1-pills'), why = document.getElementById('v1-why'), pre = document.getElementById('v1-pre');
+
+    function n(v, d){
+      if (v === null || v === undefined || !isFinite(v)) return '--';
+      var p = Math.pow(10, d === undefined ? 2 : d);
+      return String(Math.round(v * p) / p);
+    }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+
+    function render(){
+      var a = Number(A.value), b = Number(B.value), td = Number(T.value);
+      if (!isFinite(a) || a < 0.5) a = 1;
+      if (!isFinite(b) || b < 0.5) b = 1;
+      if (!isFinite(td)) td = 0;
+      al.textContent = n(a, 1); bl.textContent = n(b, 1); tl.textContent = td + ' degrees';
+
+      var t = td * Math.PI / 180;
+      var ux = Math.cos(t), uy = Math.sin(t);
+      var ex = a * ux, ey = b * uy;
+
+      var W = 320, H = 240, R = Math.max(a, b) + 1.3;
+      var s = Math.min((W / 2 - 16) / R, (H / 2 - 16) / R);
+      if (!isFinite(s) || s <= 0) s = 10;
+      var cx = W / 2, cy = H / 2;
+      function px(v){ return cx + v * s; }
+      function py(v){ return cy - v * s; }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The unit circle stretched into an ellipse, with one point carried across">';
+      svg += '<line x1="6" y1="' + py(0) + '" x2="' + (W - 6) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.3"></line>';
+      svg += '<line x1="' + px(0) + '" y1="6" x2="' + px(0) + '" y2="' + (H - 6) + '" style="stroke:var(--viz-line);stroke-width:1.3"></line>';
+      for (var k = -Math.floor(R); k <= Math.floor(R); k++) {
+        if (k === 0) continue;
+        svg += '<line x1="' + px(k) + '" y1="' + (py(0) - 3) + '" x2="' + px(k) + '" y2="' + (py(0) + 3) + '" style="stroke:var(--viz-line);stroke-width:1.1"></line>';
+      }
+      svg += '<ellipse cx="' + px(0) + '" cy="' + py(0) + '" rx="' + s + '" ry="' + s + '" style="fill:none;stroke:var(--viz-muted);stroke-width:1.6;stroke-dasharray:4 3"></ellipse>';
+      svg += '<ellipse cx="' + px(0) + '" cy="' + py(0) + '" rx="' + (a * s) + '" ry="' + (b * s) + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.5"></ellipse>';
+      svg += '<line x1="' + px(ux) + '" y1="' + py(uy) + '" x2="' + px(ex) + '" y2="' + py(uy) + '" style="stroke:var(--viz-amber);stroke-width:1.6;stroke-dasharray:3 3"></line>';
+      svg += '<line x1="' + px(ex) + '" y1="' + py(uy) + '" x2="' + px(ex) + '" y2="' + py(ey) + '" style="stroke:var(--viz-amber);stroke-width:1.6;stroke-dasharray:3 3"></line>';
+      svg += '<circle cx="' + px(ux) + '" cy="' + py(uy) + '" r="4" style="fill:var(--viz-violet)"></circle>';
+      svg += '<circle cx="' + px(ex) + '" cy="' + py(ey) + '" r="5" style="fill:var(--viz-green)"></circle>';
+      svg += '<text x="' + (px(ex) + 7) + '" y="' + (py(ey) - 6) + '" style="font-size:9px;fill:var(--viz-green);font-weight:700">(' + n(ex) + ', ' + n(ey) + ')</text>';
+      svg += '<text x="10" y="14" style="font-size:9px;fill:var(--viz-muted)">dashed circle = radius 1</text>';
+      svg += '<text x="10" y="26" style="font-size:9px;fill:var(--viz-amber)">amber = the stretch, times a then times b</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var check = (a > 0 && b > 0) ? (ex * ex) / (a * a) + (ey * ey) / (b * b) : NaN;
+      eq.textContent =
+        'unit circle   x^2 + y^2 = 1            point (' + n(ux) + ', ' + n(uy) + ')\n' +
+        'stretch       x -> x/' + n(a, 1) + ' ,  y -> y/' + n(b, 1) + '\n' +
+        'ellipse       x^2/' + n(a * a) + ' + y^2/' + n(b * b) + ' = 1        point (' + n(ex) + ', ' + n(ey) + ')\n' +
+        'check         ' + n(ex) + '^2/' + n(a * a) + ' + ' + n(ey) + '^2/' + n(b * b) + ' = ' + n(check, 3);
+
+      var same = Math.abs(a - b) < 1e-9;
+      pills.innerHTML =
+        pill('a = ' + n(a, 1), 'var(--viz-accent)') +
+        pill('b = ' + n(b, 1), 'var(--viz-violet)') +
+        pill(same ? 'circle: a = b' : (a > b ? 'major axis horizontal' : 'major axis vertical'),
+          same ? 'var(--viz-amber)' : 'var(--viz-green)');
+
+      why.innerHTML = same
+        ? '<b style="color:var(--viz-amber)">a = b, so the stretch does nothing: this is a circle.</b>' +
+          'Written as x^2 + y^2 = ' + n(a * a) + ' it looks like a different species, but dividing by ' + n(a * a) +
+          ' gives x^2/' + n(a * a) + ' + y^2/' + n(a * a) + ' = 1 — an ellipse whose two semi-axes happen to be equal. ' +
+          'Its two foci have merged at the centre, which visual 3 shows as c = 0. ' +
+          '<br><br>Useful to know, and a trap on a multiple-choice question: if one option is a genuine ellipse with ' +
+          '<em>unequal</em> denominators, that is the one being asked for.'
+        : '<b style="color:var(--viz-green)">The larger denominator marks the major axis — here ' + n(Math.max(a, b) * Math.max(a, b)) +
+          ', so the major axis runs ' + (a > b ? 'horizontally' : 'vertically') + '.</b>' +
+          'a = ' + n(a, 1) + ' and b = ' + n(b, 1) + ', so the curve reaches ' + n(a, 1) + ' along x and ' + n(b, 1) +
+          ' along y — set the other variable to zero in the equation and you get exactly those numbers. ' +
+          'The ends of the longer axis are the <b>vertices</b>, at (' + (a > b ? '+/-' + n(a, 1) + ', 0' : '0, +/-' + n(b, 1)) + '). ' +
+          '<br><br>Nothing here required a graph. The orientation question is answered by comparing two denominators, ' +
+          'and the vertices by taking one square root.';
+    }
+
+    var PRESETS = [
+      { t:'x^2 + y^2 = 9', v:[3, 3] },
+      { t:'x^2/9 + y^2/4 = 1', v:[3, 2] },
+      { t:'x^2/16 + y^2/9 = 1', v:[4, 3] },
+      { t:'x^2/25 + y^2/9 = 1', v:[5, 3] }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){ A.value = p.v[0]; B.value = p.v[1]; render(); });
+      pre.appendChild(btn);
+    });
+
+    A.addEventListener('input', render);
+    B.addEventListener('input', render);
+    T.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Sum Or Difference</h2>
+  <p class="vz-lede">Both curves are defined by the two distances from a moving point to two fixed foci. The
+    ellipse pins their <b>sum</b>; the hyperbola pins their <b>difference</b>. Slide the point around and watch
+    which of the two numbers refuses to move. <b>Like a loop of string round two pins versus two ropes whose
+    lengths always differ by the same amount.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which curve">
+    <button id="v2-ell" aria-pressed="true">ellipse: constant sum</button>
+    <button id="v2-hyp" aria-pressed="false">hyperbola: constant difference</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-p">move the point P along the curve <b><span id="v2-pl">step 30</span></b></label>
+    <input class="vz-range" type="range" id="v2-p" min="0" max="100" value="30" step="1" aria-label="Position of P along the curve">
+    <div class="vz-plot" id="v2-plot"></div>
+    <div class="vz-eq" id="v2-read"></div>
+    <div class="v2-bars" id="v2-bars"></div>
+    <div class="vz-why" id="v2-why"></div>
+    <div class="vz-pre" id="v2-pre"></div>
+  </div>
+
+  <p class="vz-note">Two words are all that separate the definitions, and the wrong ones are always on offer.
+    A constant distance to <em>one</em> fixed point is a circle. A constant <em>product</em> of the two distances
+    is a Cassini oval, which is not a conic at all. Sum closes the curve; difference splits it in two.</p>
+
+  <style>
+    .v2-bars{margin-top:14px;display:flex;flex-direction:column;gap:11px}
+    .v2-b h6{margin:0 0 4px;font-size:11.5px;font-weight:700;display:flex;justify-content:space-between;gap:8px}
+    .v2-b h6 b{font-family:ui-monospace,Consolas,monospace;font-size:12.5px}
+    .v2-track{height:15px;border-radius:5px;background:var(--viz-line);overflow:hidden;display:flex}
+    .v2-track i{display:block;height:100%}
+    .v2-tag{font-size:10.5px;margin-top:4px;color:var(--viz-muted)}
+  </style>
+  <script>
+  (function(){
+    var bE = document.getElementById('v2-ell'), bH = document.getElementById('v2-hyp');
+    var P = document.getElementById('v2-p'), pl = document.getElementById('v2-pl');
+    var plot = document.getElementById('v2-plot'), read = document.getElementById('v2-read');
+    var bars = document.getElementById('v2-bars'), why = document.getElementById('v2-why'), pre = document.getElementById('v2-pre');
+
+    var kind = 'ellipse';
+    var EL = { a:5, b:3 }, HY = { a:3, b:2 };
+
+    function n(v, d){
+      if (v === null || v === undefined || !isFinite(v)) return '--';
+      var p = Math.pow(10, d === undefined ? 2 : d);
+      return String(Math.round(v * p) / p);
+    }
+    function dist(x1, y1, x2, y2){ return Math.sqrt((x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2)); }
+    function ch(u){ return (Math.exp(u) + Math.exp(-u)) / 2; }
+    function sh(u){ return (Math.exp(u) - Math.exp(-u)) / 2; }
+
+    function bar(label, val, colour, max, tag){
+      var w = (isFinite(val) && max > 0) ? Math.max(0, Math.min(100, val / max * 100)) : 0;
+      return '<div class="v2-b"><h6><span>' + label + '</span><b style="color:' + colour + '">' + n(val) + '</b></h6>' +
+        '<div class="v2-track"><i style="width:' + w.toFixed(1) + '%;background:' + colour + '"></i></div>' +
+        (tag ? '<div class="v2-tag">' + tag + '</div>' : '') + '</div>';
+    }
+
+    function render(){
+      bE.setAttribute('aria-pressed', kind === 'ellipse' ? 'true' : 'false');
+      bH.setAttribute('aria-pressed', kind === 'hyperbola' ? 'true' : 'false');
+
+      var st = kind === 'ellipse' ? EL : HY;
+      var a = st.a, b = st.b;
+      var v = Number(P.value);
+      if (!isFinite(v)) v = 0;
+      pl.textContent = 'step ' + v;
+
+      var c, Px, Py;
+      if (kind === 'ellipse') {
+        c = Math.sqrt(Math.max(0, a * a - b * b));
+        var t = v / 100 * 2 * Math.PI;
+        Px = a * Math.cos(t); Py = b * Math.sin(t);
+      } else {
+        c = Math.sqrt(a * a + b * b);
+        var u = (v / 100 - 0.5) * 4.6;
+        Px = a * ch(u); Py = b * sh(u);
+      }
+      if (!isFinite(Px)) Px = a;
+      if (!isFinite(Py)) Py = 0;
+
+      var d1 = dist(Px, Py, -c, 0), d2 = dist(Px, Py, c, 0);
+      var sum = d1 + d2, diff = Math.abs(d1 - d2);
+
+      var W = 320, H = 220;
+      var xR = Math.max(Math.abs(Px), a, c) + 1.4, yR = Math.max(Math.abs(Py), b) + 1.2;
+      var s = Math.min((W / 2 - 14) / xR, (H / 2 - 14) / yR);
+      if (!isFinite(s) || s <= 0) s = 10;
+      var cx = W / 2, cy = H / 2;
+      function px(x){ return cx + x * s; }
+      function py(y){ return cy - y * s; }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The curve with its two foci and the two focal distances drawn to the moving point">';
+      svg += '<line x1="4" y1="' + py(0) + '" x2="' + (W - 4) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.2"></line>';
+      svg += '<line x1="' + px(0) + '" y1="4" x2="' + px(0) + '" y2="' + (H - 4) + '" style="stroke:var(--viz-line);stroke-width:1.2"></line>';
+
+      if (kind === 'ellipse') {
+        svg += '<ellipse cx="' + px(0) + '" cy="' + py(0) + '" rx="' + (a * s) + '" ry="' + (b * s) + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.4"></ellipse>';
+      } else {
+        var i, uu, pts1 = [], pts2 = [];
+        for (i = 0; i <= 90; i++) {
+          uu = -3 + 6 * i / 90;
+          pts1.push(px(a * ch(uu)).toFixed(1) + ',' + py(b * sh(uu)).toFixed(1));
+          pts2.push(px(-a * ch(uu)).toFixed(1) + ',' + py(b * sh(uu)).toFixed(1));
+        }
+        svg += '<polyline points="' + pts1.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.4"></polyline>';
+        svg += '<polyline points="' + pts2.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.4;opacity:.5"></polyline>';
+      }
+
+      svg += '<line x1="' + px(-c) + '" y1="' + py(0) + '" x2="' + px(Px) + '" y2="' + py(Py) + '" style="stroke:var(--viz-violet);stroke-width:2"></line>';
+      svg += '<line x1="' + px(c) + '" y1="' + py(0) + '" x2="' + px(Px) + '" y2="' + py(Py) + '" style="stroke:var(--viz-green);stroke-width:2"></line>';
+      svg += '<circle cx="' + px(-c) + '" cy="' + py(0) + '" r="4.5" style="fill:var(--viz-red)"></circle>';
+      svg += '<circle cx="' + px(c) + '" cy="' + py(0) + '" r="4.5" style="fill:var(--viz-red)"></circle>';
+      svg += '<text x="' + px(-c) + '" y="' + (py(0) + 15) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-red);font-weight:700">F1</text>';
+      svg += '<text x="' + px(c) + '" y="' + (py(0) + 15) + '" text-anchor="middle" style="font-size:9px;fill:var(--viz-red);font-weight:700">F2</text>';
+      svg += '<circle cx="' + px(Px) + '" cy="' + py(Py) + '" r="5" style="fill:var(--viz-amber)"></circle>';
+      svg += '<text x="' + (px(Px) + 7) + '" y="' + (py(Py) - 5) + '" style="font-size:9px;fill:var(--viz-amber);font-weight:700">P</text>';
+      svg += '<text x="8" y="14" style="font-size:9px;fill:var(--viz-violet)">violet = d1 to F1</text>';
+      svg += '<text x="8" y="26" style="font-size:9px;fill:var(--viz-green)">green = d2 to F2</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var eqTxt = kind === 'ellipse'
+        ? 'x^2/' + n(a * a, 0) + ' + y^2/' + n(b * b, 0) + ' = 1'
+        : 'x^2/' + n(a * a, 0) + ' - y^2/' + n(b * b, 0) + ' = 1';
+      read.textContent =
+        eqTxt + '     a = ' + n(a, 1) + '   b = ' + n(b, 1) + '   c = ' + n(c) + '\n' +
+        'F1 = (' + n(-c) + ', 0)      F2 = (' + n(c) + ', 0)\n' +
+        'P  = (' + n(Px) + ', ' + n(Py) + ')\n' +
+        'd1 = ' + n(d1) + '      d2 = ' + n(d2) + '\n' +
+        'd1 + d2   = ' + n(sum) + (kind === 'ellipse' ? '   <-- PINNED at 2a = ' + n(2 * a, 1) : '   (grows without bound)') + '\n' +
+        '|d1 - d2| = ' + n(diff) + (kind === 'ellipse' ? '   (wanders as P moves)' : '   <-- PINNED at 2a = ' + n(2 * a, 1));
+
+      var max = kind === 'ellipse' ? 2 * a * 1.08 : 7 * a;
+      var w1 = (max > 0) ? Math.max(0, Math.min(100, d1 / max * 100)) : 0;
+      var w2 = (max > 0) ? Math.max(0, Math.min(100, d2 / max * 100)) : 0;
+      var third = kind === 'ellipse'
+        ? '<div class="v2-b"><h6><span>d1 + d2 stacked</span><b style="color:var(--viz-amber)">' + n(sum) + '</b></h6>' +
+          '<div class="v2-track"><i style="width:' + w1.toFixed(1) + '%;background:var(--viz-violet)"></i>' +
+          '<i style="width:' + w2.toFixed(1) + '%;background:var(--viz-green)"></i></div>' +
+          '<div class="v2-tag">the split moves, the end never does: total = 2a = ' + n(2 * a, 1) + '</div></div>'
+        : bar('|d1 - d2|', diff, 'var(--viz-amber)', max, 'this bar never changes length: difference = 2a = ' + n(2 * a, 1));
+
+      bars.innerHTML =
+        bar('d1 = distance to F1', d1, 'var(--viz-violet)', max, '') +
+        bar('d2 = distance to F2', d2, 'var(--viz-green)', max, '') +
+        third;
+
+      why.innerHTML = kind === 'ellipse'
+        ? '<b style="color:var(--viz-green)">The sum is 2a = ' + n(2 * a, 1) + ', for every single P.</b>' +
+          'Check it at the vertex: there the two distances are a + c = ' + n(a + c) + ' and a - c = ' + n(a - c) +
+          ', which add to 2a. Check it at the co-vertex: symmetry makes both distances equal, so each is exactly a = ' + n(a, 1) + '. ' +
+          'That second case is the whole derivation of c: the distance a is the hypotenuse of a right triangle with legs b and c, ' +
+          'so a^2 = b^2 + c^2 and c^2 = a^2 - b^2 = ' + n(a * a, 0) + ' - ' + n(b * b, 0) + ' = ' + n(c * c) + '. ' +
+          '<br><br>Because the total is capped, P can never be far from both foci at once — which is exactly why the curve closes.'
+        : '<b style="color:var(--viz-green)">The difference is 2a = ' + n(2 * a, 1) + ', however far out P travels.</b>' +
+          'Drag P outward and both distances run away together — the sum is now ' + n(sum) + ' and climbing — while the gap between ' +
+          'them stays welded to 2a. At the vertex the two distances are c + a = ' + n(c + a) + ' and c - a = ' + n(c - a) + ', and their difference is 2a again. ' +
+          '<br><br>Note where the foci sit: <b>outside</b> the vertices, c = ' + n(c) + ' against a = ' + n(a, 1) + '. That single fact is why the sign ' +
+          'flips to c^2 = a^2 + b^2 = ' + n(a * a, 0) + ' + ' + n(b * b, 0) + ' = ' + n(c * c) + ' here, while an ellipse subtracts.';
+    }
+
+    var PRESETS = [
+      { t:'ellipse 25 / 9', k:'ellipse', a:5, b:3 },
+      { t:'ellipse 16 / 9', k:'ellipse', a:4, b:3 },
+      { t:'circle a = b = 3', k:'ellipse', a:3, b:3 },
+      { t:'hyperbola 9 / 4', k:'hyperbola', a:3, b:2 },
+      { t:'hyperbola 4 / 25', k:'hyperbola', a:2, b:5 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        kind = p.k;
+        if (p.k === 'ellipse') { EL.a = p.a; EL.b = p.b; } else { HY.a = p.a; HY.b = p.b; }
+        render();
+      });
+      pre.appendChild(btn);
+    });
+
+    bE.addEventListener('click', function(){ kind = 'ellipse'; render(); });
+    bH.addEventListener('click', function(){ kind = 'hyperbola'; render(); });
+    P.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Foci Vertices Axes</h2>
+  <p class="vz-lede">Set the two denominators and read everything else off the picture: which axis is major,
+    where the vertices are, and where the foci land. The right triangle drawn on the curve <em>is</em> the
+    c formula. <b>Like a ladder against a wall: the wall, the ground and the ladder are always one Pythagorean
+    triple away from each other.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which conic">
+    <button id="v3-ell" aria-pressed="true">ellipse (plus sign)</button>
+    <button id="v3-hyp" aria-pressed="false">hyperbola (minus sign)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-da">denominator under x^2 = <b><span id="v3-dal">25</span></b></label>
+    <input class="vz-range" type="range" id="v3-da" min="0" max="8" value="4" step="1" aria-label="Denominator under x squared">
+    <label class="vz-lab" for="v3-db">denominator under y^2 = <b><span id="v3-dbl">9</span></b></label>
+    <input class="vz-range" type="range" id="v3-db" min="0" max="8" value="2" step="1" aria-label="Denominator under y squared">
+
+    <div class="vz-plot" id="v3-plot"></div>
+    <div class="vz-eq" id="v3-eq"></div>
+    <div id="v3-pills" style="margin-top:10px"></div>
+    <div class="vz-why" id="v3-why"></div>
+    <div class="vz-pre" id="v3-pre"></div>
+  </div>
+
+  <p class="vz-note">The pattern that survives every question: for an ellipse <b>a is the larger</b> of the two,
+    and c comes out smaller than a because the foci are trapped inside a closed curve. For a hyperbola <b>a is
+    whichever sits under the plus sign</b>, larger or not, and c comes out bigger than a because the foci sit
+    beyond the vertices. Get the geometry and the two formulas stop being confusable.</p>
+
+  <style>
+    .v3-leg{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:10.5px;color:var(--viz-muted)}
+    .v3-leg span b{font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var bE = document.getElementById('v3-ell'), bH = document.getElementById('v3-hyp');
+    var DA = document.getElementById('v3-da'), DB = document.getElementById('v3-db');
+    var dal = document.getElementById('v3-dal'), dbl = document.getElementById('v3-dbl');
+    var plot = document.getElementById('v3-plot'), eq = document.getElementById('v3-eq');
+    var pills = document.getElementById('v3-pills'), why = document.getElementById('v3-why'), pre = document.getElementById('v3-pre');
+
+    var DEN = [1, 4, 9, 16, 25, 36, 49, 64, 100];
+    var kind = 'ellipse';
+
+    function n(v, d){
+      if (v === null || v === undefined || !isFinite(v)) return '--';
+      var p = Math.pow(10, d === undefined ? 2 : d);
+      return String(Math.round(v * p) / p);
+    }
+    function pill(t, c){ return '<span class="vz-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+    function idx(val){ var i = DEN.indexOf(val); return i < 0 ? 0 : i; }
+
+    function render(){
+      bE.setAttribute('aria-pressed', kind === 'ellipse' ? 'true' : 'false');
+      bH.setAttribute('aria-pressed', kind === 'hyperbola' ? 'true' : 'false');
+
+      var ia = Number(DA.value), ib = Number(DB.value);
+      if (!isFinite(ia) || ia < 0 || ia > 8) ia = 4;
+      if (!isFinite(ib) || ib < 0 || ib > 8) ib = 2;
+      var Dx = DEN[Math.round(ia)], Dy = DEN[Math.round(ib)];
+      dal.textContent = String(Dx); dbl.textContent = String(Dy);
+
+      var a, b, c, horiz, circle = false, aSq, bSq;
+      if (kind === 'ellipse') {
+        aSq = Math.max(Dx, Dy); bSq = Math.min(Dx, Dy);
+        horiz = Dx >= Dy;
+        circle = Dx === Dy;
+        a = Math.sqrt(aSq); b = Math.sqrt(bSq); c = Math.sqrt(Math.max(0, aSq - bSq));
+      } else {
+        aSq = Dx; bSq = Dy; horiz = true;
+        a = Math.sqrt(aSq); b = Math.sqrt(bSq); c = Math.sqrt(aSq + bSq);
+      }
+      var e = a > 0 ? c / a : 0;
+      var vtx = horiz ? [a, 0] : [0, a];
+      var foc = horiz ? [c, 0] : [0, c];
+
+      var W = 320, H = 240;
+      var xR = (kind === 'ellipse' ? Math.max(a, b) : Math.max(c, a + b)) + 1.4;
+      var yR = xR * 0.72;
+      var s = Math.min((W / 2 - 16) / xR, (H / 2 - 16) / yR);
+      if (!isFinite(s) || s <= 0) s = 8;
+      var cx = W / 2, cy = H / 2;
+      function px(x){ return cx + x * s; }
+      function py(y){ return cy - y * s; }
+      function ch(u){ return (Math.exp(u) + Math.exp(-u)) / 2; }
+      function sh(u){ return (Math.exp(u) - Math.exp(-u)) / 2; }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The conic with vertices, foci and the right triangle relating a, b and c">';
+      svg += '<line x1="4" y1="' + py(0) + '" x2="' + (W - 4) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.2"></line>';
+      svg += '<line x1="' + px(0) + '" y1="4" x2="' + px(0) + '" y2="' + (H - 4) + '" style="stroke:var(--viz-line);stroke-width:1.2"></line>';
+
+      if (kind === 'ellipse') {
+        var rx = (horiz ? a : b) * s, ry = (horiz ? b : a) * s;
+        svg += '<ellipse cx="' + px(0) + '" cy="' + py(0) + '" rx="' + rx + '" ry="' + ry + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.4"></ellipse>';
+        if (c > 0.05) {
+          var cvx = horiz ? 0 : b, cvy = horiz ? b : 0;
+          svg += '<polyline points="' + px(0) + ',' + py(0) + ' ' + px(cvx) + ',' + py(cvy) + ' ' + px(foc[0]) + ',' + py(foc[1]) + ' ' + px(0) + ',' + py(0) +
+            '" style="fill:none;stroke:var(--viz-amber);stroke-width:2;stroke-dasharray:4 3"></polyline>';
+          svg += '<text x="' + ((px(0) + px(cvx)) / 2 - 12) + '" y="' + ((py(0) + py(cvy)) / 2) + '" style="font-size:9.5px;fill:var(--viz-amber);font-weight:700">b</text>';
+          svg += '<text x="' + ((px(0) + px(foc[0])) / 2) + '" y="' + ((py(0) + py(foc[1])) / 2 + 13) + '" style="font-size:9.5px;fill:var(--viz-amber);font-weight:700">c</text>';
+          svg += '<text x="' + ((px(cvx) + px(foc[0])) / 2 + 4) + '" y="' + ((py(cvy) + py(foc[1])) / 2 - 4) + '" style="font-size:9.5px;fill:var(--viz-amber);font-weight:700">a</text>';
+        }
+      } else {
+        var i, uu, p1 = [], p2 = [];
+        for (i = 0; i <= 80; i++) {
+          uu = -2.4 + 4.8 * i / 80;
+          p1.push(px(a * ch(uu)).toFixed(1) + ',' + py(b * sh(uu)).toFixed(1));
+          p2.push(px(-a * ch(uu)).toFixed(1) + ',' + py(b * sh(uu)).toFixed(1));
+        }
+        var m = a > 0 ? b / a : 0;
+        svg += '<line x1="' + px(-xR) + '" y1="' + py(-m * xR) + '" x2="' + px(xR) + '" y2="' + py(m * xR) + '" style="stroke:var(--viz-muted);stroke-width:1.4;stroke-dasharray:5 4"></line>';
+        svg += '<line x1="' + px(-xR) + '" y1="' + py(m * xR) + '" x2="' + px(xR) + '" y2="' + py(-m * xR) + '" style="stroke:var(--viz-muted);stroke-width:1.4;stroke-dasharray:5 4"></line>';
+        svg += '<rect x="' + px(-a) + '" y="' + py(b) + '" width="' + (2 * a * s) + '" height="' + (2 * b * s) + '" style="fill:none;stroke:var(--viz-amber);stroke-width:1.6;stroke-dasharray:4 3"></rect>';
+        svg += '<line x1="' + px(0) + '" y1="' + py(0) + '" x2="' + px(a) + '" y2="' + py(b) + '" style="stroke:var(--viz-amber);stroke-width:2"></line>';
+        svg += '<text x="' + (px(a / 2) - 14) + '" y="' + (py(b / 2) - 4) + '" style="font-size:9.5px;fill:var(--viz-amber);font-weight:700">c</text>';
+        svg += '<polyline points="' + p1.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.4"></polyline>';
+        svg += '<polyline points="' + p2.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.4"></polyline>';
+      }
+
+      svg += '<circle cx="' + px(vtx[0]) + '" cy="' + py(vtx[1]) + '" r="5" style="fill:var(--viz-green)"></circle>';
+      svg += '<circle cx="' + px(-vtx[0]) + '" cy="' + py(-vtx[1]) + '" r="5" style="fill:var(--viz-green)"></circle>';
+      if (c > 0.05) {
+        svg += '<circle cx="' + px(foc[0]) + '" cy="' + py(foc[1]) + '" r="4.5" style="fill:var(--viz-red)"></circle>';
+        svg += '<circle cx="' + px(-foc[0]) + '" cy="' + py(-foc[1]) + '" r="4.5" style="fill:var(--viz-red)"></circle>';
+      } else {
+        svg += '<circle cx="' + px(0) + '" cy="' + py(0) + '" r="4.5" style="fill:var(--viz-red)"></circle>';
+      }
+      svg += '<text x="' + (px(vtx[0]) + 6) + '" y="' + (py(vtx[1]) - 7) + '" style="font-size:9px;fill:var(--viz-green);font-weight:700">vertex (' + n(vtx[0], 2) + ', ' + n(vtx[1], 2) + ')</text>';
+      svg += '<text x="' + (px(foc[0]) + 6) + '" y="' + (py(foc[1]) + 16) + '" style="font-size:9px;fill:var(--viz-red);font-weight:700">focus (' + n(foc[0], 2) + ', ' + n(foc[1], 2) + ')</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var sign = kind === 'ellipse' ? ' + ' : ' - ';
+      var vTxt = horiz ? '(+/-' + n(a) + ', 0)' : '(0, +/-' + n(a) + ')';
+      var fTxt = horiz ? '(+/-' + n(c) + ', 0)' : '(0, +/-' + n(c) + ')';
+      eq.textContent =
+        'x^2/' + Dx + sign + 'y^2/' + Dy + ' = 1\n' +
+        'a^2 = ' + n(aSq, 0) + '   ->  a = ' + n(a) + '     (' + (kind === 'ellipse' ? 'the LARGER denominator' : 'the denominator under the PLUS term') + ')\n' +
+        'b^2 = ' + n(bSq, 0) + '   ->  b = ' + n(b) + '\n' +
+        (kind === 'ellipse'
+          ? 'c^2 = a^2 - b^2 = ' + n(aSq, 0) + ' - ' + n(bSq, 0) + ' = ' + n(c * c, 2) + '  ->  c = ' + n(c) + '\n'
+          : 'c^2 = a^2 + b^2 = ' + n(aSq, 0) + ' + ' + n(bSq, 0) + ' = ' + n(c * c, 2) + '  ->  c = ' + n(c) + '\n') +
+        'vertices ' + vTxt + '     foci ' + fTxt + '     e = c/a = ' + n(e) +
+        (kind === 'hyperbola' ? '\nasymptotes  y = +/-(b/a) x = +/-' + n(a > 0 ? b / a : 0) + ' x' : '');
+
+      pills.innerHTML =
+        pill(circle ? 'circle: a = b' : (kind === 'ellipse'
+          ? 'major axis ' + (horiz ? 'horizontal' : 'vertical')
+          : 'opens ' + (horiz ? 'left and right' : 'up and down')), 'var(--viz-accent)') +
+        pill('a = ' + n(a), 'var(--viz-green)') +
+        pill('c = ' + n(c), 'var(--viz-red)') +
+        pill(kind === 'ellipse' ? 'foci inside: c is less than a' : 'foci outside: c is more than a', 'var(--viz-violet)') +
+        pill('e = ' + n(e), 'var(--viz-amber)');
+
+      why.innerHTML = kind === 'ellipse'
+        ? (circle
+            ? '<b style="color:var(--viz-amber)">Equal denominators: c = 0 and the two foci have merged at the centre.</b>' +
+              'This is the circle, the a = b end of the ellipse family, with eccentricity e = 0. Every other setting of these two ' +
+              'sliders pulls the foci apart along the longer axis and pushes e up towards 1. ' +
+              '<br><br>Worth knowing, and worth not over-claiming: "a = b so c = 0" describes the circle, it is not the general ellipse relation.'
+            : '<b style="color:var(--viz-green)">a = ' + n(a) + ' from the larger denominator ' + n(aSq, 0) + ', so the vertices are ' + vTxt + '.</b>' +
+              'The triangle drawn in amber is the derivation, not decoration: at the co-vertex the two focal distances are equal by symmetry ' +
+              'and must still add to 2a, so each one is exactly a. That makes a the hypotenuse of a right triangle with legs b = ' + n(b) +
+              ' and c = ' + n(c) + ', giving a^2 = b^2 + c^2 and therefore c^2 = a^2 - b^2. ' +
+              '<br><br>Two answers fall straight out and both are commonly fumbled: vertices are +/-a, not +/-a^2 — ' + n(a) + ', not ' + n(aSq, 0) +
+              ' — and the focal distance is c = ' + n(c) + ', not c^2 = ' + n(c * c, 2) + '.')
+        : '<b style="color:var(--viz-green)">a = ' + n(a) + ' comes from the positive term, and here c = ' + n(c) + ' is LARGER than a.</b>' +
+          'The dashed rectangle is 2a wide and 2b tall; its extended diagonals are the asymptotes, slope +/-b/a = +/-' + n(a > 0 ? b / a : 0) + '. ' +
+          'The amber segment from the centre to a corner has length sqrt(a^2 + b^2) = ' + n(c) + ' — which is exactly c, so the foci sit on the circle ' +
+          'through the rectangle corners, beyond the vertices. ' +
+          '<br><br>Notice what is NOT true here: ' + (bSq > aSq
+            ? 'b = ' + n(b) + ' is bigger than a = ' + n(a) + ', and the hyperbola is perfectly ordinary.'
+            : 'nothing forces a to be the larger — slide y^2 past x^2 and b overtakes a with no change in behaviour.') +
+          ' For an ellipse a is the larger by definition; for a hyperbola it is only the one under the plus sign.';
+    }
+
+    var PRESETS = [
+      { t:'x^2/25 + y^2/9 = 1', k:'ellipse', x:25, y:9 },
+      { t:'x^2/16 + y^2/9 = 1', k:'ellipse', x:16, y:9 },
+      { t:'x^2/9 - y^2/4 = 1', k:'hyperbola', x:9, y:4 },
+      { t:'x^2/16 - y^2/9 = 1', k:'hyperbola', x:16, y:9 }
+    ];
+    PRESETS.forEach(function(p){
+      var btn = document.createElement('button');
+      btn.textContent = p.t;
+      btn.addEventListener('click', function(){
+        kind = p.k; DA.value = idx(p.x); DB.value = idx(p.y); render();
+      });
+      pre.appendChild(btn);
+    });
+
+    bE.addEventListener('click', function(){ kind = 'ellipse'; render(); });
+    bH.addEventListener('click', function(){ kind = 'hyperbola'; render(); });
+    DA.addEventListener('input', render);
+    DB.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Name That Conic</h2>
+  <p class="vz-lede">Three questions about the coefficients name the curve before any algebra. Then zoom out
+    and watch the thing that actually separates them: whether the curve stays put, hugs a line, or outruns
+    every line there is. <b>Like identifying an animal from its tracks, then watching where it runs.</b></p>
+
+  <div class="v4-chips" id="v4-list"></div>
+
+  <div class="vz-card">
+    <div id="v4-ladder"></div>
+    <label class="vz-lab" for="v4-zoom">zoom out: window reaches x = <b><span id="v4-zl">6</span></b></label>
+    <input class="vz-range" type="range" id="v4-zoom" min="4" max="40" value="6" step="1" aria-label="How far out the window reaches">
+    <div class="vz-plot" id="v4-plot"></div>
+    <div class="vz-eq" id="v4-gap"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <p class="vz-note">The asymptote calculation is the one you already ran on rational functions: divide out the
+    dominant term and see what survives at large x. y = +/-(b/a) sqrt(x^2 - a^2) becomes +/-(b/a) x once the
+    a^2 stops mattering — the same end-behaviour argument, on a curve that is not a function.</p>
+
+  <style>
+    .v4-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+    .v4-chips button{min-height:44px;flex:1 1 132px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 8px}
+    .v4-chips button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent);font-weight:800}
+    .v4-row{display:flex;align-items:flex-start;gap:9px;padding:7px 0;border-bottom:1px dashed var(--viz-line);font-size:12px;line-height:1.45}
+    .v4-row:last-child{border-bottom:0}
+    .v4-q{flex:1 1 auto}
+    .v4-a{flex:0 0 auto;font-weight:800;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;text-align:right}
+  </style>
+  <script>
+  (function(){
+    var list = document.getElementById('v4-list'), ladder = document.getElementById('v4-ladder');
+    var Z = document.getElementById('v4-zoom'), zl = document.getElementById('v4-zl');
+    var plot = document.getElementById('v4-plot'), gap = document.getElementById('v4-gap'), why = document.getElementById('v4-why');
+
+    // Each entry stores COEFFICIENTS only, in the form A x^2 + C y^2 + D x + E y + F = 0.
+    // The verdict below is computed from those numbers, never looked up.
+    var EQS = [
+      { t:'x^2/9 + y^2/4 = 1',  A:1 / 9,  C:1 / 4,  D:0, E:0,  F:-1 },
+      { t:'x^2/9 - y^2/4 = 1',  A:1 / 9,  C:-1 / 4, D:0, E:0,  F:-1 },
+      { t:'x^2 + y^2 = 9',      A:1,      C:1,      D:0, E:0,  F:-9 },
+      { t:'y = x^2 + 9',        A:1,      C:0,      D:0, E:-1, F:9 },
+      { t:'x^2/16 + y^2/9 = 1', A:1 / 16, C:1 / 9,  D:0, E:0,  F:-1 },
+      { t:'x^2/16 - y^2/9 = 1', A:1 / 16, C:-1 / 9, D:0, E:0,  F:-1 },
+      { t:'x^2/9 + y^2/16 = 1', A:1 / 9,  C:1 / 16, D:0, E:0,  F:-1 }
+    ];
+    var cur = 0;
+
+    function n(v, d){
+      if (v === null || v === undefined || !isFinite(v)) return '--';
+      var p = Math.pow(10, d === undefined ? 2 : d);
+      return String(Math.round(v * p) / p);
+    }
+
+    function classify(q){
+      var both = Math.abs(q.A) > 1e-12 && Math.abs(q.C) > 1e-12;
+      if (!both) return 'parabola';
+      if (q.A * q.C < 0) return 'hyperbola';
+      if (Math.abs(q.A - q.C) < 1e-12) return 'circle';
+      return 'ellipse';
+    }
+
+    function render(){
+      var q = EQS[cur];
+      [].slice.call(list.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === cur ? 'true' : 'false'); });
+
+      var kind = classify(q);
+      var both = Math.abs(q.A) > 1e-12 && Math.abs(q.C) > 1e-12;
+      var dx = Math.abs(q.A) > 1e-12 ? -q.F / q.A : NaN;   // denominator under x^2 once the right side is 1
+      var dy = Math.abs(q.C) > 1e-12 ? -q.F / q.C : NaN;   // denominator under y^2
+
+      var rows = '';
+      function row(qs, ans, colour){
+        rows += '<div class="v4-row"><span class="v4-q">' + qs + '</span><span class="v4-a" style="color:' + colour + '">' + ans + '</span></div>';
+      }
+      row('1. Are BOTH variables squared? &nbsp;coefficients: x^2 term = ' + n(q.A, 4) + ', y^2 term = ' + n(q.C, 4),
+        both ? 'yes' : 'no, only x is', both ? 'var(--viz-green)' : 'var(--viz-amber)');
+      if (both) {
+        row('2. Do the two coefficients share a sign?', q.A * q.C > 0 ? 'same sign' : 'opposite signs',
+          q.A * q.C > 0 ? 'var(--viz-green)' : 'var(--viz-violet)');
+        row('3. Are they equal?', Math.abs(q.A - q.C) < 1e-12 ? 'equal' : 'unequal', 'var(--viz-accent)');
+      } else {
+        row('2. Only one square, so there is one focus and a directrix instead of two foci.', 'parabola', 'var(--viz-amber)');
+      }
+      var verdictColour = kind === 'hyperbola' ? 'var(--viz-violet)' : (kind === 'parabola' ? 'var(--viz-amber)' : 'var(--viz-green)');
+      row('<b>Verdict</b>', kind.toUpperCase(), verdictColour);
+      ladder.innerHTML = rows;
+
+      var X = Number(Z.value);
+      if (!isFinite(X) || X < 2) X = 6;
+      zl.textContent = String(X);
+
+      var W = 320, H = 220;
+      var s = (W / 2 - 8) / X;
+      if (!isFinite(s) || s <= 0) s = 10;
+      var yR = (H / 2 - 8) / s;
+      var cx = W / 2, cy = H / 2;
+      function px(x){ return cx + x * s; }
+      function py(y){ return cy - y * s; }
+
+      function branches(fn){
+        var out = [], curp = [], i, x, y;
+        for (i = 0; i <= 260; i++) {
+          x = -X + 2 * X * i / 260;
+          y = fn(x);
+          if (y === null || !isFinite(y) || Math.abs(y) > yR * 1.2) {
+            if (curp.length > 1) out.push(curp);
+            curp = [];
+            continue;
+          }
+          curp.push(px(x).toFixed(1) + ',' + py(y).toFixed(1));
+        }
+        if (curp.length > 1) out.push(curp);
+        return out;
+      }
+
+      var curves = [], asym = [], m = 0, aa = 0, bb = 0;
+      if (kind === 'parabola') {
+        curves = branches(function(x){ return Math.abs(q.E) > 1e-12 ? -(q.A * x * x + q.D * x + q.F) / q.E : null; });
+      } else if (kind === 'hyperbola' && dx > 0) {
+        aa = Math.sqrt(dx); bb = Math.sqrt(-dy); m = aa > 0 ? bb / aa : 0;
+        curves = branches(function(x){ return Math.abs(x) >= aa ? bb * Math.sqrt(x * x / dx - 1) : null; })
+          .concat(branches(function(x){ return Math.abs(x) >= aa ? -bb * Math.sqrt(x * x / dx - 1) : null; }));
+        asym = [m, -m];
+      } else if (kind === 'hyperbola') {
+        aa = Math.sqrt(dy); bb = Math.sqrt(-dx); m = bb > 0 ? aa / bb : 0;
+        curves = branches(function(x){ return aa * Math.sqrt(1 + x * x / (-dx)); })
+          .concat(branches(function(x){ return -aa * Math.sqrt(1 + x * x / (-dx)); }));
+        asym = [m, -m];
+      } else {
+        aa = Math.sqrt(dx); bb = Math.sqrt(dy);
+        curves = branches(function(x){ return Math.abs(x) <= aa ? bb * Math.sqrt(Math.max(0, 1 - x * x / dx)) : null; })
+          .concat(branches(function(x){ return Math.abs(x) <= aa ? -bb * Math.sqrt(Math.max(0, 1 - x * x / dx)) : null; }));
+      }
+
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="The curve drawn inside a window you can widen">';
+      svg += '<line x1="2" y1="' + py(0) + '" x2="' + (W - 2) + '" y2="' + py(0) + '" style="stroke:var(--viz-line);stroke-width:1.2"></line>';
+      svg += '<line x1="' + px(0) + '" y1="2" x2="' + px(0) + '" y2="' + (H - 2) + '" style="stroke:var(--viz-line);stroke-width:1.2"></line>';
+      asym.forEach(function(sl){
+        svg += '<line x1="' + px(-X) + '" y1="' + py(-sl * X) + '" x2="' + px(X) + '" y2="' + py(sl * X) + '" style="stroke:var(--viz-red);stroke-width:1.4;stroke-dasharray:5 4"></line>';
+      });
+      curves.forEach(function(pts){
+        svg += '<polyline points="' + pts.join(' ') + '" style="fill:none;stroke:var(--viz-accent);stroke-width:2.4"></polyline>';
+      });
+      svg += '<text x="8" y="14" style="font-size:9px;fill:var(--viz-muted)">window: x from -' + X + ' to ' + X + '</text>';
+      if (asym.length) svg += '<text x="8" y="26" style="font-size:9px;fill:var(--viz-red)">dashed red = asymptotes</text>';
+      svg += '</svg>';
+      plot.innerHTML = svg;
+
+      var gapTxt, whyTxt;
+      if (kind === 'hyperbola' && dx > 0) {
+        var yLine = m * X, yCurve = X > aa ? bb * Math.sqrt(X * X / dx - 1) : 0;
+        var d = yLine - yCurve;
+        gapTxt =
+          'asymptote   y = ' + n(m, 4) + ' x\n' +
+          'at x = ' + X + '   line  y = ' + n(yLine, 3) + '\n' +
+          '            curve y = ' + n(yCurve, 3) + '\n' +
+          'vertical gap = ' + n(d, 4) + '   (shrinking towards 0, never reaching it)';
+        whyTxt = '<b style="color:var(--viz-violet)">Opposite signs, so the curve is unbounded — and it is unbounded in the tidiest possible way.</b>' +
+          'Solve for y: y = +/-(b/a) sqrt(x^2 - a^2) = +/-(b/a) x sqrt(1 - a^2/x^2). Push x out and the square root tends to 1, so the branch ' +
+          'closes on the line y = ' + n(m, 4) + ' x from below. The gap at x = ' + X + ' is ' + n(d, 4) + '; widen the window and watch it fall. ' +
+          '<br><br>a = ' + n(aa) + ' and b = ' + n(bb) + ' come straight from the denominators, and the slope is b/a. The vertices sit at +/-' + n(aa) +
+          ' on the x-axis, where the branches leave the rectangle drawn in visual 3.';
+      } else if (kind === 'hyperbola') {
+        gapTxt = 'this hyperbola opens up and down: asymptotes y = +/-' + n(m, 4) + ' x, vertices (0, +/-' + n(aa) + ')\n' +
+          'the positive term is the y^2 term, so a^2 = ' + n(dy, 2) + ' and a = ' + n(aa) + '\n' +
+          'the branches escape vertically, still hugging the asymptotes';
+        whyTxt = '<b style="color:var(--viz-violet)">The plus sign is on y^2, so the branches open up and down.</b>' +
+          'Everything else is unchanged: a comes from the positive term, c^2 = a^2 + b^2, and the asymptotes are the diagonals of the same rectangle. ' +
+          'Orientation is decided by which variable carries the plus sign, never by which denominator is larger.';
+      } else if (kind === 'parabola') {
+        var yAt = Math.abs(q.E) > 1e-12 ? -(q.A * X * X + q.D * X + q.F) / q.E : NaN;
+        gapTxt =
+          'only x is squared, so this is a parabola\n' +
+          'at x = ' + X + '   y = ' + n(yAt, 1) + '\n' +
+          'no asymptote exists: the curve beats every straight line as x grows';
+        whyTxt = '<b style="color:var(--viz-amber)">One squared variable, so one focus and a directrix — not two foci.</b>' +
+          'A parabola has a vertex and a focus, which is why it turns up as a distractor on focus-and-vertex questions, but nothing about it is a sum ' +
+          'or difference of two focal distances. Its eccentricity is exactly 1, the boundary between the ellipse family below 1 and the hyperbolas above. ' +
+          '<br><br>At x = ' + X + ' it has climbed to y = ' + n(yAt, 1) + '. Unbounded, like a hyperbola — but with no line to approach, because the growth is quadratic, not linear.';
+      } else {
+        gapTxt =
+          (kind === 'circle' ? 'equal coefficients: circle of radius ' + n(Math.sqrt(dx)) : 'unequal, same sign: ellipse') + '\n' +
+          'x never leaves [-' + n(Math.sqrt(dx)) + ', ' + n(Math.sqrt(dx)) + ']   y never leaves [-' + n(Math.sqrt(dy)) + ', ' + n(Math.sqrt(dy)) + ']\n' +
+          'zooming out only shrinks it: bounded, so no asymptote can exist';
+        whyTxt = kind === 'circle'
+          ? '<b style="color:var(--viz-green)">Both coefficients equal and positive, so a = b and the foci have merged: a circle of radius ' + n(Math.sqrt(dx)) + '.</b>' +
+            'It belongs to the ellipse family with c = 0 and e = 0. When a question offers this alongside a form with unequal denominators and asks which ' +
+            'represents an ellipse, the unequal one is what is wanted. ' +
+            '<br><br>Also note it is already written without a 1 on the right — divide by ' + n(-q.F / q.A) + ' before reading any semi-axis off it.'
+          : '<b style="color:var(--viz-green)">Same sign, unequal: an ellipse, and the larger denominator ' + n(Math.max(dx, dy)) + ' marks the major axis, so it runs ' +
+            (dx > dy ? 'horizontally' : 'vertically') + '.</b>' +
+            'It is bounded in both directions — |x| never passes ' + n(Math.sqrt(dx)) + ' and |y| never passes ' + n(Math.sqrt(dy)) + ' — which is why an ellipse ' +
+            'has no asymptotes at all. Zoom out and it just becomes a dot. ' +
+            '<br><br>The vertices are the ends of the major axis: ' + (dx > dy ? '(+/-' + n(Math.sqrt(dx)) + ', 0)' : '(0, +/-' + n(Math.sqrt(dy)) + ')') + '.';
+      }
+      gap.textContent = gapTxt;
+      why.innerHTML = whyTxt;
+    }
+
+    EQS.forEach(function(q, i){
+      var b = document.createElement('button');
+      b.textContent = q.t;
+      b.setAttribute('aria-pressed', 'false');
+      b.addEventListener('click', function(){ cur = i; render(); });
+      list.appendChild(b);
+    });
+    Z.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

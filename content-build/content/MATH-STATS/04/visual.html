@@ -1,0 +1,1014 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:#fff}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Histogram Into Curve</button>
+  <button class="viz-tab" data-viz-tab="2">2. Empirical Rule Bands</button>
+  <button class="viz-tab" data-viz-tab="3">3. The Percentile Ladder</button>
+  <button class="viz-tab" data-viz-tab="4">4. Standardize Any Value</button>
+  <button class="viz-tab" data-viz-tab="5">5. Two Dials, One Bell</button>
+  <button class="viz-tab" data-viz-tab="6">6. Shift Then Stretch</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Histogram Into Curve</h2>
+  <p class="vz-lede"><b>Displaying quantitative data with graphs</b> gave you the histogram and
+    <b>Describing and comparing distributions</b> taught you to read shape off one. Shrink the bins and the
+    bars become a <b>density curve</b>: area is proportion, the total is pinned at 1, and nothing ever dips
+    below the axis. <b>Like a mosaic you keep stepping back from until the tiles vanish and only the picture
+    is left.</b></p>
+
+  <div class="vz-seg v1-seg" role="group" aria-label="Shape of the distribution">
+    <button id="v1-s0" type="button" aria-pressed="true">bell</button>
+    <button id="v1-s1" type="button" aria-pressed="false">right-skewed</button>
+    <button id="v1-s2" type="button" aria-pressed="false">uniform block</button>
+    <button id="v1-s3" type="button" aria-pressed="false">two humps</button>
+  </div>
+
+  <div class="vz-card v1-wrap">
+    <div class="v1-plot" id="v1-plot"></div>
+    <div class="v1-key" id="v1-key"></div>
+
+    <label class="v1-lab" for="v1-bins">histogram bins: <span id="v1-binsl">8</span></label>
+    <input type="range" id="v1-bins" min="2" max="40" value="8" step="2" aria-label="Number of histogram bins">
+    <label class="v1-lab" for="v1-lo">interval starts at a = <span id="v1-lol">2.0</span></label>
+    <input type="range" id="v1-lo" min="0" max="9.5" value="2" step="0.5" aria-label="Left edge of the shaded interval">
+    <label class="v1-lab" for="v1-w">interval width: <span id="v1-wl">3.0</span></label>
+    <input type="range" id="v1-w" min="0.5" max="6" value="3" step="0.5" aria-label="Width of the shaded interval">
+
+    <div class="v1-pills" id="v1-pills"></div>
+    <div class="v1-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Only two things are required of a density curve, and every shape above obeys both: it
+    never drops below the axis, and the total area is exactly 1. Symmetry, a bell shape and "it never touches
+    the axis" are <b>not</b> on the list — the uniform block is exactly 0 outside its own range and is a
+    perfectly legal density.</p>
+
+  <style>
+    .v1-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v1-plot svg{width:100%;height:auto;display:block}
+    .v1-key{display:flex;gap:12px;flex-wrap:wrap;margin:9px 0 4px;font-size:11px;color:var(--viz-muted)}
+    .v1-key span{display:flex;align-items:center;gap:5px}
+    .v1-sw{width:12px;height:12px;border-radius:3px;flex:0 0 auto;border:1px solid var(--viz-line)}
+    .v1-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 3px}
+    .v1-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v1-wrap input[type=range]{width:100%;min-height:44px;display:block}
+    .v1-pills{margin-top:12px;display:flex;gap:7px;flex-wrap:wrap}
+    .v1-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v1-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v1-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LO = 0, HI = 10, N = 600, H = (HI - LO) / N;
+    var SHAPES = [
+      { n:'bell', f:function(x){ return Math.exp(-(x - 5) * (x - 5) / (2 * 1.5 * 1.5)); } },
+      { n:'right-skewed', f:function(x){ return Math.pow(x, 1.1) * Math.exp(-x / 1.1); } },
+      { n:'uniform block', f:function(x){ return (x >= 2 && x <= 7) ? 1 : 0; } },
+      { n:'two humps', f:function(x){ return Math.exp(-(x - 3) * (x - 3) / (2 * 0.8 * 0.8))
+          + 0.85 * Math.exp(-(x - 7.4) * (x - 7.4) / (2 * 0.9 * 0.9)); } }
+    ];
+    var YMAX = 0.0001, si = 0;
+    for (var s = 0; s < SHAPES.length; s++) {
+      var v = [], tot = 0, i;
+      for (i = 0; i <= N; i++) { var y = SHAPES[s].f(LO + i * H); if (!isFinite(y) || y < 0) y = 0; v.push(y); }
+      for (i = 0; i < N; i++) tot += (v[i] + v[i + 1]) / 2 * H;
+      if (!(tot > 0)) tot = 1;
+      for (i = 0; i <= N; i++) { v[i] = v[i] / tot; if (v[i] > YMAX) YMAX = v[i]; }
+      SHAPES[s].v = v;
+    }
+    YMAX = YMAX * 1.14;
+
+    function dens(x){
+      if (!isFinite(x)) return 0;
+      if (x <= LO) return SHAPES[si].v[0];
+      if (x >= HI) return SHAPES[si].v[N];
+      var t = (x - LO) / H, k = Math.floor(t), f = t - k;
+      if (k >= N) return SHAPES[si].v[N];
+      return SHAPES[si].v[k] + (SHAPES[si].v[k + 1] - SHAPES[si].v[k]) * f;
+    }
+    function area(a, b){
+      if (!(b > a)) return 0;
+      var M = 400, st = (b - a) / M, acc = 0, prev = dens(a);
+      for (var i = 1; i <= M; i++) { var cur = dens(a + i * st); acc += (prev + cur) / 2 * st; prev = cur; }
+      return Math.min(1, Math.max(0, acc));
+    }
+    function fmt(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+
+    var PW = 320, PH = 178, X0 = 14, X1 = 312, YB = 148, YT = 10;
+    function PX(x){ return X0 + (x - LO) / (HI - LO) * (X1 - X0); }
+    function PY(d){ var y = YB - d / YMAX * (YB - YT); return isFinite(y) ? Math.max(YT - 2, Math.min(YB, y)) : YB; }
+
+    var plot = document.getElementById('v1-plot'), key = document.getElementById('v1-key');
+    var bS = document.getElementById('v1-bins'), bL = document.getElementById('v1-binsl');
+    var aS = document.getElementById('v1-lo'), aL = document.getElementById('v1-lol');
+    var wS = document.getElementById('v1-w'), wL = document.getElementById('v1-wl');
+    var pills = document.getElementById('v1-pills'), why = document.getElementById('v1-why');
+    var btns = [document.getElementById('v1-s0'), document.getElementById('v1-s1'),
+                document.getElementById('v1-s2'), document.getElementById('v1-s3')];
+
+    key.innerHTML =
+      '<span><i class="v1-sw" style="background:var(--viz-line)"></i>bars = histogram (bar AREA = proportion)</span>' +
+      '<span><i class="v1-sw" style="background:var(--viz-accent)"></i>line = density curve</span>' +
+      '<span><i class="v1-sw" style="background:var(--viz-violet)"></i>shaded = the interval a to b</span>';
+
+    function render(){
+      var bins = Math.max(2, Math.round(Number(bS.value)));
+      var a = Number(aS.value), w = Number(wS.value);
+      if (!isFinite(a)) a = 0; if (!isFinite(w)) w = 1;
+      var b = Math.min(HI, a + w);
+      if (!(b > a)) b = Math.min(HI, a + 0.5);
+      bL.textContent = String(bins);
+      aL.textContent = fmt(a, 1);
+      wL.textContent = fmt(b - a, 1);
+
+      var g = '', bw = (HI - LO) / bins, barSum = 0, i;
+      for (i = 0; i < bins; i++) {
+        var u = LO + i * bw, vv = u + bw, ar = area(u, vv);
+        barSum += ar;
+        var h = bw > 0 ? ar / bw : 0;
+        var yy = PY(h);
+        g += '<rect x="' + fmt(PX(u), 2) + '" y="' + fmt(yy, 2) + '" width="' + fmt(Math.max(0.5, PX(vv) - PX(u) - 0.8), 2) +
+             '" height="' + fmt(Math.max(0, YB - yy), 2) + '" fill="var(--viz-line)"></rect>';
+      }
+      var band = '<rect x="' + fmt(PX(a), 2) + '" y="' + YT + '" width="' + fmt(Math.max(1, PX(b) - PX(a)), 2) +
+        '" height="' + (YB - YT) + '" fill="var(--viz-violet)" fill-opacity="0.30"></rect>';
+      var pts = '';
+      for (i = 0; i <= 240; i++) { var x = LO + (HI - LO) * i / 240; pts += fmt(PX(x), 2) + ',' + fmt(PY(dens(x)), 2) + ' '; }
+
+      var ticks = '';
+      for (i = 0; i <= 10; i += 2) {
+        ticks += '<line x1="' + fmt(PX(i), 2) + '" y1="' + YB + '" x2="' + fmt(PX(i), 2) + '" y2="' + (YB + 4) +
+          '" stroke="var(--viz-line)" stroke-width="1"></line>' +
+          '<text x="' + fmt(PX(i), 2) + '" y="' + (YB + 15) + '" fill="var(--viz-muted)" font-size="9" text-anchor="middle">' + i + '</text>';
+      }
+      var marks =
+        '<text x="' + fmt(PX(a), 2) + '" y="' + (YT + 9) + '" fill="var(--viz-violet)" font-size="9" text-anchor="middle">a</text>' +
+        '<text x="' + fmt(PX(b), 2) + '" y="' + (YT + 9) + '" fill="var(--viz-violet)" font-size="9" text-anchor="middle">b</text>';
+
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="Histogram bars with the density curve drawn over them and the interval a to b shaded">' +
+        band + g +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"></polyline>' +
+        '<line x1="' + X0 + '" y1="' + YB + '" x2="' + X1 + '" y2="' + YB + '" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        ticks + marks +
+        '<text x="' + X0 + '" y="' + (YT + 9) + '" fill="var(--viz-muted)" font-size="9">density</text>' +
+        '</svg>';
+
+      var total = area(LO, HI), p = area(a, b), mid = dens((a + b) / 2);
+      var lowest = 1e9;
+      for (i = 0; i <= N; i++) if (SHAPES[si].v[i] < lowest) lowest = SHAPES[si].v[i];
+      function pill(t, c){ return '<span class="v1-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      pills.innerHTML =
+        pill('total area = ' + fmt(total, 2), 'var(--viz-green)') +
+        pill('sum of bar areas = ' + fmt(barSum, 2), 'var(--viz-green)') +
+        pill('lowest height = ' + fmt(lowest, 3) + ' (never negative)', 'var(--viz-muted)') +
+        pill('P(' + fmt(a, 1) + ' <= X <= ' + fmt(b, 1) + ') = ' + fmt(p, 3), 'var(--viz-violet)');
+
+      var clipped = (a + w > HI);
+      why.innerHTML =
+        '<b>Area answers the question; height does not.</b>' +
+        'The curve is <b>' + fmt(mid, 3) + '</b> tall in the middle of the shaded strip, and the strip holds <b>' +
+        fmt(p, 3) + '</b> of the population — ' + fmt(p * 100, 1) + '% of values land between ' + fmt(a, 1) + ' and ' +
+        fmt(b, 1) + '. Those two numbers are different quantities and only the second one is a probability. ' +
+        (clipped ? 'The right edge is clipped at 10, the end of the range, so the width you see is ' + fmt(b - a, 1) + ' rather than ' + fmt(w, 1) + '. ' : '') +
+        '<br><br>' +
+        (bins >= 30
+          ? '<b style="color:var(--viz-green)">With ' + bins + ' bins the bars have all but become the curve.</b> That is the whole construction: a density curve is the relative-frequency histogram in the limit as the bin width goes to zero.'
+          : bins <= 4
+            ? '<b style="color:var(--viz-amber)">With only ' + bins + ' bins the shape is unreadable</b> — yet the bar areas still sum to ' + fmt(barSum, 2) + '. Total area is a property of the data, not of how you chose to draw it.'
+            : 'Drag <b>bins</b> up and the steps smooth out; drag it down and the shape coarsens. Through all of it the bar areas sum to ' + fmt(barSum, 2) + ', because each bar’s area is the proportion of data in its bin and the bins partition everything.') +
+        (si === 2
+          ? '<br><br><b style="color:var(--viz-amber)">This shape is exactly 0 outside 2 to 7.</b> A density curve is allowed to sit ON the axis — "it never touches the x-axis" is a distractor, not a rule. Its height inside is 0.2, and 0.2 × 5 = 1.'
+          : si === 1
+            ? '<br><br>Right-skewed, and still a legal density curve: <b>symmetry is not required</b> either. Only "never below the axis" and "total area 1" are.'
+            : si === 3
+              ? '<br><br>Two peaks, one density curve. <b>Bell-shaped is not required</b> — that is a property of the normal distribution specifically, which visual 2 takes up.'
+              : '');
+    }
+
+    function pick(k){
+      si = k;
+      for (var i = 0; i < btns.length; i++) btns[i].setAttribute('aria-pressed', i === k ? 'true' : 'false');
+      render();
+    }
+    btns[0].addEventListener('click', function(){ pick(0); });
+    btns[1].addEventListener('click', function(){ pick(1); });
+    btns[2].addEventListener('click', function(){ pick(2); });
+    btns[3].addEventListener('click', function(){ pick(3); });
+    bS.addEventListener('input', render);
+    aS.addEventListener('input', render);
+    wS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Empirical Rule Bands</h2>
+  <p class="vz-lede">68 - 95 - 99.7 is not a fact about data. It is a fact about <em>one shape</em>. Pick a
+    shape, then slide the band width in standard deviations and watch the real percentages agree — or refuse
+    to. <b>Like a shoe size that fits everyone in one family and nobody in the next.</b></p>
+
+  <div class="vz-seg v2-seg" role="group" aria-label="Shape of the distribution">
+    <button id="v2-s0" type="button" aria-pressed="true">approximately normal</button>
+    <button id="v2-s1" type="button" aria-pressed="false">strongly skewed</button>
+    <button id="v2-s2" type="button" aria-pressed="false">bimodal</button>
+    <button id="v2-s3" type="button" aria-pressed="false">roughly uniform</button>
+  </div>
+
+  <div class="vz-card v2-wrap">
+    <div class="v2-plot" id="v2-plot"></div>
+    <label class="v2-lab" for="v2-k">band = mean &plusmn; <span id="v2-kl">1</span> standard deviations</label>
+    <input type="range" id="v2-k" min="0.5" max="3.5" value="1" step="0.5" aria-label="Band width in standard deviations">
+    <div class="vz-seg v2-jump" role="group" aria-label="Jump to the rule's three widths">
+      <button id="v2-k1" type="button" aria-pressed="true">k = 1</button>
+      <button id="v2-k2" type="button" aria-pressed="false">k = 2</button>
+      <button id="v2-k3" type="button" aria-pressed="false">k = 3</button>
+    </div>
+    <div class="v2-pills" id="v2-pills"></div>
+    <div class="v2-table vz-mono" id="v2-table"></div>
+    <div class="v2-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Read the tail column, not just the middle. "More than 2 standard deviations above the
+    mean" is about <b>2.5%</b> of a normal distribution — roughly 1 observation in 40. That is
+    <b>somewhat unusual</b>, which is a long way from impossible, and it is the reading the questions want.</p>
+
+  <style>
+    .v2-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v2-plot svg{width:100%;height:auto;display:block}
+    .v2-lab{font-size:12.5px;font-weight:700;display:block;margin:12px 0 3px}
+    .v2-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v2-wrap input[type=range]{width:100%;min-height:44px;display:block;margin-bottom:10px}
+    .v2-pills{margin-top:4px;display:flex;gap:7px;flex-wrap:wrap}
+    .v2-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v2-table{margin-top:12px;border:1px solid var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg)}
+    .v2-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v2-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LO = 0, HI = 10, N = 800, H = (HI - LO) / N;
+    var SHAPES = [
+      { n:'approximately normal', f:function(x){ return Math.exp(-(x - 5) * (x - 5) / (2 * 1.4 * 1.4)); } },
+      { n:'strongly skewed', f:function(x){ return Math.exp(-(x - 1.6) * (x - 1.6) / (2 * 0.75 * 0.75))
+          + 0.28 * Math.exp(-(x - 5.5) * (x - 5.5) / (2 * 2 * 2)); } },
+      { n:'bimodal', f:function(x){ return Math.exp(-(x - 2.5) * (x - 2.5) / (2 * 0.7 * 0.7))
+          + Math.exp(-(x - 7.5) * (x - 7.5) / (2 * 0.7 * 0.7)); } },
+      { n:'roughly uniform', f:function(x){ return (x >= 2 && x <= 7) ? 1 : 0; } }
+    ];
+    var YMAX = 0.0001, si = 0, i, s;
+    for (s = 0; s < SHAPES.length; s++) {
+      var v = [], tot = 0;
+      for (i = 0; i <= N; i++) { var y = SHAPES[s].f(LO + i * H); if (!isFinite(y) || y < 0) y = 0; v.push(y); }
+      for (i = 0; i < N; i++) tot += (v[i] + v[i + 1]) / 2 * H;
+      if (!(tot > 0)) tot = 1;
+      for (i = 0; i <= N; i++) { v[i] = v[i] / tot; if (v[i] > YMAX) YMAX = v[i]; }
+      var mu = 0;
+      for (i = 0; i < N; i++) { var xa = LO + i * H, xb = xa + H; mu += (xa * v[i] + xb * v[i + 1]) / 2 * H; }
+      var va = 0;
+      for (i = 0; i < N; i++) { var x1 = LO + i * H, x2 = x1 + H;
+        va += ((x1 - mu) * (x1 - mu) * v[i] + (x2 - mu) * (x2 - mu) * v[i + 1]) / 2 * H; }
+      SHAPES[s].v = v; SHAPES[s].mu = mu; SHAPES[s].sd = Math.sqrt(Math.max(va, 1e-9));
+    }
+    YMAX = YMAX * 1.14;
+
+    function dens(k, x){
+      var vv = SHAPES[k].v;
+      if (!isFinite(x) || x <= LO) return vv[0];
+      if (x >= HI) return vv[N];
+      var t = (x - LO) / H, j = Math.floor(t), f = t - j;
+      if (j >= N) return vv[N];
+      return vv[j] + (vv[j + 1] - vv[j]) * f;
+    }
+    function mass(k, a, b){
+      if (!(b > a)) return 0;
+      var a2 = Math.max(LO, a), b2 = Math.min(HI, b);
+      if (!(b2 > a2)) return 0;
+      var M = 500, st = (b2 - a2) / M, acc = 0, prev = dens(k, a2);
+      for (var j = 1; j <= M; j++) { var cur = dens(k, a2 + j * st); acc += (prev + cur) / 2 * st; prev = cur; }
+      return Math.min(1, Math.max(0, acc));
+    }
+    function pc(x){ return isFinite(x) ? (x * 100).toFixed(1) : '—'; }
+    function f2(x){ return isFinite(x) ? x.toFixed(2) : '—'; }
+
+    var PW = 320, PH = 168, X0 = 14, X1 = 312, YB = 140, YT = 10;
+    function PX(x){ return X0 + (x - LO) / (HI - LO) * (X1 - X0); }
+    function PY(d){ var y = YB - d / YMAX * (YB - YT); return isFinite(y) ? Math.max(YT - 2, Math.min(YB, y)) : YB; }
+
+    var RULE = { 1:68, 2:95, 3:99.7 };
+    var plot = document.getElementById('v2-plot');
+    var kS = document.getElementById('v2-k'), kL = document.getElementById('v2-kl');
+    var pills = document.getElementById('v2-pills'), tbl = document.getElementById('v2-table'), why = document.getElementById('v2-why');
+    var sb = [document.getElementById('v2-s0'), document.getElementById('v2-s1'),
+              document.getElementById('v2-s2'), document.getElementById('v2-s3')];
+    var kb = [document.getElementById('v2-k1'), document.getElementById('v2-k2'), document.getElementById('v2-k3')];
+
+    function render(){
+      var k = Number(kS.value);
+      if (!isFinite(k) || k <= 0) k = 1;
+      kL.textContent = (k === Math.round(k)) ? String(k) : k.toFixed(1);
+      var mu = SHAPES[si].mu, sd = SHAPES[si].sd;
+      var a = mu - k * sd, b = mu + k * sd;
+      var inside = mass(si, a, b), below = mass(si, LO, Math.min(a, HI)), above = mass(si, Math.max(b, LO), HI);
+
+      var band = '<rect x="' + PX(Math.max(LO, a)).toFixed(2) + '" y="' + YT + '" width="' +
+        Math.max(1, PX(Math.min(HI, b)) - PX(Math.max(LO, a))).toFixed(2) + '" height="' + (YB - YT) +
+        '" fill="var(--viz-green)" fill-opacity="0.22"></rect>';
+      var pts = '';
+      for (var j = 0; j <= 260; j++) { var x = LO + (HI - LO) * j / 260; pts += PX(x).toFixed(2) + ',' + PY(dens(si, x)).toFixed(2) + ' '; }
+      var muL = '<line x1="' + PX(mu).toFixed(2) + '" y1="' + YT + '" x2="' + PX(mu).toFixed(2) + '" y2="' + YB +
+        '" stroke="var(--viz-violet)" stroke-width="1.6" stroke-dasharray="4 3"></line>' +
+        '<text x="' + PX(mu).toFixed(2) + '" y="' + (YT + 9) + '" fill="var(--viz-violet)" font-size="9" text-anchor="middle">mean</text>';
+      var edges = '';
+      if (a >= LO) edges += '<text x="' + PX(a).toFixed(2) + '" y="' + (YB + 14) + '" fill="var(--viz-green)" font-size="9" text-anchor="middle">-' + kL.textContent + ' SD</text>';
+      if (b <= HI) edges += '<text x="' + PX(b).toFixed(2) + '" y="' + (YB + 14) + '" fill="var(--viz-green)" font-size="9" text-anchor="middle">+' + kL.textContent + ' SD</text>';
+
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="The chosen density with the band from minus k to plus k standard deviations shaded">' +
+        band +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"></polyline>' +
+        muL + '<line x1="' + X0 + '" y1="' + YB + '" x2="' + X1 + '" y2="' + YB + '" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        edges + '</svg>';
+
+      function pill(t, c){ return '<span class="v2-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      pills.innerHTML =
+        pill('mean = ' + f2(mu) + ' · SD = ' + f2(sd), 'var(--viz-violet)') +
+        pill('inside the band: ' + pc(inside) + '%', 'var(--viz-green)') +
+        pill('below -' + kL.textContent + ' SD: ' + pc(below) + '%', 'var(--viz-amber)') +
+        pill('above +' + kL.textContent + ' SD: ' + pc(above) + '%', 'var(--viz-red)');
+
+      var rows = 'k   rule says   actually here   low tail   high tail\n', worstIn = 0, worstAs = 0;
+      for (var q = 1; q <= 3; q++) {
+        var ia = mass(si, mu - q * sd, mu + q * sd);
+        var lo2 = mass(si, LO, Math.min(mu - q * sd, HI)), hi2 = mass(si, Math.max(mu + q * sd, LO), HI);
+        var gap = Math.abs(ia * 100 - RULE[q]), asym = Math.abs(lo2 * 100 - hi2 * 100);
+        if (gap > worstIn) worstIn = gap;
+        if (asym > worstAs) worstAs = asym;
+        rows += q + '   ' + String(RULE[q] + '%      ').slice(0, 9) + '   ' + String(pc(ia) + '%        ').slice(0, 11) +
+          '     ' + String(pc(lo2) + '%      ').slice(0, 8) + '   ' + pc(hi2) + '%\n';
+      }
+      tbl.textContent = rows;
+
+      var ok = (worstIn <= 2 && worstAs <= 2);
+      var head = ok
+        ? '<b style="color:var(--viz-green)">This shape obeys 68-95-99.7 (worst gap ' + worstIn.toFixed(1) + ' points).</b>'
+        : '<b style="color:var(--viz-red)">This shape does NOT obey 68-95-99.7.</b>';
+      var detail = ok
+        ? 'Every row lands on the rule and the two tails are the same size, which is what "approximately normal" buys you: three numbers replace an integral.'
+        : (worstIn > 2 ? 'The middle is wrong by up to <b>' + worstIn.toFixed(1) + ' percentage points</b> — the band simply does not hold the share the rule promises. ' : '') +
+          (worstAs > 2 ? 'And the two tails are unequal by up to <b>' + worstAs.toFixed(1) + ' points</b>, so the rule’s built-in symmetry fails as well: you cannot halve the outside to get one tail. ' : '') +
+          'The mechanism is unchanged; the shape was never normal, so the constants were never the right constants.';
+      why.innerHTML = head + detail +
+        '<br><br><b>At this band:</b> ' + pc(inside) + '% inside, ' + pc(below) + '% below and ' + pc(above) +
+        '% above. ' + (RULE[k] !== undefined
+          ? 'The rule names k = ' + k + ' and claims ' + RULE[k] + '%; halving the outside gives ' +
+            ((100 - RULE[k]) / 2).toFixed(2) + '% per tail, which is where "about 16% above z = 1" and "about 2.5% above z = 2" come from.'
+          : 'k = ' + kL.textContent + ' is not one of the rule’s three widths — the rule only ever names 1, 2 and 3, and anything between them needs the actual curve.');
+    }
+
+    function pickShape(kk){
+      si = kk;
+      for (var j = 0; j < sb.length; j++) sb[j].setAttribute('aria-pressed', j === kk ? 'true' : 'false');
+      render();
+    }
+    function syncK(){
+      var k = Number(kS.value);
+      for (var j = 0; j < kb.length; j++) kb[j].setAttribute('aria-pressed', k === (j + 1) ? 'true' : 'false');
+      render();
+    }
+    sb[0].addEventListener('click', function(){ pickShape(0); });
+    sb[1].addEventListener('click', function(){ pickShape(1); });
+    sb[2].addEventListener('click', function(){ pickShape(2); });
+    sb[3].addEventListener('click', function(){ pickShape(3); });
+    kb[0].addEventListener('click', function(){ kS.value = '1'; syncK(); });
+    kb[1].addEventListener('click', function(){ kS.value = '2'; syncK(); });
+    kb[2].addEventListener('click', function(){ kS.value = '3'; syncK(); });
+    kS.addEventListener('input', syncK);
+    syncK();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. The Percentile Ladder</h2>
+  <p class="vz-lede">100 exam scores, all different, sorted. Slide to any one of them and the percentile is
+    just a count: how many sit at or below. The quartiles from <b>Box and whisker plots</b> turn out to be
+    three particular rungs on this ladder. <b>Like a queue where your position, not your height, is the
+    answer.</b></p>
+
+  <div class="vz-card v3-wrap">
+    <div class="v3-plot" id="v3-plot"></div>
+    <label class="v3-lab" for="v3-r">rank: the <span id="v3-rl">25th</span> smallest of 100</label>
+    <input type="range" id="v3-r" min="1" max="100" value="25" step="1" aria-label="Rank of the selected score">
+    <div class="vz-seg v3-jump" role="group" aria-label="Jump to a quartile">
+      <button id="v3-q1" type="button" aria-pressed="true">Q1</button>
+      <button id="v3-q2" type="button" aria-pressed="false">median</button>
+      <button id="v3-q3" type="button" aria-pressed="false">Q3</button>
+      <button id="v3-q4" type="button" aria-pressed="false">90th</button>
+    </div>
+    <div class="v3-pills" id="v3-pills"></div>
+    <div class="v3-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">A percentile is a statement about <b>rank</b> and says nothing about raw size. The 90th
+    percentile of one exam and the 90th of another can be 300 points apart. That is exactly the gap visual 4
+    closes: a z-score measures the same value in <b>distance</b> instead, and for an approximately normal
+    distribution the two are convertible.</p>
+
+  <style>
+    .v3-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v3-plot svg{width:100%;height:auto;display:block}
+    .v3-lab{font-size:12.5px;font-weight:700;display:block;margin:12px 0 3px}
+    .v3-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v3-wrap input[type=range]{width:100%;min-height:44px;display:block;margin-bottom:10px}
+    .v3-pills{margin-top:4px;display:flex;gap:7px;flex-wrap:wrap}
+    .v3-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v3-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v3-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    // 100 distinct scores: the theoretical quantiles of a bell-shaped model, mean 500, SD 100.
+    var ZL = -5, ZH = 5, NZ = 4000, DZ = (ZH - ZL) / NZ, CDF = [0], acc = 0, i;
+    function phi(z){ return Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI); }
+    var prev = phi(ZL);
+    for (i = 1; i <= NZ; i++) { var z = ZL + i * DZ, cur = phi(z); acc += (prev + cur) / 2 * DZ; prev = cur; CDF.push(acc); }
+    var TOT = acc > 0 ? acc : 1;
+    function quantile(p){
+      var target = p * TOT, lo = 0, hi = NZ;
+      while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (CDF[mid] < target) lo = mid; else hi = mid; }
+      var span = CDF[hi] - CDF[lo], f = span > 0 ? (target - CDF[lo]) / span : 0;
+      return ZL + (lo + f) * DZ;
+    }
+    var S = [];
+    for (i = 0; i < 100; i++) S.push(Math.round(500 + 100 * quantile((i + 0.5) / 100)));
+    var MIN = S[0], MAX = S[99];
+
+    var PW = 320, PH = 118, X0 = 14, X1 = 312;
+    function PX(v){ var t = (v - MIN) / Math.max(1, MAX - MIN); return X0 + Math.max(0, Math.min(1, t)) * (X1 - X0); }
+    function ord(n){
+      var r = n % 100;
+      if (r >= 11 && r <= 13) return n + 'th';
+      var d = n % 10;
+      return n + (d === 1 ? 'st' : d === 2 ? 'nd' : d === 3 ? 'rd' : 'th');
+    }
+
+    var plot = document.getElementById('v3-plot');
+    var rS = document.getElementById('v3-r'), rL = document.getElementById('v3-rl');
+    var pills = document.getElementById('v3-pills'), why = document.getElementById('v3-why');
+    var jb = [document.getElementById('v3-q1'), document.getElementById('v3-q2'),
+              document.getElementById('v3-q3'), document.getElementById('v3-q4')];
+    var JUMP = [25, 50, 75, 90];
+
+    function render(){
+      var r = Math.round(Number(rS.value));
+      if (!isFinite(r)) r = 1;
+      r = Math.max(1, Math.min(100, r));
+      var val = S[r - 1];
+      rL.textContent = ord(r);
+      for (var j = 0; j < jb.length; j++) jb[j].setAttribute('aria-pressed', r === JUMP[j] ? 'true' : 'false');
+
+      var ticks = '';
+      for (var i2 = 0; i2 < 100; i2++) {
+        var on = i2 < r;
+        ticks += '<line x1="' + PX(S[i2]).toFixed(2) + '" y1="20" x2="' + PX(S[i2]).toFixed(2) + '" y2="44" stroke="' +
+          (on ? 'var(--viz-accent)' : 'var(--viz-line)') + '" stroke-width="1.6"></line>';
+      }
+      var q1 = S[24], med = S[49], q3 = S[74];
+      var box = '<rect x="' + PX(q1).toFixed(2) + '" y="58" width="' + Math.max(1, PX(q3) - PX(q1)).toFixed(2) +
+        '" height="20" fill="none" stroke="var(--viz-muted)" stroke-width="1.4"></rect>' +
+        '<line x1="' + PX(med).toFixed(2) + '" y1="58" x2="' + PX(med).toFixed(2) + '" y2="78" stroke="var(--viz-violet)" stroke-width="2"></line>' +
+        '<line x1="' + PX(MIN).toFixed(2) + '" y1="68" x2="' + PX(q1).toFixed(2) + '" y2="68" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        '<line x1="' + PX(q3).toFixed(2) + '" y1="68" x2="' + PX(MAX).toFixed(2) + '" y2="68" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        '<text x="' + PX(q1).toFixed(2) + '" y="92" fill="var(--viz-muted)" font-size="9" text-anchor="middle">Q1 · 25th</text>' +
+        '<text x="' + PX(med).toFixed(2) + '" y="92" fill="var(--viz-violet)" font-size="9" text-anchor="middle">median · 50th</text>' +
+        '<text x="' + PX(q3).toFixed(2) + '" y="92" fill="var(--viz-muted)" font-size="9" text-anchor="middle">Q3 · 75th</text>';
+      var mark = '<line x1="' + PX(val).toFixed(2) + '" y1="12" x2="' + PX(val).toFixed(2) + '" y2="50" stroke="var(--viz-red)" stroke-width="2.2"></line>' +
+        '<text x="' + PX(val).toFixed(2) + '" y="10" fill="var(--viz-red)" font-size="9" text-anchor="middle">score ' + val + '</text>';
+
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="100 sorted scores as ticks, with the selected score marked and a box plot showing the quartiles">' +
+        ticks + mark + box +
+        '<text x="' + X0 + '" y="112" fill="var(--viz-muted)" font-size="9">' + MIN + '</text>' +
+        '<text x="' + X1 + '" y="112" fill="var(--viz-muted)" font-size="9" text-anchor="end">' + MAX + '</text>' +
+        '</svg>';
+
+      var atOrBelow = r, strictlyBelow = r - 1, above = 100 - r;
+      function pill(t, c){ return '<span class="v3-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      pills.innerHTML =
+        pill('score = ' + val, 'var(--viz-red)') +
+        pill('percentile = ' + r, 'var(--viz-accent)') +
+        pill(atOrBelow + ' at or below (' + atOrBelow + '%)', 'var(--viz-green)') +
+        pill(above + ' above (' + above + '%)', 'var(--viz-muted)');
+
+      var note = r === 25 ? '<b style="color:var(--viz-accent)">Q1 is the 25th percentile.</b>'
+        : r === 50 ? '<b style="color:var(--viz-violet)">The median is the 50th percentile.</b>'
+        : r === 75 ? '<b style="color:var(--viz-accent)">Q3 is the 75th percentile.</b>'
+        : r === 90 ? '<b style="color:var(--viz-accent)">The 90th percentile: about 90% of values are at or below it.</b>'
+        : '<b>Score ' + val + ' sits at the ' + ord(r) + ' percentile.</b>';
+
+      why.innerHTML = note +
+        'Counting is the whole definition: <b>' + atOrBelow + ' of 100</b> scores are at or below ' + val +
+        ', and ' + strictlyBelow + ' are strictly below, so this score beats about <b>' + r +
+        '%</b> of the field — not ' + above + '%. Flipping that complement is the single most common percentile error. ' +
+        '<br><br>' +
+        (r === 25 || r === 75
+          ? 'Q1 and Q3 bracket the middle 50% of the data, so the IQR you already use is by definition the distance from the 25th percentile to the 75th: here ' + q3 + ' - ' + q1 + ' = <b>' + (q3 - q1) + '</b> points.'
+          : r === 50
+            ? 'The median splits the count in half by construction, which is why it is the 50th percentile in every distribution, symmetric or not — and why it, unlike the mean, never moves when an extreme value gets more extreme.'
+            : 'Drag to 25, 50 and 75 and the box plot below lines up exactly: the box edges and its centre line are the 25th, 50th and 75th percentiles, drawn instead of counted.');
+    }
+
+    function jump(k){ rS.value = String(JUMP[k]); render(); }
+    jb[0].addEventListener('click', function(){ jump(0); });
+    jb[1].addEventListener('click', function(){ jump(1); });
+    jb[2].addEventListener('click', function(){ jump(2); });
+    jb[3].addEventListener('click', function(){ jump(3); });
+    rS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Standardize Any Value</h2>
+  <p class="vz-lede">One picture, two rulers. The top axis is the raw scale you measured in; the bottom is
+    the standard scale, mean 0 and SD 1, that every normal table is printed for. Move x, the mean or the SD
+    and watch the value slide between them. <b>Like reading the same thermometer in Celsius and in
+    Fahrenheit.</b></p>
+
+  <div class="vz-card v4-wrap">
+    <div class="v4-plot" id="v4-plot"></div>
+    <label class="v4-lab" for="v4-x">value x = <span id="v4-xl">80</span></label>
+    <input type="range" id="v4-x" min="0" max="200" value="80" step="1" aria-label="The raw value x">
+    <label class="v4-lab" for="v4-m">mean = <span id="v4-ml">70</span></label>
+    <input type="range" id="v4-m" min="0" max="150" value="70" step="1" aria-label="The mean">
+    <label class="v4-lab" for="v4-s">standard deviation = <span id="v4-sl">5</span></label>
+    <input type="range" id="v4-s" min="1" max="30" value="5" step="1" aria-label="The standard deviation">
+    <div class="vz-seg v4-jump" role="group" aria-label="Worked cases">
+      <button id="v4-p0" type="button" aria-pressed="true">x 80 · mean 70 · SD 5</button>
+      <button id="v4-p1" type="button" aria-pressed="false">x 85 · mean 70 · SD 5</button>
+      <button id="v4-p2" type="button" aria-pressed="false">x 85 · mean 100 · SD 15</button>
+      <button id="v4-p3" type="button" aria-pressed="false">x 75 · mean 70 · SD 5</button>
+    </div>
+    <div class="v4-calc vz-mono" id="v4-calc"></div>
+    <div class="v4-pills" id="v4-pills"></div>
+    <div class="v4-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The percentile printed here assumes the distribution really is approximately normal.
+    Standardizing is a <b>linear transformation</b> and linear transformations never change shape, so a
+    skewed variable stays skewed after standardizing — its z-score is still meaningful as a distance, but
+    reading it off a normal table is not.</p>
+
+  <style>
+    .v4-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v4-plot svg{width:100%;height:auto;display:block}
+    .v4-lab{font-size:12.5px;font-weight:700;display:block;margin:11px 0 3px}
+    .v4-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v4-wrap input[type=range]{width:100%;min-height:44px;display:block}
+    .v4-calc{margin-top:8px;border:1px solid var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg);font-size:12.5px}
+    .v4-pills{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+    .v4-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v4-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v4-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var ZL = -6, ZH = 6, NZ = 6000, DZ = (ZH - ZL) / NZ, CDF = [0], acc = 0, i;
+    function phi(z){ return Math.exp(-z * z / 2) / Math.sqrt(2 * Math.PI); }
+    var prev = phi(ZL);
+    for (i = 1; i <= NZ; i++) { var z = ZL + i * DZ, cur = phi(z); acc += (prev + cur) / 2 * DZ; prev = cur; CDF.push(acc); }
+    var TOT = acc > 0 ? acc : 1;
+    function Phi(z){
+      if (!isFinite(z)) return z > 0 ? 1 : 0;
+      if (z <= ZL) return 0;
+      if (z >= ZH) return 1;
+      var t = (z - ZL) / DZ, k = Math.floor(t), f = t - k;
+      if (k >= NZ) return 1;
+      var v = (CDF[k] + (CDF[k + 1] - CDF[k]) * f) / TOT;
+      return Math.min(1, Math.max(0, v));
+    }
+    function pcs(p){
+      if (!isFinite(p)) return '—';
+      if (p > 0.9999) return '> 99.99';
+      if (p < 0.0001) return '< 0.01';
+      return (p * 100).toFixed(2);
+    }
+    function num(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+
+    var PW = 320, PH = 172, X0 = 22, X1 = 306, YB = 128, YT = 34;
+    function PZ(z){ return X0 + (Math.max(-4, Math.min(4, z)) + 4) / 8 * (X1 - X0); }
+    function PY(d){ var y = YB - d / 0.42 * (YB - YT); return isFinite(y) ? Math.max(YT - 2, Math.min(YB, y)) : YB; }
+
+    var plot = document.getElementById('v4-plot');
+    var xS = document.getElementById('v4-x'), xL = document.getElementById('v4-xl');
+    var mS = document.getElementById('v4-m'), mL = document.getElementById('v4-ml');
+    var sS = document.getElementById('v4-s'), sL = document.getElementById('v4-sl');
+    var calc = document.getElementById('v4-calc'), pills = document.getElementById('v4-pills'), why = document.getElementById('v4-why');
+    var pb = [document.getElementById('v4-p0'), document.getElementById('v4-p1'),
+              document.getElementById('v4-p2'), document.getElementById('v4-p3')];
+    var PRE = [[80, 70, 5], [85, 70, 5], [85, 100, 15], [75, 70, 5]];
+
+    function render(){
+      var x = Number(xS.value), mu = Number(mS.value), sd = Number(sS.value);
+      if (!isFinite(x)) x = 0;
+      if (!isFinite(mu)) mu = 0;
+      if (!isFinite(sd) || sd < 1) sd = 1;
+      xL.textContent = String(x); mL.textContent = String(mu); sL.textContent = String(sd);
+      for (var j = 0; j < pb.length; j++) {
+        pb[j].setAttribute('aria-pressed', (x === PRE[j][0] && mu === PRE[j][1] && sd === PRE[j][2]) ? 'true' : 'false');
+      }
+      var z = (x - mu) / sd;
+      if (!isFinite(z)) z = 0;
+      var off = Math.abs(z) > 4;
+
+      var pts = '', fill = '';
+      for (var i2 = 0; i2 <= 240; i2++) { var zz = -4 + 8 * i2 / 240; pts += PZ(zz).toFixed(2) + ',' + PY(phi(zz)).toFixed(2) + ' '; }
+      var zc = Math.max(-4, Math.min(4, z));
+      fill = 'M ' + PZ(-4).toFixed(2) + ' ' + YB;
+      for (var i3 = 0; i3 <= 160; i3++) { var zf = -4 + (zc + 4) * i3 / 160; fill += ' L ' + PZ(zf).toFixed(2) + ' ' + PY(phi(zf)).toFixed(2); }
+      fill += ' L ' + PZ(zc).toFixed(2) + ' ' + YB + ' Z';
+
+      var topTicks = '', botTicks = '';
+      for (var t2 = -3; t2 <= 3; t2++) {
+        var px = PZ(t2).toFixed(2);
+        topTicks += '<text x="' + px + '" y="16" fill="var(--viz-muted)" font-size="9" text-anchor="middle">' + (mu + t2 * sd) + '</text>';
+        botTicks += '<text x="' + px + '" y="164" fill="var(--viz-muted)" font-size="9" text-anchor="middle">' + t2 + '</text>';
+      }
+      var mark = '<line x1="' + PZ(zc).toFixed(2) + '" y1="22" x2="' + PZ(zc).toFixed(2) + '" y2="152" stroke="var(--viz-red)" stroke-width="2.2"' +
+        (off ? ' stroke-dasharray="5 3"' : '') + '></line>' +
+        '<text x="' + PZ(zc).toFixed(2) + '" y="' + (YT - 4) + '" fill="var(--viz-red)" font-size="9.5" text-anchor="middle">' +
+        (off ? 'x is off the window' : 'x = ' + x) + '</text>';
+
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="The standard normal curve with the area left of z shaded, a raw-value axis above and a z axis below">' +
+        '<path d="' + fill + '" fill="var(--viz-accent)" fill-opacity="0.26"></path>' +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"></polyline>' +
+        '<line x1="' + X0 + '" y1="22" x2="' + X1 + '" y2="22" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        '<line x1="' + X0 + '" y1="152" x2="' + X1 + '" y2="152" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        topTicks + botTicks + mark +
+        '<text x="' + X0 + '" y="9" fill="var(--viz-violet)" font-size="9">raw scale</text>' +
+        '<text x="' + X0 + '" y="171" fill="var(--viz-violet)" font-size="9">z scale (mean 0, SD 1)</text>' +
+        '</svg>';
+
+      calc.textContent = 'z = (x - mean) / SD\n  = (' + x + ' - ' + mu + ') / ' + sd + '\n  = ' + num(x - mu, 0) + ' / ' + sd +
+        '\n  = ' + num(z, 3);
+
+      var left = Phi(z), right = 1 - left;
+      var az = Math.abs(z);
+      var verdict = az < 1 ? 'typical — inside the middle 68%'
+        : az < 2 ? 'unremarkable — outside 1 SD, inside 2'
+        : az < 3 ? 'somewhat unusual — beyond 2 SD'
+        : 'rare — beyond 3 SD';
+      var vc = az < 1 ? 'var(--viz-green)' : az < 2 ? 'var(--viz-accent)' : az < 3 ? 'var(--viz-amber)' : 'var(--viz-red)';
+      function pill(t, c){ return '<span class="v4-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      pills.innerHTML =
+        pill('z = ' + num(z, 3), 'var(--viz-red)') +
+        pill('area to the left = ' + pcs(left) + '%', 'var(--viz-accent)') +
+        pill('area to the right = ' + pcs(right) + '%', 'var(--viz-muted)') +
+        pill('|z| = ' + num(az, 2) + ' · ' + verdict, vc);
+
+      var whole = (Math.abs(z - Math.round(z)) < 1e-9) ? Math.round(z) : null;
+      var ruleLine = '';
+      if (whole === 1 || whole === -1) ruleLine = 'Empirical rule cross-check: 68% lies between z = -1 and z = 1, so each tail is (100 - 68) / 2 = <b>16%</b>. The table above says ' + pcs(whole === 1 ? right : left) + '%, which is what "about 16%" is rounding.';
+      else if (whole === 2 || whole === -2) ruleLine = 'Empirical rule cross-check: 95% lies within 2 SD, so each tail is (100 - 95) / 2 = <b>2.5%</b>. The table says ' + pcs(whole === 2 ? right : left) + '% — somewhat unusual, roughly 1 in 40, and nowhere near impossible.';
+      else if (whole === 3 || whole === -3) ruleLine = 'Empirical rule cross-check: 99.7% lies within 3 SD, so each tail is (100 - 99.7) / 2 = <b>0.15%</b>. The table says ' + pcs(whole === 3 ? right : left) + '%.';
+      else ruleLine = 'z is not a whole number here, so the empirical rule has nothing to say about it — that is precisely when you need the table rather than the three memorised percentages.';
+
+      why.innerHTML =
+        '<b style="color:' + vc + '">' + (z > 0 ? 'Above' : z < 0 ? 'Below' : 'Exactly at') + ' the mean by ' + num(az, 3) + ' standard deviations.</b>' +
+        'The sign carries the side and the magnitude carries the surprise. Ranking values by how unusual they are means ranking by <b>|z|</b> and ignoring the sign entirely: z = 2.7 is more unusual than z = 1.0, and z = -2.7 is just as unusual as z = 2.7. A positive z means only "above the mean" — never "outlier" on its own. ' +
+        '<br><br>' + ruleLine +
+        (off ? '<br><br><b style="color:var(--viz-amber)">|z| is past 4, off the drawn window.</b> The marker is dashed and pinned to the edge; the numbers above are still exact.' : '') +
+        '<br><br>Read it backwards too: with mean ' + mu + ' and SD ' + sd + ', the value exactly one standard deviation below the mean is ' + mu + ' - ' + sd + ' = <b>' + (mu - sd) + '</b>. Percentile in, value out.';
+    }
+
+    function preset(k){ xS.value = String(PRE[k][0]); mS.value = String(PRE[k][1]); sS.value = String(PRE[k][2]); render(); }
+    pb[0].addEventListener('click', function(){ preset(0); });
+    pb[1].addEventListener('click', function(){ preset(1); });
+    pb[2].addEventListener('click', function(){ preset(2); });
+    pb[3].addEventListener('click', function(){ preset(3); });
+    xS.addEventListener('input', render);
+    mS.addEventListener('input', render);
+    sS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Two Dials, One Bell</h2>
+  <p class="vz-lede">A normal distribution has exactly two parameters and they do completely different jobs.
+    The dashed curve is a fixed reference, Normal(50, 4). Move the mean and only the position changes; move
+    the standard deviation and the shape does. <b>Like a tent: carry it somewhere else and it is the same
+    tent; widen the base and the roof has to come down.</b></p>
+
+  <div class="vz-card v5-wrap">
+    <div class="v5-plot" id="v5-plot"></div>
+    <label class="v5-lab" for="v5-m">mean = <span id="v5-ml">50</span></label>
+    <input type="range" id="v5-m" min="40" max="60" value="50" step="1" aria-label="The mean of the normal curve">
+    <label class="v5-lab" for="v5-s">standard deviation = <span id="v5-sl">4</span></label>
+    <input type="range" id="v5-s" min="2" max="10" value="4" step="1" aria-label="The standard deviation of the normal curve">
+    <div class="vz-seg v5-jump" role="group" aria-label="Worked cases">
+      <button id="v5-b0" type="button" aria-pressed="true">mean 50 · SD 4</button>
+      <button id="v5-b1" type="button" aria-pressed="false">mean 60 · SD 4</button>
+      <button id="v5-b2" type="button" aria-pressed="false">mean 50 · SD 10</button>
+      <button id="v5-b3" type="button" aria-pressed="false">mean 50 · SD 2</button>
+    </div>
+    <div class="v5-pills" id="v5-pills"></div>
+    <div class="v5-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Notation matters and the two conventions disagree. Written <b>Normal(mean, standard
+    deviation)</b> — the form these questions use — Normal(50, 4) has SD 4 and variance 16. Written
+    <b>N(mu, sigma^2)</b> the second slot is the variance instead, so the same curve is N(50, 16). Check
+    which one a source is using before you trust the number.</p>
+
+  <style>
+    .v5-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v5-plot svg{width:100%;height:auto;display:block}
+    .v5-lab{font-size:12.5px;font-weight:700;display:block;margin:11px 0 3px}
+    .v5-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v5-wrap input[type=range]{width:100%;min-height:44px;display:block}
+    .v5-pills{margin-top:8px;display:flex;gap:7px;flex-wrap:wrap}
+    .v5-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v5-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var LO = 0, HI = 100, YMAX = 0.212, RM = 50, RS = 4;
+    var PW = 320, PH = 172, X0 = 12, X1 = 310, YB = 140, YT = 10;
+    function PX(x){ return X0 + (x - LO) / (HI - LO) * (X1 - X0); }
+    function PY(d){ var y = YB - d / YMAX * (YB - YT); return isFinite(y) ? Math.max(YT - 2, Math.min(YB, y)) : YB; }
+    function nd(x, m, s){ return Math.exp(-(x - m) * (x - m) / (2 * s * s)) / (s * Math.sqrt(2 * Math.PI)); }
+    function areaOf(m, s){
+      var M = 1200, st = (HI - LO) / M, acc = 0, prev = nd(LO, m, s);
+      for (var i = 1; i <= M; i++) { var cur = nd(LO + i * st, m, s); acc += (prev + cur) / 2 * st; prev = cur; }
+      return isFinite(acc) ? acc : 0;
+    }
+    function f(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+
+    var plot = document.getElementById('v5-plot');
+    var mS = document.getElementById('v5-m'), mL = document.getElementById('v5-ml');
+    var sS = document.getElementById('v5-s'), sL = document.getElementById('v5-sl');
+    var pills = document.getElementById('v5-pills'), why = document.getElementById('v5-why');
+    var bb = [document.getElementById('v5-b0'), document.getElementById('v5-b1'),
+              document.getElementById('v5-b2'), document.getElementById('v5-b3')];
+    var PRE = [[50, 4], [60, 4], [50, 10], [50, 2]];
+
+    var refPts = '';
+    for (var r = 0; r <= 260; r++) { var xr = LO + (HI - LO) * r / 260; refPts += PX(xr).toFixed(2) + ',' + PY(nd(xr, RM, RS)).toFixed(2) + ' '; }
+
+    function render(){
+      var m = Number(mS.value), s = Number(sS.value);
+      if (!isFinite(m)) m = RM;
+      if (!isFinite(s) || s < 1) s = 2;
+      mL.textContent = String(m); sL.textContent = String(s);
+      for (var j = 0; j < bb.length; j++) bb[j].setAttribute('aria-pressed', (m === PRE[j][0] && s === PRE[j][1]) ? 'true' : 'false');
+
+      var pts = '';
+      for (var i = 0; i <= 260; i++) { var x = LO + (HI - LO) * i / 260; pts += PX(x).toFixed(2) + ',' + PY(nd(x, m, s)).toFixed(2) + ' '; }
+      var peak = 1 / (s * Math.sqrt(2 * Math.PI));
+      var band = '<rect x="' + PX(m - s).toFixed(2) + '" y="' + YT + '" width="' + Math.max(1, PX(m + s) - PX(m - s)).toFixed(2) +
+        '" height="' + (YB - YT) + '" fill="var(--viz-green)" fill-opacity="0.16"></rect>';
+      var muL = '<line x1="' + PX(m).toFixed(2) + '" y1="' + PY(peak).toFixed(2) + '" x2="' + PX(m).toFixed(2) + '" y2="' + YB +
+        '" stroke="var(--viz-violet)" stroke-width="1.8"></line>' +
+        '<text x="' + PX(m).toFixed(2) + '" y="' + Math.max(YT + 8, PY(peak) - 4).toFixed(2) +
+        '" fill="var(--viz-violet)" font-size="9" text-anchor="middle">mean = median = mode = ' + m + '</text>';
+      var ticks = '';
+      for (var t = 0; t <= 100; t += 20) {
+        ticks += '<line x1="' + PX(t).toFixed(2) + '" y1="' + YB + '" x2="' + PX(t).toFixed(2) + '" y2="' + (YB + 4) + '" stroke="var(--viz-line)" stroke-width="1"></line>' +
+          '<text x="' + PX(t).toFixed(2) + '" y="' + (YB + 15) + '" fill="var(--viz-muted)" font-size="9" text-anchor="middle">' + t + '</text>';
+      }
+
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="The live normal curve against a dashed reference curve, with the plus or minus one standard deviation band shaded">' +
+        band +
+        '<polyline points="' + refPts + '" fill="none" stroke="var(--viz-muted)" stroke-width="1.5" stroke-dasharray="5 4"></polyline>' +
+        '<polyline points="' + pts + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.2"></polyline>' +
+        muL + '<line x1="' + X0 + '" y1="' + YB + '" x2="' + X1 + '" y2="' + YB + '" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        ticks +
+        '<text x="' + X0 + '" y="' + (YT + 8) + '" fill="var(--viz-muted)" font-size="9">dashed = reference Normal(50, 4) · solid = live curve</text>' +
+        '</svg>';
+
+      var refPeak = 1 / (RS * Math.sqrt(2 * Math.PI));
+      var total = areaOf(m, s);
+      function pill(t, c){ return '<span class="v5-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      pills.innerHTML =
+        pill('X ~ Normal(' + m + ', ' + s + ')', 'var(--viz-violet)') +
+        pill('peak height = ' + f(peak, 4), s > RS ? 'var(--viz-red)' : s < RS ? 'var(--viz-green)' : 'var(--viz-muted)') +
+        pill('variance = ' + f(s * s, 0), 'var(--viz-muted)') +
+        pill('total area = ' + f(total, 2), 'var(--viz-green)') +
+        pill('middle 68% = ' + f(m - s, 0) + ' to ' + f(m + s, 0), 'var(--viz-accent)');
+
+      var shape = s === RS
+        ? '<b style="color:var(--viz-green)">Same standard deviation as the reference, so the shape is identical.</b>' +
+          (m === RM ? 'The two curves lie exactly on top of each other. ' : 'The live curve is the dashed one slid ' + Math.abs(m - RM) + ' units ' + (m > RM ? 'right' : 'left') + ' — same height, same width, same area. <b>Changing the mean changes the centre and nothing else.</b> ')
+        : s > RS
+          ? '<b style="color:var(--viz-red)">Bigger standard deviation: wider AND flatter.</b>' +
+            'The peak fell from ' + f(refPeak, 4) + ' to ' + f(peak, 4) + ', a factor of ' + f(RS / s, 2) + ', which is exactly the factor 4/' + s + ' you get from peak = 1 / (SD × sqrt(2π)). '
+          : '<b style="color:var(--viz-green)">Smaller standard deviation: narrower AND taller.</b>' +
+            'The peak rose from ' + f(refPeak, 4) + ' to ' + f(peak, 4) + ', the factor 4/' + s + ' predicted by peak = 1 / (SD × sqrt(2π)). ';
+
+      why.innerHTML = shape +
+        'Height and width are locked together because <b>the total area is nailed to ' + f(total, 2) +
+        '</b> no matter what either dial does — spread the mass out and it has to get shallower, squeeze it in and it has to get taller. That is why "wider and flatter" is always a statement about the standard deviation, never about the mean and never about sample size. ' +
+        '<br><br>The curve is symmetric about ' + m + ', so the balance point (mean), the half-way rank (median) and the peak (mode) all sit there together — approximately equal in any real, approximately normal data set. Everything is bell-shaped and single-peaked; nothing here is skewed, flat or spiky.';
+    }
+
+    function preset(k){ mS.value = String(PRE[k][0]); sS.value = String(PRE[k][1]); render(); }
+    bb[0].addEventListener('click', function(){ preset(0); });
+    bb[1].addEventListener('click', function(){ preset(1); });
+    bb[2].addEventListener('click', function(){ preset(2); });
+    bb[3].addEventListener('click', function(){ preset(3); });
+    mS.addEventListener('input', render);
+    sS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. Shift Then Stretch</h2>
+  <p class="vz-lede">Nine values, one transformation y = a&middot;x + b. Every statistic you learned in
+    <b>Measuring center in quantitative data</b> and <b>Variance and standard deviation of a population</b>
+    reacts to a and b differently — and the panel checks the rule against the recomputed data every time.
+    <b>Like moving a ruler versus rescaling it: sliding it changes every reading, stretching it changes
+    every gap.</b></p>
+
+  <div class="vz-card v6-wrap">
+    <div class="v6-plot" id="v6-plot"></div>
+    <label class="v6-lab" for="v6-a">multiply by a = <span id="v6-al">1</span></label>
+    <input type="range" id="v6-a" min="-3" max="4" value="1" step="1" aria-label="The multiplier a">
+    <label class="v6-lab" for="v6-b">then add b = <span id="v6-bl">7</span></label>
+    <input type="range" id="v6-b" min="-10" max="10" value="7" step="1" aria-label="The constant b">
+    <div class="vz-seg v6-jump" role="group" aria-label="Worked cases">
+      <button id="v6-p0" type="button" aria-pressed="true">add 7</button>
+      <button id="v6-p1" type="button" aria-pressed="false">multiply by 4</button>
+      <button id="v6-p2" type="button" aria-pressed="false">y = 2x + 1</button>
+      <button id="v6-p3" type="button" aria-pressed="false">add 3</button>
+    </div>
+    <div class="v6-table vz-mono" id="v6-table"></div>
+    <div class="v6-pills" id="v6-pills"></div>
+    <div class="v6-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">This is the machinery behind visual 4. Standardizing is the linear transformation with
+    <b>a = 1 / SD</b> and <b>b = -mean / SD</b>: the new mean is mean/SD - mean/SD = 0 and the new standard
+    deviation is (1/SD) &times; SD = 1. Shape is untouched, which is exactly why a z-score is a distance and
+    not a promise of normality.</p>
+
+  <style>
+    .v6-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px}
+    .v6-plot svg{width:100%;height:auto;display:block}
+    .v6-lab{font-size:12.5px;font-weight:700;display:block;margin:11px 0 3px}
+    .v6-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+    .v6-wrap input[type=range]{width:100%;min-height:44px;display:block}
+    .v6-table{margin-top:8px;border:1px solid var(--viz-line);border-radius:9px;padding:9px 10px;background:var(--viz-bg)}
+    .v6-pills{margin-top:11px;display:flex;gap:7px;flex-wrap:wrap}
+    .v6-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+      font-family:ui-monospace,Consolas,monospace}
+    .v6-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+    .v6-why b{display:block;font-size:13px;margin-bottom:4px}
+  </style>
+  <script>
+  (function(){
+    var DATA = [3, 4, 5, 5, 6, 7, 8, 10, 15];
+    function stats(arr){
+      var s = arr.slice(0).sort(function(p, q){ return p - q; }), n = s.length, i, sum = 0;
+      for (i = 0; i < n; i++) sum += s[i];
+      var m = sum / n, ss = 0;
+      for (i = 0; i < n; i++) ss += (s[i] - m) * (s[i] - m);
+      var q1 = (s[1] + s[2]) / 2, q3 = (s[6] + s[7]) / 2;
+      return { mean:m, med:s[4], sd:Math.sqrt(ss / n), q1:q1, q3:q3, iqr:q3 - q1, min:s[0], max:s[n - 1], sorted:s };
+    }
+    var S0 = stats(DATA);
+    function f(x, d){ return isFinite(x) ? x.toFixed(d) : '—'; }
+    function pad(t, w){ var s = String(t); while (s.length < w) s += ' '; return s; }
+
+    var AXL = -58, AXH = 73, PW = 320, PH = 104, X0 = 12, X1 = 310;
+    function PX(v){ return X0 + (Math.max(AXL, Math.min(AXH, v)) - AXL) / (AXH - AXL) * (X1 - X0); }
+
+    var plot = document.getElementById('v6-plot');
+    var aS = document.getElementById('v6-a'), aL = document.getElementById('v6-al');
+    var bS = document.getElementById('v6-b'), bL = document.getElementById('v6-bl');
+    var tbl = document.getElementById('v6-table'), pills = document.getElementById('v6-pills'), why = document.getElementById('v6-why');
+    var pb = [document.getElementById('v6-p0'), document.getElementById('v6-p1'),
+              document.getElementById('v6-p2'), document.getElementById('v6-p3')];
+    var PRE = [[1, 7], [4, 0], [2, 1], [1, 3]];
+
+    function render(){
+      var a = Number(aS.value), b = Number(bS.value);
+      if (!isFinite(a)) a = 1;
+      if (!isFinite(b)) b = 0;
+      aL.textContent = String(a); bL.textContent = String(b);
+      for (var j = 0; j < pb.length; j++) pb[j].setAttribute('aria-pressed', (a === PRE[j][0] && b === PRE[j][1]) ? 'true' : 'false');
+
+      var T = [], i;
+      for (i = 0; i < DATA.length; i++) T.push(a * DATA[i] + b);
+      var S1 = stats(T);
+
+      var dots = '', dots2 = '';
+      for (i = 0; i < DATA.length; i++) {
+        dots += '<circle cx="' + PX(DATA[i]).toFixed(2) + '" cy="30" r="4" fill="var(--viz-muted)"></circle>';
+        dots2 += '<circle cx="' + PX(T[i]).toFixed(2) + '" cy="66" r="4" fill="var(--viz-accent)"></circle>';
+      }
+      var ticks = '';
+      for (var t = -50; t <= 70; t += 20) {
+        ticks += '<line x1="' + PX(t).toFixed(2) + '" y1="84" x2="' + PX(t).toFixed(2) + '" y2="88" stroke="var(--viz-line)" stroke-width="1"></line>' +
+          '<text x="' + PX(t).toFixed(2) + '" y="99" fill="var(--viz-muted)" font-size="9" text-anchor="middle">' + t + '</text>';
+      }
+      var meanMarks =
+        '<line x1="' + PX(S0.mean).toFixed(2) + '" y1="18" x2="' + PX(S0.mean).toFixed(2) + '" y2="42" stroke="var(--viz-violet)" stroke-width="1.8"></line>' +
+        '<line x1="' + PX(S1.mean).toFixed(2) + '" y1="54" x2="' + PX(S1.mean).toFixed(2) + '" y2="78" stroke="var(--viz-violet)" stroke-width="1.8"></line>';
+
+      plot.innerHTML = '<svg viewBox="0 0 ' + PW + ' ' + PH + '" role="img" aria-label="The original nine values as grey dots above the transformed values as accent dots, with each mean marked">' +
+        dots + dots2 + meanMarks +
+        '<line x1="' + X0 + '" y1="84" x2="' + X1 + '" y2="84" stroke="var(--viz-muted)" stroke-width="1.2"></line>' +
+        ticks +
+        '<text x="' + X0 + '" y="14" fill="var(--viz-muted)" font-size="9">original x (grey)</text>' +
+        '<text x="' + X0 + '" y="52" fill="var(--viz-accent)" font-size="9">transformed y = a·x + b (accent)</text>' +
+        '</svg>';
+
+      var pMean = a * S0.mean + b, pMed = a * S0.med + b, pSd = Math.abs(a) * S0.sd, pIqr = Math.abs(a) * S0.iqr;
+      var agree = Math.abs(pMean - S1.mean) < 1e-9 && Math.abs(pMed - S1.med) < 1e-9 &&
+                  Math.abs(pSd - S1.sd) < 1e-9 && Math.abs(pIqr - S1.iqr) < 1e-9;
+
+      tbl.textContent =
+        pad('', 8) + pad('original', 11) + pad('rule says', 12) + 'recomputed\n' +
+        pad('mean', 8) + pad(f(S0.mean, 3), 11) + pad(f(pMean, 3), 12) + f(S1.mean, 3) + '\n' +
+        pad('median', 8) + pad(f(S0.med, 3), 11) + pad(f(pMed, 3), 12) + f(S1.med, 3) + '\n' +
+        pad('SD', 8) + pad(f(S0.sd, 3), 11) + pad(f(pSd, 3), 12) + f(S1.sd, 3) + '\n' +
+        pad('IQR', 8) + pad(f(S0.iqr, 3), 11) + pad(f(pIqr, 3), 12) + f(S1.iqr, 3);
+
+      function pill(t, c){ return '<span class="v6-pill" style="color:' + c + ';border-color:' + c + '">' + t + '</span>'; }
+      pills.innerHTML =
+        pill('mean: ' + f(S0.mean, 2) + ' -> ' + f(S1.mean, 2), 'var(--viz-violet)') +
+        pill('SD: ' + f(S0.sd, 3) + ' -> ' + f(S1.sd, 3), 'var(--viz-accent)') +
+        pill('SD factor = |a| = ' + f(Math.abs(a), 0), 'var(--viz-accent)') +
+        pill(agree ? 'rule matches recomputed data' : 'rule and data disagree', agree ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      var head, body;
+      if (a === 1) {
+        head = '<b style="color:var(--viz-green)">a = 1: a pure shift by ' + b + '.</b>';
+        body = 'Mean ' + f(S0.mean, 2) + ' -> ' + f(S1.mean, 2) + ' and median ' + f(S0.med, 2) + ' -> ' + f(S1.med, 2) +
+          ', both moved by exactly ' + b + '. Standard deviation stays ' + f(S1.sd, 3) + ' and the IQR stays ' + f(S1.iqr, 2) +
+          ', because a rigid shift changes no distance between two points. <b>The shape is unchanged, just relocated</b> — compare the two dot rows, which are the same pattern in two places.';
+      } else if (a === 0) {
+        head = '<b style="color:var(--viz-amber)">a = 0: the distribution collapses.</b>';
+        body = 'Every value became ' + b + ', so the mean and median are ' + b + ' while SD and IQR are both 0. There is no spread and no shape left to talk about. It is the degenerate end of "multiply by a": the spread factor |a| is 0, so all spread is 0.';
+      } else if (a > 0) {
+        head = '<b style="color:var(--viz-accent)">a = ' + a + ': stretched, then shifted by ' + b + '.</b>';
+        body = 'Centres take both operations — new mean = ' + a + '(' + f(S0.mean, 2) + ') + ' + b + ' = ' + f(pMean, 2) +
+          '. Spreads take only the multiplication: SD = ' + a + ' × ' + f(S0.sd, 3) + ' = ' + f(pSd, 3) +
+          ', and the IQR likewise. Note the trap: the SD is multiplied by ' + a + ', <b>not</b> by ' + (a * a) +
+          ' — ' + (a * a) + ' is what happens to the variance. The +' + b + ' contributes nothing at all to spread.';
+      } else {
+        head = '<b style="color:var(--viz-red)">a = ' + a + ' is negative: the data is reflected as well as scaled.</b>';
+        body = 'Spread still scales by <b>|a| = ' + Math.abs(a) + '</b> — a distance cannot be negative — so SD = ' +
+          Math.abs(a) + ' × ' + f(S0.sd, 3) + ' = ' + f(pSd, 3) + '. But the order of the values is reversed, so the long right tail of the original becomes a long left tail: this is the one case where <b>the shape really does change</b>, and "unchanged, just shifted" would be wrong.';
+      }
+      why.innerHTML = head + body +
+        '<br><br>The "rule says" and "recomputed" columns above are produced independently — one from the formulas, one by re-sorting and re-averaging the nine transformed numbers — and they agree' +
+        (agree ? ' to the last decimal at every setting of both dials.' : ', except right now, which would be a bug.');
+    }
+
+    function preset(k){ aS.value = String(PRE[k][0]); bS.value = String(PRE[k][1]); render(); }
+    pb[0].addEventListener('click', function(){ preset(0); });
+    pb[1].addEventListener('click', function(){ preset(1); });
+    pb[2].addEventListener('click', function(){ preset(2); });
+    pb[3].addEventListener('click', function(){ preset(3); });
+    aS.addEventListener('input', render);
+    bS.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

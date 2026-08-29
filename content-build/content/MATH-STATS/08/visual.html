@@ -1,0 +1,806 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the preset row.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 104px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 96px}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;line-height:1.7;white-space:pre-wrap;word-break:break-word}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block}
+.vz-pills{display:flex;gap:7px;flex-wrap:wrap;margin:13px 0 0}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Counting Without Listing</button>
+  <button class="viz-tab" data-viz-tab="2">2. Factorial Ladder</button>
+  <button class="viz-tab" data-viz-tab="3">3. Slots And Leftovers</button>
+  <button class="viz-tab" data-viz-tab="4">4. Divide Out Order</button>
+  <button class="viz-tab" data-viz-tab="5">5. Favourable Over Total</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Counting Without Listing</h2>
+  <p class="vz-lede"><b>Probability using sample spaces</b> found probabilities by writing the sample space
+    out and counting it. Drag the two stages and watch that written-out tree grow past the point where
+    anyone would write it — which is the entire reason the counting principle exists.
+    <b>Like a wardrobe: every shirt faces the whole rail of trousers, so outfits multiply rather than
+    add.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-m">Shirts: <b id="v1-ml">3</b></label>
+    <input type="range" id="v1-m" min="1" max="6" value="3" step="1" aria-label="Number of shirts">
+    <label class="vz-lab" for="v1-n">Pants: <b id="v1-nl">4</b></label>
+    <input type="range" id="v1-n" min="1" max="6" value="4" step="1" aria-label="Number of pants">
+
+    <div class="vz-pills" id="v1-stat"></div>
+    <div class="v1-tree" id="v1-tree"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The counting principle is the <b>Multiplication rule for independent events</b> with the
+    probabilities stripped out: independent stages multiply their option counts exactly as independent events
+    multiply their probabilities. And when the stages are <em>dependent</em> — no item may be reused — the
+    pool shrinks by one each time instead of resetting. That single change is the next three visuals.</p>
+
+  <style>
+    .v1-tree{margin-top:14px;border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);
+      padding:6px 4px;overflow-x:auto}
+    .v1-tree svg{display:block;width:100%;height:auto}
+  </style>
+  <script>
+  (function(){
+    var sm = document.getElementById('v1-m'), sn = document.getElementById('v1-n');
+    var ml = document.getElementById('v1-ml'), nl = document.getElementById('v1-nl');
+    var stat = document.getElementById('v1-stat'), tree = document.getElementById('v1-tree');
+    var why = document.getElementById('v1-why');
+
+    function clampInt(v, lo, hi){
+      var x = Math.round(Number(v));
+      if (!isFinite(x)) x = lo;
+      return Math.min(hi, Math.max(lo, x));
+    }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+
+    function render(){
+      var m = clampInt(sm.value, 1, 6), n = clampInt(sn.value, 1, 6);
+      ml.textContent = m; nl.textContent = n;
+      var leaves = m * n;
+
+      var RH = 13, PAD = 9, W = 300, H = leaves * RH + PAD * 2;
+      var rootY = H / 2;
+      var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" ' +
+        'role="img" aria-label="Tree with ' + m + ' shirt branches and ' + leaves + ' outfit leaves">';
+      svg += '<circle cx="12" cy="' + rootY + '" r="4" style="fill:var(--viz-ink)"></circle>';
+      for (var i = 0; i < m; i++) {
+        var top = PAD + (i * n) * RH + RH / 2;
+        var bot = PAD + (i * n + n - 1) * RH + RH / 2;
+        var my = (top + bot) / 2;
+        svg += '<path d="M12 ' + rootY + ' C 46 ' + rootY + ', 46 ' + my + ', 82 ' + my + '" ' +
+          'style="fill:none;stroke:var(--viz-line);stroke-width:1.5"></path>';
+        svg += '<circle cx="82" cy="' + my + '" r="3.6" style="fill:var(--viz-accent)"></circle>';
+        svg += '<text x="74" y="' + (my + 3.4) + '" text-anchor="end" ' +
+          'style="fill:var(--viz-muted);font-size:9.5px;font-weight:700">S' + (i + 1) + '</text>';
+        for (var j = 0; j < n; j++) {
+          var ly = PAD + (i * n + j) * RH + RH / 2;
+          svg += '<path d="M82 ' + my + ' C 116 ' + my + ', 126 ' + ly + ', 158 ' + ly + '" ' +
+            'style="fill:none;stroke:var(--viz-line);stroke-width:1.1"></path>';
+          svg += '<circle cx="158" cy="' + ly + '" r="2.8" style="fill:var(--viz-green)"></circle>';
+          svg += '<text x="166" y="' + (ly + 3.4) + '" ' +
+            'style="fill:var(--viz-ink);font-size:9.5px">S' + (i + 1) + ' with P' + (j + 1) + '</text>';
+        }
+      }
+      svg += '</svg>';
+      tree.innerHTML = svg;
+
+      stat.innerHTML =
+        pill(m + ' + ' + n + ' = ' + (m + n) + ' garments', 'var(--viz-amber)') +
+        pill(m + ' × ' + n + ' = ' + leaves + ' outfits', 'var(--viz-green)') +
+        pill('add 2 hats: ' + m + ' × ' + n + ' × 2 = ' + (leaves * 2), 'var(--viz-violet)');
+
+      var flat = (m === 1 || n === 1);
+      why.innerHTML =
+        (flat
+          ? '<b style="color:var(--viz-amber)">One stage offers a single option, so the tree barely branches.</b>' +
+            'With ' + m + ' shirt' + (m === 1 ? '' : 's') + ' and ' + n + ' pant' + (n === 1 ? '' : 's') +
+            ' the product is ' + leaves + ' while the sum is ' + (m + n) + ' — here the sum is the <em>larger</em> number. ' +
+            'That is the point worth taking: the choice between <b>+</b> and <b>×</b> is never about which answer looks bigger. ' +
+            'Addition answers "how many single garments could I pick?"; multiplication answers "how many complete outfits are there?" ' +
+            'Drag either slider up and the two answers separate fast.'
+          : '<b style="color:var(--viz-green)">Every shirt faces the whole rail: ' + m + ' copies of ' + n + ' leaves.</b>' +
+            'Each of the ' + m + ' first-stage branches carries its own full set of ' + n + ' second-stage branches, so the leaves are ' +
+            m + ' × ' + n + ' = <b>' + leaves + '</b>, a product and not a sum. ' +
+            'Adding gives ' + (m + n) + ', which is a real number answering a different question — how many garments are in the wardrobe if you take exactly one item. ' +
+            'Subtracting or dividing them answers nothing here at all.') +
+        '<br><br>Each further stage multiplies again, so the tree outruns the page immediately: five stages of six choices is ' +
+        '6^5 = 7,776 leaves, and a 5-card hand from a 52-card deck has 2,598,960. ' +
+        'The drawing above is already awkward at <b>' + leaves + '</b> leaves. Arithmetic is the only way up, and every remaining visual is a way of doing this multiplication faster.';
+    }
+    sm.addEventListener('input', render);
+    sn.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Factorial Ladder</h2>
+  <p class="vz-lede">Arrange <em>everything</em>, and the pool shrinks by one at every slot. Drag n to watch
+    the falling product, the recurrence that forces 0! = 1, and how long it would take to print the list.
+    <b>Like seating guests at a table: each chair you fill leaves one fewer guest standing.</b></p>
+
+  <div class="vz-pre">
+    <button id="v2-p0" type="button">0 items</button>
+    <button id="v2-p4" type="button">4 books</button>
+    <button id="v2-p5" type="button">5 items</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-n">Distinct items to arrange, n = <b id="v2-nl">4</b></label>
+    <input type="range" id="v2-n" min="0" max="12" value="4" step="1" aria-label="Number of distinct items">
+
+    <div class="v2-slots" id="v2-slots"></div>
+    <div class="v2-chain vz-mono" id="v2-chain"></div>
+    <div class="vz-pills" id="v2-near"></div>
+    <div class="v2-rec vz-mono" id="v2-rec"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">0! = 1 is not a special case bolted on afterwards. It is what the recurrence
+    n! = n × (n−1)! already says at n = 1, and every later formula quietly leans on it: arranging all
+    n items must come out as n!, and n! / (n−n)! only agrees with that when 0! = 1.</p>
+
+  <style>
+    .v2-slots{display:flex;gap:5px;flex-wrap:wrap;margin-top:16px}
+    .v2-slot{flex:0 0 auto;min-width:34px;height:38px;border:1.5px solid var(--viz-accent);border-radius:8px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--viz-bg)}
+    .v2-slot span{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:800;color:var(--viz-accent)}
+    .v2-slot em{font-size:8px;font-style:normal;color:var(--viz-muted);letter-spacing:.04em}
+    .v2-slot.is-empty{border-style:dashed;border-color:var(--viz-line);min-width:100%}
+    .v2-slot.is-empty span{color:var(--viz-muted);font-size:11px}
+    .v2-chain{margin-top:13px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1px solid var(--viz-line)}
+    .v2-rec{margin-top:13px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1px dashed var(--viz-line);font-size:11.5px;color:var(--viz-muted)}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v2-n'), lab = document.getElementById('v2-nl');
+    var slots = document.getElementById('v2-slots'), chain = document.getElementById('v2-chain');
+    var near = document.getElementById('v2-near'), rec = document.getElementById('v2-rec');
+    var why = document.getElementById('v2-why');
+    var p0 = document.getElementById('v2-p0'), p4 = document.getElementById('v2-p4'), p5 = document.getElementById('v2-p5');
+
+    function fact(k){
+      var f = 1;
+      for (var i = 2; i <= k; i++) f *= i;
+      return f;
+    }
+    function num(x){ return isFinite(x) ? x.toLocaleString('en-US') : '—'; }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+    function dur(ms){
+      if (!isFinite(ms) || ms < 0) return '—';
+      if (ms < 1000) return Math.round(ms) + ' ms';
+      var sec = ms / 1000;
+      if (sec < 90) return (Math.round(sec * 10) / 10) + ' seconds';
+      var min = sec / 60;
+      if (min < 90) return (Math.round(min * 10) / 10) + ' minutes';
+      var hr = min / 60;
+      if (hr < 48) return (Math.round(hr * 10) / 10) + ' hours';
+      return (Math.round(hr / 24 * 10) / 10) + ' days';
+    }
+
+    function render(){
+      var n = Math.round(Number(s.value));
+      if (!isFinite(n)) n = 0;
+      n = Math.min(12, Math.max(0, n));
+      lab.textContent = n;
+      var f = fact(n);
+
+      if (n === 0) {
+        slots.innerHTML = '<div class="v2-slot is-empty"><span>no slots to fill — 1 arrangement, the empty one</span></div>';
+        chain.textContent = '0! = (empty product) = 1';
+      } else {
+        var cells = '';
+        for (var i = 0; i < n; i++) {
+          cells += '<div class="v2-slot"><span>' + (n - i) + '</span><em>slot ' + (i + 1) + '</em></div>';
+        }
+        slots.innerHTML = cells;
+        var terms = [];
+        for (var k = n; k >= 1; k--) terms.push(k);
+        chain.textContent = n + '! = ' + terms.join(' × ') + ' = ' + num(f);
+      }
+
+      if (n >= 2) {
+        near.innerHTML =
+          pill('n^2 = ' + num(n * n) + '  ·  2 slots, repeats OK', 'var(--viz-amber)') +
+          pill('n × (n−1) = ' + num(n * (n - 1)) + '  ·  2 slots, no repeats', 'var(--viz-violet)') +
+          pill('n! = ' + num(f) + '  ·  all ' + n + ' slots', 'var(--viz-green)');
+      } else {
+        near.innerHTML = pill('n! = ' + num(f) + '  ·  fewer than 2 items, so the two-slot comparisons have nothing to compare', 'var(--viz-muted)');
+      }
+
+      var lines = [];
+      for (var j = n; j >= 1; j--) {
+        lines.push(j + '! = ' + j + ' × ' + (j - 1) + '!  =  ' + j + ' × ' + num(fact(j - 1)) + '  =  ' + num(fact(j)));
+      }
+      lines.push('so at the bottom rung:  1! = 1 × 0!,  and 1! = 1,  therefore  0! = 1');
+      rec.textContent = lines.join('\n');
+
+      var msg;
+      if (n === 0) {
+        msg = '<b style="color:var(--viz-violet)">0! = 1, and the ladder above is the proof.</b>' +
+          'There is exactly one way to arrange nothing — the empty arrangement — so the answer is 1, not 0 and not "undefined". ' +
+          'The recurrence gets there without any appeal to taste: 1! = 1 × 0! and 1! = 1, so 0! must be 1.';
+      } else if (n === 1) {
+        msg = '<b style="color:var(--viz-accent)">One item, one arrangement.</b>' +
+          '1! = 1. Notice the rung below it on the ladder: 1! = 1 × 0!, which is the whole argument for 0! = 1 sitting in plain view.';
+      } else {
+        msg = '<b style="color:var(--viz-green)">' + n + ' items fill ' + n + ' slots as a falling product.</b>' +
+          n + ' items can take the first slot, ' + (n - 1) + ' remain for the second, and so on down to 1 — the counting principle ' +
+          'with a pool that shrinks because nothing may be reused. That is ' + n + '! = <b>' + num(f) + '</b>. ' +
+          'Compare it with the two near-misses above: n^2 = ' + num(n * n) + ' allows repeats and fills only two slots, and n × (n−1) = ' +
+          num(n * (n - 1)) + ' forbids repeats but still stops after two.';
+      }
+      msg += '<br><br>Printing the list at one arrangement per millisecond would take <b>' + dur(f) + '</b>. ' +
+        'That is why the rest of this lesson computes counts instead of producing them.';
+      why.innerHTML = msg;
+    }
+
+    function setN(v){ s.value = String(v); render(); }
+    p0.addEventListener('click', function(){ setN(0); });
+    p4.addEventListener('click', function(){ setN(4); });
+    p5.addEventListener('click', function(){ setN(5); });
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Slots And Leftovers</h2>
+  <p class="vz-lede">Stop after r slots instead of arranging everything, and the leftovers are what the
+    factorial formula divides away. Switch repetition on and off to see why n^r is a different question, not
+    a wrong answer. <b>Like a podium: three places to award, and everyone else goes home uncounted.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Repetition rule">
+    <button id="v3-norep" type="button" aria-pressed="true">no repeats — permutation</button>
+    <button id="v3-rep" type="button" aria-pressed="false">repeats allowed</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-n">Distinct items available, n = <b id="v3-nl">5</b></label>
+    <input type="range" id="v3-n" min="1" max="8" value="5" step="1" aria-label="Number of distinct items available">
+    <label class="vz-lab" for="v3-r">Slots to fill, r = <b id="v3-rl">3</b></label>
+    <input type="range" id="v3-r" min="0" max="8" value="3" step="1" aria-label="Number of slots to fill">
+
+    <div class="v3-slots" id="v3-slots"></div>
+    <div class="v3-work vz-mono" id="v3-work"></div>
+    <div class="vz-pills" id="v3-stat"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">n^r is a perfectly good counting formula — it is simply answering a different
+    question. Read the wording of the item: "distinct", "different" and "no letter repeated" forbid reuse and
+    send you to the falling product, while a PIN pad, a die rolled twice or a coin tossed r times allow it.
+    Nothing in the arithmetic tells you which world you are in; only the sentence does.</p>
+
+  <style>
+    .v3-slots{display:flex;gap:5px;flex-wrap:wrap;margin-top:16px;min-height:40px;align-items:center}
+    .v3-s{flex:0 0 auto;min-width:36px;height:40px;border:1.5px solid var(--viz-accent);border-radius:8px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--viz-bg)}
+    .v3-s span{font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:800;color:var(--viz-accent)}
+    .v3-s em{font-size:8px;font-style:normal;color:var(--viz-muted)}
+    .v3-s.is-dead{border-color:var(--viz-red)}
+    .v3-s.is-dead span{color:var(--viz-red)}
+    .v3-msg{font-size:11.5px;color:var(--viz-muted)}
+    .v3-work{margin-top:13px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line)}
+  </style>
+  <script>
+  (function(){
+    var sn = document.getElementById('v3-n'), sr = document.getElementById('v3-r');
+    var nl = document.getElementById('v3-nl'), rl = document.getElementById('v3-rl');
+    var bA = document.getElementById('v3-norep'), bB = document.getElementById('v3-rep');
+    var slots = document.getElementById('v3-slots'), work = document.getElementById('v3-work');
+    var stat = document.getElementById('v3-stat'), why = document.getElementById('v3-why');
+    var repeats = false;
+
+    function fact(k){ var f = 1; for (var i = 2; i <= k; i++) f *= i; return f; }
+    function num(x){ return isFinite(x) ? x.toLocaleString('en-US') : '—'; }
+    function nPr(n, r){
+      if (r < 0 || r > n) return 0;
+      var p = 1;
+      for (var i = 0; i < r; i++) p *= (n - i);
+      return p;
+    }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+
+    function render(){
+      var n = Math.min(8, Math.max(1, Math.round(Number(sn.value)) || 1));
+      var r = Math.round(Number(sr.value));
+      if (!isFinite(r)) r = 0;
+      r = Math.min(8, Math.max(0, r));
+      nl.textContent = n; rl.textContent = r;
+
+      bA.setAttribute('aria-pressed', repeats ? 'false' : 'true');
+      bB.setAttribute('aria-pressed', repeats ? 'true' : 'false');
+
+      var noRep = nPr(n, r), withRep = Math.pow(n, r);
+      var shown = repeats ? withRep : noRep;
+
+      var cells = '';
+      if (r === 0) {
+        cells = '<span class="v3-msg">r = 0: no slots to fill, and exactly <b>1</b> way to fill none of them.</span>';
+      } else {
+        for (var i = 0; i < r; i++) {
+          var avail = repeats ? n : (n - i);
+          var dead = (!repeats && avail <= 0);
+          cells += '<div class="v3-s' + (dead ? ' is-dead' : '') + '"><span>' + (dead ? '0' : avail) +
+            '</span><em>slot ' + (i + 1) + '</em></div>';
+        }
+      }
+      slots.innerHTML = cells;
+
+      var lines = [];
+      if (repeats) {
+        lines.push('n^r = ' + n + '^' + r + ' = ' + num(withRep));
+        if (r > 0) {
+          var t = [];
+          for (var j = 0; j < r; j++) t.push(String(n));
+          lines.push('        = ' + t.join(' × ') + '   (the pool resets every slot)');
+        }
+      } else if (r > n) {
+        lines.push('nPr = ' + n + 'P' + r + ' = 0');
+        lines.push('        slot ' + (n + 1) + ' has nothing left to put in it');
+      } else {
+        var f = [];
+        for (var k = 0; k < r; k++) f.push(String(n - k));
+        lines.push('nPr = ' + n + 'P' + r + ' = ' + (r === 0 ? '(empty product)' : f.join(' × ')) + ' = ' + num(noRep));
+        lines.push('        = n! / (n−r)! = ' + num(fact(n)) + ' / ' + num(fact(n - r)) + ' = ' + num(noRep));
+        lines.push('        the ' + (n - r) + ' leftover item' + (n - r === 1 ? '' : 's') +
+          ' contribute ' + num(fact(n - r)) + ', which is exactly what the denominator cancels');
+      }
+      work.textContent = lines.join('\n');
+
+      stat.innerHTML =
+        pill('no repeats: ' + num(noRep), repeats ? 'var(--viz-muted)' : 'var(--viz-green)') +
+        pill('repeats allowed: ' + num(withRep), repeats ? 'var(--viz-green)' : 'var(--viz-muted)') +
+        pill('showing: ' + num(shown), 'var(--viz-accent)');
+
+      var msg;
+      if (r === 0) {
+        msg = '<b style="color:var(--viz-violet)">Both rules agree at r = 0: there is one way to fill no slots.</b>' +
+          'n^0 = 1 and nP0 = n! / n! = 1. It is the empty arrangement again, and it is why 0! = 1 has to hold for the ratio to come out right.';
+      } else if (r === 1) {
+        msg = '<b style="color:var(--viz-violet)">Both rules agree at r = 1 as well: ' + n + ' ways either way.</b>' +
+          'Nothing has been reused yet, so the repetition rule has not had a chance to bite. From r = 2 upward the two counts separate ' +
+          '— drag r and watch ' + num(withRep) + ' pull away from ' + num(noRep) + '.';
+      } else if (!repeats && r > n) {
+        msg = '<b style="color:var(--viz-red)">' + n + 'P' + r + ' = 0, and that is the honest answer.</b>' +
+          'You are asking for ' + r + ' distinct items out of ' + n + '. The ' + (n + 1) + 'th slot has an empty pool, so the product hits zero and stays there. ' +
+          'Allow repeats and the same request is fine: ' + n + '^' + r + ' = ' + num(withRep) + '.';
+      } else if (repeats) {
+        msg = '<b style="color:var(--viz-green)">The pool resets, so every slot sees all ' + n + ' items.</b>' +
+          n + '^' + r + ' = ' + num(withRep) + ', against ' + num(noRep) + ' when reuse is banned. ' +
+          'This is the count for a PIN, a die rolled ' + r + ' times, or any process that puts the item back — and it is why "n^r for any n and r" is a wrong ' +
+          'answer to "which formula counts permutations": it is a right answer to a different question.';
+      } else {
+        msg = '<b style="color:var(--viz-green)">' + r + ' factors, falling: ' +
+          (function(){ var a = []; for (var q = 0; q < r; q++) a.push(String(n - q)); return a.join(' × '); })() +
+          ' = ' + num(noRep) + '.</b>' +
+          'Each slot removes one item from the pool, so the factors fall. Writing it as n! / (n−r)! multiplies the top up to the ' +
+          'full ' + num(fact(n)) + ' and then divides the ' + num(fact(n - r)) + ' orderings of the leftovers straight back out — ' +
+          'bookkeeping over the same falling product, never a new idea. In practice, cancel: never expand a large factorial you are about to divide.';
+      }
+      msg += '<br><br><b style="display:inline;font-size:12.5px">Order is already baked in here.</b> These slots are labelled ' +
+        '— first, second, third — so swapping two chosen items produces a different outcome and is counted twice. ' +
+        'Visual 4 asks what happens when that is not what you wanted.';
+      why.innerHTML = msg;
+    }
+
+    bA.addEventListener('click', function(){ repeats = false; render(); });
+    bB.addEventListener('click', function(){ repeats = true; render(); });
+    sn.addEventListener('input', render);
+    sr.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Divide Out Order</h2>
+  <p class="vz-lede">Every selection you want was counted once for each of its r! internal rearrangements.
+    Cycle through the selections and watch one of them explode into the ordered lists that all mean the same
+    thing. <b>Like a handful of coins: it does not matter which one you picked up first.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-n">Items to choose from, n = <b id="v4-nl">6</b></label>
+    <input type="range" id="v4-n" min="2" max="9" value="6" step="1" aria-label="Number of items to choose from">
+    <label class="vz-lab" for="v4-r">Items chosen, r = <b id="v4-rl">3</b></label>
+    <input type="range" id="v4-r" min="0" max="6" value="3" step="1" aria-label="Number of items chosen">
+
+    <div class="v4-work vz-mono" id="v4-work"></div>
+    <div class="v4-sets" id="v4-sets"></div>
+    <button class="v4-cycle" id="v4-cycle" type="button">highlight a different selection</button>
+    <div class="v4-orders" id="v4-orders"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The r! you divide by is the <b>exact</b> size of every over-count group, never an
+    approximation — which is why a quotient of factorials always lands on a whole number. It is also why
+    using a permutation where a combination was wanted is wrong by a factor you can name and correct, rather
+    than merely "too big".</p>
+
+  <style>
+    .v4-work{margin-top:14px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line)}
+    .v4-sets{display:flex;gap:5px;flex-wrap:wrap;margin-top:12px}
+    .v4-chip{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;border:1.5px solid var(--viz-line);
+      border-radius:8px;padding:5px 8px;color:var(--viz-muted);background:var(--viz-bg)}
+    .v4-chip.is-on{border-color:var(--viz-violet);color:var(--viz-violet);font-weight:800}
+    .v4-more{font-size:11px;color:var(--viz-muted);align-self:center}
+    .v4-cycle{display:block;width:100%;min-height:44px;margin-top:12px;border:1.5px solid var(--viz-line);
+      border-radius:10px;background:var(--viz-surface);color:var(--viz-ink);font:inherit;font-weight:700;font-size:12.5px}
+    .v4-orders{margin-top:12px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+      border:1px dashed var(--viz-violet);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7}
+  </style>
+  <script>
+  (function(){
+    var sn = document.getElementById('v4-n'), sr = document.getElementById('v4-r');
+    var nl = document.getElementById('v4-nl'), rl = document.getElementById('v4-rl');
+    var work = document.getElementById('v4-work'), sets = document.getElementById('v4-sets');
+    var cycle = document.getElementById('v4-cycle'), orders = document.getElementById('v4-orders');
+    var why = document.getElementById('v4-why');
+    var pick = 0;
+
+    function fact(k){ var f = 1; for (var i = 2; i <= k; i++) f *= i; return f; }
+    function num(x){ return isFinite(x) ? x.toLocaleString('en-US') : '—'; }
+    function letter(i){ return String.fromCharCode(65 + i); }
+    function nPr(n, r){ if (r < 0 || r > n) return 0; var p = 1; for (var i = 0; i < r; i++) p *= (n - i); return p; }
+    function nCr(n, r){ if (r < 0 || r > n) return 0; return nPr(n, r) / fact(r); }
+
+    function combos(n, r){
+      var out = [];
+      if (r < 0 || r > n) return out;
+      if (r === 0) { out.push([]); return out; }
+      var idx = [];
+      for (var i = 0; i < r; i++) idx.push(i);
+      for (;;) {
+        out.push(idx.slice());
+        var k = r - 1;
+        while (k >= 0 && idx[k] === n - r + k) k--;
+        if (k < 0) break;
+        idx[k]++;
+        for (var j = k + 1; j < r; j++) idx[j] = idx[j - 1] + 1;
+      }
+      return out;
+    }
+    function perms(arr){
+      if (arr.length <= 1) return [arr.slice()];
+      var out = [];
+      for (var i = 0; i < arr.length; i++) {
+        var rest = arr.slice(0, i).concat(arr.slice(i + 1));
+        var sub = perms(rest);
+        for (var j = 0; j < sub.length; j++) out.push([arr[i]].concat(sub[j]));
+      }
+      return out;
+    }
+    function word(list){ return list.length ? list.map(letter).join('') : '{ }'; }
+
+    function render(){
+      var n = Math.min(9, Math.max(2, Math.round(Number(sn.value)) || 2));
+      var r = Math.round(Number(sr.value));
+      if (!isFinite(r)) r = 0;
+      r = Math.min(6, Math.max(0, r));
+      nl.textContent = n; rl.textContent = r;
+
+      var P = nPr(n, r), F = fact(r), C = nCr(n, r);
+      var all = combos(n, r);
+      if (!all.length) pick = 0;
+      else pick = ((pick % all.length) + all.length) % all.length;
+
+      var lines = [];
+      if (r > n) {
+        lines.push(n + 'P' + r + ' = 0        ' + n + 'C' + r + ' = 0');
+        lines.push('you cannot choose ' + r + ' distinct items out of ' + n);
+      } else {
+        lines.push(n + 'P' + r + '  = ' + num(P) + '     ordered lists');
+        lines.push('r!    = ' + num(F) + '     rearrangements inside each selection');
+        lines.push(n + 'C' + r + '  = ' + num(P) + ' / ' + num(F) + ' = ' + num(C) + '     selections');
+        lines.push('check: ' + n + 'C' + r + ' = ' + n + 'C' + (n - r) + ' = ' + num(nCr(n, n - r)));
+      }
+      work.textContent = lines.join('\n');
+
+      var CAP = 14;
+      var chips = '';
+      for (var i = 0; i < Math.min(all.length, CAP); i++) {
+        chips += '<span class="v4-chip' + (i === pick ? ' is-on' : '') + '">' + word(all[i]) +
+          (i === pick ? ' ← shown below' : '') + '</span>';
+      }
+      if (all.length > CAP) chips += '<span class="v4-more">… and ' + (all.length - CAP) + ' more selections</span>';
+      if (!all.length) chips = '<span class="v4-more">no selections exist for these values</span>';
+      sets.innerHTML = chips;
+      cycle.disabled = all.length < 2;
+
+      if (!all.length) {
+        orders.textContent = '—';
+      } else {
+        var chosen = all[pick];
+        var ps = perms(chosen);
+        var OCAP = 12;
+        var txt = 'the selection ' + word(chosen) + ' appears in ' + num(F) + ' ordered list' + (F === 1 ? '' : 's') + ':\n';
+        var shownList = [];
+        for (var q = 0; q < Math.min(ps.length, OCAP); q++) shownList.push(word(ps[q]));
+        txt += shownList.join('   ');
+        if (ps.length > OCAP) txt += '   … and ' + (ps.length - OCAP) + ' more';
+        txt += '\nall ' + num(F) + ' of them are the same selection, so ' + num(F) + ' becomes 1.';
+        orders.textContent = txt;
+      }
+
+      var msg;
+      if (r > n) {
+        msg = '<b style="color:var(--viz-red)">You cannot choose more items than you have.</b>' +
+          'Both counts are 0. Bring r down to ' + n + ' or below, or raise n.';
+      } else if (r === 0) {
+        msg = '<b style="color:var(--viz-violet)">Exactly one way to choose nothing, and r! = 1.</b>' +
+          'nP0 = 1 and 0! = 1, so nothing is divided out and the ordered and unordered counts coincide at 1. ' +
+          'The empty selection is a real selection — it is why nC0 = 1.';
+      } else if (r === 1) {
+        msg = '<b style="color:var(--viz-violet)">At r = 1 the two counts are equal: ' + num(P) + ' either way.</b>' +
+          'A one-item list has 1! = 1 arrangement, so there is no over-count to remove. Together with r = 0 these are the ' +
+          '<em>only</em> cases where permutations do not exceed combinations — so "a permutation always gives a bigger number" ' +
+          'is a slogan with two exceptions, and a question can sit on either of them.';
+      } else {
+        msg = '<b style="color:var(--viz-green)">Each selection was counted ' + num(F) + ' times, so divide by ' + num(F) + '.</b>' +
+          'The ' + num(P) + ' ordered lists fall into ' + num(C) + ' groups of exactly ' + num(F) + ' — the block above shows one such group in full. ' +
+          'The division is exact because every group has the same size, which is the whole justification for nCr = nPr / r! = n! / (r!(n−r)!). ' +
+          '<br><br>Use a permutation where a combination was wanted and you are out by precisely this factor: ' + num(P) + ' slates where the answer is ' + num(C) + ' committees.';
+      }
+      msg += '<br><br><b style="display:inline;font-size:12.5px">The swap test decides which you need.</b> ' +
+        'Exchange two chosen items: if the outcome changed — president and vice president, a password, a place on a podium — it is a permutation. ' +
+        'If it did not — a committee, a hand of cards, a set of pizza toppings — it is a combination.';
+      why.innerHTML = msg;
+    }
+
+    cycle.addEventListener('click', function(){ pick += 1; render(); });
+    sn.addEventListener('input', function(){ pick = 0; render(); });
+    sr.addEventListener('input', function(){ pick = 0; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Favourable Over Total</h2>
+  <p class="vz-lede">Deal a hand at random and ask for the chance it holds card A. Count it as unordered
+    hands, then as ordered deals: both numbers change, the probability does not. Then mix the two and watch
+    it break. <b>Like weighing in kilograms or in pounds — fine, until you put one on each side of the
+    scale.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Counting convention">
+    <button id="v5-comb" type="button" aria-pressed="true">hands (combinations)</button>
+    <button id="v5-perm" type="button" aria-pressed="false">deals (permutations)</button>
+    <button id="v5-mix" type="button" aria-pressed="false">mixed</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-n">Deck size, n = <b id="v5-nl">4</b></label>
+    <input type="range" id="v5-n" min="2" max="12" value="4" step="1" aria-label="Deck size">
+    <label class="vz-lab" for="v5-r">Hand size, r = <b id="v5-rl">2</b></label>
+    <input type="range" id="v5-r" min="1" max="12" value="2" step="1" aria-label="Hand size">
+
+    <div class="v5-work vz-mono" id="v5-work"></div>
+    <div class="vz-pills" id="v5-stat"></div>
+    <div class="v5-list" id="v5-list"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Favourable-over-total is a <em>consequence</em> of the outcomes being equally likely, not
+    a definition that survives without it — and it never says which convention to count in, only that you
+    use one. When the outcome is itself ordered, permutations are the natural convention: a password of 2
+    different letters from 5 has 5P2 = 20 possibilities, and the chance a random one starts with A is
+    4 / 20 = 1/5.</p>
+
+  <style>
+    .v5-work{margin-top:14px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line)}
+    .v5-list{display:flex;gap:5px;flex-wrap:wrap;margin-top:13px}
+    .v5-item{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;border:1.5px solid var(--viz-line);
+      border-radius:8px;padding:5px 8px;color:var(--viz-muted);background:var(--viz-bg)}
+    .v5-item.is-fav{border-color:var(--viz-green);color:var(--viz-green);font-weight:800}
+    .v5-bars{width:100%;display:flex;flex-direction:column;gap:8px}
+    .v5-b h6{margin:0 0 4px;font-size:11px;font-weight:800;display:flex;justify-content:space-between;
+      font-family:ui-monospace,Consolas,monospace}
+    .v5-track{height:14px;border-radius:5px;background:var(--viz-line);overflow:hidden}
+    .v5-track i{display:block;height:100%}
+  </style>
+  <script>
+  (function(){
+    var sn = document.getElementById('v5-n'), sr = document.getElementById('v5-r');
+    var nl = document.getElementById('v5-nl'), rl = document.getElementById('v5-rl');
+    var bC = document.getElementById('v5-comb'), bP = document.getElementById('v5-perm'), bM = document.getElementById('v5-mix');
+    var work = document.getElementById('v5-work'), stat = document.getElementById('v5-stat');
+    var list = document.getElementById('v5-list'), why = document.getElementById('v5-why');
+    var mode = 'comb';
+
+    function fact(k){ var f = 1; for (var i = 2; i <= k; i++) f *= i; return f; }
+    function num(x){ return isFinite(x) ? x.toLocaleString('en-US') : '—'; }
+    function letter(i){ return String.fromCharCode(65 + i); }
+    function nPr(n, r){ if (r < 0 || r > n) return 0; var p = 1; for (var i = 0; i < r; i++) p *= (n - i); return p; }
+    function nCr(n, r){ if (r < 0 || r > n) return 0; return nPr(n, r) / fact(r); }
+    function gcd(a, b){ a = Math.abs(a); b = Math.abs(b); while (b) { var t = a % b; a = b; b = t; } return a || 1; }
+    function frac(a, b){
+      if (!isFinite(a) || !isFinite(b) || b === 0) return '—';
+      var g = gcd(a, b);
+      return (a / g) + '/' + (b / g);
+    }
+    function dec(a, b){
+      if (!isFinite(a) || !isFinite(b) || b === 0) return '—';
+      return (Math.round(a / b * 10000) / 10000).toFixed(4);
+    }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+    function combos(n, r, cap){
+      var out = [];
+      if (r < 0 || r > n || r === 0) return out;
+      var idx = [];
+      for (var i = 0; i < r; i++) idx.push(i);
+      for (;;) {
+        out.push(idx.slice());
+        if (out.length >= cap) break;
+        var k = r - 1;
+        while (k >= 0 && idx[k] === n - r + k) k--;
+        if (k < 0) break;
+        idx[k]++;
+        for (var j = k + 1; j < r; j++) idx[j] = idx[j - 1] + 1;
+      }
+      return out;
+    }
+    function deals(n, r, cap){
+      var out = [], used = [], cur = [];
+      function rec(){
+        if (out.length >= cap) return;
+        if (cur.length === r) { out.push(cur.slice()); return; }
+        for (var i = 0; i < n; i++) {
+          if (used[i]) continue;
+          used[i] = 1; cur.push(i);
+          rec();
+          cur.pop(); used[i] = 0;
+          if (out.length >= cap) return;
+        }
+      }
+      if (r >= 1 && r <= n) rec();
+      return out;
+    }
+
+    function render(){
+      var n = Math.min(12, Math.max(2, Math.round(Number(sn.value)) || 2));
+      var rRaw = Math.round(Number(sr.value));
+      if (!isFinite(rRaw)) rRaw = 1;
+      rRaw = Math.min(12, Math.max(1, rRaw));
+      var r = Math.min(rRaw, n);
+      nl.textContent = n;
+      rl.textContent = r + (rRaw > n ? ' (a hand cannot exceed the deck)' : '');
+
+      bC.setAttribute('aria-pressed', mode === 'comb' ? 'true' : 'false');
+      bP.setAttribute('aria-pressed', mode === 'perm' ? 'true' : 'false');
+      bM.setAttribute('aria-pressed', mode === 'mix' ? 'true' : 'false');
+
+      var totC = nCr(n, r), favC = nCr(n - 1, r - 1);
+      var totP = nPr(n, r), favP = r * nPr(n - 1, r - 1);
+      var tot, fav, lines = [];
+
+      if (mode === 'comb') {
+        tot = totC; fav = favC;
+        lines.push('total hands        ' + n + 'C' + r + ' = ' + num(totC));
+        lines.push('hands holding A    ' + (n - 1) + 'C' + (r - 1) + ' = ' + num(favC) +
+          '   (fix A, choose the other ' + (r - 1) + ' from ' + (n - 1) + ')');
+      } else if (mode === 'perm') {
+        tot = totP; fav = favP;
+        lines.push('total deals        ' + n + 'P' + r + ' = ' + num(totP));
+        lines.push('deals holding A    ' + r + ' × ' + (n - 1) + 'P' + (r - 1) + ' = ' + num(favP) +
+          '   (A takes any of ' + r + ' positions, the rest fill around it)');
+      } else {
+        tot = totP; fav = favC;
+        lines.push('favourable counted as HANDS   ' + (n - 1) + 'C' + (r - 1) + ' = ' + num(favC));
+        lines.push('total counted as DEALS        ' + n + 'P' + r + ' = ' + num(totP));
+        lines.push('two different units on one bar');
+      }
+      lines.push('P = favourable / total = ' + num(fav) + ' / ' + num(tot) + ' = ' + frac(fav, tot) + ' = ' + dec(fav, tot));
+      work.textContent = lines.join('\n');
+
+      var truth = frac(r, n);
+      var agrees = (tot > 0) && (Math.abs(fav / tot - r / n) < 1e-12);
+      stat.innerHTML =
+        pill('favourable ' + num(fav), 'var(--viz-green)') +
+        pill('total ' + num(tot), 'var(--viz-accent)') +
+        pill('P = ' + frac(fav, tot) + ' = ' + dec(fav, tot), agrees ? 'var(--viz-green)' : 'var(--viz-red)') +
+        pill(agrees ? 'AGREES with r/n = ' + truth : 'WRONG — true answer is r/n = ' + truth,
+          agrees ? 'var(--viz-green)' : 'var(--viz-red)');
+
+      var CAP = 16;
+      var items = (mode === 'perm') ? deals(n, r, CAP) : combos(n, r, CAP);
+      if (tot <= 15 && items.length === tot && tot > 0) {
+        var chips = '';
+        for (var i = 0; i < items.length; i++) {
+          var has = items[i].indexOf(0) >= 0;
+          chips += '<span class="v5-item' + (has ? ' is-fav' : '') + '">' +
+            items[i].map(letter).join(mode === 'perm' ? '→' : '') + (has ? ' ✓ has A' : '') + '</span>';
+        }
+        list.innerHTML = chips;
+      } else {
+        var pct = tot > 0 ? Math.max(1.5, fav / tot * 100) : 0;
+        list.innerHTML = '<div class="v5-bars">' +
+          '<div class="v5-b"><h6><span>favourable</span><span>' + num(fav) + '</span></h6>' +
+          '<div class="v5-track"><i style="width:' + pct + '%;background:var(--viz-green)"></i></div></div>' +
+          '<div class="v5-b"><h6><span>total</span><span>' + num(tot) + '</span></h6>' +
+          '<div class="v5-track"><i style="width:100%;background:var(--viz-accent)"></i></div></div>' +
+          '</div>';
+      }
+
+      var msg;
+      if (mode === 'mix' && r === 1 && agrees) {
+        msg = '<b style="color:var(--viz-amber)">Mixed — and at r = 1 it happens to be right anyway.</b>' +
+          'With a one-card hand there is nothing to rearrange, so 1! = 1 and the two conventions coincide: ' +
+          num(favC) + ' and ' + num(totP) + ' are the same numbers either way. ' +
+          'This is the single position where mixing conventions is harmless, and it is exactly the position where a broken method looks correct. ' +
+          'Drag r up one notch and the pairing falls apart.';
+      } else if (mode === 'mix') {
+        msg = '<b style="color:var(--viz-red)">Mixed conventions: ' + frac(fav, tot) + ' answers no question.</b>' +
+          'The numerator counts unordered hands and the denominator counts ordered deals, so the ratio is ' +
+          num(favC) + ' of one thing over ' + num(totP) + ' of another. The true probability is ' + truth + '. ' +
+          'The damage here is that both numbers are individually correct — nothing in the arithmetic complains, and the answer is simply wrong.';
+      } else if (r === n) {
+        msg = '<b style="color:var(--viz-green)">The hand is the whole deck, so P = 1.</b>' +
+          'Every outcome contains A, favourable equals total, and r/n = ' + truth + '. ' +
+          'That is the sanity check at the top end; at the bottom end r = 1 gives 1/' + n + '.';
+      } else {
+        msg = '<b style="color:var(--viz-green)">Different counts, same probability: ' + truth + '.</b>' +
+          'Counting hands gives ' + num(favC) + ' / ' + num(totC) + '; counting deals gives ' + num(favP) + ' / ' + num(totP) +
+          '. The deal counts are ' + num(fact(r)) + ' times larger on both sides — top and bottom — so the factor cancels and the ratio is untouched. ' +
+          'In symbols, (n−1)C(r−1) / nCr = r/n, which is ' + truth + ' here. ' +
+          '<br><br>Switch to <b>mixed</b> to see what happens when only one side of the bar is rescaled.';
+      }
+      msg += '<br><br><b style="display:inline;font-size:12.5px">And the equally-likely hypothesis is doing real work.</b> ' +
+        'Favourable-over-total is only a probability because every hand in the list above is as likely as every other. ' +
+        'Weight the deck and the counting still runs, but the ratio stops being an answer.';
+      why.innerHTML = msg;
+    }
+
+    bC.addEventListener('click', function(){ mode = 'comb'; render(); });
+    bP.addEventListener('click', function(){ mode = 'perm'; render(); });
+    bM.addEventListener('click', function(){ mode = 'mix'; render(); });
+    sn.addEventListener('input', render);
+    sr.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,1163 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the little readout rows.
+   Nothing here reaches inside a panel by id, and the page declares no top-level
+   behaviour — each visual carries its own, which is what keeps every one of them
+   individually rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12px;padding:6px 6px;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-surface)}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin-bottom:6px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-row{display:flex;justify-content:space-between;gap:8px;font-family:ui-monospace,Consolas,monospace;
+  font-size:11.5px;padding:4px 0;border-bottom:1px solid var(--viz-line)}
+.vz-row span:last-child{font-weight:700;text-align:right}
+.vz-pill{font-size:11px;font-weight:800;border-radius:999px;padding:4px 10px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block;margin:3px 4px 0 0}
+.vz-svg{width:100%;height:auto;display:block;border:1px solid var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.65;white-space:pre-wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Wrap Then Project</button>
+  <button class="viz-tab" data-viz-tab="2">2. Adding Two Angles</button>
+  <button class="viz-tab" data-viz-tab="3">3. One Branch Only</button>
+  <button class="viz-tab" data-viz-tab="4">4. Any Triangle Now</button>
+  <button class="viz-tab" data-viz-tab="5">5. Fit And Solve Waves</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Wrap Then Project</h2>
+  <p class="vz-lede"><b>Composing functions and modeling</b> wired one machine's output into the next.
+    <b>Invertible functions and restricting domains</b> said an inverse exists only when no output is
+    reused. Both arrive here at once: the wrap lands a point, cosine and sine are "read the x" and
+    "read the y" composed onto it — and the wrap reuses every output forever. Drag the angle.
+    <b>Like a runner on a circular track: the angle is how far they have run, cos and sin are their
+    two shadows on the walls.</b></p>
+
+  <div class="vz-seg" id="v1-picks" role="group" aria-label="Jump to a special angle">
+    <button aria-pressed="false">pi/6</button>
+    <button aria-pressed="false">pi/4</button>
+    <button aria-pressed="false">pi/3</button>
+    <button aria-pressed="true">2pi/3</button>
+    <button aria-pressed="false">5pi/6</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-th">Angle theta = <span id="v1-thl">2pi/3</span></label>
+    <input type="range" id="v1-th" min="-24" max="24" value="8" step="1"
+      aria-label="Angle theta, in twelfths of pi">
+    <div id="v1-plot" style="margin-top:10px"></div>
+    <div id="v1-read" style="margin-top:10px"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">Two facts are worth saying out loud. The identity row never moves off
+    <b>1.000000</b>, because it is the circle's own equation x^2 + y^2 = 1 with the coordinates
+    renamed — no triangle, no restriction on theta. And the <b>same-sine count</b> is why the next
+    two visuals exist: an output reached at several angles cannot be undone until you throw all but
+    one of them away.</p>
+
+  <style>
+    .v1-lbl{font-size:9.5px;font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var W = 300, H = 300, CX = 150, CY = 150, R = 112, TAU = Math.PI * 2;
+    // The sixteen special angles, as twelfths of pi (k * 15 degrees). Anything not
+    // in this table is deliberately shown as decimals only — it is not exact.
+    var EXACT = {
+      0:['1','0'], 2:['sqrt(3)/2','1/2'], 3:['sqrt(2)/2','sqrt(2)/2'], 4:['1/2','sqrt(3)/2'],
+      6:['0','1'], 8:['-1/2','sqrt(3)/2'], 9:['-sqrt(2)/2','sqrt(2)/2'], 10:['-sqrt(3)/2','1/2'],
+      12:['-1','0'], 14:['-sqrt(3)/2','-1/2'], 15:['-sqrt(2)/2','-sqrt(2)/2'], 16:['-1/2','-sqrt(3)/2'],
+      18:['0','-1'], 20:['1/2','-sqrt(3)/2'], 21:['sqrt(2)/2','-sqrt(2)/2'], 22:['sqrt(3)/2','-1/2']
+    };
+    var PICKS = [2, 3, 4, 8, 10];
+
+    var slider = document.getElementById('v1-th');
+    var thLab = document.getElementById('v1-thl');
+    var picks = document.getElementById('v1-picks');
+    var plot = document.getElementById('v1-plot');
+    var read = document.getElementById('v1-read');
+    var why = document.getElementById('v1-why');
+
+    function gcd(a, b){ return b ? gcd(b, a % b) : a; }
+    function angleLabel(k){
+      if (k === 0) return '0';
+      var sign = k < 0 ? '-' : '';
+      var n = Math.abs(k), d = 12, g = gcd(n, d);
+      n = n / g; d = d / g;
+      var num = n === 1 ? 'pi' : n + 'pi';
+      return sign + (d === 1 ? num : num + '/' + d);
+    }
+    function fmt(v){
+      if (v === null || v === undefined || !isFinite(v)) return 'undefined';
+      if (Math.abs(v) < 5e-7) v = 0;
+      return v.toFixed(6);
+    }
+    // Every angle in [-2pi, 2pi] with this same sine. Deduplicated, because at
+    // theta = pi/2 the reflection lands back on the angle itself.
+    function sameSine(s){
+      var base = Math.asin(Math.max(-1, Math.min(1, s))), out = [], k, i, c, dup;
+      for (k = -2; k <= 2; k++) {
+        var cands = [base + TAU * k, Math.PI - base + TAU * k];
+        for (i = 0; i < 2; i++) {
+          c = cands[i];
+          if (c < -TAU - 1e-9 || c > TAU + 1e-9) continue;
+          dup = false;
+          for (var j = 0; j < out.length; j++) if (Math.abs(out[j] - c) < 1e-7) dup = true;
+          if (!dup) out.push(c);
+        }
+      }
+      return out;
+    }
+    function ray(th, colour, width){
+      var px = CX + R * Math.cos(th), py = CY - R * Math.sin(th);
+      return '<line x1="' + CX + '" y1="' + CY + '" x2="' + px.toFixed(2) + '" y2="' + py.toFixed(2) +
+        '" stroke="' + colour + '" stroke-width="' + width + '"/>';
+    }
+    function arcPath(th){
+      var r = 34, n = 72, d = '';
+      for (var i = 0; i <= n; i++) {
+        var a = th * i / n;
+        d += (i ? 'L' : 'M') + (CX + r * Math.cos(a)).toFixed(2) + ' ' + (CY - r * Math.sin(a)).toFixed(2) + ' ';
+      }
+      return d;
+    }
+
+    function render(){
+      var k = Number(slider.value);
+      var th = k * Math.PI / 12;
+      var x = Math.cos(th), y = Math.sin(th);
+      if (Math.abs(x) < 1e-12) x = 0;
+      if (Math.abs(y) < 1e-12) y = 0;
+      thLab.textContent = angleLabel(k) + '  (' + (k * 15) + ' deg)';
+
+      [].slice.call(picks.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', PICKS[i] === k ? 'true' : 'false');
+      });
+
+      var px = CX + R * x, py = CY - R * y;
+      var mth = Math.PI - th;                       // the reflection that shares this sine
+      var mx = CX + R * Math.cos(mth), my = CY - R * Math.sin(mth);
+      var sameAsSelf = Math.abs(Math.cos(mth) - x) < 1e-9;
+
+      plot.innerHTML = '<svg class="vz-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+        'aria-label="the unit circle with the terminal point and its two coordinates">' +
+        '<line x1="14" y1="' + CY + '" x2="' + (W - 14) + '" y2="' + CY + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<line x1="' + CX + '" y1="14" x2="' + CX + '" y2="' + (H - 14) + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<circle cx="' + CX + '" cy="' + CY + '" r="' + R + '" fill="none" stroke="var(--viz-line)" stroke-width="1.5"/>' +
+        '<path d="' + arcPath(th) + '" fill="none" stroke="var(--viz-violet)" stroke-width="2.5"/>' +
+        (sameAsSelf ? '' : ray(mth, 'var(--viz-amber)', 1.2)) +
+        ray(th, 'var(--viz-accent)', 2.4) +
+        '<line x1="' + px.toFixed(2) + '" y1="' + py.toFixed(2) + '" x2="' + px.toFixed(2) + '" y2="' + CY +
+          '" stroke="var(--viz-green)" stroke-width="1.6" stroke-dasharray="4 3"/>' +
+        '<line x1="' + px.toFixed(2) + '" y1="' + py.toFixed(2) + '" x2="' + CX + '" y2="' + py.toFixed(2) +
+          '" stroke="var(--viz-red)" stroke-width="1.6" stroke-dasharray="4 3"/>' +
+        (sameAsSelf ? '' : '<circle cx="' + mx.toFixed(2) + '" cy="' + my.toFixed(2) +
+          '" r="4.5" fill="none" stroke="var(--viz-amber)" stroke-width="2"/>') +
+        '<circle cx="' + px.toFixed(2) + '" cy="' + py.toFixed(2) + '" r="5.5" fill="var(--viz-accent)"/>' +
+        '<text class="v1-lbl" x="' + (px + (x < 0 ? -4 : 4)).toFixed(1) + '" y="' + (CY + 13) +
+          '" fill="var(--viz-green)" text-anchor="' + (x < 0 ? 'end' : 'start') + '">x = cos = ' + x.toFixed(3) + '</text>' +
+        '<text class="v1-lbl" x="' + (CX + 5) + '" y="' + (py + (y < 0 ? 12 : -5)).toFixed(1) +
+          '" fill="var(--viz-red)">y = sin = ' + y.toFixed(3) + '</text>' +
+        '<text class="v1-lbl" x="' + (CX + 40) + '" y="' + (CY - 6) + '" fill="var(--viz-violet)">theta</text>' +
+        (sameAsSelf ? '' : '<text class="v1-lbl" x="' + (mx + (Math.cos(mth) < 0 ? -7 : 7)).toFixed(1) + '" y="' + (my - 8).toFixed(1) +
+          '" fill="var(--viz-amber)" text-anchor="' + (Math.cos(mth) < 0 ? 'end' : 'start') + '">same sin</text>') +
+        '</svg>';
+
+      var ex = EXACT[((k % 24) + 24) % 24];
+      var quad = (y > 1e-9 && x > 1e-9) ? 'I' : (y > 1e-9 && x < -1e-9) ? 'II'
+        : (y < -1e-9 && x < -1e-9) ? 'III' : (y < -1e-9 && x > 1e-9) ? 'IV' : 'on an axis';
+      var tanOK = Math.abs(x) > 1e-9;
+      var shares = sameSine(y);
+      var inBranch = th >= -Math.PI / 2 - 1e-9 && th <= Math.PI / 2 + 1e-9;
+
+      read.innerHTML =
+        '<div class="vz-row"><span>terminal point (cos, sin)</span><span>(' + x.toFixed(4) + ', ' + y.toFixed(4) + ')</span></div>' +
+        '<div class="vz-row"><span>cos theta' + (ex ? ' &nbsp;exact' : '') + '</span><span>' + (ex ? ex[0] : fmt(x)) + '</span></div>' +
+        '<div class="vz-row"><span>sin theta' + (ex ? ' &nbsp;exact' : '') + '</span><span>' + (ex ? ex[1] : fmt(y)) + '</span></div>' +
+        '<div class="vz-row"><span>cos^2 + sin^2</span><span>' + fmt(x * x + y * y) + '</span></div>' +
+        '<div class="vz-row"><span>tan theta = y / x</span><span>' + (tanOK ? fmt(y / x) : 'undefined (x = 0)') + '</span></div>' +
+        '<div style="margin-top:7px">' +
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">quadrant ' + quad + '</span>' +
+        '<span class="vz-pill" style="color:' + (ex ? 'var(--viz-green)' : 'var(--viz-muted)') + ';border-color:' +
+          (ex ? 'var(--viz-green)' : 'var(--viz-line)') + '">' + (ex ? 'one of the sixteen special angles' : 'not a special angle') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-amber);border-color:var(--viz-amber)">' +
+          shares.length + ' angle' + (shares.length === 1 ? '' : 's') + ' in [-2pi, 2pi] share this sine</span>' +
+        '<span class="vz-pill" style="color:' + (inBranch ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+          (inBranch ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (inBranch ? 'inside the branch [-pi/2, pi/2]' : 'outside the branch [-pi/2, pi/2]') + '</span></div>';
+
+      var quadWhy = (quad === 'on an axis')
+        ? 'On an axis one coordinate is exactly 0, which is where tangent goes undefined rather than merely large.'
+        : 'In quadrant ' + quad + ', x is ' + (x < 0 ? 'negative' : 'positive') + ' and y is ' +
+          (y < 0 ? 'negative' : 'positive') + ', so cos is ' + (x < 0 ? 'negative' : 'positive') +
+          ' and sin is ' + (y < 0 ? 'negative' : 'positive') + '. Notice what the quadrant does <em>not</em> do: ' +
+          'it never changes <b>which</b> coordinate is the sine. Told that a quadrant-II point has y = sqrt(3)/2, ' +
+          'sin theta is sqrt(3)/2 — the quadrant only settles the sign of the other one, cos theta = -1/2.';
+
+      why.innerHTML = '<b>' + (ex ? 'Exact values: cos = ' + ex[0] + ', sin = ' + ex[1] + '.'
+          : 'Not one of the sixteen — decimals only, until you split the angle (visual 2).') + '</b>' +
+        quadWhy +
+        '<br><br><b style="color:var(--viz-amber)">The composition, and where it stops being invertible.</b>' +
+        'theta goes to a point, the point goes to a number: that is exactly the composing you already do. ' +
+        'But ' + shares.length + ' different angles in this window land on the same sine' +
+        (sameAsSelf ? ' (here the reflection folds back onto the angle itself, the one case where the count drops)'
+                    : ', marked with the hollow ring at pi - theta') +
+        ', and over all of the real line it is infinitely many. Reuse an output and there is no return trip — ' +
+        'which is the previous lesson\'s rule, arriving unchanged.';
+    }
+
+    [].slice.call(picks.children).forEach(function(b, i){
+      b.addEventListener('click', function(){ slider.value = String(PICKS[i]); render(); });
+    });
+    slider.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Adding Two Angles</h2>
+  <p class="vz-lede">Rotating by B and then by A is one rotation by A + B — so the identity is not a
+    formula to drill, it is that composition written in coordinates. Move both angles and watch the
+    formula and the direct value stay glued together, while "sin A + sin B" wanders off.
+    <b>Like walking 3 blocks north then 4 east: your displacement is one move, and it is never 7.</b></p>
+
+  <div class="vz-seg" id="v2-mode" role="group" aria-label="Sum or difference">
+    <button aria-pressed="true">A + B</button>
+    <button aria-pressed="false">A &minus; B</button>
+  </div>
+  <div class="vz-seg" id="v2-presets" role="group" aria-label="Worked cases">
+    <button aria-pressed="false">105 = 60+45</button>
+    <button aria-pressed="false">15 = 45&minus;30</button>
+    <button aria-pressed="false">cos(90&minus;30)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-a">A = <span id="v2-al">60 deg</span></label>
+    <input type="range" id="v2-a" min="0" max="12" value="4" step="1" aria-label="Angle A in steps of 15 degrees">
+    <label class="vz-lab" for="v2-b" style="margin-top:8px">B = <span id="v2-bl">45 deg</span></label>
+    <input type="range" id="v2-b" min="0" max="12" value="3" step="1" aria-label="Angle B in steps of 15 degrees">
+    <div id="v2-plot" style="margin-top:10px"></div>
+    <div id="v2-table" style="margin-top:10px"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v2-ta">Tangent adds differently: tan A = <span id="v2-tal">2</span></label>
+    <input type="range" id="v2-ta" min="-5" max="5" value="2" step="1" aria-label="Value of tan A">
+    <label class="vz-lab" for="v2-tb" style="margin-top:8px">tan B = <span id="v2-tbl">3</span></label>
+    <input type="range" id="v2-tb" min="-5" max="5" value="3" step="1" aria-label="Value of tan B">
+    <div id="v2-tanout" style="margin-top:9px"></div>
+  </div>
+  <p class="vz-note">The judgment call is <b>which decomposition to reach for</b>. A question naming
+    105, 75 or 15 degrees is not asking for a calculator — it is telling you the angle splits into two
+    of the sixteen. And the tangent denominator is not a special case to memorise: it vanishes exactly
+    when the two angles sum to a right angle, where tangent has no value to report.</p>
+
+  <style>
+    .v2-work{background:var(--viz-bg);border:1px solid var(--viz-line);border-radius:9px;padding:10px 11px;
+      font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.6;overflow-x:auto}
+  </style>
+  <script>
+  (function(){
+    var W = 300, H = 220, CX = 92, CY = 150, R = 88;
+    var D2R = Math.PI / 180;
+    var sign = 1;                       // +1 for A + B, -1 for A - B
+    var mode = document.getElementById('v2-mode');
+    var presets = document.getElementById('v2-presets');
+    var sa = document.getElementById('v2-a'), la = document.getElementById('v2-al');
+    var sb = document.getElementById('v2-b'), lb = document.getElementById('v2-bl');
+    var plot = document.getElementById('v2-plot');
+    var table = document.getElementById('v2-table');
+    var why = document.getElementById('v2-why');
+    var ta = document.getElementById('v2-ta'), lta = document.getElementById('v2-tal');
+    var tb = document.getElementById('v2-tb'), ltb = document.getElementById('v2-tbl');
+    var tanOut = document.getElementById('v2-tanout');
+
+    function fmt(v){
+      if (v === null || v === undefined || !isFinite(v)) return 'undefined';
+      if (Math.abs(v) < 5e-13) v = 0;
+      return v.toFixed(6);
+    }
+    function ray(deg, colour, width, len){
+      var th = deg * D2R;
+      return '<line x1="' + CX + '" y1="' + CY + '" x2="' + (CX + len * Math.cos(th)).toFixed(2) +
+        '" y2="' + (CY - len * Math.sin(th)).toFixed(2) + '" stroke="' + colour + '" stroke-width="' + width + '"/>';
+    }
+    function arcPath(d0, d1, r){
+      var n = 90, out = '';
+      for (var i = 0; i <= n; i++) {
+        var a = (d0 + (d1 - d0) * i / n) * D2R;
+        out += (i ? 'L' : 'M') + (CX + r * Math.cos(a)).toFixed(2) + ' ' + (CY - r * Math.sin(a)).toFixed(2) + ' ';
+      }
+      return out;
+    }
+
+    function render(){
+      var A = Number(sa.value) * 15, B = Number(sb.value) * 15;
+      var S = A + sign * B;
+      la.textContent = A + ' deg';
+      lb.textContent = B + ' deg';
+      [].slice.call(mode.children).forEach(function(b, i){
+        b.setAttribute('aria-pressed', (i === 0 ? sign === 1 : sign === -1) ? 'true' : 'false');
+      });
+
+      var cA = Math.cos(A * D2R), sA = Math.sin(A * D2R);
+      var cB = Math.cos(B * D2R), sB = Math.sin(B * D2R);
+      var idCos = cA * cB - sign * sA * sB;
+      var idSin = sA * cB + sign * cA * sB;
+      var trueCos = Math.cos(S * D2R), trueSin = Math.sin(S * D2R);
+      var wrong = sA + sign * sB;
+      var errC = Math.abs(idCos - trueCos), errS = Math.abs(idSin - trueSin);
+      var gap = Math.abs(wrong - trueSin);
+
+      var px = CX + R * Math.cos(S * D2R), py = CY - R * Math.sin(S * D2R);
+      plot.innerHTML = '<svg class="vz-svg" viewBox="0 0 ' + W + ' ' + H + '" role="img" ' +
+        'aria-label="the ray at A, the extra turn of B, and the single ray at the sum">' +
+        '<line x1="8" y1="' + CY + '" x2="' + (W - 8) + '" y2="' + CY + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<line x1="' + CX + '" y1="8" x2="' + CX + '" y2="' + (H - 8) + '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<circle cx="' + CX + '" cy="' + CY + '" r="' + R + '" fill="none" stroke="var(--viz-line)" stroke-width="1.2"/>' +
+        '<path d="' + arcPath(0, A, 30) + '" fill="none" stroke="var(--viz-accent)" stroke-width="2.5"/>' +
+        '<path d="' + arcPath(A, S, 44) + '" fill="none" stroke="var(--viz-violet)" stroke-width="2.5"/>' +
+        ray(A, 'var(--viz-accent)', 1.6, R) +
+        ray(S, 'var(--viz-green)', 2.6, R) +
+        '<line x1="' + px.toFixed(2) + '" y1="' + py.toFixed(2) + '" x2="' + px.toFixed(2) + '" y2="' + CY +
+          '" stroke="var(--viz-green)" stroke-width="1.3" stroke-dasharray="4 3"/>' +
+        '<circle cx="' + px.toFixed(2) + '" cy="' + py.toFixed(2) + '" r="5" fill="var(--viz-green)"/>' +
+        '<text x="' + (CX + 34) + '" y="' + (CY - 8) + '" font-size="10" fill="var(--viz-accent)" font-family="monospace">A</text>' +
+        '<text x="' + (CX + 20) + '" y="' + (CY - 52) + '" font-size="10" fill="var(--viz-violet)" font-family="monospace">' +
+          (sign === 1 ? '+B' : '-B') + '</text>' +
+        '<text x="' + (W - 10) + '" y="18" font-size="10.5" fill="var(--viz-green)" font-family="monospace" text-anchor="end">' +
+          'A ' + (sign === 1 ? '+' : '-') + ' B = ' + S + ' deg</text>' +
+        '<text x="' + (W - 10) + '" y="32" font-size="10" fill="var(--viz-muted)" font-family="monospace" text-anchor="end">' +
+          'point = (' + trueCos.toFixed(3) + ', ' + trueSin.toFixed(3) + ')</text>' +
+        '</svg>';
+
+      var op = sign === 1 ? '-' : '+';
+      var opS = sign === 1 ? '+' : '-';
+      table.innerHTML =
+        '<div class="v2-work">' +
+        'cos(A ' + (sign === 1 ? '+' : '-') + ' B) = cosA cosB ' + op + ' sinA sinB\n' +
+        '            = (' + cA.toFixed(4) + ')(' + cB.toFixed(4) + ') ' + op + ' (' + sA.toFixed(4) + ')(' + sB.toFixed(4) + ')\n' +
+        '            = ' + fmt(idCos) + '\n' +
+        'direct cos(' + S + ' deg) = ' + fmt(trueCos) + '\n\n' +
+        'sin(A ' + (sign === 1 ? '+' : '-') + ' B) = sinA cosB ' + opS + ' cosA sinB = ' + fmt(idSin) + '\n' +
+        'direct sin(' + S + ' deg) = ' + fmt(trueSin) + '</div>' +
+        '<div style="margin-top:7px">' +
+        '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">identity matches to ' +
+          (Math.max(errC, errS) < 1e-9 ? '9+' : '3') + ' decimals</span>' +
+        '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">sinA ' +
+          (sign === 1 ? '+' : '-') + ' sinB = ' + wrong.toFixed(4) + ' &nbsp;WRONG by ' + gap.toFixed(4) + '</span></div>';
+
+      var cofunction = (A === 90 && sign === -1);
+      why.innerHTML = '<b>' + (cofunction
+          ? 'cos(90 - ' + B + ') = ' + fmt(trueCos) + ' = sin(' + B + '). That is the whole "co-" in cosine.'
+          : 'The formula and the direct value agree to machine precision, at every A and B you can set.') + '</b>' +
+        (cofunction
+          ? 'Put A = 90 into the difference identity and it collapses: cos90 cosB + sin90 sinB = 0 + sinB. ' +
+            'Nothing was memorised — the cofunction identity is the subtraction identity with one term annihilated.'
+          : 'Read the minus sign off the rotation matrix rather than off a mnemonic: rotation by A is ' +
+            '[[cosA, -sinA], [sinA, cosA]], and the first column of R(A)R(B) is exactly this pair. ' +
+            'Cosine of a <b>sum</b> takes the minus and cosine of a <b>difference</b> takes the plus; sine keeps its sign either way.') +
+        '<br><br><b style="color:var(--viz-red)">Why the red row can never be right.</b>' +
+        'sinA ' + (sign === 1 ? '+' : '-') + ' sinB = ' + wrong.toFixed(4) + ', and it is off by ' + gap.toFixed(4) +
+        '. Sine is not linear, and the failure is loud rather than subtle: at 60 + 45 the sum of sines is about 1.573, ' +
+        'a number sine cannot produce at any angle at all.';
+    }
+
+    function renderTan(){
+      var a = Number(ta.value), b = Number(tb.value);
+      lta.textContent = String(a);
+      ltb.textContent = String(b);
+      var den = 1 - a * b;
+      var ok = Math.abs(den) > 1e-9;
+      var val = ok ? (a + b) / den : null;
+      var A = Math.atan(a) / D2R, B = Math.atan(b) / D2R;
+      var sum = A + B;
+      var check = Math.abs(Math.cos(sum * D2R)) > 1e-9 ? Math.tan(sum * D2R) : null;
+
+      tanOut.innerHTML =
+        '<div class="v2-work">tan(A + B) = (tanA + tanB) / (1 - tanA tanB)\n' +
+        '           = (' + a + ' + ' + b + ') / (1 - ' + (a * b) + ')\n' +
+        '           = ' + (a + b) + ' / ' + den + ' = ' + (ok ? fmt(val) : 'UNDEFINED') + '\n\n' +
+        'A = atan(' + a + ') = ' + A.toFixed(2) + ' deg,  B = ' + B.toFixed(2) + ' deg\n' +
+        'A + B = ' + sum.toFixed(2) + ' deg,  direct tan = ' + (check === null ? 'undefined' : fmt(check)) + '</div>' +
+        '<div style="margin-top:7px">' +
+        (ok
+          ? '<span class="vz-pill" style="color:var(--viz-green);border-color:var(--viz-green)">tan(A + B) = ' + val.toFixed(4) + '</span>'
+          : '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">denominator = 0 &mdash; UNDEFINED</span>') +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">tanA tanB = ' + (a * b) + '</span></div>' +
+        '<div class="vz-why">' + (ok
+          ? '<b>The classic: tanA = 2, tanB = 3 gives (2 + 3)/(1 - 6) = -1.</b>' +
+            'A negative answer from two positive tangents is not an error — the two angles are each past 45 degrees, ' +
+            'so their sum has swung past 90 into the second quadrant, where tangent is negative. ' +
+            'The formula knew that before you drew anything.'
+          : '<b style="color:var(--viz-red)">tanA tanB = 1, so A + B = 90 degrees exactly.</b>' +
+            'This is the one shape where the answer is <em>undefined</em> rather than a number, and it is not a quirk ' +
+            'of the algebra: tangent is y/x, and at 90 degrees x is 0. A vanishing denominator here is the formula ' +
+            'reporting a real fact about the circle.') + '</div>';
+    }
+
+    [].slice.call(mode.children).forEach(function(b, i){
+      b.addEventListener('click', function(){ sign = i === 0 ? 1 : -1; render(); });
+    });
+    var PRE = [[4, 3, 1], [3, 2, -1], [6, 2, -1]];
+    [].slice.call(presets.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        sa.value = String(PRE[i][0]); sb.value = String(PRE[i][1]); sign = PRE[i][2];
+        [].slice.call(presets.children).forEach(function(o, j){ o.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    ta.addEventListener('input', renderTan);
+    tb.addEventListener('input', renderTan);
+    render();
+    renderTan();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. One Branch Only</h2>
+  <p class="vz-lede">Drag the horizontal line and count where it cuts. Every crossing is an angle with
+    that value, and a function with several cannot be undone — so we keep one arch and discard the rest.
+    That single surviving arch is the whole definition of the inverse. <b>Like a lift that stops at
+    floor 3 on every trip up and down: "where was it?" only has an answer if you agree to mean one trip.</b></p>
+
+  <div class="vz-seg" id="v3-fn" role="group" aria-label="Which inverse function">
+    <button aria-pressed="true">arcsin</button>
+    <button aria-pressed="false">arccos</button>
+    <button aria-pressed="false">arctan</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-x">Horizontal line at value x = <span id="v3-xl">0.50</span></label>
+    <input type="range" id="v3-x" min="0" max="50" value="35" step="1" aria-label="The value being inverted">
+    <div id="v3-plot" style="margin-top:10px"></div>
+    <div id="v3-out" style="margin-top:9px"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-card" style="margin-top:12px">
+    <label class="vz-lab" for="v3-th">Round trip from an angle: theta = <span id="v3-thl">5pi/6</span></label>
+    <input type="range" id="v3-th" min="-24" max="24" value="10" step="1" aria-label="Angle theta in twelfths of pi">
+    <div id="v3-trip" style="margin-top:9px"></div>
+  </div>
+  <p class="vz-note">The expert habit is to ask <b>two</b> questions of every inverse problem, not one:
+    is the input inside the domain, and is the expected answer inside the principal range? A distractor
+    is rarely a wrong angle — it is usually a perfectly correct angle from a branch we agreed to throw
+    away, which is exactly why it looks right.</p>
+
+  <style>
+    .v3-key{font-size:10.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;line-height:1.7;margin-top:5px}
+    .v3-key i{display:inline-block;width:20px;height:0;border-top-width:3px;vertical-align:middle;margin-right:5px}
+  </style>
+  <script>
+  (function(){
+    var W = 320, HT = 180, PI = Math.PI;
+    var FNS = [
+      { name:'arcsin', fwd:'sin', f: Math.sin, inv: Math.asin,
+        xr: [-3 * PI, 3 * PI], yr: [-1.3, 1.3], br: [-PI / 2, PI / 2], brT: '[-pi/2, pi/2]',
+        vmin: -1.25, vstep: 0.05, def: 35, dom: [-1, 1], domT: '[-1, 1]',
+        why: 'Sine climbs from -1 to 1 across [-pi/2, pi/2] and then turns round and does it again, forever. ' +
+          'Restricted to that one climb it is strictly increasing, therefore one-to-one, therefore invertible — ' +
+          'and arcsin(1/2) = pi/6 because pi/6 is the crossing that survived the cut.' },
+      { name:'arccos', fwd:'cos', f: Math.cos, inv: Math.acos,
+        xr: [-3 * PI, 3 * PI], yr: [-1.3, 1.3], br: [0, PI], brT: '[0, pi]',
+        vmin: -1.25, vstep: 0.05, def: 25, dom: [-1, 1], domT: '[-1, 1]',
+        why: 'Cosine has no monotone stretch containing 0 and symmetric about it, so its branch is [0, pi] instead — ' +
+          'a different interval from sine\'s, and the reason arccos(0) = pi/2 while arcsin(0) = 0. ' +
+          'The branches are conventions, but they are fixed conventions, and every library agrees on them.' },
+      { name:'arctan', fwd:'tan', f: Math.tan, inv: Math.atan,
+        xr: [-4.6, 4.6], yr: [-6.5, 6.5], br: [-PI / 2, PI / 2], brT: '(-pi/2, pi/2)',
+        vmin: -6.25, vstep: 0.25, def: 29, dom: null, domT: 'all real numbers',
+        why: 'Tangent sweeps every real number on a single branch, so arctan needs no domain restriction on its input — ' +
+          'and arctan(1) = pi/4 because that is where the branch crosses 1. The open brackets matter: the endpoints ' +
+          'are asymptotes, not values.' }
+    ];
+    // Exact labels for the angles a question will actually ask about.
+    var NICE = [
+      [0, '0'], [PI / 6, 'pi/6'], [PI / 4, 'pi/4'], [PI / 3, 'pi/3'], [PI / 2, 'pi/2'],
+      [2 * PI / 3, '2pi/3'], [3 * PI / 4, '3pi/4'], [5 * PI / 6, '5pi/6'], [PI, 'pi'],
+      [-PI / 6, '-pi/6'], [-PI / 4, '-pi/4'], [-PI / 3, '-pi/3'], [-PI / 2, '-pi/2']
+    ];
+    var cur = 0;
+    var fnBar = document.getElementById('v3-fn');
+    var xs = document.getElementById('v3-x'), xl = document.getElementById('v3-xl');
+    var plot = document.getElementById('v3-plot');
+    var out = document.getElementById('v3-out');
+    var why = document.getElementById('v3-why');
+    var ths = document.getElementById('v3-th'), thl = document.getElementById('v3-thl');
+    var trip = document.getElementById('v3-trip');
+
+    function exact(v){
+      if (!isFinite(v)) return null;
+      for (var i = 0; i < NICE.length; i++) if (Math.abs(v - NICE[i][0]) < 1e-9) return NICE[i][1];
+      return null;
+    }
+    function fmt(v){
+      if (v === null || v === undefined || !isFinite(v)) return 'undefined';
+      if (Math.abs(v) < 5e-9) v = 0;
+      return v.toFixed(6);
+    }
+    function gcd(a, b){ return b ? gcd(b, a % b) : a; }
+    function angleLabel(k){
+      if (k === 0) return '0';
+      var s = k < 0 ? '-' : '', n = Math.abs(k), d = 12, g = gcd(n, d);
+      n = n / g; d = d / g;
+      var num = n === 1 ? 'pi' : n + 'pi';
+      return s + (d === 1 ? num : num + '/' + d);
+    }
+    function valueOf(){
+      var c = FNS[cur];
+      return c.vmin + Number(xs.value) * c.vstep;
+    }
+    function px(x, c){ return (x - c.xr[0]) / (c.xr[1] - c.xr[0]) * W; }
+    function py(y, c){ return HT - (y - c.yr[0]) / (c.yr[1] - c.yr[0]) * HT; }
+
+    function pathOf(c, x0, x1){
+      var n = 1400, d = '', pen = false;
+      for (var i = 0; i <= n; i++) {
+        var x = x0 + (x1 - x0) * i / n;
+        var y = c.f(x);
+        if (!isFinite(y) || y < c.yr[0] || y > c.yr[1]) { pen = false; continue; }
+        d += (pen ? 'L' : 'M') + px(x, c).toFixed(2) + ' ' + py(y, c).toFixed(2) + ' ';
+        pen = true;
+      }
+      return d;
+    }
+    // Solved exactly rather than scanned: a numeric sweep miscounts the tangential
+    // touch at x = 1 (sine reaches it without crossing) and can trip over tangent's
+    // asymptotes. The closed form has neither problem.
+    function crossings(c, v){
+      var out = [], cand, base, per, i, j, k, x, dup;
+      if (c.name === 'arctan') { base = Math.atan(v); cand = [base]; per = PI; }
+      else {
+        if (v < -1 || v > 1) return [];
+        base = c.name === 'arcsin' ? Math.asin(v) : Math.acos(v);
+        cand = c.name === 'arcsin' ? [base, PI - base] : [base, -base];
+        per = 2 * PI;
+      }
+      for (k = -4; k <= 4; k++) {
+        for (i = 0; i < cand.length; i++) {
+          x = cand[i] + per * k;
+          if (x < c.xr[0] - 1e-12 || x > c.xr[1] + 1e-12) continue;
+          dup = false;
+          for (j = 0; j < out.length; j++) if (Math.abs(out[j] - x) < 1e-9) dup = true;
+          if (!dup) out.push(x);
+        }
+      }
+      out.sort(function(p, q){ return p - q; });
+      return out;
+    }
+
+    function render(){
+      var c = FNS[cur];
+      var v = valueOf();
+      xl.textContent = v.toFixed(2);
+      [].slice.call(fnBar.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var inDom = !c.dom || (v >= c.dom[0] - 1e-9 && v <= c.dom[1] + 1e-9);
+      var hits = inDom ? crossings(c, v) : [];
+      var onBranch = hits.filter(function(x){ return x >= c.br[0] - 1e-6 && x <= c.br[1] + 1e-6; });
+      var pv = inDom ? c.inv(Math.max(c.dom ? c.dom[0] : -Infinity, Math.min(c.dom ? c.dom[1] : Infinity, v))) : null;
+      var lineY = py(Math.max(c.yr[0], Math.min(c.yr[1], v)), c);
+
+      var dots = hits.map(function(x){
+        var on = x >= c.br[0] - 1e-6 && x <= c.br[1] + 1e-6;
+        return '<circle cx="' + px(x, c).toFixed(2) + '" cy="' + lineY.toFixed(2) + '" r="' + (on ? 5 : 3.4) +
+          '" fill="' + (on ? 'var(--viz-green)' : 'var(--viz-red)') + '"/>';
+      }).join('');
+
+      plot.innerHTML = '<svg class="vz-svg" viewBox="0 0 ' + W + ' ' + HT + '" preserveAspectRatio="none" role="img" ' +
+        'aria-label="the function across many periods with the kept branch shaded and the line of crossings">' +
+        '<rect x="' + px(c.br[0], c).toFixed(2) + '" y="0" width="' + (px(c.br[1], c) - px(c.br[0], c)).toFixed(2) +
+          '" height="' + HT + '" fill="var(--viz-violet)" opacity="0.16"/>' +
+        '<line x1="0" y1="' + py(0, c).toFixed(2) + '" x2="' + W + '" y2="' + py(0, c).toFixed(2) +
+          '" stroke="var(--viz-line)" stroke-width="1"/>' +
+        '<path d="' + pathOf(c, c.xr[0], c.xr[1]) + '" fill="none" stroke="var(--viz-muted)" stroke-width="1.3"/>' +
+        '<path d="' + pathOf(c, Math.max(c.xr[0], c.br[0]), Math.min(c.xr[1], c.br[1])) +
+          '" fill="none" stroke="var(--viz-accent)" stroke-width="2.6"/>' +
+        '<line x1="0" y1="' + lineY.toFixed(2) + '" x2="' + W + '" y2="' + lineY.toFixed(2) +
+          '" stroke="var(--viz-amber)" stroke-width="2" stroke-dasharray="6 4"/>' + dots +
+        '<text x="5" y="13" font-size="9.5" font-family="monospace" fill="var(--viz-violet)">kept branch ' + c.brT + '</text>' +
+        '</svg>' +
+        '<div class="v3-key"><i style="border-top-style:solid;border-top-color:var(--viz-accent)"></i>' + c.fwd +
+        ' on the kept branch &nbsp; <i style="border-top-style:solid;border-top-color:var(--viz-muted)"></i>' + c.fwd +
+        ' everywhere else &nbsp; <i style="border-top-style:dashed;border-top-color:var(--viz-amber)"></i>line y = ' +
+        v.toFixed(2) + '</div>';
+
+      var ex = pv === null ? null : exact(pv);
+      out.innerHTML =
+        '<div class="vz-row"><span>crossings in the window shown</span><span>' + hits.length + '</span></div>' +
+        '<div class="vz-row"><span>crossings on the kept branch</span><span>' + onBranch.length + '</span></div>' +
+        '<div class="vz-row"><span>' + c.name + '(' + v.toFixed(2) + ')</span><span>' +
+          (pv === null ? 'undefined' : (ex ? ex + '  =  ' + pv.toFixed(6) : fmt(pv))) + '</span></div>' +
+        '<div style="margin-top:7px">' +
+        '<span class="vz-pill" style="color:' + (inDom ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+          (inDom ? 'var(--viz-green)' : 'var(--viz-red)') + '">input ' + (inDom ? 'inside' : 'OUTSIDE') +
+          ' the domain ' + c.domT + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">principal range ' + c.brT + '</span></div>';
+
+      why.innerHTML = inDom
+        ? '<b>' + hits.length + ' angles here have ' + c.fwd + ' = ' + v.toFixed(2) +
+            ', and exactly ' + onBranch.length + ' of them survives the restriction.</b>' +
+          'Every red dot is a genuinely correct angle. That is precisely the problem: with several correct answers ' +
+          'there is no <em>function</em> to return one, so we shade a stretch where the graph never repeats a height ' +
+          'and define the inverse there. ' + c.why +
+          '<br><br>Read the notation carefully too: ' + c.name + '(' + v.toFixed(2) + ') is an <b>angle</b>, not a ratio, ' +
+          'and not 1/' + c.fwd + '(' + v.toFixed(2) + ') — that reciprocal is a different function entirely.'
+        : '<b style="color:var(--viz-red)">No angle at all has ' + c.fwd + ' = ' + v.toFixed(2) + '.</b>' +
+          'The line has left the graph, so there is nothing to invert: ' + c.fwd + ' never leaves ' + c.domT +
+          ', because it is a coordinate of a point on a circle of radius 1. ' +
+          'The same check saves you in visual 5 — a target line above the peak of a wave has no solutions either, ' +
+          'and it is the identical arithmetic that tells you so.';
+    }
+
+    function renderTrip(){
+      var c = FNS[cur];
+      var k = Number(ths.value);
+      var th = k * PI / 12;
+      thl.textContent = angleLabel(k);
+      var fv = c.f(th);
+      var defined = isFinite(fv) && Math.abs(fv) < 1e6;
+      var back = defined ? c.inv(Math.max(-1, Math.min(1, fv))) : null;
+      if (c.name === 'arctan' && defined) back = c.inv(fv);
+      var same = back !== null && Math.abs(back - th) < 1e-9;
+      var bex = back === null ? null : exact(back);
+
+      trip.innerHTML =
+        '<div class="vz-row"><span>' + c.fwd + '(theta)</span><span>' + (defined ? fmt(fv) : 'undefined (asymptote)') + '</span></div>' +
+        '<div class="vz-row"><span>' + c.name + '( ' + c.fwd + '(theta) )</span><span>' +
+          (back === null ? 'undefined' : (bex ? bex : back.toFixed(6))) + '</span></div>' +
+        '<div class="vz-row"><span>theta itself</span><span>' + angleLabel(k) + '</span></div>' +
+        '<div style="margin-top:7px"><span class="vz-pill" style="color:' +
+          (same ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' + (same ? 'var(--viz-green)' : 'var(--viz-red)') +
+          '">' + (same ? 'ROUND TRIP RETURNS theta' : 'DOES NOT return theta') + '</span></div>' +
+        '<div class="vz-why">' + (same
+          ? '<b>theta was already inside ' + c.brT + ', so the round trip is the identity.</b>' +
+            'This direction is the easy one. The other direction, ' + c.fwd + '(' + c.name + '(x)) = x, holds for ' +
+            '<em>every</em> legal x — it is only this one that carries a condition.'
+          : '<b style="color:var(--viz-red)">theta was outside the branch, so you get its stand-in instead.</b>' +
+            'Nothing is broken and no rule was violated. The inverse of a <em>restricted</em> function can only ever ' +
+            'return the representative that survived the restriction — at theta = 5pi/6, sin is 1/2 and arcsin(1/2) is ' +
+            'pi/6, a different angle with the same sine. In code this is exactly what numpy.arcsin does; recovering a ' +
+            'full-turn angle needs atan2(y, x), which is handed both coordinates rather than one ratio.') + '</div>';
+    }
+
+    [].slice.call(fnBar.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        xs.value = String(FNS[i].def);
+        render();
+        renderTrip();
+      });
+    });
+    xs.addEventListener('input', render);
+    ths.addEventListener('input', renderTrip);
+    render();
+    renderTrip();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Any Triangle Now</h2>
+  <p class="vz-lede">Right triangles were never the point — they were the case where the correction term
+    vanishes. Pick the shape of the data you were handed and the law picks itself; then drag the free
+    quantity and watch the triangle answer. <b>Like choosing a spanner by the bolt, not by preference:
+    the shape of what you are given decides the tool.</b></p>
+
+  <div class="vz-seg" id="v4-shapes" role="group" aria-label="Shape of the given data">
+    <button aria-pressed="true">SAS</button>
+    <button aria-pressed="false">SSS</button>
+    <button aria-pressed="false">ASA</button>
+    <button aria-pressed="false">AAS</button>
+    <button aria-pressed="false">SSA</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-p"><span id="v4-plab">included angle C = 90 deg</span></label>
+    <input type="range" id="v4-p" min="2" max="34" value="18" step="1" aria-label="The quantity you can vary">
+    <div id="v4-plot" style="margin-top:10px"></div>
+    <div id="v4-out" style="margin-top:9px"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">One number decides the SSA case and it is worth naming: the altitude
+    <b>h = b sin(A)</b>. Below it the arc cannot reach the base and no triangle exists; at exactly h it
+    just touches and gives the right triangle; between h and b it cuts twice; once the opposite side is
+    as long as b it can only cut once. Every "the answer was 53.1, why is 126.9 also right" question is
+    this picture.</p>
+
+  <style>
+    .v4-tri{font-size:9.5px;font-family:ui-monospace,Consolas,monospace}
+  </style>
+  <script>
+  (function(){
+    var W = 320, HT = 190, D2R = Math.PI / 180, R2D = 180 / Math.PI;
+    var cur = 0;
+    var shapes = document.getElementById('v4-shapes');
+    var sp = document.getElementById('v4-p'), plab = document.getElementById('v4-plab');
+    var plot = document.getElementById('v4-plot');
+    var out = document.getElementById('v4-out');
+    var why = document.getElementById('v4-why');
+
+    // Each case maps the ONE slider to its own quantity and returns solved triangles
+    // as {A, b, c} — the angle at vertex A plus the two sides meeting there, which is
+    // all the drawing routine needs.
+    var CASES = [
+      { key:'SAS', law:'Law of Cosines', min:2, max:34, def:18,
+        lab: function(v){ return 'included angle C = ' + (v * 5) + ' deg   (a = 3, b = 4 fixed)'; },
+        solve: function(v){
+          var a = 3, b = 4, C = v * 5;
+          var c2 = a * a + b * b - 2 * a * b * Math.cos(C * D2R);
+          if (!(c2 > 0)) return { tris: [], bad: 'degenerate data', rows: [], note: '<b>No triangle.</b>' };
+          var c = Math.sqrt(c2);
+          var A = Math.acos(Math.max(-1, Math.min(1, (b * b + c * c - a * a) / (2 * b * c)))) * R2D;
+          // cos(90 deg) is 6e-17 in floating point, and "-0.0000" would undercut the
+          // one claim this panel exists to make.
+          var corr = -2 * a * b * Math.cos(C * D2R);
+          if (Math.abs(corr) < 1e-9) corr = 0;
+          return {
+            tris: [{ A: A, b: b, c: c, label: 'the triangle' }],
+            rows: [['c^2 = a^2 + b^2 - 2ab cos(C)', (a * a) + ' + ' + (b * b) + ' - ' + (2 * a * b) + ' cos(' + C + ')'],
+                   ['correction term -2ab cos(C)', corr.toFixed(4)],
+                   ['c', c.toFixed(4)],
+                   ['angle A (opposite a)', A.toFixed(2) + ' deg']],
+            note: C === 90
+              ? '<b style="color:var(--viz-green)">C = 90, so the correction is exactly 0 and c^2 = 9 + 16. c = 5.</b>' +
+                'This is the whole relationship between the two results: <b>the Law of Cosines IS Pythagoras plus -2ab cos(C)</b>, ' +
+                'and that term is zero only here. Nudge C either way and watch 5 move — the right angle is not a special theorem, ' +
+                'it is the one input that kills a term.'
+              : '<b>c = ' + c.toFixed(4) + (C < 90 ? ', shorter than 5.' : ', longer than 5.') + '</b>' +
+                'cos(C) is ' + (C < 90 ? 'positive, so -2ab cos(C) subtracts and the opposite side closes up'
+                                       : 'negative, so -2ab cos(C) adds and the opposite side stretches') +
+                '. One equation, one unknown, no ambiguity anywhere: SAS pins the triangle completely.'
+          };
+        },
+        why: 'Two sides and the angle <b>between</b> them. The Law of Cosines takes them directly and returns the third side ' +
+             'in one step — there is nothing to solve for twice and no second triangle to miss.' },
+
+      { key:'SSS', law:'Law of Cosines', min:1, max:15, def:10,
+        lab: function(v){ return 'side c = ' + (v * 0.5) + '   (a = 3, b = 4 fixed)'; },
+        solve: function(v){
+          var a = 3, b = 4, c = v * 0.5;
+          if (c >= a + b - 1e-9 || c <= Math.abs(a - b) + 1e-9) {
+            return { tris: [], bad: 'triangle inequality fails: ' + c + ' must lie strictly between ' + Math.abs(a - b) + ' and ' + (a + b),
+              rows: [['a, b, c', a + ', ' + b + ', ' + c]],
+              note: '<b style="color:var(--viz-red)">No triangle exists with these three sides.</b>' +
+                'Two sides cannot reach across a third longer than their sum, nor close on one shorter than their difference. ' +
+                'The Law of Cosines reports this honestly: the cosine it computes falls outside [-1, 1], which is an angle no ' +
+                'triangle has. A cos value out of range is a real answer, not a rounding problem.' };
+          }
+          var cosC = (a * a + b * b - c * c) / (2 * a * b);
+          var C = Math.acos(Math.max(-1, Math.min(1, cosC))) * R2D;
+          var A = Math.acos(Math.max(-1, Math.min(1, (b * b + c * c - a * a) / (2 * b * c)))) * R2D;
+          return {
+            tris: [{ A: A, b: b, c: c, label: 'the triangle' }],
+            rows: [['cos(C) = (a^2 + b^2 - c^2) / 2ab', cosC.toFixed(4)],
+                   ['angle C (opposite c)', C.toFixed(2) + ' deg'],
+                   ['angle A (opposite a)', A.toFixed(2) + ' deg'],
+                   ['triangle inequality', 'satisfied']],
+            note: Math.abs(c - 5) < 1e-9
+              ? '<b style="color:var(--viz-green)">3, 4, 5 gives cos(C) = 0, so C = 90 degrees.</b>' +
+                'Run the same law backwards and it recovers the right angle rather than assuming it. That is the sense in ' +
+                'which this generalises Pythagoras instead of merely resembling it.'
+              : '<b>cos(C) = ' + cosC.toFixed(4) + ', so C = ' + C.toFixed(2) + ' degrees — ' +
+                (cosC > 0 ? 'acute.' : 'obtuse.') + '</b>' +
+                'The <em>sign</em> of that cosine classifies the triangle before you evaluate the arccos: positive means the ' +
+                'square on c falls short of a^2 + b^2, negative means it overshoots.'
+          };
+        },
+        why: 'Three sides, no angles. Only the Law of Cosines can start here, because the Law of Sines needs an angle ' +
+             'paired with its opposite side before it can say anything at all.' },
+
+      { key:'ASA', law:'Law of Sines', min:3, max:31, def:12,
+        lab: function(v){ return 'angle B = ' + (v * 5) + ' deg   (A = 30 deg, included side c = 6)'; },
+        solve: function(v){
+          var A = 30, B = v * 5, c = 6;
+          var C = 180 - A - B;
+          if (C <= 0.5) return { tris: [], bad: 'angles A + B reach 180 degrees, so no triangle closes',
+            rows: [['A + B', (A + B) + ' deg']],
+            note: '<b style="color:var(--viz-red)">A + B is already 180 degrees or more.</b>' +
+              'The third angle would be zero or negative. The arithmetic fails before any law is applied, which is worth ' +
+              'noticing: two angles and a side over-determine nothing, but they can still be impossible.' };
+          var a = c * Math.sin(A * D2R) / Math.sin(C * D2R);
+          var b = c * Math.sin(B * D2R) / Math.sin(C * D2R);
+          return {
+            tris: [{ A: A, b: b, c: c, label: 'the triangle' }],
+            rows: [['third angle C = 180 - A - B', C.toFixed(2) + ' deg'],
+                   ['a = c sin(A) / sin(C)', a.toFixed(4)],
+                   ['b = c sin(B) / sin(C)', b.toFixed(4)],
+                   ['number of triangles', '1']],
+            note: '<b>The side sits between the two angles, so the third angle comes free.</b>' +
+              'Once C = ' + C.toFixed(2) + ' degrees is known you hold a complete angle-side pair (C with c), and the Law of ' +
+              'Sines converts it into every other side. <b>No ambiguity</b>: the angles were given directly rather than ' +
+              'recovered through an arcsine, so nothing was thrown away.'
+          };
+        },
+        why: 'Two angles with the side <b>between</b> them. Subtract to get the third angle, and the Law of Sines does the rest.' },
+
+      { key:'AAS', law:'Law of Sines', min:3, max:31, def:12,
+        lab: function(v){ return 'angle B = ' + (v * 5) + ' deg   (A = 30 deg, side a = 5 opposite A)'; },
+        solve: function(v){
+          var A = 30, B = v * 5, a = 5;
+          var C = 180 - A - B;
+          if (C <= 0.5) return { tris: [], bad: 'angles A + B reach 180 degrees, so no triangle closes',
+            rows: [['A + B', (A + B) + ' deg']],
+            note: '<b style="color:var(--viz-red)">A + B is already 180 degrees or more, so there is no third angle.</b>' +
+              'Same failure as ASA, and the same lesson: check the angle sum before reaching for a law.' };
+          var b = a * Math.sin(B * D2R) / Math.sin(A * D2R);
+          var c = a * Math.sin(C * D2R) / Math.sin(A * D2R);
+          return {
+            tris: [{ A: A, b: b, c: c, label: 'the triangle' }],
+            rows: [['a / sin(A) = b / sin(B)', (a / Math.sin(A * D2R)).toFixed(4)],
+                   ['b = a sin(B) / sin(A)', b.toFixed(4)],
+                   ['third angle C', C.toFixed(2) + ' deg'],
+                   ['c = a sin(C) / sin(A)', c.toFixed(4)]],
+            note: B === 60
+              ? '<b style="color:var(--viz-green)">A = 30, a = 5, B = 60 gives b = 5 sin(60)/sin(30) = 5 (sqrt(3)/2)/(1/2) = 5 sqrt(3).</b>' +
+                'Dividing by sin(30) = 1/2 <em>doubles</em>, which is why the answer is 5 sqrt(3) ~ 8.66 and not 5 sqrt(3)/2. ' +
+                'The whole ratio a/sin(A) = ' + (a / Math.sin(A * D2R)).toFixed(4) + ' is a constant of this triangle — it is ' +
+                'the diameter of its circumscribed circle, and every side/sine pair reproduces it.'
+              : '<b>b = ' + b.toFixed(4) + ', from the single constant a/sin(A) = ' + (a / Math.sin(A * D2R)).toFixed(4) + '.</b>' +
+                'Every side divided by the sine of its opposite angle gives that same number, so one known pair unlocks the ' +
+                'whole triangle. <b>Still no ambiguity</b>: B was given, not recovered from an arcsine.'
+          };
+        },
+        why: 'Two angles and a side <b>not</b> between them. The angle sum still gives the third angle, so this behaves ' +
+             'exactly like ASA — one triangle, no second case.' },
+
+      { key:'SSA', law:'Law of Sines', min:4, max:20, def:10,
+        lab: function(v){ return 'side a = ' + (v * 0.5) + ' opposite A   (A = 30 deg, b = 8)'; },
+        solve: function(v){
+          var A = 30, b = 8, a = v * 0.5;
+          var h = b * Math.sin(A * D2R);
+          var sinB = b * Math.sin(A * D2R) / a;
+          var rows = [['altitude h = b sin(A)', h.toFixed(4)],
+                      ['sin(B) = b sin(A) / a', sinB.toFixed(4)]];
+          if (sinB > 1 + 1e-12) {
+            return { tris: [], bad: 'sin(B) = ' + sinB.toFixed(4) + ' is greater than 1 — no angle B exists',
+              rows: rows.concat([['triangles', '0']]),
+              note: '<b style="color:var(--viz-red)">a = ' + a + ' is shorter than h = ' + h.toFixed(2) + ', so the arc never reaches the base.</b>' +
+                'The Law of Sines says so in its own language: it asks for an angle whose sine exceeds 1, and there is none. ' +
+                'Treat a sine above 1 as the geometry talking, not as an arithmetic slip.' };
+          }
+          var B1 = Math.asin(Math.min(1, sinB)) * R2D;
+          var B2 = 180 - B1;
+          var tris = [];
+          [B1, B2].forEach(function(B, i){
+            var C = 180 - A - B;
+            if (C <= 0.5) return;
+            if (i === 1 && Math.abs(B2 - B1) < 0.01) return;
+            var c = a * Math.sin(C * D2R) / Math.sin(A * D2R);
+            tris.push({ A: A, b: b, c: c, label: 'B = ' + B.toFixed(1) + ' deg', B: B, C: C });
+          });
+          rows.push(['angle B from arcsin', B1.toFixed(2) + ' deg']);
+          rows.push(['its supplement 180 - B', B2.toFixed(2) + ' deg']);
+          rows.push(['triangles that actually close', String(tris.length)]);
+          var note;
+          if (tris.length === 2) {
+            note = '<b style="color:var(--viz-amber)">TWO triangles fit: B = ' + tris[0].B.toFixed(1) + ' and B = ' + tris[1].B.toFixed(1) + '.</b>' +
+              'h = ' + h.toFixed(2) + ' and b = ' + b + ', and a = ' + a + ' lies strictly between them, so the arc of radius a ' +
+              'cuts the base twice. Both are real triangles with the same given data. <b>The arcsine only ever hands back the ' +
+              'acute one</b> — it is restricted to [-90, 90] degrees, exactly as visual 3 showed — so the obtuse partner has ' +
+              'to be produced by hand as 180 minus it. That is the entire ambiguous case.';
+          } else if (Math.abs(a - h) < 0.26) {
+            note = '<b style="color:var(--viz-green)">a is essentially the altitude, so the arc just touches: one right triangle.</b>' +
+              'B comes out at 90 degrees and its supplement is 90 too — the two solutions have collapsed into one. This is the ' +
+              'knife edge between two triangles and none.';
+          } else {
+            note = '<b>a = ' + a + ' is at least as long as b = ' + b + ', so exactly one triangle closes.</b>' +
+              'The supplement B = ' + B2.toFixed(1) + ' degrees is arithmetically fine but geometrically impossible: A + B would ' +
+              'exceed 180. Notice the rule that falls out — when the side opposite the given angle is the longer one, the ' +
+              'ambiguity disappears on its own.';
+          }
+          return { tris: tris, rows: rows, note: note };
+        },
+        why: 'Two sides and an angle <b>not</b> between them. This is the only shape that can describe two different triangles, ' +
+             'because the arcsine that recovers B discards the obtuse possibility.' }
+    ];
+
+    function drawTriangles(tris){
+      if (!tris.length) {
+        return '<svg class="vz-svg" viewBox="0 0 ' + W + ' ' + HT + '" role="img" aria-label="no triangle exists">' +
+          '<text x="' + (W / 2) + '" y="' + (HT / 2) + '" font-size="13" font-family="monospace" fill="var(--viz-red)" ' +
+          'text-anchor="middle">no triangle closes with this data</text></svg>';
+      }
+      var pts = [], i;
+      for (i = 0; i < tris.length; i++) {
+        var t = tris[i], ar = t.A * D2R;
+        pts.push([[0, 0], [t.c, 0], [t.b * Math.cos(ar), t.b * Math.sin(ar)]]);
+      }
+      var maxX = 0.001, maxY = 0.001;
+      for (i = 0; i < pts.length; i++) for (var j = 0; j < 3; j++) {
+        maxX = Math.max(maxX, pts[i][j][0]);
+        maxY = Math.max(maxY, pts[i][j][1]);
+      }
+      var s = Math.min((W - 44) / maxX, (HT - 44) / maxY);
+      if (!isFinite(s) || s <= 0) s = 1;
+      var ox = 22, oy = HT - 22;
+      var COL = ['var(--viz-accent)', 'var(--viz-amber)'];
+      var DASH = ['', '7 4'];
+      var svg = '';
+      for (i = 0; i < pts.length; i++) {
+        var p = pts[i].map(function(q){ return [ox + q[0] * s, oy - q[1] * s]; });
+        svg += '<polygon points="' + p.map(function(q){ return q[0].toFixed(1) + ',' + q[1].toFixed(1); }).join(' ') +
+          '" fill="none" stroke="' + COL[i] + '" stroke-width="2.2"' + (DASH[i] ? ' stroke-dasharray="' + DASH[i] + '"' : '') + '/>' +
+          '<text class="v4-tri" x="' + p[2][0].toFixed(1) + '" y="' + (p[2][1] - 6).toFixed(1) + '" ' +
+          'fill="' + COL[i] + '" text-anchor="middle">' + (tris[i].label || '') + '</text>';
+      }
+      svg += '<text x="' + ox + '" y="' + (oy + 14) + '" font-size="9.5" font-family="monospace" fill="var(--viz-muted)">A</text>';
+      return '<svg class="vz-svg" viewBox="0 0 ' + W + ' ' + HT + '" role="img" ' +
+        'aria-label="the solved triangle drawn to scale">' + svg + '</svg>';
+    }
+
+    function render(){
+      var c = CASES[cur];
+      var v = Number(sp.value);
+      plab.textContent = c.lab(v);
+      [].slice.call(shapes.children).forEach(function(b, i){ b.setAttribute('aria-pressed', i === cur ? 'true' : 'false'); });
+
+      var r = c.solve(v);
+      plot.innerHTML = drawTriangles(r.tris);
+
+      var rows = (r.rows || []).map(function(row){
+        return '<div class="vz-row"><span>' + row[0] + '</span><span>' + row[1] + '</span></div>';
+      }).join('');
+      var n = r.tris.length;
+      out.innerHTML = rows +
+        '<div style="margin-top:7px">' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">use the ' + c.law + '</span>' +
+        '<span class="vz-pill" style="color:' + (n === 2 ? 'var(--viz-amber)' : n === 1 ? 'var(--viz-green)' : 'var(--viz-red)') +
+          ';border-color:' + (n === 2 ? 'var(--viz-amber)' : n === 1 ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (n === 2 ? '2 triangles — AMBIGUOUS' : n === 1 ? '1 triangle' : '0 triangles') + '</span>' +
+        (r.bad ? '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">' + r.bad + '</span>' : '') +
+        '</div>';
+
+      why.innerHTML = r.note + '<br><br><b>Why ' + c.key + ' selects the ' + c.law + '.</b>' + c.why;
+    }
+
+    [].slice.call(shapes.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        cur = i;
+        sp.min = String(CASES[i].min);
+        sp.max = String(CASES[i].max);
+        sp.value = String(CASES[i].def);
+        render();
+      });
+    });
+    sp.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Fit And Solve Waves</h2>
+  <p class="vz-lede">Four parameters, four things you can see. Set the wave, then drag the target line
+    and watch the solutions arrive in pairs — because a horizontal line between the midline and the peak
+    cuts every arch twice. <b>Like tide tables: the height you care about happens twice a cycle, once
+    on the way up and once on the way down.</b></p>
+
+  <div class="vz-seg" id="v5-presets" role="group" aria-label="Worked models">
+    <button aria-pressed="false">y = 3sin(x) + 2</button>
+    <button aria-pressed="false">max 9, min 1</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-a">amplitude A = <span id="v5-al">3</span></label>
+    <input type="range" id="v5-a" min="1" max="8" value="6" step="1" aria-label="Amplitude A">
+    <label class="vz-lab" for="v5-b" style="margin-top:8px">B = <span id="v5-bl">1</span> &nbsp;(period = 2pi / B)</label>
+    <input type="range" id="v5-b" min="1" max="6" value="2" step="1" aria-label="Frequency factor B">
+    <label class="vz-lab" for="v5-c" style="margin-top:8px">horizontal shift C = <span id="v5-cl">0</span></label>
+    <input type="range" id="v5-c" min="0" max="6" value="0" step="1" aria-label="Horizontal shift C">
+    <label class="vz-lab" for="v5-d" style="margin-top:8px">midline D = <span id="v5-dl">2</span></label>
+    <input type="range" id="v5-d" min="-2" max="6" value="2" step="1" aria-label="Midline D">
+    <label class="vz-lab" for="v5-k" style="margin-top:8px">target line y = <span id="v5-kl">2.5</span></label>
+    <input type="range" id="v5-k" min="0" max="36" value="19" step="1" aria-label="Target value">
+    <div id="v5-plot" style="margin-top:10px"></div>
+    <div id="v5-out" style="margin-top:9px"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Fit from the <b>extremes</b>, never from the symbols: amplitude is
+    (max &minus; min)/2 and the midline is (max + min)/2, so "maximum 9, minimum 1" gives amplitude 4 and
+    midline 5 without ever seeing a formula. Solving then runs the other way — the inverse supplies one
+    angle, the circle's mirror supplies its partner, and the period supplies the infinitely many copies
+    of both.</p>
+
+  <style>
+    .v5-key{font-size:10.5px;color:var(--viz-muted);font-family:ui-monospace,Consolas,monospace;line-height:1.7;margin-top:5px}
+    .v5-key i{display:inline-block;width:20px;height:0;border-top-width:3px;vertical-align:middle;margin-right:5px}
+  </style>
+  <script>
+  (function(){
+    var W = 320, HT = 190, PI = Math.PI, XMAX = 4 * PI;
+    var sa = document.getElementById('v5-a'), la = document.getElementById('v5-al');
+    var sb = document.getElementById('v5-b'), lb = document.getElementById('v5-bl');
+    var sc = document.getElementById('v5-c'), lc = document.getElementById('v5-cl');
+    var sd = document.getElementById('v5-d'), ld = document.getElementById('v5-dl');
+    var sk = document.getElementById('v5-k'), lk = document.getElementById('v5-kl');
+    var presets = document.getElementById('v5-presets');
+    var plot = document.getElementById('v5-plot');
+    var out = document.getElementById('v5-out');
+    var why = document.getElementById('v5-why');
+    var CLAB = ['0', 'pi/6', 'pi/3', 'pi/2', '2pi/3', '5pi/6', 'pi'];
+
+    function fmt(v, d){
+      if (v === null || v === undefined || !isFinite(v)) return 'undefined';
+      return v.toFixed(d === undefined ? 4 : d);
+    }
+    function render(){
+      var A = Number(sa.value) * 0.5;
+      var B = Number(sb.value) * 0.5;
+      var ci = Number(sc.value), C = ci * PI / 6;
+      var D = Number(sd.value);
+      var k = -7 + Number(sk.value) * 0.5;
+      la.textContent = String(A);
+      lb.textContent = String(B);
+      lc.textContent = CLAB[ci];
+      ld.textContent = String(D);
+      lk.textContent = k.toFixed(1);
+
+      var hi = D + A, lo = D - A;
+      var amp = (hi - lo) / 2, mid = (hi + lo) / 2;
+      var period = B > 0 ? 2 * PI / B : Infinity;
+
+      var y0 = Math.min(lo, k) - 1.2, y1 = Math.max(hi, k) + 1.2;
+      if (!(y1 > y0)) { y1 = y0 + 1; }
+      var f = function(x){ return A * Math.sin(B * (x - C)) + D; };
+      var PX = function(x){ return x / XMAX * W; };
+      var PY = function(y){ return HT - (y - y0) / (y1 - y0) * HT; };
+
+      var d = '', n = 900;
+      for (var i = 0; i <= n; i++) {
+        var x = XMAX * i / n;
+        d += (i ? 'L' : 'M') + PX(x).toFixed(2) + ' ' + PY(f(x)).toFixed(2) + ' ';
+      }
+
+      // Solutions of A sin(B(x - C)) + D = k, built the way the lesson builds them:
+      // principal angle from the inverse, its mirror at pi - it, then every 2pi copy.
+      var u = A !== 0 ? (k - D) / A : Infinity;
+      var solvable = isFinite(u) && Math.abs(u) <= 1 + 1e-12;
+      var xs = [];
+      var t1 = null, t2 = null;
+      if (solvable) {
+        t1 = Math.asin(Math.max(-1, Math.min(1, u)));
+        t2 = PI - t1;
+        for (var m = -6; m <= 12; m++) {
+          [t1, t2].forEach(function(t){
+            var x = C + (t + 2 * PI * m) / B;
+            if (x >= -1e-9 && x <= XMAX + 1e-9) {
+              for (var q = 0; q < xs.length; q++) if (Math.abs(xs[q] - x) < 1e-6) return;
+              xs.push(x);
+            }
+          });
+        }
+        xs.sort(function(p, q){ return p - q; });
+      }
+      var dots = xs.map(function(x){
+        return '<circle cx="' + PX(x).toFixed(2) + '" cy="' + PY(k).toFixed(2) + '" r="4.6" fill="var(--viz-green)"/>';
+      }).join('');
+
+      plot.innerHTML = '<svg class="vz-svg" viewBox="0 0 ' + W + ' ' + HT + '" preserveAspectRatio="none" role="img" ' +
+        'aria-label="the sinusoid with its midline, extremes and the target line crossings">' +
+        '<line x1="0" y1="' + PY(hi).toFixed(2) + '" x2="' + W + '" y2="' + PY(hi).toFixed(2) +
+          '" stroke="var(--viz-line)" stroke-width="1" stroke-dasharray="3 3"/>' +
+        '<line x1="0" y1="' + PY(lo).toFixed(2) + '" x2="' + W + '" y2="' + PY(lo).toFixed(2) +
+          '" stroke="var(--viz-line)" stroke-width="1" stroke-dasharray="3 3"/>' +
+        '<line x1="0" y1="' + PY(D).toFixed(2) + '" x2="' + W + '" y2="' + PY(D).toFixed(2) +
+          '" stroke="var(--viz-violet)" stroke-width="2" stroke-dasharray="7 4"/>' +
+        '<path d="' + d + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"/>' +
+        '<line x1="0" y1="' + PY(k).toFixed(2) + '" x2="' + W + '" y2="' + PY(k).toFixed(2) +
+          '" stroke="var(--viz-amber)" stroke-width="2" stroke-dasharray="5 4"/>' + dots +
+        '<text x="4" y="' + (PY(D) - 4).toFixed(1) + '" font-size="9.5" font-family="monospace" fill="var(--viz-violet)">midline y = ' + D + '</text>' +
+        '<text x="4" y="' + (PY(hi) + 11).toFixed(1) + '" font-size="9.5" font-family="monospace" fill="var(--viz-muted)">max ' + fmt(hi, 1) + '</text>' +
+        '<text x="4" y="' + (PY(lo) - 4).toFixed(1) + '" font-size="9.5" font-family="monospace" fill="var(--viz-muted)">min ' + fmt(lo, 1) + '</text>' +
+        '</svg>' +
+        '<div class="v5-key"><i style="border-top-style:solid;border-top-color:var(--viz-accent)"></i>y = A sin(B(x - C)) + D' +
+        ' &nbsp; <i style="border-top-style:dashed;border-top-color:var(--viz-violet)"></i>midline' +
+        ' &nbsp; <i style="border-top-style:dashed;border-top-color:var(--viz-amber)"></i>target y = ' + k.toFixed(1) +
+        ' &nbsp; green dots = solutions</div>';
+
+      var perPeriod = period > 0 && isFinite(period) ? xs.length / (XMAX / period) : 0;
+      out.innerHTML =
+        '<div class="vz-row"><span>maximum = D + |A|</span><span>' + fmt(hi, 2) + '</span></div>' +
+        '<div class="vz-row"><span>minimum = D - |A|</span><span>' + fmt(lo, 2) + '</span></div>' +
+        '<div class="vz-row"><span>amplitude = (max - min) / 2</span><span>' + fmt(amp, 2) + '</span></div>' +
+        '<div class="vz-row"><span>midline = (max + min) / 2</span><span>y = ' + fmt(mid, 2) + '</span></div>' +
+        '<div class="vz-row"><span>period = 2pi / B</span><span>' + fmt(period, 3) + '</span></div>' +
+        '<div class="vz-row"><span>(k - D) / A, the ratio to invert</span><span>' + (isFinite(u) ? fmt(u) : 'undefined') + '</span></div>' +
+        '<div style="margin-top:7px">' +
+        '<span class="vz-pill" style="color:' + (solvable ? 'var(--viz-green)' : 'var(--viz-red)') + ';border-color:' +
+          (solvable ? 'var(--viz-green)' : 'var(--viz-red)') + '">' +
+          (solvable ? xs.length + ' solution' + (xs.length === 1 ? '' : 's') + ' shown' : 'NO solution: |ratio| > 1') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-violet);border-color:var(--viz-violet)">' +
+          (solvable ? Math.round(perPeriod * 10) / 10 + ' per period' : 'the line misses the wave') + '</span></div>';
+
+      if (!solvable) {
+        why.innerHTML = '<b style="color:var(--viz-red)">The target sits outside [' + fmt(lo, 2) + ', ' + fmt(hi, 2) + '], so there is no solution at all.</b>' +
+          'Isolating gives sin(B(x - C)) = (k - D)/A = ' + (isFinite(u) ? fmt(u) : 'undefined') +
+          ', and sine never leaves [-1, 1]. This is the same check as visual 3, arriving in different clothes: ' +
+          'a value outside the range of sine has no angle behind it, whatever the model. ' +
+          '<b>Do this test first</b> — it is one division, and it decides whether any algebra is worth starting.';
+      } else {
+        var xa = xs.length ? xs[0] : null, xb = xs.length > 1 ? xs[1] : null;
+        why.innerHTML = '<b style="color:var(--viz-green)">Two solutions per period, and here is where the second one comes from.</b>' +
+          'Isolate first: sin(B(x - C)) = (k - D)/A = ' + fmt(u) + '. The inverse returns only the principal angle ' +
+          fmt(t1) + ' rad, because it is restricted to [-pi/2, pi/2]. The circle supplies the partner at pi minus it, ' +
+          fmt(t2) + ' rad — the mirror across the vertical axis, which has the same sine. Undo B and C on each, then add ' +
+          'whole periods of ' + fmt(period, 3) + '.' +
+          (xa !== null ? '<br><br>First two crossings in this window: x = ' + fmt(xa, 3) +
+            (xb !== null ? ' and x = ' + fmt(xb, 3) : '') + '.' : '') +
+          '<br><br><b>Watch the three numbers that get confused.</b> With A = ' + A + ' and D = ' + D +
+          ', the amplitude is ' + fmt(amp, 2) + ', the midline is y = ' + fmt(mid, 2) + ' and the maximum is ' + fmt(hi, 2) +
+          ' — three different values. The additive constant is the midline; the multiplier is the amplitude; the maximum is ' +
+          'their sum and is neither.';
+      }
+    }
+
+    var PRE = [[6, 2, 0, 2, 19], [8, 2, 0, 5, 25]];
+    [].slice.call(presets.children).forEach(function(b, i){
+      b.addEventListener('click', function(){
+        sa.value = String(PRE[i][0]); sb.value = String(PRE[i][1]); sc.value = String(PRE[i][2]);
+        sd.value = String(PRE[i][3]); sk.value = String(PRE[i][4]);
+        [].slice.call(presets.children).forEach(function(o, j){ o.setAttribute('aria-pressed', i === j ? 'true' : 'false'); });
+        render();
+      });
+    });
+    sa.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    sc.addEventListener('input', render);
+    sd.addEventListener('input', render);
+    sk.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

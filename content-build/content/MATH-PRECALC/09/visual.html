@@ -1,0 +1,886 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control, the range input, the
+   preset row. Nothing here reaches inside a panel by id, and the page declares
+   no top-level behaviour — each visual carries its own, which is what keeps
+   every one of them individually rewritable from Regenerate's per-visual
+   checkboxes. Element-level styling (range inputs, buttons) lives HERE on
+   purpose: a bare element selector inside one panel's own style block would
+   silently restyle all the others, so regenerating that panel alone would
+   break them.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: the panel
+   scanner reads tags textually and would take it for a real page-level one.) */
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 12px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{background:var(--viz-accent);border-color:var(--viz-accent);color:var(--viz-bg)}
+.vz-pre{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 0}
+.vz-pre button{min-height:44px;border:1.5px dashed var(--viz-line);background:var(--viz-bg);color:var(--viz-ink);
+  border-radius:10px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;padding:6px 10px;flex:1 1 128px}
+.vz-toggle{width:100%;min-height:44px;margin-top:10px;border:1.5px solid var(--viz-line);
+  background:var(--viz-surface);color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12px;font-weight:700;display:block;margin:10px 0 2px}
+.vz-lab b{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:44px}
+.vz-eq{margin-top:9px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);
+  border:1.5px solid var(--viz-line);font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:700;
+  white-space:pre-wrap;line-height:1.6}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace;display:inline-block;margin:3px 4px 0 0}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Sigma Was Already There</button>
+  <button class="viz-tab" data-viz-tab="2">2. Difference Or Ratio</button>
+  <button class="viz-tab" data-viz-tab="3">3. Summing Without Adding</button>
+  <button class="viz-tab" data-viz-tab="4">4. Pascal Builds The Coefficients</button>
+  <button class="viz-tab" data-viz-tab="5">5. One Term Without Expanding</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Sigma Was Already There</h2>
+  <p class="vz-lede"><b>Discrete random variables and Expected Value</b> made you write
+    x0*p0 + x1*p1 + x2*p2 + ... , and <b>Scalar multiplication, addition, and subtraction</b> made you add matched
+    components one index at a time. Both are the same shape: a rule, applied to every index in a range, added up.
+    Sigma is the name for that shape. Drag the bounds and watch the long form and the short form stay equal.
+    <b>Like a recipe that says "repeat for each guest" instead of writing the step out eight times.</b></p>
+
+  <div class="v1-bridge">
+    <div class="v1-half"><h5>already yours</h5><div class="vz-mono">E[X] = x0*p0 + x1*p1 + x2*p2
+        + x3*p3 + x4*p4 + x5*p5
+
+u . v = u0*v0 + u1*v1 + u2*v2</div></div>
+    <div class="v1-half"><h5>this lesson, compressed</h5><div class="vz-mono">E[X] = SUM  x_i * p_i
+       i = 0 .. 5
+
+SUM     says ADD
+i       the INDEX variable
+0 .. 5  the BOUNDS
+x_i*p_i the SUMMAND</div></div>
+  </div>
+
+  <div class="vz-seg" role="group" aria-label="Which summand" style="margin-top:12px">
+    <button type="button" id="v1-mk" aria-pressed="true">k</button>
+    <button type="button" id="v1-m2n" aria-pressed="false">2n</button>
+    <button type="button" id="v1-mj" aria-pressed="false">j + 1</button>
+    <button type="button" id="v1-mxp" aria-pressed="false">x_i * p_i</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-lo">lower bound &nbsp;=&nbsp; <b><span id="v1-lol">1</span></b></label>
+    <input class="vz-range" type="range" id="v1-lo" min="0" max="5" value="1" step="1" aria-label="Lower bound">
+    <label class="vz-lab" for="v1-hi">upper bound &nbsp;=&nbsp; <b><span id="v1-hil">4</span></b></label>
+    <input class="vz-range" type="range" id="v1-hi" min="0" max="5" value="4" step="1" aria-label="Upper bound">
+    <div class="vz-eq" id="v1-sig"></div>
+    <div class="vz-mono v1-exp" id="v1-exp"></div>
+    <div class="v1-pills" id="v1-pills"></div>
+    <button type="button" class="vz-toggle" id="v1-ren">rename the index letter</button>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+
+  <div class="vz-pre">
+    <button type="button" id="v1-p1">SUM j=0..2 of (j+1)</button>
+    <button type="button" id="v1-p2">SUM k=1..4 of k</button>
+    <button type="button" id="v1-p3">SUM n=1..3 of 2n</button>
+  </div>
+
+  <p class="vz-note">Sigma is an <b>instruction</b>, not a number: it says add, it is not a repeated product, not a
+    running difference, and not the limit of a sequence. And notice what the rename button does not change — the
+    index is a counter that disappears when the sum is evaluated, so its letter can never be part of the answer.</p>
+
+  <style>
+    .v1-bridge{display:flex;gap:9px;flex-wrap:wrap}
+    .v1-half{flex:1 1 210px;background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:11px}
+    .v1-half h5{margin:0 0 6px;font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--viz-muted)}
+    .v1-half .vz-mono{font-size:11px;line-height:1.6}
+    .v1-exp{margin-top:9px;padding:9px 10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line)}
+    .v1-pills{margin-top:10px}
+  </style>
+  <script>
+  (function(){
+    // A real six-outcome distribution: the probabilities add to exactly 1.00, so
+    // the full sum IS an expected value and the partial sums are visibly not.
+    var X = [0, 10, 25, 50, 100, 250];
+    var P = [0.4, 0.25, 0.15, 0.12, 0.06, 0.02];
+    var LETTERS = ['k', 'j', 'n', 'i', 'm'];
+
+    var MODES = {
+      k:  { li:0, body:function(L){ return L; },
+            f:function(i){ return i; },
+            det:function(L, i){ return L + ' = ' + i + '   ->   ' + i; } },
+      n2: { li:2, body:function(L){ return '2' + L; },
+            f:function(i){ return 2 * i; },
+            det:function(L, i){ return L + ' = ' + i + '   ->   2(' + i + ') = ' + (2 * i); } },
+      j1: { li:1, body:function(L){ return '(' + L + ' + 1)'; },
+            f:function(i){ return i + 1; },
+            det:function(L, i){ return L + ' = ' + i + '   ->   ' + i + ' + 1 = ' + (i + 1); } },
+      xp: { li:3, body:function(L){ return 'x_' + L + ' * p_' + L; },
+            f:function(i){ return X[i] * P[i]; },
+            det:function(L, i){ return L + ' = ' + i + '   ->   ' + X[i] + ' * ' + P[i] + ' = ' + fmt(X[i] * P[i]); } }
+    };
+    var ORDER = ['k', 'n2', 'j1', 'xp'];
+    var mode = 'k', li = 0;
+
+    var btn = { k:document.getElementById('v1-mk'), n2:document.getElementById('v1-m2n'),
+                j1:document.getElementById('v1-mj'), xp:document.getElementById('v1-mxp') };
+    var SL = document.getElementById('v1-lo'), SH = document.getElementById('v1-hi');
+    var lol = document.getElementById('v1-lol'), hil = document.getElementById('v1-hil');
+    var sig = document.getElementById('v1-sig'), exp = document.getElementById('v1-exp');
+    var pills = document.getElementById('v1-pills'), why = document.getElementById('v1-why');
+    var ren = document.getElementById('v1-ren');
+
+    // Every displayed number goes through this: a slider can only ever produce
+    // integers here, but a stray NaN would render as "NaN" and kill the panel.
+    function fmt(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '--';
+      return String(Math.round(v * 10000) / 10000);
+    }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+
+    function render(){
+      ORDER.forEach(function(m){ btn[m].setAttribute('aria-pressed', m === mode ? 'true' : 'false'); });
+
+      var lo = Math.round(Number(SL.value)), hi = Math.round(Number(SH.value));
+      if (!isFinite(lo)) lo = 0;
+      if (!isFinite(hi)) hi = 0;
+      lol.textContent = lo; hil.textContent = hi;
+
+      var M = MODES[mode], L = LETTERS[li];
+      var count = hi - lo + 1;
+      var terms = [], lines = [], total = 0;
+      if (count > 0) {
+        for (var i = lo; i <= hi; i++) {
+          var v = M.f(i);
+          if (!isFinite(v)) v = 0;
+          total += v;
+          terms.push(fmt(v));
+          lines.push(M.det(L, i));
+        }
+      }
+      total = Math.round(total * 10000) / 10000;
+
+      sig.textContent = 'SUM from ' + L + ' = ' + lo + ' to ' + hi + ' of  ' + M.body(L) +
+        '\n     =  ' + (count > 0 ? terms.join(' + ') : '(no terms)') + '\n     =  ' + fmt(total);
+
+      exp.textContent = count > 0
+        ? lines.join('\n') + '\n' + '-'.repeat(26) + '\ntotal = ' + fmt(total)
+        : 'The upper bound is below the lower bound, so the index never runs.\nAn empty sum is 0 by convention.';
+
+      var okCol = count > 0 ? 'var(--viz-green)' : 'var(--viz-amber)';
+      pills.innerHTML =
+        pill('terms: ' + hi + ' - ' + lo + ' + 1 = ' + Math.max(0, count), okCol) +
+        pill('total = ' + fmt(total), 'var(--viz-accent)') +
+        pill('index letter: ' + L + ' (value unchanged)', 'var(--viz-violet)') +
+        (mode === 'xp'
+          ? pill(lo === 0 && hi === 5 ? 'all 6 outcomes: p adds to 1.00' : 'partial: p does NOT add to 1', 'var(--viz-muted)')
+          : '');
+
+      var head, body;
+      if (count <= 0) {
+        head = '<b style="color:var(--viz-amber)">Zero terms — and that is a legal sum, worth 0.</b>';
+        body = 'The bounds are read as "start here, stop there", so an upper bound below the lower one describes a range ' +
+          'the index never enters. Nothing gets added, and the convention is that such a sum is <b>0</b> — the value that ' +
+          'leaves any other sum unchanged when you glue it on.';
+      } else if (mode === 'xp') {
+        head = '<b style="color:var(--viz-green)">This is the expected value, written in the notation it always wanted.</b>';
+        body = 'The summand <b>x_' + L + ' * p_' + L + '</b> is the value times its probability, and the bounds say which ' +
+          'outcomes are included. Pull the lower bound up and the total drops — not because the outcome became impossible, ' +
+          'but because you stopped counting it. That is the whole reason the bounds are written on the symbol: an expected ' +
+          'value is only an average when the range covers <b>every</b> outcome and the probabilities add to 1.';
+      } else {
+        body = 'Reading it out loud: start the index at ' + lo + ', apply the rule <b>' + M.body(L) + '</b>, step up by one, ' +
+          'stop after ' + hi + ', add everything you produced. That is ' + count + ' term' + (count === 1 ? '' : 's') +
+          ', because the count is <b>upper - lower + 1</b> and not simply the difference. ';
+        if (lo === 0) {
+          head = '<b style="color:var(--viz-accent)">A lower bound of 0 is legal — and it adds a term.</b>';
+          body += 'Starting at 0 makes ' + count + ' terms where the gap between the bounds is only ' + (hi - lo) +
+            '. Silently dropping that first term is the single most common sigma error.';
+        } else {
+          head = '<b style="color:var(--viz-accent)">' + count + ' terms, total ' + fmt(total) + '.</b>';
+          body += 'And the arithmetic is exact — nothing is being approximated. The symbol is shorthand for the row ' +
+            'above it, no more and no less.';
+        }
+      }
+      why.innerHTML = head + body +
+        '<br><br><b style="color:var(--viz-violet)">Three different numbers live in one expression.</b>' +
+        'The index <b>' + L + '</b> is the counter, <b>' + hi + '</b> is the fixed upper bound, and <b>' + fmt(total) +
+        '</b> is the computed total. Options that hand you the bound, or the index, when the question asked for the sum ' +
+        'are the standard distractors — and the rename button is the proof that the letter itself can never be the answer.';
+    }
+
+    function pick(m){ mode = m; li = MODES[m].li; render(); }
+    ORDER.forEach(function(m){ btn[m].addEventListener('click', function(){ pick(m); }); });
+    ren.addEventListener('click', function(){ li = (li + 1) % LETTERS.length; render(); });
+    SL.addEventListener('input', render);
+    SH.addEventListener('input', render);
+
+    function preset(m, lo, hi){
+      mode = m; li = MODES[m].li;
+      SL.value = String(lo); SH.value = String(hi);
+      render();
+    }
+    document.getElementById('v1-p1').addEventListener('click', function(){ preset('j1', 0, 2); });
+    document.getElementById('v1-p2').addEventListener('click', function(){ preset('k', 1, 4); });
+    document.getElementById('v1-p3').addEventListener('click', function(){ preset('n2', 1, 3); });
+
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Difference Or Ratio</h2>
+  <p class="vz-lede">Two families, one diagnostic. Both rows below are always computed — the differences between
+    consecutive terms and their ratios — and exactly one of them holds still. Whichever one does names the sequence,
+    and the next term is then a single operation.
+    <b>Like a staircase versus a photocopier: one adds the same rise every step, the other multiplies by the same
+    factor every copy.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Sequence family">
+    <button type="button" id="v2-ar" aria-pressed="true">arithmetic</button>
+    <button type="button" id="v2-ge" aria-pressed="false">geometric</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v2-a1">first term a1 &nbsp;=&nbsp; <b><span id="v2-a1l">4</span></b></label>
+    <input class="vz-range" type="range" id="v2-a1" min="1" max="10" value="4" step="1" aria-label="First term">
+    <label class="vz-lab" for="v2-step"><span id="v2-stepn">common difference d</span> &nbsp;=&nbsp; <b><span id="v2-stepl">3</span></b></label>
+    <input class="vz-range" type="range" id="v2-step" min="0" max="9" value="7" step="1" aria-label="Common difference or common ratio">
+    <div class="vz-mono v2-tbl" id="v2-terms"></div>
+    <div class="v2-pills" id="v2-verdict"></div>
+    <div class="vz-eq" id="v2-next"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+
+  <div class="vz-pre">
+    <button type="button" id="v2-p1">4, 7, 10, 13, ...</button>
+    <button type="button" id="v2-p2">3, 6, 12, 24, ...</button>
+  </div>
+
+  <p class="vz-note">Two terms never settle it. From <b>3, 6</b> alone the list continues 9, 12 with a constant
+    difference of 3, or 12, 24 with a constant ratio of 2 — both are perfectly good sequences. Always test a third
+    term before you name the family, and run <b>both</b> tests rather than the one you expected to win.</p>
+
+  <style>
+    /* The rows are column-aligned, so this block must SCROLL rather than wrap:
+       a wrapped line puts the differences under the wrong terms. */
+    .v2-tbl{margin-top:10px;padding:10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line);
+      overflow-x:auto;white-space:pre}
+    .v2-pills{margin-top:8px}
+  </style>
+  <script>
+  (function(){
+    var D = [-4, -3, -2, -1, 0, 1, 2, 3, 4, 5];        // common differences, by slider index
+    var R = [-2, -1, -0.5, 0.5, 1, 1.5, 2, 3, 4, 5];   // common ratios, by slider index
+    var DEF = { ar:7, ge:6 };                          // d = 3 and r = 2 are the quiz-bank sequences
+    var mode = 'ar', idx = { ar:7, ge:6 };
+
+    var bA = document.getElementById('v2-ar'), bG = document.getElementById('v2-ge');
+    var SA = document.getElementById('v2-a1'), SS = document.getElementById('v2-step');
+    var a1l = document.getElementById('v2-a1l'), stepl = document.getElementById('v2-stepl');
+    var stepn = document.getElementById('v2-stepn');
+    var tbl = document.getElementById('v2-terms'), verdict = document.getElementById('v2-verdict');
+    var nxt = document.getElementById('v2-next'), why = document.getElementById('v2-why');
+
+    function fmt(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '--';
+      return String(Math.round(v * 10000) / 10000);
+    }
+    function pad(s, w){ s = String(s); while (s.length < w) s = ' ' + s; return s; }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+
+    function render(){
+      bA.setAttribute('aria-pressed', mode === 'ar' ? 'true' : 'false');
+      bG.setAttribute('aria-pressed', mode === 'ge' ? 'true' : 'false');
+
+      var a1 = Math.round(Number(SA.value));
+      if (!isFinite(a1)) a1 = 1;
+      a1l.textContent = a1;
+
+      var i = Math.round(Number(SS.value));
+      if (!isFinite(i) || i < 0 || i > 9) i = DEF[mode];
+      idx[mode] = i;
+      var step = mode === 'ar' ? D[i] : R[i];
+      stepn.textContent = mode === 'ar' ? 'common difference d' : 'common ratio r';
+      stepl.textContent = fmt(step);
+
+      // Six terms: four "given", then the two the learner is asked to predict.
+      var a = [a1];
+      for (var t = 1; t < 6; t++) a.push(mode === 'ar' ? a[t - 1] + step : a[t - 1] * step);
+      for (var g = 0; g < a.length; g++) if (!isFinite(a[g])) a[g] = 0;
+
+      var W = 10;
+      var head = pad('term', 8), vals = pad('value', 8), diffs = pad('a(n+1)-a(n)', 13), rats = pad('a(n+1)/a(n)', 13);
+      for (var n = 0; n < 6; n++) {
+        head += pad('a' + (n + 1) + (n === 4 ? '*' : ''), W);
+        vals += pad(fmt(a[n]), W);
+      }
+      for (var m = 0; m < 5; m++) {
+        diffs += pad(fmt(a[m + 1] - a[m]), W);
+        // Dividing by a term that is 0 has no answer, and "Infinity" on screen is
+        // a dead panel — so it is reported as undefined, which is itself a tell.
+        rats += pad(a[m] === 0 ? 'undef' : fmt(a[m + 1] / a[m]), W);
+      }
+      tbl.textContent = head + '\n' + vals + '\n\n' + diffs + '\n' + rats +
+        '\n\n* a5 is the "next term" after the four you are shown.';
+
+      var dConst = true, rConst = true, hasZero = false;
+      for (var q = 1; q < 5; q++) {
+        if (Math.abs((a[q + 1] - a[q]) - (a[1] - a[0])) > 1e-9) dConst = false;
+        if (a[q] === 0 || a[0] === 0) hasZero = true;
+      }
+      if (hasZero) rConst = false;
+      else for (var w = 1; w < 5; w++) if (Math.abs(a[w + 1] / a[w] - a[1] / a[0]) > 1e-9) rConst = false;
+      // A constant sequence (d = 0, or r = 1) genuinely satisfies both tests. Saying
+      // otherwise would teach a rule the learner can immediately break on screen.
+      var both = dConst && rConst;
+
+      verdict.innerHTML =
+        pill('differences ' + (dConst ? 'CONSTANT, d = ' + fmt(a[1] - a[0]) : 'vary'),
+          dConst ? 'var(--viz-green)' : 'var(--viz-muted)') +
+        pill('ratios ' + (rConst ? 'CONSTANT, r = ' + fmt(a[1] / a[0]) : (hasZero ? 'undefined at a zero term' : 'vary')),
+          rConst ? 'var(--viz-green)' : 'var(--viz-muted)') +
+        pill(both ? 'both -> constant sequence' : (dConst ? 'verdict: ARITHMETIC' : (rConst ? 'verdict: GEOMETRIC' : 'verdict: neither')),
+          'var(--viz-accent)');
+
+      nxt.textContent = mode === 'ar'
+        ? 'next term = a4 + d = ' + fmt(a[3]) + ' + ' + fmt(step) + ' = ' + fmt(a[4]) +
+          '\nclosed form: a_n = a1 + (n-1)d   ->   a10 = ' + fmt(a1) + ' + 9(' + fmt(step) + ') = ' + fmt(a1 + 9 * step)
+        : 'next term = a4 * r = ' + fmt(a[3]) + ' * ' + fmt(step) + ' = ' + fmt(a[4]) +
+          '\nclosed form: a_n = a1 * r^(n-1)   ->   a7 = ' + fmt(a1) + ' * ' + fmt(step) + '^6 = ' + fmt(a1 * Math.pow(step, 6));
+
+      var head2, body2;
+      if (both) {
+        head2 = '<b style="color:var(--viz-amber)">Both tests pass — this list is constant.</b>';
+        body2 = 'Adding 0 and multiplying by 1 do the same nothing, so a constant sequence is arithmetic <em>and</em> ' +
+          'geometric at once. It is the one overlap between the families, and it is why the definitions are stated as ' +
+          '"a constant difference" and "a constant ratio" rather than as opposites.';
+      } else if (mode === 'ar') {
+        head2 = '<b style="color:var(--viz-green)">Constant difference ' + fmt(step) + ' — arithmetic.</b>';
+        body2 = 'Each term is the one before it <b>plus</b> ' + fmt(step) + ', so the differences row repeats and the ratios ' +
+          'row drifts: dividing a growing list by itself cannot hold still when the gaps are fixed. Getting to a10 does not ' +
+          'need the eight terms in between — you add d exactly n-1 times, which is the whole content of a_n = a1 + (n-1)d.';
+      } else {
+        head2 = '<b style="color:var(--viz-green)">Constant ratio ' + fmt(step) + ' — geometric.</b>';
+        body2 = 'Each term is the one before it <b>times</b> ' + fmt(step) + ', so now the ratios row repeats and the differences ' +
+          'row grows (or shrinks) with the terms themselves. ' +
+          (Math.abs(step) < 1
+            ? 'With |r| below 1 the terms shrink toward zero — hold that thought, because it is what makes an endless sum finite in visual 3.'
+            : (step < 0
+              ? 'A negative r alternates the sign every term, and the ratio is still perfectly constant: -2 every time.'
+              : 'Growth is by a factor, not by an amount, which is why a geometric list overtakes any arithmetic one eventually.'));
+      }
+      var trap = (a[0] === 3 && a[1] === 6)
+        ? '<br><br><b style="color:var(--viz-violet)">Look at the first two terms: 3, 6.</b>' +
+          'Identical openings, two different sequences — this one continues ' + fmt(a[2]) + ', ' + fmt(a[3]) +
+          '. The other family would give ' + (mode === 'ar' ? '12, 24' : '9, 12') +
+          '. No amount of care with two terms can tell them apart; the third term is what decides.'
+        : '';
+      why.innerHTML = head2 + body2 + trap;
+    }
+
+    function pickMode(m){ mode = m; SS.value = String(idx[m]); render(); }
+    bA.addEventListener('click', function(){ pickMode('ar'); });
+    bG.addEventListener('click', function(){ pickMode('ge'); });
+    SA.addEventListener('input', render);
+    SS.addEventListener('input', render);
+    document.getElementById('v2-p1').addEventListener('click', function(){
+      mode = 'ar'; idx.ar = 7; SA.value = '4'; SS.value = '7'; render();
+    });
+    document.getElementById('v2-p2').addEventListener('click', function(){
+      mode = 'ge'; idx.ge = 6; SA.value = '3'; SS.value = '6'; render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Summing Without Adding</h2>
+  <p class="vz-lede">A sequence is the list; a series is its sum. Both closed forms below are derived on screen, not
+    quoted: the arithmetic one folds the list against itself, the geometric one subtracts a shifted copy. The
+    brute-force total is computed alongside so you can watch them agree.
+    <b>Like counting a stadium by rows and seats instead of pointing at every seat.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Series family">
+    <button type="button" id="v3-ar" aria-pressed="true">arithmetic</button>
+    <button type="button" id="v3-ge" aria-pressed="false">geometric</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-n">how many terms n &nbsp;=&nbsp; <b><span id="v3-nl">4</span></b></label>
+    <input class="vz-range" type="range" id="v3-n" min="1" max="12" value="4" step="1" aria-label="Number of terms">
+    <label class="vz-lab" for="v3-a1">first term a1 &nbsp;=&nbsp; <b><span id="v3-a1l">2</span></b></label>
+    <input class="vz-range" type="range" id="v3-a1" min="1" max="6" value="2" step="1" aria-label="First term">
+    <label class="vz-lab" for="v3-step"><span id="v3-stepn">common difference d</span> &nbsp;=&nbsp; <b><span id="v3-stepl">3</span></b></label>
+    <input class="vz-range" type="range" id="v3-step" min="0" max="9" value="6" step="1" aria-label="Common difference or common ratio">
+    <div class="vz-mono v3-work" id="v3-work"></div>
+    <div class="v3-pills" id="v3-cmp"></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+
+  <div class="vz-pre">
+    <button type="button" id="v3-p1">2 + 5 + 8 + 11</button>
+    <button type="button" id="v3-p2">3 + 6 + 12 + 24</button>
+    <button type="button" id="v3-p3">4 + 2 + 1 + ...</button>
+  </div>
+
+  <p class="vz-note">The excluded case is the one to internalise: at <b>r = 1</b> the geometric formula divides by
+    zero, and the honest answer is that every term equals a1, so the sum is n*a1. A formula with a hole in it is not
+    a broken formula — the hole is where a different, simpler argument takes over.</p>
+
+  <style>
+    /* The forwards/backwards pairing only reads if the two rows stay aligned. */
+    .v3-work{margin-top:10px;padding:10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line);
+      overflow-x:auto;white-space:pre}
+    .v3-pills{margin-top:9px}
+  </style>
+  <script>
+  (function(){
+    var D = [-3, -2, -1, 0, 1, 2, 3, 4, 5, 6];
+    var R = [-2, -1, -0.5, 0.5, 1, 1.5, 2, 3, 4, 5];
+    var mode = 'ar', idx = { ar:6, ge:6 };
+
+    var bA = document.getElementById('v3-ar'), bG = document.getElementById('v3-ge');
+    var SN = document.getElementById('v3-n'), SA = document.getElementById('v3-a1'), SS = document.getElementById('v3-step');
+    var nl = document.getElementById('v3-nl'), a1l = document.getElementById('v3-a1l'), stepl = document.getElementById('v3-stepl');
+    var stepn = document.getElementById('v3-stepn');
+    var work = document.getElementById('v3-work'), cmp = document.getElementById('v3-cmp'), why = document.getElementById('v3-why');
+
+    function fmt(v){
+      if (typeof v !== 'number' || !isFinite(v)) return '--';
+      var r = Math.round(v * 10000) / 10000;
+      return String(r);
+    }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+    // Long lists are elided in the middle so the derivation still reads at 390px.
+    function listOf(arr){
+      if (arr.length <= 6) return arr.map(fmt).join(' + ');
+      return arr.slice(0, 4).map(fmt).join(' + ') + ' + ... + ' + fmt(arr[arr.length - 1]);
+    }
+
+    function render(){
+      bA.setAttribute('aria-pressed', mode === 'ar' ? 'true' : 'false');
+      bG.setAttribute('aria-pressed', mode === 'ge' ? 'true' : 'false');
+
+      var n = Math.round(Number(SN.value)); if (!isFinite(n) || n < 1) n = 1;
+      var a1 = Math.round(Number(SA.value)); if (!isFinite(a1)) a1 = 1;
+      var i = Math.round(Number(SS.value)); if (!isFinite(i) || i < 0 || i > 9) i = 6;
+      idx[mode] = i;
+      var step = mode === 'ar' ? D[i] : R[i];
+      nl.textContent = n; a1l.textContent = a1; stepl.textContent = fmt(step);
+      stepn.textContent = mode === 'ar' ? 'common difference d' : 'common ratio r';
+
+      var a = [a1];
+      for (var t = 1; t < n; t++) a.push(mode === 'ar' ? a[t - 1] + step : a[t - 1] * step);
+      var brute = 0;
+      for (var b = 0; b < a.length; b++) { if (!isFinite(a[b])) a[b] = 0; brute += a[b]; }
+      brute = Math.round(brute * 100000) / 100000;
+
+      var last = a[n - 1], formula, lines, note;
+      if (mode === 'ar') {
+        formula = (n / 2) * (a1 + last);
+        lines = 'S    = ' + listOf(a) + '\n' +
+          'S    = ' + listOf(a.slice().reverse()) + '\n' +
+          '-------------------------------------------\n' +
+          '2S   = ' + fmt(a1 + last) + ' added ' + n + ' time' + (n === 1 ? '' : 's') + '  =  ' + fmt(n * (a1 + last)) + '\n\n' +
+          'every column is a1 + a' + n + ' = ' + fmt(a1) + ' + ' + fmt(last) + ' = ' + fmt(a1 + last) + '\n' +
+          'S    = (n/2)(a1 + a_n) = (' + n + '/2)(' + fmt(a1) + ' + ' + fmt(last) + ') = ' + fmt(formula);
+        note = '';
+      } else if (Math.abs(step - 1) < 1e-12) {
+        formula = n * a1;
+        lines = 'S    = ' + listOf(a) + '\n\n' +
+          'r = 1, so S(1 - r) = S(0) = 0 and the closed form\n' +
+          'S = a1(1 - r^n)/(1 - r) divides by zero.\n\n' +
+          'every term equals a1, so S = n * a1 = ' + n + ' * ' + fmt(a1) + ' = ' + fmt(formula);
+        note = 'r1';
+      } else {
+        formula = a1 * (1 - Math.pow(step, n)) / (1 - step);
+        lines = 'S    = ' + listOf(a) + '\n' +
+          fmt(step) + 'S   = ' + listOf(a.map(function(v){ return v * step; })) + '\n' +
+          '-------------------------------------------\n' +
+          'S - ' + fmt(step) + 'S = ' + fmt(a1) + ' - ' + fmt(a1 * Math.pow(step, n)) + '   (every middle term cancels)\n\n' +
+          'S(1 - r) = a1(1 - r^n)\n' +
+          'S    = a1(1 - r^n)/(1 - r) = ' + fmt(a1) + '(1 - ' + fmt(Math.pow(step, n)) + ')/(1 - ' + fmt(step) + ') = ' + fmt(formula);
+        note = Math.abs(step) < 1 ? 'conv' : '';
+      }
+      if (!isFinite(formula)) formula = brute;
+      formula = Math.round(formula * 100000) / 100000;
+      work.textContent = lines;
+
+      var agree = Math.abs(formula - brute) < 1e-6;
+      cmp.innerHTML =
+        pill('added by hand = ' + fmt(brute), 'var(--viz-muted)') +
+        pill('closed form = ' + fmt(formula), 'var(--viz-accent)') +
+        pill(agree ? 'match: identical' : 'MISMATCH', agree ? 'var(--viz-green)' : 'var(--viz-red)') +
+        (note === 'conv'
+          ? pill('ceiling a1/(1-r) = ' + fmt(a1 / (1 - step)), 'var(--viz-violet)')
+          : '') +
+        (note === 'r1' ? pill('r = 1: formula excluded', 'var(--viz-amber)') : '');
+
+      var head, body;
+      if (note === 'r1') {
+        head = '<b style="color:var(--viz-amber)">r = 1 is the one value the geometric formula cannot take.</b>';
+        body = 'Look at the derivation: it works by subtracting rS from S, and at r = 1 those are the same number, so the ' +
+          'subtraction destroys the information instead of cancelling the middle. The sum is still perfectly well defined ' +
+          '— n copies of a1 — it just needs no machinery. Reaching for the formula here produces a division by zero, not a number.';
+      } else if (note === 'conv') {
+        head = '<b style="color:var(--viz-violet)">|r| below 1: the partial sums climb toward ' + fmt(a1 / (1 - step)) + ' and stop short.</b>';
+        body = 'Each term is a fraction of the one before it, so what is left to add shrinks faster than the total grows. ' +
+          'With n = ' + n + ' the running total is ' + fmt(brute) + ', still ' + fmt(Math.abs(a1 / (1 - step) - brute)) +
+          ' away from the ceiling. Push n up and watch the gap shrink without ever closing. Naming what "toward" means is ' +
+          'exactly the job of the next lesson.';
+      } else if (mode === 'ar') {
+        head = '<b style="color:var(--viz-green)">Fold the list against itself and every column is the same number.</b>';
+        body = 'Write S forwards and backwards: the first pairs with the last, the second with the second-last, and each pair ' +
+          'totals a1 + a_n = ' + fmt(a1 + last) + ' because one side gains exactly what the other loses. There are n such columns, ' +
+          'so 2S = n(a1 + a_n). No term was approximated; the shortcut is an identity. Note what n means here — <b>how many ' +
+          'terms</b>, not the index of the last one.';
+      } else {
+        head = '<b style="color:var(--viz-green)">Multiply by r and the two lists overlap almost completely.</b>';
+        body = 'Every term of S except the first appears again in rS, so subtracting leaves only the two ends: ' +
+          'S - rS = a1 - a1*r^n. Solving for S gives the closed form, and the cost of summing ' + n + ' terms drops to one ' +
+          'exponentiation. This is why a geometric series over four thousand terms is no harder than one over four.';
+      }
+      why.innerHTML = head + body +
+        '<br><br><b style="color:var(--viz-accent)">Sequence question or series question?</b>' +
+        'The next <em>term</em> of this list is ' + fmt(mode === 'ar' ? last + step : last * step) + '; the <em>sum</em> of its first ' +
+        n + ' is ' + fmt(formula) + '. Both are one keyword apart in the wording and nowhere near each other as numbers.';
+    }
+
+    function pickMode(m){ mode = m; SS.value = String(idx[m]); render(); }
+    bA.addEventListener('click', function(){ pickMode('ar'); });
+    bG.addEventListener('click', function(){ pickMode('ge'); });
+    SN.addEventListener('input', render);
+    SA.addEventListener('input', render);
+    SS.addEventListener('input', render);
+    document.getElementById('v3-p1').addEventListener('click', function(){
+      mode = 'ar'; idx.ar = 6; SN.value = '4'; SA.value = '2'; SS.value = '6'; render();
+    });
+    document.getElementById('v3-p2').addEventListener('click', function(){
+      mode = 'ge'; idx.ge = 6; SN.value = '4'; SA.value = '3'; SS.value = '6'; render();
+    });
+    document.getElementById('v3-p3').addEventListener('click', function(){
+      mode = 'ge'; idx.ge = 3; SN.value = '8'; SA.value = '4'; SS.value = '3'; render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Pascal Builds The Coefficients</h2>
+  <p class="vz-lede">The numbers in front of the terms of (a + b)^n are not invented and not memorised: they are the
+    combinations you already know, and the triangle builds each one by adding the two directly above it. Pick a row
+    and an entry, and watch the same number arrive three ways — by addition, by factorials, and by symmetry.
+    <b>Like a family tree run backwards: every entry is born from the two immediately above it.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v4-n">power n &nbsp;=&nbsp; <b><span id="v4-nl">3</span></b></label>
+    <input class="vz-range" type="range" id="v4-n" min="0" max="8" value="3" step="1" aria-label="Power n">
+    <label class="vz-lab" for="v4-k">entry k &nbsp;=&nbsp; <b><span id="v4-kl">1</span></b></label>
+    <input class="vz-range" type="range" id="v4-k" min="0" max="8" value="1" step="1" aria-label="Entry k within the row">
+    <div class="v4-tri" id="v4-tri"></div>
+    <div class="vz-mono v4-calc" id="v4-calc"></div>
+    <div class="vz-eq" id="v4-exp"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+
+  <div class="vz-pre">
+    <button type="button" id="v4-p1">(a + b)^2</button>
+    <button type="button" id="v4-p2">(a + b)^3</button>
+    <button type="button" id="v4-p3">(a + b)^5</button>
+  </div>
+
+  <p class="vz-note">What the coefficients are <b>not</b>: successive powers of 2, successive primes, or an
+    arithmetic run with one fixed gap. Each row does <em>add up</em> to 2^n — a different claim, and the source of
+    the confusion. The reliable check is symmetry: because choosing k things to include is the same act as choosing
+    n-k to leave out, every row must read the same backwards.</p>
+
+  <style>
+    .v4-tri{margin-top:12px;display:flex;flex-direction:column;gap:3px;align-items:center;overflow-x:auto}
+    .v4-row{display:flex;gap:3px;align-items:center;justify-content:center}
+    .v4-lbl{font-family:ui-monospace,Consolas,monospace;font-size:9.5px;color:var(--viz-muted);width:38px;text-align:right;flex:0 0 38px}
+    .v4-c{min-width:26px;padding:3px 4px;border-radius:5px;border:1.5px solid var(--viz-line);background:var(--viz-bg);
+      font-family:ui-monospace,Consolas,monospace;font-size:10.5px;text-align:center}
+    .v4-c.is-row{border-color:var(--viz-accent)}
+    .v4-c.is-sel{background:var(--viz-accent);color:var(--viz-bg);border-color:var(--viz-accent);font-weight:800}
+    .v4-c.is-par{border-color:var(--viz-violet);border-style:dashed}
+    .v4-calc{margin-top:11px;padding:10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line);
+      overflow-x:auto;white-space:pre}
+  </style>
+  <script>
+  (function(){
+    var SN = document.getElementById('v4-n'), SK = document.getElementById('v4-k');
+    var nl = document.getElementById('v4-nl'), kl = document.getElementById('v4-kl');
+    var tri = document.getElementById('v4-tri'), calc = document.getElementById('v4-calc');
+    var exp = document.getElementById('v4-exp'), why = document.getElementById('v4-why');
+
+    // Multiplicative form: exact for every n on this slider, and it never builds a
+    // factorial big enough to lose precision.
+    function C(n, k){
+      if (k < 0 || k > n) return 0;
+      var r = 1;
+      for (var i = 1; i <= k; i++) r = r * (n - k + i) / i;
+      return Math.round(r);
+    }
+    function fact(n){ var r = 1; for (var i = 2; i <= n; i++) r *= i; return r; }
+
+    function term(coef, ae, be){
+      var s = coef === 1 ? '' : String(coef);
+      if (ae > 0) s += 'a' + (ae > 1 ? '^' + ae : '');
+      if (be > 0) s += 'b' + (be > 1 ? '^' + be : '');
+      return s === '' ? '1' : s;
+    }
+
+    function render(){
+      var n = Math.round(Number(SN.value)); if (!isFinite(n) || n < 0) n = 0;
+      var k = Math.round(Number(SK.value)); if (!isFinite(k) || k < 0) k = 0;
+      // k cannot exceed n: the row has n+1 entries and there is no entry beyond it.
+      if (k > n) k = n;
+      nl.textContent = n; kl.textContent = k;
+
+      var rows = '';
+      for (var r = 0; r <= 8; r++) {
+        var cells = '';
+        for (var j = 0; j <= r; j++) {
+          var cls = 'v4-c';
+          if (r === n) cls += ' is-row';
+          if (r === n && j === k) cls += ' is-sel';
+          if (r === n - 1 && (j === k - 1 || j === k)) cls += ' is-par';
+          cells += '<span class="' + cls + '">' + C(r, j) + '</span>';
+        }
+        var tag = r === n ? 'row ' + r + ' >' : (r === n - 1 ? 'parents>' : 'row ' + r);
+        rows += '<div class="v4-row"><span class="v4-lbl">' + tag + '</span>' + cells + '</div>';
+      }
+      tri.innerHTML = rows;
+
+      var val = C(n, k);
+      var p1 = C(n - 1, k - 1), p2 = C(n - 1, k);
+      calc.textContent =
+        'chosen entry:  C(' + n + ',' + k + ') = ' + val + '\n\n' +
+        'by factorials: ' + n + '! / (' + k + '! * ' + (n - k) + '!) = ' +
+          fact(n) + ' / (' + fact(k) + ' * ' + fact(n - k) + ') = ' + val + '\n' +
+        (n === 0
+          ? 'by addition:   row 0 is the tip of the triangle, defined as 1'
+          : 'by addition:   C(' + (n - 1) + ',' + (k - 1) + ') + C(' + (n - 1) + ',' + k + ') = ' + p1 + ' + ' + p2 + ' = ' + val) + '\n' +
+        'by symmetry:   C(' + n + ',' + k + ') = C(' + n + ',' + (n - k) + ') = ' + C(n, n - k) + '\n\n' +
+        'row ' + n + ':       ' + Array.from({ length: n + 1 }, function(_, j){ return C(n, j); }).join('  ') +
+        '   (adds to 2^' + n + ' = ' + Math.pow(2, n) + ')';
+
+      var parts = [];
+      for (var t = 0; t <= n; t++) parts.push(term(C(n, t), n - t, t));
+      exp.textContent = '(a + b)^' + n + ' = ' + parts.join(' + ') + '\n' +
+        parts.length + ' terms, and every one has exponents adding to ' + n + '.';
+
+      var head, body;
+      if (n === 0) {
+        head = '<b style="color:var(--viz-amber)">Row 0 is a single 1, and (a + b)^0 = 1.</b>';
+        body = 'Any non-zero quantity to the power 0 is 1, so the expansion has exactly one term and the triangle has ' +
+          'exactly one entry. It is the seed every other row is built from by addition.';
+      } else if (k === 0 || k === n) {
+        head = '<b style="color:var(--viz-accent)">The ends of every row are 1.</b>';
+        body = 'C(' + n + ',' + k + ') = 1 because there is exactly one way to take none of the ' + n + ' factors, and exactly ' +
+          'one way to take all of them. Those are the pure a^' + n + ' and b^' + n + ' terms — the only two that survive if you ' +
+          'wrongly believe (a + b)^' + n + ' equals a^' + n + ' + b^' + n + '. The whole middle of this row is what that belief throws away.';
+      } else {
+        head = '<b style="color:var(--viz-green)">' + val + ' arrives three ways, and they are the same fact.</b>';
+        body = 'Multiplying out ' + n + ' copies of (a + b) means choosing a or b from each factor. A term with ' + k +
+          ' b&#39;s appears once per choice of <em>which</em> ' + k + ' factors donate one, and that count is C(' + n + ',' + k + ') = ' + val +
+          '. The addition rule is the same argument split in two: the last factor either donates a b — leaving C(' + (n - 1) + ',' + (k - 1) +
+          ') = ' + p1 + ' ways — or it does not, leaving C(' + (n - 1) + ',' + k + ') = ' + p2 + '. Every entry inherits from the two above it.';
+      }
+      why.innerHTML = head + body +
+        '<br><br><b style="color:var(--viz-violet)">These are the combinations from the previous lesson.</b>' +
+        'The number that counted committees of ' + k + ' from ' + n + ' people is the coefficient in front of a term here. ' +
+        'One object, two jobs — which is why the Binomial Theorem sits in a lesson with series rather than in a separate one.';
+    }
+
+    SN.addEventListener('input', render);
+    SK.addEventListener('input', render);
+    document.getElementById('v4-p1').addEventListener('click', function(){ SN.value = '2'; SK.value = '1'; render(); });
+    document.getElementById('v4-p2').addEventListener('click', function(){ SN.value = '3'; SK.value = '1'; render(); });
+    document.getElementById('v4-p3').addEventListener('click', function(){ SN.value = '5'; SK.value = '2'; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. One Term Without Expanding</h2>
+  <p class="vz-lede">"What is the coefficient of x^2?" is not a request to expand anything. One term of the sum
+    answers it: C(n,k) a^(n-k) b^k, with the single k that puts the right power on x. Pick a binomial, a power and a
+    term, and check the extracted term against the full expansion below it.
+    <b>Like pulling one book off a shelf instead of emptying the shelf to find it.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="Which binomial">
+    <button type="button" id="v5-b1" aria-pressed="true">(x + 1)</button>
+    <button type="button" id="v5-b2" aria-pressed="false">(x - 1)</button>
+    <button type="button" id="v5-b3" aria-pressed="false">(x + 2)</button>
+    <button type="button" id="v5-b4" aria-pressed="false">(2x + 3)</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-n">power n &nbsp;=&nbsp; <b><span id="v5-nl">3</span></b></label>
+    <input class="vz-range" type="range" id="v5-n" min="1" max="6" value="3" step="1" aria-label="Power n">
+    <label class="vz-lab" for="v5-k">term number k &nbsp;=&nbsp; <b><span id="v5-kl">1</span></b></label>
+    <input class="vz-range" type="range" id="v5-k" min="0" max="6" value="1" step="1" aria-label="Which term k">
+    <div class="vz-mono v5-term" id="v5-term"></div>
+    <div class="v5-pills" id="v5-coef"></div>
+    <div class="vz-eq" id="v5-full"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+
+  <p class="vz-note">Two habits survive every question on this topic. Count the terms first — (a + b)^n always gives
+    n+1 of them with exponents adding to n, which kills any two-term option instantly. Then check the coefficient
+    list reads the same backwards, and remember that a negative b flips the sign of every odd-numbered term while
+    leaving the magnitudes untouched.</p>
+
+  <style>
+    .v5-term{margin-top:10px;padding:10px;border-radius:9px;background:var(--viz-bg);border:1px solid var(--viz-line);
+      overflow-x:auto;white-space:pre}
+    .v5-pills{margin-top:9px}
+  </style>
+  <script>
+  (function(){
+    // a = A*x, b = B. Kept as integers so every coefficient printed is exact.
+    var BINS = {
+      b1: { label:'(x + 1)',  A:1, B:1,  aTxt:'x',  bTxt:'1'  },
+      b2: { label:'(x - 1)',  A:1, B:-1, aTxt:'x',  bTxt:'-1' },
+      b3: { label:'(x + 2)',  A:1, B:2,  aTxt:'x',  bTxt:'2'  },
+      b4: { label:'(2x + 3)', A:2, B:3,  aTxt:'2x', bTxt:'3'  }
+    };
+    var ORDER = ['b1', 'b2', 'b3', 'b4'];
+    var pickKey = 'b1';
+
+    var btn = {};
+    ORDER.forEach(function(id){ btn[id] = document.getElementById('v5-' + id); });
+    var SN = document.getElementById('v5-n'), SK = document.getElementById('v5-k');
+    var nl = document.getElementById('v5-nl'), kl = document.getElementById('v5-kl');
+    var termBox = document.getElementById('v5-term'), coefBox = document.getElementById('v5-coef');
+    var full = document.getElementById('v5-full'), why = document.getElementById('v5-why');
+
+    function C(n, k){
+      if (k < 0 || k > n) return 0;
+      var r = 1;
+      for (var i = 1; i <= k; i++) r = r * (n - k + i) / i;
+      return Math.round(r);
+    }
+    function pill(txt, col){
+      return '<span class="vz-pill" style="color:' + col + ';border-color:' + col + '">' + txt + '</span>';
+    }
+    function xPow(e){ return e === 0 ? '' : (e === 1 ? 'x' : 'x^' + e); }
+    function signed(c, first){
+      var mag = Math.abs(c);
+      if (first) return (c < 0 ? '-' : '') + mag;
+      return (c < 0 ? ' - ' : ' + ') + mag;
+    }
+
+    function render(){
+      ORDER.forEach(function(id){ btn[id].setAttribute('aria-pressed', id === pickKey ? 'true' : 'false'); });
+      var B = BINS[pickKey];
+
+      var n = Math.round(Number(SN.value)); if (!isFinite(n) || n < 1) n = 1;
+      var k = Math.round(Number(SK.value)); if (!isFinite(k) || k < 0) k = 0;
+      if (k > n) k = n;            // there is no term past the last one
+      nl.textContent = n; kl.textContent = k;
+
+      var xe = n - k;
+      var coef = C(n, k) * Math.pow(B.A, xe) * Math.pow(B.B, k);
+      if (!isFinite(coef)) coef = 0;
+      coef = Math.round(coef);
+
+      termBox.textContent =
+        'general term:  C(n,k) * a^(n-k) * b^k\n' +
+        'here:          a = ' + B.aTxt + ' ,  b = ' + B.bTxt + ' ,  n = ' + n + ' ,  k = ' + k + '\n\n' +
+        '  C(' + n + ',' + k + ') * (' + B.aTxt + ')^' + xe + ' * (' + B.bTxt + ')^' + k + '\n' +
+        '= ' + C(n, k) + ' * ' + Math.pow(B.A, xe) + xPow(xe) + ' * ' + Math.pow(B.B, k) + '\n' +
+        '= ' + coef + (xe === 0 ? '' : ' ' + xPow(xe)) + '\n\n' +
+        'exponent check: (n - k) + k = ' + xe + ' + ' + k + ' = ' + n;
+
+      var coefs = [];
+      for (var t = 0; t <= n; t++) coefs.push(C(n, t) * Math.pow(B.A, n - t) * Math.pow(B.B, t));
+      var palin = true;
+      for (var q = 0; q <= n; q++) if (coefs[q] !== coefs[n - q]) palin = false;
+
+      coefBox.innerHTML =
+        pill('coefficient of ' + (xe === 0 ? 'the constant term' : xPow(xe)) + ' = ' + coef, 'var(--viz-accent)') +
+        pill('terms in the expansion: ' + (n + 1), 'var(--viz-green)') +
+        pill(palin ? 'coefficients read the same backwards' : 'not symmetric: a and b differ', palin ? 'var(--viz-violet)' : 'var(--viz-muted)');
+
+      var body = '';
+      for (var s = 0; s <= n; s++) {
+        var c = coefs[s], e = n - s;
+        if (c === 0) continue;
+        var mag = Math.abs(c);
+        var piece = (e === 0 ? String(mag) : (mag === 1 ? xPow(e) : mag + xPow(e)));
+        body += (s === 0 ? (c < 0 ? '-' : '') : (c < 0 ? ' - ' : ' + ')) + piece;
+      }
+      full.textContent = B.label + '^' + n + ' = ' + body + '\n' +
+        'coefficients: ' + coefs.map(function(v){ return String(v); }).join(', ');
+
+      var head, extra;
+      if (B.B === 1 && B.A === 1) {
+        head = '<b style="color:var(--viz-green)">With b = 1 the powers of b vanish and only the coefficients are left.</b>';
+        extra = 'Every b^k here is 1, so the expansion of (x + 1)^' + n + ' <em>is</em> row ' + n +
+          ' of Pascal&#39;s triangle written against descending powers of x. That is why this is the cleanest case to read a ' +
+          'coefficient from — and why it is also the easiest one in which to forget that a b was ever there.';
+      } else if (B.B < 0) {
+        head = '<b style="color:var(--viz-red)">A negative b alternates the signs and changes nothing else.</b>';
+        extra = 'b^k is negative exactly when k is odd, so the magnitudes stay the Pascal row and only the signs flip in turn. ' +
+          'The k = ' + k + ' term is ' + (k % 2 === 1 ? 'negative' : 'positive') + ' for that reason alone. Options that keep every ' +
+          'sign positive have quietly expanded (x + 1) instead.';
+      } else if (B.A > 1) {
+        head = '<b style="color:var(--viz-amber)">The whole of a is raised to the power, coefficient included.</b>';
+        extra = 'a = 2x, so a^' + xe + ' = ' + Math.pow(B.A, xe) + xPow(xe) + ' — the 2 is raised too. Forgetting that is the ' +
+          'commonest slip once the binomial stops being (x + 1): the coefficient of this term is ' + coef + ', not ' + C(n, k) * Math.pow(B.B, k) + '.';
+      } else {
+        head = '<b style="color:var(--viz-accent)">Only b carries a numeric power here, and it grows fast.</b>';
+        extra = 'b = ' + B.bTxt + ', so the coefficients are the Pascal row scaled by ' + B.bTxt + '^k. The row is still symmetric; ' +
+          'the printed coefficients are not, because a and b are no longer interchangeable.';
+      }
+      var callout = (pickKey === 'b1' && n === 3 && k === 1)
+        ? '<br><br><b style="color:var(--viz-violet)">This is the standard exam case.</b>' +
+          'The coefficient of x^2 in (x + 1)^3 is <b>3</b> — the second entry of row 3, not the power, not the number of terms. ' +
+          'One term, one combination, no expansion.'
+        : '';
+      why.innerHTML = head + extra +
+        '<br><br><b style="color:var(--viz-red)">The expansion above is never a^n + b^n.</b>' +
+        'It has ' + (n + 1) + ' terms, and the ones in the middle are exactly what the cross-multiplications produce. ' +
+        '(x + 1)^2 = x^2 + 2x + 1, and the missing 2x is the whole error.' + callout;
+    }
+
+    ORDER.forEach(function(id){
+      btn[id].addEventListener('click', function(){ pickKey = id; render(); });
+    });
+    SN.addEventListener('input', render);
+    SK.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

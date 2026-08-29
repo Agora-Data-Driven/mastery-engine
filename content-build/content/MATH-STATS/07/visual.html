@@ -1,0 +1,822 @@
+<!doctype html>
+<html>
+<head>
+<style>
+/* Shared chrome ONLY: type, cards, the segmented control. Nothing here reaches
+   inside a panel by id, and the page declares no top-level behaviour — each
+   visual carries its own, which is what keeps every one of them individually
+   rewritable from Regenerate's per-visual checkboxes.
+   (Do not write the literal s-c-r-i-p-t tag name in this comment: canSwapVisualPanel
+   scans for tags textually and would read it as a real page-level one.) */
+.vz-lede{font-size:13px;color:var(--viz-muted);margin:0 0 14px;line-height:1.5}
+.vz-h{font-size:20px;font-weight:700;margin:0 0 2px}
+.vz-card{background:var(--viz-surface);border:1px solid var(--viz-line);border-radius:12px;padding:14px}
+.vz-note{font-size:12.5px;color:var(--viz-muted);line-height:1.5;margin:12px 0 0}
+.vz-seg{display:flex;gap:6px;margin:0 0 14px;flex-wrap:wrap}
+.vz-seg button{flex:1 1 84px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+  color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px;padding:6px 6px}
+.vz-seg button[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+.vz-seg button[aria-pressed="true"]::before{content:"\25CF\00a0"}
+.vz-mono{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;line-height:1.7;white-space:pre-wrap}
+.vz-lab{font-size:12.5px;font-weight:700;display:block;margin:10px 0 4px}
+.vz-lab span{color:var(--viz-accent);font-family:ui-monospace,Consolas,monospace}
+.vz-range{width:100%;min-height:34px}
+.vz-why{margin-top:13px;padding-top:12px;border-top:1px dashed var(--viz-line);font-size:12.5px;line-height:1.6}
+.vz-why b{display:block;font-size:13px;margin-bottom:4px}
+.vz-plot{border:1.5px solid var(--viz-line);border-radius:10px;background:var(--viz-bg);padding:4px;margin-top:12px}
+.vz-plot svg{display:block;width:100%;height:auto}
+.vz-pill{font-size:11.5px;font-weight:800;border-radius:999px;padding:4px 11px;border:1.5px solid;
+  font-family:ui-monospace,Consolas,monospace}
+.vz-pills{margin-top:13px;display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</head>
+<body>
+
+<nav class="viz-tabs">
+  <button class="viz-tab" data-viz-tab="1">1. Two-Way Table Bridge</button>
+  <button class="viz-tab" data-viz-tab="2">2. Sample Space Counter</button>
+  <button class="viz-tab" data-viz-tab="3">3. Trials Settle Down</button>
+  <button class="viz-tab" data-viz-tab="4">4. Union Minus Overlap</button>
+  <button class="viz-tab" data-viz-tab="5">5. Shrink The Universe</button>
+  <button class="viz-tab" data-viz-tab="6">6. With Or Without Replacement</button>
+</nav>
+
+<!-- ══════════════════════════ 1 · BRIDGE ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="1">
+  <h2 class="vz-h">1. Two-Way Table Bridge</h2>
+  <p class="vz-lede"><b>Two-way tables</b> and <b>Distributions in two-way tables</b> already taught you to
+    divide a cell by the grand total, by a margin, or by its own row total. Nothing about the arithmetic
+    changes today — only the names. Drag the athletes who passed and watch the same cell answer three
+    different questions, one of which is <b>P(A and B)</b>, one <b>P(A)</b>, and one <b>P(A given B)</b>.
+    <b>Like asking "how many of everyone?" and "how many of us?" about one identical group of people.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v1-k">athletes who passed: <span id="v1-kl">15</span> of 20</label>
+    <input class="vz-range" type="range" id="v1-k" min="0" max="20" step="1" value="15"
+      aria-label="Number of athletes who passed">
+    <div class="vz-mono v1-tbl" id="v1-table"></div>
+    <div class="v1-reads" id="v1-read"></div>
+    <div class="vz-why" id="v1-why"></div>
+  </div>
+  <p class="vz-note">The move that carries the whole lesson is the one you just made with a slider: the cell
+    never changed meaning, the <b>denominator</b> did. Probability keeps exactly that habit and adds one
+    thing — the ratios now describe a run of the process that has not happened yet, which is why they must
+    obey rules (they sit between 0 and 1, complements sum to 1) that a descriptive percentage never had to.</p>
+
+  <style>
+    .v1-tbl{margin-top:12px;border:1.5px solid var(--viz-line);border-radius:10px;padding:10px;background:var(--viz-bg);white-space:normal}
+    .v1-tbl table{border-collapse:collapse;width:100%;font-size:11.5px}
+    .v1-tbl th,.v1-tbl td{border:1px solid var(--viz-line);padding:6px 4px;text-align:center}
+    .v1-tbl th{color:var(--viz-muted);font-weight:700;font-size:10.5px}
+    .v1-tbl td.v1-cell{font-weight:800;color:var(--viz-accent)}
+    .v1-tbl tr.v1-hot td,.v1-tbl tr.v1-hot th{background:var(--viz-surface)}
+    .v1-tbl td.v1-marg{color:var(--viz-muted)}
+    .v1-reads{margin-top:12px;display:flex;flex-direction:column;gap:6px}
+    .v1-r{display:flex;align-items:center;gap:8px;border:1.5px solid var(--viz-line);border-radius:9px;
+      padding:8px 10px;background:var(--viz-bg);font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+      flex-wrap:wrap;line-height:1.5}
+    .v1-r em{font-style:normal;color:var(--viz-muted)}
+    .v1-r b{margin-left:auto;font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var s = document.getElementById('v1-k'), kl = document.getElementById('v1-kl');
+    var tbl = document.getElementById('v1-table'), read = document.getElementById('v1-read');
+    var why = document.getElementById('v1-why');
+
+    function dec(n, d){ return d > 0 ? (n / d).toFixed(2) : '—'; }
+
+    function render(){
+      var k = Number(s.value);
+      kl.textContent = k;
+      var aP = k, aF = 20 - k, nP = 40, nF = 40;
+      var colP = aP + nP, colF = aF + nF, N = 100;
+
+      tbl.innerHTML =
+        '<table><tr><th></th><th>passed</th><th>failed</th><th>row total</th></tr>' +
+        '<tr class="v1-hot"><th>athlete</th><td class="v1-cell">' + aP + '</td><td>' + aF + '</td><td class="v1-marg">20</td></tr>' +
+        '<tr><th>non-athlete</th><td>' + nP + '</td><td>' + nF + '</td><td class="v1-marg">80</td></tr>' +
+        '<tr><th>column total</th><td class="v1-marg">' + colP + '</td><td class="v1-marg">' + colF + '</td><td class="v1-marg">100</td></tr></table>';
+
+      read.innerHTML =
+        '<div class="v1-r"><span>joint</span><em>' + aP + ' / 100 &nbsp;·&nbsp; cell ÷ grand total</em>' +
+        '<b style="color:var(--viz-accent)">P(athlete and passed) = ' + dec(aP, N) + '</b></div>' +
+        '<div class="v1-r"><span>marginal</span><em>20 / 100 and ' + colP + ' / 100 &nbsp;·&nbsp; margin ÷ grand total</em>' +
+        '<b style="color:var(--viz-accent)">P(athlete) = 0.20 &nbsp; P(passed) = ' + dec(colP, N) + '</b></div>' +
+        '<div class="v1-r"><span>conditional</span><em>' + aP + ' / 20 &nbsp;·&nbsp; cell ÷ that row’s own total</em>' +
+        '<b style="color:var(--viz-violet)">P(passed | athlete) = ' + dec(aP, 20) + '</b></div>' +
+        '<div class="v1-r"><span>the other conditional</span><em>' + aP + ' / ' + colP + ' &nbsp;·&nbsp; cell ÷ that column’s total</em>' +
+        '<b style="color:var(--viz-violet)">P(athlete | passed) = ' + dec(aP, colP) + '</b></div>';
+
+      // Independence, checked in whole numbers so the verdict can never drift:
+      // k/20 = (40+k)/100  <=>  100k = 20(40+k).
+      var lhs = aP * 100, rhs = 20 * colP;
+      var indep = lhs === rhs;
+      var higher = lhs > rhs;
+
+      why.innerHTML = indep
+        ? '<b style="color:var(--viz-green)">Independent — the row tells you nothing.</b>' +
+          'P(passed | athlete) = ' + dec(aP, 20) + ' and P(passed) = ' + dec(colP, N) + ' are the same number, so being told a ' +
+          'student is an athlete leaves your estimate of passing exactly where it was. Multiply and you get the ' +
+          'same verdict a second way: P(athlete) × P(passed) = 0.20 × ' + dec(colP, N) + ' = ' + (0.2 * colP / N).toFixed(2) +
+          ', which is P(athlete and passed) = ' + dec(aP, N) + '.' +
+          '<br><br>This is the <b>only</b> setting of the slider where that happens. Nudge it one student either ' +
+          'way and the two numbers separate — independence is an exact arithmetic coincidence, not a vague ' +
+          '"looks similar".'
+        : '<b style="color:var(--viz-amber)">Dependent — the row moves the answer.</b>' +
+          'P(passed | athlete) = ' + dec(aP, 20) + ' against P(passed) = ' + dec(colP, N) + '. Athletes pass at a <b>' +
+          (higher ? 'higher' : 'lower') + '</b> rate than the student body, so learning that a student is an athlete ' +
+          'changes what you would predict — and that is the definition of dependence. ' +
+          'The multiplication check agrees: P(athlete) × P(passed) = ' + (0.2 * colP / N).toFixed(3) +
+          ', but P(athlete and passed) = ' + (aP / N).toFixed(3) + '.' +
+          '<br><br>Slide toward <b>10 athletes passing</b> and the two readings meet; that single position is the ' +
+          'independent one.';
+    }
+    s.addEventListener('input', render);
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 2 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="2">
+  <h2 class="vz-h">2. Sample Space Counter</h2>
+  <p class="vz-lede">Theoretical probability is not a feeling and not a measurement — it is a count over the
+    <b>sample space</b>, the set of every outcome the experiment can produce. Pick an experiment, pick an
+    event, and watch favourable ÷ total do all the work. <b>Like a raffle drum: you win by counting your
+    tickets and then counting the drum.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="experiment" id="v2-exps"></div>
+
+  <div class="vz-card">
+    <div class="v2-space" id="v2-space"></div>
+    <div class="v2-events" id="v2-events"></div>
+    <div class="vz-mono v2-read" id="v2-read"></div>
+    <div class="vz-why" id="v2-why"></div>
+  </div>
+  <p class="vz-note">Every chip here is <b>equally likely</b>, which is the assumption that lets counting
+    stand in for probability at all. Load the die and the chips stay the same while the arithmetic stops
+    being valid — which is precisely the gap that <b>experimental probability</b>, in the next visual,
+    exists to measure.</p>
+
+  <style>
+    .v2-space{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+    .v2-o{flex:0 0 auto;min-width:38px;text-align:center;border:1.5px solid var(--viz-line);border-radius:8px;
+      padding:7px 6px;font-family:ui-monospace,Consolas,monospace;font-size:11.5px;background:var(--viz-bg);
+      color:var(--viz-muted)}
+    .v2-o.v2-hit{border-color:var(--viz-green);color:var(--viz-green);font-weight:800}
+    .v2-events{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
+    .v2-e{min-height:44px;text-align:left;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;padding:9px 11px;font:inherit;font-size:12.5px;
+      display:flex;align-items:center;gap:9px;line-height:1.4}
+    .v2-e[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v2-e[aria-pressed="true"]::before{content:"\25CF\00a0"}
+    .v2-read{padding:10px;border:1.5px dashed var(--viz-line);border-radius:9px;text-align:center;font-size:13px}
+  </style>
+  <script>
+  (function(){
+    function die(){ return ['1','2','3','4','5','6']; }
+    function pair(){
+      var out = [];
+      for (var d = 1; d <= 6; d++) { out.push(d + 'H'); out.push(d + 'T'); }
+      return out;
+    }
+    var EXP = [
+      { n:'one fair coin', space:['H','T'], events:[
+        { n:'heads', f:function(o){ return o === 'H'; },
+          w:'Half the outcomes are favourable, so P(heads) = 1/2. Note what is being counted: outcomes, not tosses.' },
+        { n:'not heads (the complement)', f:function(o){ return o !== 'H'; },
+          w:'The complement takes everything the event leaves behind, so its probability is 1 minus the event’s. Here 1 − 1/2 = 1/2.' },
+        { n:'heads or tails (certain)', f:function(){ return true; },
+          w:'Every outcome is favourable, so the probability is exactly 1 — the largest value any probability can take. A certain event scores 1, never 2 and never 100.' }
+      ] },
+      { n:'one fair die', space:die(), events:[
+        { n:'rolls a 4', f:function(o){ return o === '4'; },
+          w:'One favourable face out of six equally likely faces gives 1/6. Not 1/5, which would be the answer if a face had been removed rather than chosen.' },
+        { n:'an even number', f:function(o){ return Number(o) % 2 === 0; },
+          w:'The event is the set {2, 4, 6}: three outcomes of six, so 1/2. Writing the event out as a set is what makes this a count instead of a guess.' },
+        { n:'at least a 5', f:function(o){ return Number(o) >= 5; },
+          w:'"At least" means 5 or 6 — two outcomes, 1/3. Reading "at least" as "more than" drops the 5 and quietly gives 1/6.' },
+        { n:'rolls a 7 (impossible)', f:function(){ return false; },
+          w:'No outcome is favourable, so the probability is 0 — the smallest value available. Impossible scores 0; it is never negative.' }
+      ] },
+      { n:'two fair coins', space:['HH','HT','TH','TT'], events:[
+        { n:'both heads', f:function(o){ return o === 'HH'; },
+          w:'One outcome of four, so 1/4 — the same answer the multiplication rule gives as 1/2 × 1/2, because the two tosses are independent.' },
+        { n:'exactly one head', f:function(o){ return o === 'HT' || o === 'TH'; },
+          w:'HT and TH are two <b>different</b> outcomes even though a summary would call both "one head", so this is 2/4 = 1/2. Collapsing them into a single outcome is the classic sample-space error and would give 1/3.' },
+        { n:'at least one head', f:function(o){ return o.indexOf('H') >= 0; },
+          w:'Three outcomes of four, 3/4. Faster: it is the complement of TT, so 1 − 1/4 = 3/4.' }
+      ] },
+      { n:'a die and a coin', space:pair(), events:[
+        { n:'a 6 and heads', f:function(o){ return o === '6H'; },
+          w:'One outcome of twelve: 1/12. The multiplication rule for independent events gets there without listing anything — 1/6 × 1/2 = 1/12 — and the two agree because the twelve pairs are equally likely.' },
+        { n:'even roll and heads', f:function(o){ return Number(o.charAt(0)) % 2 === 0 && o.charAt(1) === 'H'; },
+          w:'Three outcomes of twelve, 1/4 — which is 1/2 × 1/2, the die half and the coin half multiplied.' },
+        { n:'heads, whatever the roll', f:function(o){ return o.charAt(1) === 'H'; },
+          w:'Six of twelve, 1/2. The coin does not care what the die did, which is exactly what independence means.' }
+      ] }
+    ];
+
+    var expsB = document.getElementById('v2-exps'), evB = document.getElementById('v2-events');
+    var spaceB = document.getElementById('v2-space'), read = document.getElementById('v2-read');
+    var why = document.getElementById('v2-why');
+    var ei = 0, vi = 0;
+
+    function gcd(a, b){ a = Math.abs(a); b = Math.abs(b); while (b) { var t = b; b = a % b; a = t; } return a || 1; }
+
+    function draw(){
+      var ex = EXP[ei], ev = ex.events[vi];
+      [].slice.call(expsB.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === ei ? 'true' : 'false'); });
+      [].slice.call(evB.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === vi ? 'true' : 'false'); });
+
+      var hits = 0;
+      spaceB.innerHTML = ex.space.map(function(o){
+        var hit = ev.f(o);
+        if (hit) hits += 1;
+        return '<span class="v2-o' + (hit ? ' v2-hit' : '') + '">' + (hit ? '✓ ' : '') + o + '</span>';
+      }).join('');
+
+      var tot = ex.space.length;
+      var g = gcd(hits, tot);
+      var frac = hits === 0 ? '0' : (tot / g === 1 ? String(hits / g) : (hits / g) + '/' + (tot / g));
+      var val = tot > 0 ? hits / tot : 0;
+      read.innerHTML = '<b>' + hits + ' favourable of ' + tot + ' outcomes</b><br>P = ' + hits + '/' + tot +
+        ' = ' + frac + ' = ' + val.toFixed(3);
+
+      why.innerHTML = '<b>' + ex.n + ' · ' + ev.n + '</b>' + ev.w +
+        '<br><br><b style="display:inline;font-size:12.5px">Sample space:</b> the set of <em>all</em> ' + tot +
+        ' outcomes above — not the likeliest one, not the number of trials you intend to run. Every ' +
+        'probability on this page is bounded by 0 and 1 for a structural reason: the favourable count cannot ' +
+        'drop below none of them or rise above all of them.';
+    }
+    function buildEvents(){
+      evB.innerHTML = '';
+      EXP[ei].events.forEach(function(ev, j){
+        var b = document.createElement('button');
+        b.className = 'v2-e';
+        b.type = 'button';
+        b.setAttribute('aria-pressed', 'false');
+        b.textContent = ev.n;
+        b.addEventListener('click', function(){ vi = j; draw(); });
+        evB.appendChild(b);
+      });
+    }
+    EXP.forEach(function(ex, i){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = ex.n;
+      b.addEventListener('click', function(){ ei = i; vi = 0; buildEvents(); draw(); });
+      expsB.appendChild(b);
+    });
+    buildEvents();
+    draw();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 3 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="3">
+  <h2 class="vz-h">3. Trials Settle Down</h2>
+  <p class="vz-lede">A simulation runs the experiment many times with a <b>random number generator</b> and
+    reports successes ÷ trials. Eight independent simulations are drawn here at once; watch the band they
+    span narrow as the trials pile up, and press reseed to prove nothing was ever removed.
+    <b>Like listening to a crowd: one voice is unpredictable, ten thousand have a definite volume.</b></p>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v3-p">true probability p = <span id="v3-pl">0.50</span></label>
+    <input class="vz-range" type="range" id="v3-p" min="5" max="95" step="5" value="50"
+      aria-label="True probability of success">
+    <label class="vz-lab" for="v3-n">trials per simulation: <span id="v3-nl">100</span></label>
+    <input class="vz-range" type="range" id="v3-n" min="0" max="9" step="1" value="3"
+      aria-label="Number of trials per simulation">
+    <div class="vz-plot" id="v3-plot"></div>
+    <div class="vz-pills" id="v3-stats"></div>
+    <div class="v3-act"><button class="v3-btn" type="button" id="v3-seed">reseed · run eight new simulations</button></div>
+    <div class="vz-why" id="v3-why"></div>
+  </div>
+  <p class="vz-note">This is why a simulation is worth building at all: when a process is easy to imitate but
+    awkward to calculate — a shuffled deck, a retry policy, a queue — you can generate the answer instead of
+    deriving it. The price is honest and permanent: what you get back is an <b>estimate</b>, and the way to
+    buy precision is more trials, never a cleverer reading of a short run.</p>
+
+  <style>
+    .v3-act{margin-top:12px}
+    .v3-btn{width:100%;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+  </style>
+  <script>
+  (function(){
+    var NS = [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
+    var RUNS = 8, W = 320, H = 168, PADL = 30, PADR = 8, PADT = 10, PADB = 20;
+    var seed = 7;
+    var sp = document.getElementById('v3-p'), pl = document.getElementById('v3-pl');
+    var sn = document.getElementById('v3-n'), nl = document.getElementById('v3-nl');
+    var plot = document.getElementById('v3-plot'), stats = document.getElementById('v3-stats');
+    var why = document.getElementById('v3-why'), reseed = document.getElementById('v3-seed');
+
+    function lcg(s){
+      var x = (s >>> 0) || 1;
+      return function(){ x = (Math.imul(x, 1664525) + 1013904223) >>> 0; return x / 4294967296; };
+    }
+    function xAt(t, N){ return PADL + (Math.log(t) / Math.log(N)) * (W - PADL - PADR); }
+    function yAt(v){ return PADT + (1 - v) * (H - PADT - PADB); }
+
+    function render(){
+      var p = Number(sp.value) / 100;
+      var N = NS[Number(sn.value)];
+      pl.textContent = p.toFixed(2);
+      nl.textContent = N.toLocaleString();
+
+      // Eight independent simulations, each a running successes/trials curve.
+      var curves = [], finals = [];
+      for (var r = 0; r < RUNS; r++) {
+        var rnd = lcg(seed * 7919 + r * 104729 + 13);
+        var hit = 0, curve = new Float64Array(N + 1);
+        for (var t = 1; t <= N; t++) { if (rnd() < p) hit += 1; curve[t] = hit / t; }
+        curves.push(curve);
+        finals.push(curve[N]);
+      }
+      var succ = Math.round(curves[0][N] * N);
+
+      // Sample the log-spaced x positions once and reuse them for every path.
+      var STEPS = 120, ts = [];
+      for (var i = 0; i <= STEPS; i++) {
+        var t2 = Math.max(1, Math.min(N, Math.round(Math.pow(N, i / STEPS))));
+        if (!ts.length || ts[ts.length - 1] !== t2) ts.push(t2);
+      }
+      function path(curve){
+        return ts.map(function(t3, j){
+          return (j ? 'L' : 'M') + xAt(t3, N).toFixed(1) + ' ' + yAt(curve[t3]).toFixed(1);
+        }).join(' ');
+      }
+      var lo = [], hi = [];
+      ts.forEach(function(t4){
+        var mn = 1, mx = 0;
+        for (var r2 = 0; r2 < RUNS; r2++) { var v = curves[r2][t4]; if (v < mn) mn = v; if (v > mx) mx = v; }
+        lo.push(mn); hi.push(mx);
+      });
+      var band = ts.map(function(t5, j){ return (j ? 'L' : 'M') + xAt(t5, N).toFixed(1) + ' ' + yAt(hi[j]).toFixed(1); }).join(' ') +
+        ' ' + ts.slice().reverse().map(function(t6, j){
+          var k = ts.length - 1 - j;
+          return 'L' + xAt(t6, N).toFixed(1) + ' ' + yAt(lo[k]).toFixed(1);
+        }).join(' ') + ' Z';
+
+      var faint = '';
+      for (var r3 = 1; r3 < RUNS; r3++) {
+        faint += '<path d="' + path(curves[r3]) + '" fill="none" stroke="var(--viz-muted)" stroke-width="1" opacity="0.5"/>';
+      }
+      var ticks = '';
+      [1, 10, 100, 1000, 10000].forEach(function(t7){
+        if (t7 > N) return;
+        ticks += '<text x="' + xAt(t7, N).toFixed(1) + '" y="' + (H - 6) + '" font-size="8" text-anchor="middle" fill="var(--viz-muted)">' + t7 + '</text>';
+      });
+
+      plot.innerHTML =
+        '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Running estimate of the probability against the number of trials">' +
+        '<rect x="' + PADL + '" y="' + PADT + '" width="' + (W - PADL - PADR) + '" height="' + (H - PADT - PADB) + '" fill="none" stroke="var(--viz-line)"/>' +
+        '<path d="' + band + '" fill="var(--viz-accent)" opacity="0.16"/>' +
+        '<line x1="' + PADL + '" y1="' + yAt(p).toFixed(1) + '" x2="' + (W - PADR) + '" y2="' + yAt(p).toFixed(1) +
+          '" stroke="var(--viz-violet)" stroke-width="1.5" stroke-dasharray="5 3"/>' +
+        '<text x="' + (PADL + 3) + '" y="' + (yAt(p) - 3).toFixed(1) + '" font-size="8" fill="var(--viz-violet)">true p = ' + p.toFixed(2) + '</text>' +
+        faint +
+        '<path d="' + path(curves[0]) + '" fill="none" stroke="var(--viz-accent)" stroke-width="2"/>' +
+        '<text x="4" y="' + (yAt(1) + 3) + '" font-size="8" fill="var(--viz-muted)">1.0</text>' +
+        '<text x="4" y="' + (yAt(0.5) + 3) + '" font-size="8" fill="var(--viz-muted)">0.5</text>' +
+        '<text x="4" y="' + (yAt(0) + 3) + '" font-size="8" fill="var(--viz-muted)">0.0</text>' +
+        '<text x="' + (W / 2) + '" y="' + (H - 6) + '" font-size="8" text-anchor="middle" fill="var(--viz-muted)">trials (log scale)</text>' +
+        ticks + '</svg>';
+
+      var fmin = Math.min.apply(null, finals), fmax = Math.max.apply(null, finals);
+      var spreadNow = fmax - fmin;
+      var early = ts.indexOf(10) >= 0 ? ts.indexOf(10) : 0;
+      var spreadEarly = hi[early] - lo[early];
+      var err = Math.abs(curves[0][N] - p);
+
+      stats.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-accent);border-color:var(--viz-accent)">run 1: ' + succ +
+          ' of ' + N.toLocaleString() + ' = ' + curves[0][N].toFixed(3) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">8 runs: ' +
+          fmin.toFixed(3) + ' to ' + fmax.toFixed(3) + '</span>' +
+        '<span class="vz-pill" style="color:' + (spreadNow <= 0.05 ? 'var(--viz-green)' : 'var(--viz-amber)') +
+          ';border-color:' + (spreadNow <= 0.05 ? 'var(--viz-green)' : 'var(--viz-amber)') + '">spread ' +
+          spreadNow.toFixed(3) + (spreadNow <= 0.05 ? ' · tight' : ' · still loose') + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">run 1 misses p by ' +
+          err.toFixed(3) + '</span>';
+
+      var narrowed = spreadNow < spreadEarly;
+      why.innerHTML =
+        '<b>' + (N <= 10
+          ? 'Ten trials: the estimate is mostly noise.'
+          : (narrowed
+            ? 'The eight simulations closed in, from ' + spreadEarly.toFixed(3) + ' apart at 10 trials to ' + spreadNow.toFixed(3) + ' apart at ' + N.toLocaleString() + '.'
+            : 'At only ' + N.toLocaleString() + ' trials the eight are still ' + spreadNow.toFixed(3) + ' apart — no narrower than the ' + spreadEarly.toFixed(3) + ' they showed at 10.')) + '</b>' +
+        'Each faint line is one simulation’s running successes ÷ trials; the shaded band is the range the ' +
+        'eight of them span at each point. On the left the band fills the panel, because a single trial can only ' +
+        'ever read 0 or 1. Moving right it collapses toward the dashed line at the true p. ' +
+        '<br><br><b style="display:inline;font-size:12.5px">Three claims to keep straight.</b> More trials make the ' +
+        'estimate <em>more stable</em> — press reseed and watch how far it jumps at 10 trials versus at 10,000. ' +
+        'They do <em>not</em> remove the randomness: reseed at any setting and run 1 lands somewhere new. And they ' +
+        'do <em>not</em> guarantee the exact theoretical value: run 1 currently misses p by ' + err.toFixed(3) + '. ' +
+        'Experimental probability comes from the data you actually collected; theoretical probability comes from the ' +
+        'model — they approach each other, and they are never promised to be equal.';
+    }
+    sp.addEventListener('input', render);
+    sn.addEventListener('input', render);
+    reseed.addEventListener('click', function(){ seed = (seed * 31 + 17) % 100003; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 4 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="4">
+  <h2 class="vz-h">4. Union Minus Overlap</h2>
+  <p class="vz-lede">Events are sets of outcomes, so union, intersection and complement are the whole toolkit.
+    Tap an outcome to move it between A, B, both and neither, and watch the addition rule keep its books.
+    <b>Like counting the people at a party who brought food or drink: add the two lists and everyone who
+    brought both gets counted twice.</b></p>
+
+  <div class="v4-cells" id="v4-cells"></div>
+
+  <div class="vz-seg" role="group" aria-label="preset">
+    <button type="button" id="v4-ov">overlapping · 0.4 and 0.5</button>
+    <button type="button" id="v4-dis">disjoint · 0.3 and 0.2</button>
+  </div>
+
+  <div class="vz-card">
+    <div class="v4-ops" id="v4-ops"></div>
+    <div class="vz-mono v4-set" id="v4-set"></div>
+    <div class="vz-mono v4-arith" id="v4-arith"></div>
+    <div class="vz-why" id="v4-why"></div>
+  </div>
+  <p class="vz-note">The complement is the quiet workhorse here: because A and its complement are disjoint and
+    together cover everything, P(A) + P(not A) = 1. Any time an event is described with "at least one", the
+    complement — "none" — is usually a single, much smaller count, and subtracting from 1 beats enumerating.</p>
+
+  <style>
+    .v4-cells{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:12px}
+    .v4-c{flex:0 0 auto;width:46px;min-height:46px;border:1.5px solid var(--viz-line);border-radius:9px;
+      background:var(--viz-surface);color:var(--viz-muted);font:inherit;font-size:11px;font-weight:700;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.25;padding:2px}
+    .v4-c i{font-style:normal;font-size:9px;letter-spacing:.03em}
+    .v4-c.v4-a{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v4-c.v4-b{border-color:var(--viz-green);color:var(--viz-green)}
+    .v4-c.v4-both{border-color:var(--viz-violet);color:var(--viz-violet);border-style:double;border-width:3px}
+    .v4-ops{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+    .v4-op{flex:1 1 96px;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-muted);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v4-op[aria-pressed="true"]{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v4-op[aria-pressed="true"]::before{content:"\25CF\00a0"}
+    .v4-set{padding:10px;border:1.5px dashed var(--viz-line);border-radius:9px;text-align:center;font-size:12.5px}
+    .v4-arith{margin-top:10px;padding:10px;border:1.5px solid var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    // membership code per outcome 1..10 — 0 neither, 1 A only, 2 B only, 3 both
+    var OVERLAP = [1, 1, 3, 3, 2, 2, 2, 0, 0, 0];
+    var DISJOINT = [1, 1, 1, 2, 2, 0, 0, 0, 0, 0];
+    var m = OVERLAP.slice();
+    var op = 0;
+    var OPS = ['A ∪ B', 'A ∩ B', 'complement of A', 'complement of B'];
+
+    var cells = document.getElementById('v4-cells'), opsB = document.getElementById('v4-ops');
+    var setB = document.getElementById('v4-set'), ar = document.getElementById('v4-arith');
+    var why = document.getElementById('v4-why');
+    var bOv = document.getElementById('v4-ov'), bDis = document.getElementById('v4-dis');
+
+    function inA(c){ return c === 1 || c === 3; }
+    function inB(c){ return c === 2 || c === 3; }
+    function same(x, y){ return x.every(function(v, i){ return v === y[i]; }); }
+    function list(pred){
+      var out = [];
+      for (var i = 0; i < 10; i++) if (pred(m[i])) out.push(i + 1);
+      return out;
+    }
+    function show(arr){ return arr.length ? '{' + arr.join(', ') + '}' : '{ } (the empty set)'; }
+
+    function render(){
+      cells.innerHTML = m.map(function(c, i){
+        var cls = c === 3 ? 'v4-both' : c === 1 ? 'v4-a' : c === 2 ? 'v4-b' : '';
+        var tag = c === 3 ? 'A&amp;B' : c === 1 ? 'A' : c === 2 ? 'B' : '—';
+        return '<button type="button" class="v4-c ' + cls + '" data-i="' + i + '">' + (i + 1) + '<i>' + tag + '</i></button>';
+      }).join('');
+      [].slice.call(cells.children).forEach(function(b, i){
+        b.addEventListener('click', function(){ m[i] = (m[i] + 1) % 4; render(); });
+      });
+      [].slice.call(opsB.children).forEach(function(b, j){ b.setAttribute('aria-pressed', j === op ? 'true' : 'false'); });
+      bOv.setAttribute('aria-pressed', same(m, OVERLAP) ? 'true' : 'false');
+      bDis.setAttribute('aria-pressed', same(m, DISJOINT) ? 'true' : 'false');
+
+      var A = list(inA), B = list(inB);
+      var both = list(function(c){ return c === 3; });
+      var union = list(function(c){ return c !== 0; });
+      var sel = op === 0 ? union : op === 1 ? both : op === 2 ? list(function(c){ return !inA(c); }) : list(function(c){ return !inB(c); });
+
+      setB.innerHTML = '<b>' + OPS[op] + '</b> = ' + show(sel) + '<br>' + sel.length +
+        ' of 10 equally likely outcomes &nbsp;→&nbsp; P = ' + (sel.length / 10).toFixed(2);
+
+      var pa = A.length / 10, pb = B.length / 10, pi = both.length / 10, pu = union.length / 10;
+      ar.innerHTML =
+        'P(A)      = ' + A.length + '/10 = ' + pa.toFixed(2) + '   ' + show(A) + '\n' +
+        'P(B)      = ' + B.length + '/10 = ' + pb.toFixed(2) + '   ' + show(B) + '\n' +
+        'P(A ∩ B) = ' + both.length + '/10 = ' + pi.toFixed(2) + '   ' + show(both) + '\n' +
+        '───────────────────────────────\n' +
+        'P(A) + P(B) - P(A ∩ B)\n' +
+        '  = ' + pa.toFixed(2) + ' + ' + pb.toFixed(2) + ' - ' + pi.toFixed(2) + ' = ' + pu.toFixed(2) + '\n' +
+        'P(A ∪ B) counted directly = ' + union.length + '/10 = ' + pu.toFixed(2);
+
+      var disjoint = both.length === 0;
+      why.innerHTML = disjoint
+        ? '<b style="color:var(--viz-green)">A and B are mutually exclusive right now.</b>' +
+          'They share no outcome, so P(A ∩ B) = 0 and the subtracted term contributes nothing: ' +
+          pa.toFixed(2) + ' + ' + pb.toFixed(2) + ' − 0.00 = ' + pu.toFixed(2) + '. Plain addition is <em>not</em> a ' +
+          'second rule — it is the general rule with a zero in it, which is exactly why you must check for ' +
+          'overlap before you add. ' +
+          '<br><br>Tap outcome 4 to push it into both sets and watch the third term wake up.'
+        : '<b style="color:var(--viz-amber)">' + both.length + ' outcome' + (both.length === 1 ? '' : 's') +
+          ' sit in both sets, so adding alone double-counts.</b>' +
+          'P(A) + P(B) = ' + (pa + pb).toFixed(2) + ', but only ' + union.length + ' distinct outcomes are in the union. ' +
+          'The gap is exactly ' + show(both) + ' — counted once inside A and once again inside B — so one copy comes ' +
+          'back out. That is the entire content of P(A ∪ B) = P(A) + P(B) − P(A ∩ B). ' +
+          '<br><br>Note the direction of the error: adding without subtracting always <em>overstates</em> the union, and ' +
+          'with a big enough overlap it will hand you a "probability" above 1 — an answer the definition forbids.';
+    }
+    OPS.forEach(function(nm, j){
+      var b = document.createElement('button');
+      b.className = 'v4-op';
+      b.type = 'button';
+      b.setAttribute('aria-pressed', 'false');
+      b.textContent = nm;
+      b.addEventListener('click', function(){ op = j; render(); });
+      opsB.appendChild(b);
+    });
+    bOv.addEventListener('click', function(){ m = OVERLAP.slice(); render(); });
+    bDis.addEventListener('click', function(){ m = DISJOINT.slice(); render(); });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 5 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="5">
+  <h2 class="vz-h">5. Shrink The Universe</h2>
+  <p class="vz-lede">Conditioning on B does one physical thing: it throws away every outcome outside B and
+    rescales what is left. Build a 100-outcome world, then switch to the conditioned view and watch the
+    denominator change under your hands. <b>Like being told the card is a face card — the deck did not
+    change, your deck did.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="view">
+    <button type="button" id="v5-all">all 100 outcomes</button>
+    <button type="button" id="v5-cond">given B has occurred</button>
+  </div>
+
+  <div class="v5-grid" id="v5-grid"></div>
+  <div class="v5-key" id="v5-key"></div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v5-b">outcomes in B: <span id="v5-bl">50</span></label>
+    <input class="vz-range" type="range" id="v5-b" min="0" max="100" step="1" value="50" aria-label="Outcomes in B">
+    <label class="vz-lab" for="v5-ab">of those, also in A: <span id="v5-abl">20</span></label>
+    <input class="vz-range" type="range" id="v5-ab" min="0" max="100" step="1" value="20" aria-label="Outcomes in both A and B">
+    <label class="vz-lab" for="v5-ao">in A but not in B: <span id="v5-aol">10</span></label>
+    <input class="vz-range" type="range" id="v5-ao" min="0" max="100" step="1" value="10" aria-label="Outcomes in A but not B">
+    <div class="v5-act"><button class="v5-btn" type="button" id="v5-ind">jump to an independent pair</button></div>
+    <div class="vz-mono v5-read" id="v5-read"></div>
+    <div class="vz-why" id="v5-why"></div>
+  </div>
+  <p class="vz-note">Two habits worth building. First, P(A | B) and P(B | A) are different questions with
+    different denominators, and swapping them is the single most expensive error in applied probability.
+    Second, independence is checked by <b>arithmetic</b>, never by whether the two events "feel related" —
+    the multiplication test settles it in one line.</p>
+
+  <style>
+    .v5-grid{display:grid;grid-template-columns:repeat(10,1fr);gap:2px;margin-bottom:8px;
+      border:1.5px solid var(--viz-line);border-radius:10px;padding:5px;background:var(--viz-bg)}
+    .v5-cell{height:22px;border-radius:3px;display:flex;align-items:center;justify-content:center;
+      font-family:ui-monospace,Consolas,monospace;font-size:8.5px;font-weight:800;
+      border:1px solid var(--viz-line);color:var(--viz-muted)}
+    .v5-cell.v5-both{border-color:var(--viz-violet);color:var(--viz-violet)}
+    .v5-cell.v5-bo{border-color:var(--viz-green);color:var(--viz-green)}
+    .v5-cell.v5-ao{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v5-cell.v5-off{opacity:.2;border-style:dashed}
+    .v5-key{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;font-size:11px;color:var(--viz-muted)}
+    .v5-act{margin-top:12px}
+    .v5-btn{width:100%;min-height:44px;border:1.5px solid var(--viz-line);background:var(--viz-surface);
+      color:var(--viz-ink);border-radius:10px;font:inherit;font-weight:700;font-size:12.5px}
+    .v5-read{margin-top:12px;padding:10px;border:1.5px dashed var(--viz-line);border-radius:9px}
+  </style>
+  <script>
+  (function(){
+    var sB = document.getElementById('v5-b'), lB = document.getElementById('v5-bl');
+    var sAB = document.getElementById('v5-ab'), lAB = document.getElementById('v5-abl');
+    var sAO = document.getElementById('v5-ao'), lAO = document.getElementById('v5-aol');
+    var grid = document.getElementById('v5-grid'), key = document.getElementById('v5-key');
+    var read = document.getElementById('v5-read'), why = document.getElementById('v5-why');
+    var bAll = document.getElementById('v5-all'), bCond = document.getElementById('v5-cond');
+    var bInd = document.getElementById('v5-ind');
+    var cond = false;
+
+    function fmt(n, d){ return d > 0 ? (n / d).toFixed(3) : 'undefined'; }
+
+    function render(){
+      var nB = Number(sB.value);
+      sAB.max = String(nB);
+      sAO.max = String(100 - nB);
+      if (Number(sAB.value) > nB) sAB.value = String(nB);
+      if (Number(sAO.value) > 100 - nB) sAO.value = String(100 - nB);
+      var nAB = Number(sAB.value), nAO = Number(sAO.value);
+      var nA = nAB + nAO;
+      lB.textContent = nB; lAB.textContent = nAB; lAO.textContent = nAO;
+      bAll.setAttribute('aria-pressed', cond ? 'false' : 'true');
+      bCond.setAttribute('aria-pressed', cond ? 'true' : 'false');
+
+      var html = '';
+      for (var i = 0; i < 100; i++) {
+        var isB = i < nB;
+        var isA = isB ? (i < nAB) : (i - nB < nAO);
+        var cls = isA && isB ? 'v5-both' : isB ? 'v5-bo' : isA ? 'v5-ao' : '';
+        var mark = isA && isB ? 'AB' : isB ? 'B' : isA ? 'A' : '·';
+        if (cond && !isB) { cls += ' v5-off'; mark = '×'; }
+        html += '<div class="v5-cell ' + cls + '">' + mark + '</div>';
+      }
+      grid.innerHTML = html;
+      key.innerHTML = '<span>AB = in both</span><span>A = in A only</span><span>B = in B only</span>' +
+        '<span>· = in neither</span>' + (cond ? '<span>× = discarded, outside B</span>' : '');
+
+      var den = cond ? nB : 100;
+      read.innerHTML =
+        'P(A)       = ' + nA + '/100 = ' + fmt(nA, 100) + '\n' +
+        'P(B)       = ' + nB + '/100 = ' + fmt(nB, 100) + '\n' +
+        'P(A ∩ B)  = ' + nAB + '/100 = ' + fmt(nAB, 100) + '\n' +
+        'P(A | B)   = ' + nAB + '/' + nB + ' = ' + fmt(nAB, nB) + '\n' +
+        'P(B | A)   = ' + nAB + '/' + nA + ' = ' + fmt(nAB, nA) + '\n' +
+        'P(A)·P(B)  = ' + fmt(nA, 100) + ' × ' + fmt(nB, 100) + ' = ' + (nA * nB / 10000).toFixed(3) + '\n' +
+        'counting over ' + den + ' outcome' + (den === 1 ? '' : 's') + (cond ? ' (B only)' : ' (everything)');
+
+      if (nB === 0) {
+        why.innerHTML = '<b style="color:var(--viz-red)">P(B) = 0, so P(A | B) is undefined.</b>' +
+          'Conditioning divides by P(B). With no outcomes in B there is nothing to condition on and no ' +
+          'denominator to divide by — the expression is not "zero" or "very small", it does not exist. ' +
+          'That is why the definition P(A | B) = P(A ∩ B) / P(B) always carries the words <em>provided ' +
+          'P(B) &gt; 0</em>. Drag B back above zero.';
+        return;
+      }
+      // Independence tested in whole numbers: P(A n B) = P(A)P(B)  <=>  100·nAB = nA·nB.
+      var indep = nAB * 100 === nA * nB;
+      var lifts = nAB * 100 > nA * nB;
+      why.innerHTML = indep
+        ? '<b style="color:var(--viz-green)">Independent: P(A | B) = P(A) exactly.</b>' +
+          'Restricting to the ' + nB + ' outcomes of B leaves the same share of A behind: ' + fmt(nAB, nB) +
+          ' inside B against ' + fmt(nA, 100) + ' overall. Learning B changed nothing, which is the definition. ' +
+          'The multiplication form says the same thing: P(A)·P(B) = ' + (nA * nB / 10000).toFixed(3) +
+          ' and P(A ∩ B) = ' + fmt(nAB, 100) + '. ' +
+          (nAB > 0
+            ? '<br><br>Independence is not "unrelated in meaning" and not "cannot both happen" — these two events ' +
+              'do happen together, in ' + nAB + ' outcomes. It is only this equality.'
+            : '<br><br>Careful with this particular corner: A and B share no outcome, but that is <em>not</em> why ' +
+              'they pass the test. They pass because ' + (nA === 0 ? 'P(A) = 0' : 'P(B) = 0') +
+              ' makes both sides zero. Give A some outcomes inside B and mutually exclusive events of positive ' +
+              'probability turn out to be strongly <em>dependent</em> — one occurring rules the other out.')
+        : '<b style="color:var(--viz-amber)">Dependent: knowing B moves the answer.</b>' +
+          'P(A | B) = ' + fmt(nAB, nB) + ' but P(A) = ' + fmt(nA, 100) + ', so B being told to you ' +
+          (lifts ? 'raises' : 'lowers') + ' the chance of A. Switch to the conditioned view and you can see why: ' +
+          'the denominator drops from 100 to ' + nB + ', and A’s share of what remains is ' +
+          (lifts ? 'richer' : 'thinner') + ' than its share of the whole. ' +
+          'The multiplication test agrees — P(A)·P(B) = ' + (nA * nB / 10000).toFixed(3) + ' is not P(A ∩ B) = ' +
+          fmt(nAB, 100) + '. ' +
+          '<br><br>To reach independence from here, A’s slice of B has to match A’s slice of everything: ' +
+          'that needs ' + (nA * nB / 100).toFixed(2) + ' of the ' + nB + ' B-outcomes to be in A, not ' + nAB + '.';
+    }
+    sB.addEventListener('input', render);
+    sAB.addEventListener('input', render);
+    sAO.addEventListener('input', render);
+    bAll.addEventListener('click', function(){ cond = false; render(); });
+    bCond.addEventListener('click', function(){ cond = true; render(); });
+    bInd.addEventListener('click', function(){
+      sB.value = '40'; sAB.max = '100'; sAO.max = '100'; sAB.value = '12'; sAO.value = '18'; render();
+    });
+    render();
+  })();
+  </script>
+</section>
+
+<!-- ══════════════════════════ 6 ══════════════════════════ -->
+<section class="viz-panel" data-viz-panel="6">
+  <h2 class="vz-h">6. With Or Without Replacement</h2>
+  <p class="vz-lede">One bag, two draws, and a single switch that decides whether the events are independent.
+    Every branch below is an exact fraction, so you can read the second draw changing its mind.
+    <b>Like dealing cards versus rolling a die: the deck remembers what left it, the die never does.</b></p>
+
+  <div class="vz-seg" role="group" aria-label="drawing rule">
+    <button type="button" id="v6-wo">without replacement · dependent</button>
+    <button type="button" id="v6-wi">with replacement · independent</button>
+  </div>
+
+  <div class="vz-card">
+    <label class="vz-lab" for="v6-r">red marbles: <span id="v6-rl">3</span></label>
+    <input class="vz-range" type="range" id="v6-r" min="1" max="6" step="1" value="3" aria-label="Number of red marbles">
+    <label class="vz-lab" for="v6-b">blue marbles: <span id="v6-bl">2</span></label>
+    <input class="vz-range" type="range" id="v6-b" min="1" max="6" step="1" value="2" aria-label="Number of blue marbles">
+    <div class="v6-bag" id="v6-bag"></div>
+    <div class="vz-mono v6-tree" id="v6-tree"></div>
+    <div class="vz-pills" id="v6-stats"></div>
+    <div class="vz-why" id="v6-why"></div>
+  </div>
+  <p class="vz-note">The general rule is a single formula, P(A and B) = P(A) × P(B given A), and independence
+    is only the special case where the second factor forgets the first. That is worth organising your memory
+    around: there is one multiplication rule, and "multiply the two probabilities" is what it degenerates to
+    when the first event leaves the second one untouched.</p>
+
+  <style>
+    .v6-bag{display:flex;flex-wrap:wrap;gap:4px;margin-top:12px}
+    .v6-m{width:30px;height:30px;border-radius:50%;border:2px solid var(--viz-line);display:flex;
+      align-items:center;justify-content:center;font-size:10px;font-weight:800;
+      font-family:ui-monospace,Consolas,monospace}
+    .v6-m.v6-red{border-color:var(--viz-red);color:var(--viz-red)}
+    .v6-m.v6-blue{border-color:var(--viz-accent);color:var(--viz-accent)}
+    .v6-tree{margin-top:12px;padding:10px;border:1.5px solid var(--viz-line);border-radius:9px;background:var(--viz-bg)}
+  </style>
+  <script>
+  (function(){
+    var sr = document.getElementById('v6-r'), lr = document.getElementById('v6-rl');
+    var sb = document.getElementById('v6-b'), lb = document.getElementById('v6-bl');
+    var bag = document.getElementById('v6-bag'), tree = document.getElementById('v6-tree');
+    var stats = document.getElementById('v6-stats'), why = document.getElementById('v6-why');
+    var bWo = document.getElementById('v6-wo'), bWi = document.getElementById('v6-wi');
+    var without = true;
+
+    function gcd(a, b){ a = Math.abs(a); b = Math.abs(b); while (b) { var t = b; b = a % b; a = t; } return a || 1; }
+    function fr(n, d){
+      if (!isFinite(n) || !isFinite(d) || d === 0) return '—';
+      if (n === 0) return '0';
+      var g = gcd(n, d), nn = n / g, dd = d / g;
+      return dd === 1 ? String(nn) : nn + '/' + dd;
+    }
+    function pad(s, w){ s = String(s); while (s.length < w) s += ' '; return s; }
+
+    function render(){
+      var r = Number(sr.value), b = Number(sb.value), n = r + b;
+      lr.textContent = r; lb.textContent = b;
+      bWo.setAttribute('aria-pressed', without ? 'true' : 'false');
+      bWi.setAttribute('aria-pressed', without ? 'false' : 'true');
+
+      bag.innerHTML =
+        Array.from({ length: r }, function(){ return '<span class="v6-m v6-red">R</span>'; }).join('') +
+        Array.from({ length: b }, function(){ return '<span class="v6-m v6-blue">B</span>'; }).join('');
+
+      // Second-draw denominator: the bag shrinks only when the marble does not go back.
+      var d2 = without ? n - 1 : n;
+      var rr2 = without ? r - 1 : r, bb2 = without ? b - 1 : b;
+      var den = n * d2;                       // >= 2 always: r >= 1 and b >= 1 so n >= 2
+      var RR = r * Math.max(0, rr2), RB = r * b, BR = b * r, BB = b * Math.max(0, bb2);
+
+      tree.innerHTML =
+        'draw 1            draw 2            both\n' +
+        '──────────────────────────────────────\n' +
+        'R ' + pad(fr(r, n), 6) + ' ─► R ' + pad(fr(Math.max(0, rr2), d2), 6) + '   RR = ' + pad(fr(RR, den), 7) + ' = ' + (RR / den).toFixed(3) + '\n' +
+        '           └─► B ' + pad(fr(b, d2), 6) + '   RB = ' + pad(fr(RB, den), 7) + ' = ' + (RB / den).toFixed(3) + '\n' +
+        'B ' + pad(fr(b, n), 6) + ' ─► R ' + pad(fr(r, d2), 6) + '   BR = ' + pad(fr(BR, den), 7) + ' = ' + (BR / den).toFixed(3) + '\n' +
+        '           └─► B ' + pad(fr(Math.max(0, bb2), d2), 6) + '   BB = ' + pad(fr(BB, den), 7) + ' = ' + (BB / den).toFixed(3) + '\n' +
+        '──────────────────────────────────────\n' +
+        'the four outcomes total ' + fr(RR + RB + BR + BB, den) + ' — as they must';
+
+      stats.innerHTML =
+        '<span class="vz-pill" style="color:var(--viz-red);border-color:var(--viz-red)">P(both red) = ' +
+          fr(r, n) + ' × ' + fr(Math.max(0, rr2), d2) + ' = ' + fr(RR, den) + '</span>' +
+        '<span class="vz-pill" style="color:var(--viz-muted);border-color:var(--viz-line)">= ' + (RR / den).toFixed(3) + '</span>' +
+        '<span class="vz-pill" style="color:' + (without ? 'var(--viz-amber)' : 'var(--viz-green)') +
+          ';border-color:' + (without ? 'var(--viz-amber)' : 'var(--viz-green)') + '">' +
+          (without ? 'dependent draws' : 'independent draws') + '</span>';
+
+      var first = r / n, second = without ? Math.max(0, rr2) / d2 : r / n;
+      why.innerHTML = without
+        ? '<b style="color:var(--viz-amber)">The second draw is not the same experiment as the first.</b>' +
+          'Draw a red and the bag holds ' + Math.max(0, r - 1) + ' red among ' + (n - 1) + ', so the chance of a second red ' +
+          'falls from ' + fr(r, n) + ' = ' + first.toFixed(3) + ' to ' + fr(Math.max(0, rr2), n - 1) + ' = ' + second.toFixed(3) +
+          '. That change <em>is</em> the dependence, and it is why the rule needs the conditional factor: ' +
+          'P(both red) = P(first red) × P(second red | first red) = ' + fr(r, n) + ' × ' + fr(Math.max(0, rr2), d2) +
+          ' = ' + fr(RR, den) + '. ' +
+          '<br><br>Two cards from a deck are dependent for exactly this reason: the first card is gone, so the ' +
+          'second draws from 51. Switch to <b>with replacement</b> and compare — the same bag gives a different, ' +
+          'larger answer, because a returned marble erases the memory.'
+        : '<b style="color:var(--viz-green)">Replacing the marble makes the draws independent.</b>' +
+          'The bag is identical for draw 2, so P(second red | first red) = P(second red) = ' + fr(r, n) +
+          ' and the rule collapses to a plain product: ' + fr(r, n) + ' × ' + fr(r, n) + ' = ' + fr(RR, den) + '. ' +
+          'This is the same move as rolling a die and flipping a coin — 1/6 × 1/2 = 1/12 — or tossing one coin ' +
+          'twice for 1/2 × 1/2 = 1/4: separate mechanisms, so neither disturbs the other. ' +
+          '<br><br>Switch back to <b>without replacement</b> and watch the answer shrink. Independence is a claim ' +
+          'about the mechanism, and the mechanism here is one switch wide.';
+    }
+    sr.addEventListener('input', render);
+    sb.addEventListener('input', render);
+    bWo.addEventListener('click', function(){ without = true; render(); });
+    bWi.addEventListener('click', function(){ without = false; render(); });
+    render();
+  })();
+  </script>
+</section>
+
+</body>
+</html>

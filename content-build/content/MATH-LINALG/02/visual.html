@@ -88,8 +88,11 @@
     var plot = document.getElementById('v1-plot'), eqs = document.getElementById('v1-eq');
     var stat = document.getElementById('v1-stat'), why = document.getElementById('v1-why');
 
-    function sx(u){ return 40 + (u + 2) * 22; }
-    function sy(v){ return 260 - (v + 2) * 22; }
+    // The window must hold EVERY reachable Ax, or the tip flies off the canvas mid-drag:
+    // with both weights in [-1, 4], 2a+b spans [-3, 12] and a+3b spans [-4, 16]. Hence a
+    // [-4, 16] window on both axes — and the SAME scale on both, or the geometry would lie.
+    function sx(u){ return 28 + (u + 4) * 13.2; }
+    function sy(v){ return 286 - (v + 4) * 13.2; }
     function fmt(n){ return (isFinite(n) ? (Math.round(n * 100) / 100) : 0).toFixed(2); }
 
     function arrow(x1, y1, x2, y2, col, w){
@@ -111,15 +114,15 @@
       var sum = [mid[0] + C2[0] * b, mid[1] + C2[1] * b];
 
       var g = '';
-      for (var u = -2; u <= 8; u++) {
-        g += '<line x1="' + sx(u) + '" y1="' + sy(-2) + '" x2="' + sx(u) + '" y2="' + sy(8) +
+      for (var u = -4; u <= 16; u += 2) {   // every 2 units, or the grid closes up at 390px
+        g += '<line x1="' + sx(u) + '" y1="' + sy(-4) + '" x2="' + sx(u) + '" y2="' + sy(16) +
           '" style="stroke:var(--viz-line);stroke-width:1"></line>';
-        g += '<line x1="' + sx(-2) + '" y1="' + sy(u) + '" x2="' + sx(8) + '" y2="' + sy(u) +
+        g += '<line x1="' + sx(-4) + '" y1="' + sy(u) + '" x2="' + sx(16) + '" y2="' + sy(u) +
           '" style="stroke:var(--viz-line);stroke-width:1"></line>';
       }
-      g += '<line x1="' + sx(-2) + '" y1="' + sy(0) + '" x2="' + sx(8) + '" y2="' + sy(0) +
+      g += '<line x1="' + sx(-4) + '" y1="' + sy(0) + '" x2="' + sx(16) + '" y2="' + sy(0) +
         '" style="stroke:var(--viz-muted);stroke-width:1.6"></line>';
-      g += '<line x1="' + sx(0) + '" y1="' + sy(-2) + '" x2="' + sx(0) + '" y2="' + sy(8) +
+      g += '<line x1="' + sx(0) + '" y1="' + sy(-4) + '" x2="' + sx(0) + '" y2="' + sy(16) +
         '" style="stroke:var(--viz-muted);stroke-width:1.6"></line>';
 
       g += arrow(sx(0), sy(0), sx(mid[0]), sy(mid[1]), 'var(--viz-green)', 3.5);
@@ -783,8 +786,8 @@
       var m = Number(sm.value), c = Number(sc.value);
       ml.textContent = m.toFixed(1); cl.textContent = String(c);
 
-      var d = 4 - 2 * m;              // the bottom-left entry after R2 <- R2 - m*R1
-      var rem = c - 4 * m;            // its constant
+      var d = 4 - 2 * m;              // the surviving y-coefficient after R2 <- R2 - m*R1
+      var rem = c - 4 * m;            // and that row's constant. d = 0 is exactly singular.
       var singular = Math.abs(d) < 1e-9;
       var consistent = !singular || Math.abs(rem) < 1e-9;
 
