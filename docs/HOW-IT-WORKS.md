@@ -313,6 +313,13 @@ actually move — a slider, click-to-advance steps, a labelled diagram. **Two wa
 Every attempt is best-effort **streamed to BigQuery** (`mastery_analytics.quiz_log` per-attempt +
 `topics` mastery snapshot) for SQL/dashboards — a BigQuery outage never fails a quiz.
 
+**Time spent** is recorded per learner as minute buckets (`users/{email}/activity/{day}`). A minute
+counts when the app is on screen and something happened in the last three minutes — an answer, a card,
+a message, the learner speaking, or the assistant speaking or writing back — so silent reading counts
+and a tab left open does not. Only the totals per programme show on Sentinel's Overview (Today / This
+week / 30 days); which lessons the minutes went to is behind a click. Nothing is timed by mouse
+movement, and nothing is recorded for guests.
+
 ---
 
 ## 13. The research it's built on

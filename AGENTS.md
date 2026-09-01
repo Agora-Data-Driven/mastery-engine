@@ -273,6 +273,8 @@ in `server.js`; only the fan-out differs.
 | `GET /api/internal/team-progress?emails=&days=` | `team-progress` | many people's rollup **+ each one's attempt window** | Sentinel's admin Team-progress table |
 | `GET /api/internal/learner-detail?email=` | `learner-detail` | one person's WHOLE catalogue, per topic: attempts, accuracy, `computeMastery`, `computePriority` | Sentinel's daily personal-context report |
 | `GET /api/internal/quiz-activity?email=&days=&wrongOnly=&limit=` | `quiz-activity` | attempt-by-attempt history; defaults to the MISSES only | the same report |
+| `GET /api/internal/time-spent?emails=&from=&to=` | `time-spent` | many people's **active minutes** in the engine over a day range, by programme + by view | Sentinel's Overview time strip + admin Team-time table |
+| `GET /api/internal/time-detail?email=&from=&to=` | `time-detail` | one person's minutes folded into SESSION rows (start–end · section · view · topics) | the click-through on either |
 
 > **Why `learner-detail` exists when two rollups already do (added 2026-08-10).** Both of those
 > answer at PROGRAM grain, which is right for a ring and useless for reasoning about a learner:
@@ -304,6 +306,31 @@ in `server.js`; only the fan-out differs.
   reads slightly LOW and says so, rather than wrong.
 - **Fail-soft PER PERSON.** One unreadable account returns `{found:false, error}` in its own slot;
   everybody else still reports. Sentinel renders that slot as *unknown*, never as zero.
+
+### Time spent — minute buckets, not timers (2026-09-01)
+
+`users/{email}/activity/{YYYY-MM-DD}` holds `m`: a map of `"HHMM" → { p, v, tr, co, le, to }`
+(programme id, view, track/course/lesson/topic) for every minute the learner was **active**.
+The client (`activityTracker` in [public/app.js](public/app.js)) POSTs `/api/activity/beat`
+about once a minute *while* it judges the learner active; the server stamps the covered minutes
+(`stampActiveMinutes`, a `set({merge:true})` of nested maps — never a read-modify-write).
+
+- **"Active" is a rule, not a sensor:** the frame is visible (tab in front AND the iframe on
+  screen — Sentinel's Coach panel stays mounted while closed) AND a signal happened in the last
+  **3 minutes**. Signals: input, any non-GET `api()` call, a stream in flight, spoken audio playing,
+  or a speech-recognition result. Mouse *movement* is deliberately not one (a hands-free
+  conversation has none); GET polls are not either (an abandoned tab would keep itself alive).
+- 🔴 **A minute is a KEY.** Three engine frames (Professional tab + a growth tab + the Coach FAB)
+  beating at once count the minute once, and two devices too. Never sum client-reported seconds.
+- 🔴 **Keyed by `conversationUser`, not `effectiveUser`.** An admin acting-as a learner is spending
+  their OWN time. The internal readers union a break-glass admin's email with `DEFAULT_ACCOUNT`
+  (the shared-password arm), same convenience mapping the progress endpoints make.
+- **Days and minutes are in `ACTIVITY_TZ` (Asia/Manila)** — Sentinel's `today_ph`. Sentinel sends
+  `from`/`to` DATES for Today / This week / 30 days, so the two apps agree where a day starts.
+- **Zero is a real answer** (no docs = nothing recorded), unlike the progress rollups where absence
+  is *unknown*. `found:false` means the read itself failed.
+- Cost: one write per active minute per open frame; reads are one doc per person per day
+  (`MAX_ACTIVITY_DAYS` 62, `MAX_TEAM_EMAILS` 60), cached 120 s on Sentinel's side.
 
 ---
 
