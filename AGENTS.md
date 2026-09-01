@@ -275,6 +275,7 @@ in `server.js`; only the fan-out differs.
 | `GET /api/internal/quiz-activity?email=&days=&wrongOnly=&limit=` | `quiz-activity` | attempt-by-attempt history; defaults to the MISSES only | the same report |
 | `GET /api/internal/time-spent?emails=&from=&to=` | `time-spent` | many people's **active minutes** in the engine over a day range, by programme + by view | Sentinel's Overview time strip + admin Team-time table |
 | `GET /api/internal/time-detail?email=&from=&to=` | `time-detail` | one person's minutes folded into SESSION rows (start–end · section · view · topics) | the click-through on either |
+| `POST /api/internal/time-edit` `{email, day, remove:[{start,end}]}` | `time-edit` | REMOVE recorded minutes (the learner's honesty edit — delete or trim a session; end exclusive). The only write; nothing is added or moved through it | Sentinel's session ✎ / ✕ |
 
 > **Why `learner-detail` exists when two rollups already do (added 2026-08-10).** Both of those
 > answer at PROGRAM grain, which is right for a ring and useless for reasoning about a learner:

@@ -70,6 +70,7 @@ import {
   getUsage,
   stampActiveMinutes,
   getActivityDays,
+  removeActiveMinutes,
   slug,
   resolveProgramScope,
   backfillPrograms,
@@ -5279,6 +5280,48 @@ app.get('/api/internal/time-spent', async (req, res, next) => {
       }
     }));
     res.json({ from: range.from, to: range.to, tz: ACTIVITY_TZ, programs, people });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Internal (HMAC-gated): REMOVE recorded minutes — the learner's own honesty edit, made in Sentinel
+// ("delete this session" / "I only really worked until 10:20"). Body:
+//   { email, day: 'YYYY-MM-DD', remove: [{ start: 'HH:MM', end: 'HH:MM' }, …] }   end is EXCLUSIVE
+// Every listed range is cleared from every account that can hold this person's minutes
+// (activityAccounts), so a break-glass admin's edit reaches the shared account too. Removal is the
+// ONLY edit: minutes can't be added here (a learner adds time as a Sentinel manual entry, which never
+// pretends to be engine activity) and can't be moved (trim = remove the ends). Nothing is tombstoned:
+// a minute deleted inside the live grace window can be re-stamped by the next beat, which is why
+// Sentinel refuses to edit today's still-running session.
+const MAX_REMOVE_RANGES = 50;
+app.post('/api/internal/time-edit', async (req, res, next) => {
+  try {
+    if (!verifyInternalSig(req, 'time-edit')) return res.status(401).json({ error: 'bad signature' });
+    const b = req.body || {};
+    const email = String(b.email || '').trim().toLowerCase();
+    const day = String(b.day || '');
+    if (!email) return res.status(400).json({ error: 'email required' });
+    if (!DAY_RE.test(day)) return res.status(400).json({ error: 'day must be YYYY-MM-DD' });
+    const ranges = Array.isArray(b.remove) ? b.remove.slice(0, MAX_REMOVE_RANGES) : [];
+    const toIdx = (hm) => {
+      const m = /^(\d{2}):(\d{2})$/.exec(String(hm || ''));
+      if (!m) return null;
+      const v = Number(m[1]) * 60 + Number(m[2]);
+      return v >= 0 && v <= 24 * 60 ? v : null;
+    };
+    const keys = new Set();
+    for (const r of ranges) {
+      const a = toIdx(r && r.start), z = toIdx(r && r.end);
+      if (a == null || z == null || z <= a) return res.status(400).json({ error: 'each range needs start < end as HH:MM' });
+      for (let i = a; i < z; i++) keys.add(`${String(Math.floor(i / 60)).padStart(2, '0')}${String(i % 60).padStart(2, '0')}`);
+    }
+    if (!keys.size) return res.status(400).json({ error: 'nothing to remove' });
+    // Count what actually goes, so Sentinel can say "removed 19 minutes" rather than guess.
+    const before = await readActivity(email, [day]);
+    const had = Object.keys(before[day] || {}).filter((k) => keys.has(k)).length;
+    await Promise.all(activityAccounts(email).map((acct) => removeActiveMinutes(acct, day, [...keys])));
+    res.json({ ok: true, day, removed: had });
   } catch (e) {
     next(e);
   }
