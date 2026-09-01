@@ -144,6 +144,7 @@ const App = (() => {
     return path + (path.includes('?') ? '&' : '?') + 'program=' + encodeURIComponent(PIN_PROGRAM);
   }
   async function api(path, opts = {}) {
+    if (opts.method && opts.method !== 'GET') activityTracker.signal();
     const res = await fetch(pinned(path), {
       headers: { 'Content-Type': 'application/json' },
       credentials: 'same-origin',
@@ -166,6 +167,7 @@ const App = (() => {
 
   /** POST that streams a text/plain response; calls onText(accumulated) per chunk. */
   async function apiStream(path, body, onText) {
+    activityTracker.signal();
     const res = await fetch(pinned(path), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -179,11 +181,16 @@ const App = (() => {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let acc = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      acc += dec.decode(value, { stream: true });
-      onText(acc);
+    activityTracker.streaming(+1);   // the AI is writing to the learner — that is activity
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += dec.decode(value, { stream: true });
+        onText(acc);
+      }
+    } finally {
+      activityTracker.streaming(-1);
     }
     return acc;
   }
@@ -206,6 +213,7 @@ const App = (() => {
    *  frame. `signal` lets the caller abort (pause). Errors before the stream opens
    *  surface as thrown Errors; in-stream failures arrive as an 'error' event. */
   async function apiStreamSSE(path, body, onEvent, signal) {
+    activityTracker.signal();
     const res = await fetch(pinned(path), {
       method: 'POST',
       // Accept matters: routes whose model call can outlive a silent socket serve
@@ -229,13 +237,18 @@ const App = (() => {
     const reader = res.body.getReader();
     const dec = new TextDecoder();
     let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      const frames = buf.split('\n\n');
-      buf = frames.pop();               // keep the incomplete tail
-      for (const f of frames) dispatchSSE(f, onEvent);
+    activityTracker.streaming(+1);   // a heartbeated stream is the AI working for the learner
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const frames = buf.split('\n\n');
+        buf = frames.pop();               // keep the incomplete tail
+        for (const f of frames) dispatchSSE(f, onEvent);
+      }
+    } finally {
+      activityTracker.streaming(-1);
     }
     if (buf.trim()) dispatchSSE(buf, onEvent);
   }
@@ -348,6 +361,128 @@ const App = (() => {
   }
 
   /* ------------------------------- Boot ---------------------------------- */
+  /* ------------------------------ Time spent ------------------------------ *
+   * Tells the server, about once a minute, that this learner is ACTIVE and what they are doing,
+   * so Sentinel can show minutes per programme (server.js /api/activity/beat → users/{email}/
+   * activity/{day}). "Active" is a RULE, not a sensor:
+   *
+   *     the frame is visible (the tab in front AND this iframe on screen — Sentinel's Coach
+   *     panel keeps its iframe mounted while closed) AND a signal happened inside the last
+   *     GRACE minutes.
+   *
+   * Signals: any input (pointer / keys / wheel / touch / scroll), an action sent to the server
+   * (every non-GET api() call), the AI producing output (a stream in flight, or spoken audio
+   * playing), or the learner SPEAKING (a speech-recognition result). The grace window is what
+   * makes silent reading count — a study guide or a long reply read without touching anything —
+   * and what stops a tab left open from counting forever. Mouse MOVEMENT is deliberately not a
+   * signal: a hands-free conversation with the assistant has none, and that is exactly the
+   * activity this must see; GET polls are not signals either, or an abandoned tab would keep
+   * itself alive.
+   *
+   * Beats carry `secs` since the previous beat so a late timer (a throttled background tab
+   * waking up) back-fills the minutes it covered; the server keys by MINUTE, so several frames
+   * beating at once (Professional tab + a growth tab + the Coach) still count each minute once.
+   * Everything here is best-effort and silent — tracking must never disturb the learner. */
+  const activityTracker = (() => {
+    const GRACE_MS = 3 * 60 * 1000;
+    const TICK_MS = 60 * 1000;
+    let lastSignal = 0, lastBeat = 0, streams = 0, onScreen = true, started = false;
+    const signal = () => { lastSignal = Date.now(); };
+    const streaming = (delta) => { streams = Math.max(0, streams + delta); if (streams) signal(); };
+    const visible = () => document.visibilityState !== 'hidden' && onScreen;
+    const programOf = (track) => {
+      const row = track && (state.catalog || []).find((r) => r.track === track);
+      return (row && row.program) || '';
+    };
+    const isAll = (v) => !v || v === 'Review All' || v === '-- N/A --';
+    const VIEW_NAMES = { quiz: 'quiz', result: 'quiz', flashcard: 'flashcards', stats: 'progress', graph: 'map', setup: 'browse' };
+
+    // What the learner is doing RIGHT NOW: the view, and the finest section we can name.
+    function context() {
+      const view = currentView();
+      let name = VIEW_NAMES[view] || view;
+      let s = {};
+      if ((view === 'quiz' || view === 'result') && state.questions[state.idx]) {
+        s = state.questions[state.idx];
+      } else if (view === 'flashcard') {
+        const card = fc.view[fc.idx] || {};
+        s = { ...(fc.scope || {}), topic: card.topic || (fc.scope || {}).topic || '' };
+      } else if (view === 'setup') {
+        const sel = selection();
+        s = {
+          track: isAll(sel.track) ? '' : sel.track, course: isAll(sel.course) ? '' : sel.course,
+          lesson: isAll(sel.lesson) ? '' : sel.lesson, topic: isAll(sel.topic) ? '' : sel.topic,
+        };
+        const guide = $('reviewModal');
+        if (guide && !guide.classList.contains('hidden')) name = 'lesson';   // the study guide is open
+      }
+      const panel = $('assistantPanel');
+      if (panel && !panel.classList.contains('hidden')) name = 'assistant';
+      return {
+        program: PIN_PROGRAM || s.program || programOf(s.track),
+        view: name,
+        track: s.track || '', course: s.course || '', lesson: s.lesson || '', topic: s.topic || '',
+      };
+    }
+
+    // Live probes: things that are happening now without producing a discrete event.
+    const live = () => streams > 0 || (typeof ttsSpeaking === 'function' && ttsSpeaking());
+    function active() {
+      if (!visible()) return false;
+      try { if (live()) signal(); } catch { /* a probe must never break the tick */ }
+      return Date.now() - lastSignal <= GRACE_MS;
+    }
+
+    function beat(flush) {
+      const now = Date.now();
+      const secs = lastBeat ? Math.min(180, Math.round((now - lastBeat) / 1000)) : 0;
+      lastBeat = now;
+      let body;
+      try { body = JSON.stringify({ ...context(), secs }); } catch { return; }
+      const url = '/api/activity/beat';
+      // On the way out (tab hidden / page closing) a normal fetch can be cancelled — sendBeacon
+      // is the transport built for exactly this, and it carries the session cookie.
+      if (flush && navigator.sendBeacon) {
+        try { if (navigator.sendBeacon(url, new Blob([body], { type: 'application/json' }))) return; } catch { /* fall through */ }
+      }
+      fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+        body, keepalive: !!flush,
+      }).catch(() => { /* best-effort: a lost beat is a lost minute, never an error */ });
+    }
+    function tick(flush) {
+      if (active()) beat(flush);
+      else lastBeat = 0;   // an idle gap is never back-filled by the next beat
+    }
+
+    function start() {
+      if (started) return;
+      started = true;
+      ['pointerdown', 'keydown', 'wheel', 'touchstart', 'scroll'].forEach((ev) =>
+        document.addEventListener(ev, signal, { capture: true, passive: true }));
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') tick(true);
+        else signal();   // coming back to the tab is itself an act
+      });
+      window.addEventListener('pagehide', () => tick(true));
+      // On screen? Sentinel's Coach panel is display:none while closed, and a pinned tab's iframe
+      // is off screen when another Sentinel page is open — neither is "in use". IO reports the
+      // intersection with the TOP-LEVEL viewport even for a cross-origin frame.
+      if ('IntersectionObserver' in window) {
+        try {
+          new IntersectionObserver((entries) => {
+            onScreen = entries.some((e) => e.isIntersecting);
+            if (onScreen) signal();
+          }).observe(document.documentElement);
+        } catch { onScreen = true; }
+      }
+      signal();
+      setInterval(() => tick(false), TICK_MS);
+      beat(false);
+    }
+    return { start, signal, streaming };
+  })();
+
   async function init() {
     tickClock();
     setInterval(tickClock, 1000);
@@ -383,6 +518,8 @@ const App = (() => {
     // builder; everyone else sees the sign-in screen.
     if (state.authed) enterMastery();
     else showLogin();
+    // Time spent: only a signed-in learner has a clock (guests have no account to credit).
+    if (state.authed) { try { activityTracker.start(); } catch { /* tracking is never load-bearing */ } }
     // Assistant-only embed (Sentinel's global Coach): drop the app chrome and open the panel
     // full-frame. If the viewer isn't signed in, fall back to the normal login screen.
     if (assistantOnly()) {
@@ -4039,6 +4176,7 @@ const App = (() => {
     $('fcsResult').classList.add('hidden');
 
     rec.onresult = (e) => {
+      activityTracker.signal();   // the learner is speaking
       let finalT = '', interimT = '';
       for (let i = 0; i < e.results.length; i++) {
         const res = e.results[i];
@@ -7220,6 +7358,7 @@ const App = (() => {
     _dictation = { rec, btn };
     rec.onstart = () => { if (btn) btn.classList.add('recording'); };
     rec.onresult = (e) => {
+      activityTracker.signal();   // the learner is speaking
       let t = '';
       for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
       input.value = base + t;
@@ -7732,6 +7871,7 @@ const App = (() => {
     let finalText = '';
     rec.onstart = () => { assistantMicBtn()?.classList.add('recording'); };
     rec.onresult = (e) => {
+      activityTracker.signal();   // the learner is speaking
       let t = '';
       for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
       finalText = t;

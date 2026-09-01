@@ -68,6 +68,8 @@ import {
   moveTopics,
   addUsage,
   getUsage,
+  stampActiveMinutes,
+  getActivityDays,
   slug,
   resolveProgramScope,
   backfillPrograms,
@@ -1069,6 +1071,64 @@ app.get('/api/streak', requireAuth, async (req, res, next) => {
 app.get('/api/usage', requireAuth, async (req, res, next) => {
   try {
     res.json(await getUsage(req.userEmail));
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------------------- Time spent -------------------------------- */
+// Minute-bucket activity tracking. The client (public/app.js `activityTracker`) posts a beat
+// about once a minute WHILE it judges the learner active — a visible frame plus a signal (input,
+// speaking, the AI speaking or streaming, an action) inside the last few minutes — carrying what
+// they were doing. The server stamps every minute the beat covers into that day's doc
+// (lib/firestore.js stampActiveMinutes). Minutes are keys, so overlapping beats from several
+// frames de-duplicate for free and a reading is a count of keys. Day/minute boundaries are in
+// ACTIVITY_TZ, which is Sentinel's today_ph — the two apps must agree where a day starts.
+//
+// Keyed by the SIGN-IN identity (conversationUser), never effectiveUser: an admin acting as a
+// learner is spending THEIR OWN time, and must not put minutes on the learner's clock.
+const ACTIVITY_TZ = process.env.ACTIVITY_TZ || 'Asia/Manila';
+// A beat may back-fill at most this far: the client ticks every 60 s and reports the seconds since
+// its previous beat, so a throttled background timer that wakes late still covers its minutes,
+// while a beat can never claim more than the grace window the client itself applies.
+const BEAT_MAX_SECS = 180;
+const activityFmt = new Intl.DateTimeFormat('en-CA', {
+  timeZone: ACTIVITY_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false,
+});
+/** { day: 'YYYY-MM-DD', hm: 'HHMM' } for an instant, in ACTIVITY_TZ. */
+function activityKey(date) {
+  const parts = {};
+  for (const p of activityFmt.formatToParts(date)) parts[p.type] = p.value;
+  const hour = parts.hour === '24' ? '00' : parts.hour; // some ICU builds print midnight as 24
+  return { day: `${parts.year}-${parts.month}-${parts.day}`, hm: `${hour}${parts.minute}` };
+}
+const clipStr = (v, n = 80) => String(v == null ? '' : v).trim().slice(0, n);
+
+// Body: { program, view, track, course, lesson, topic, secs }. Best-effort by design — the client
+// never surfaces a failure here, so this must never be slow or loud either.
+app.post('/api/activity/beat', requireAuth, async (req, res, next) => {
+  try {
+    const who = conversationUser(req);
+    if (!who) return res.status(401).json({ error: 'Sign in first' });
+    const b = req.body || {};
+    const secs = Math.min(BEAT_MAX_SECS, Math.max(0, Number(b.secs) || 0));
+    // Every field is ALWAYS written (empty string for absent) because set({merge:true}) deep-merges
+    // maps: a later beat for the same minute from another frame (the Coach over a quiz) must
+    // REPLACE the minute's context, not inherit the earlier frame's section. Last beat wins.
+    const ctx = { p: clipStr(b.program, 60), v: clipStr(b.view, 24) || 'app' };
+    for (const [k, f] of [['tr', 'track'], ['co', 'course'], ['le', 'lesson'], ['to', 'topic']]) ctx[k] = clipStr(b[f]);
+    // Every minute from (now − secs) through now, grouped by day — a beat can straddle midnight.
+    const now = Date.now();
+    const byDay = {};
+    for (let t = now - secs * 1000; t < now; t += 60000) {
+      const { day, hm } = activityKey(new Date(t));
+      (byDay[day] ||= {})[hm] = ctx;
+    }
+    const last = activityKey(new Date(now));
+    (byDay[last.day] ||= {})[last.hm] = ctx;
+    await Promise.all(Object.entries(byDay).map(([day, m]) => stampActiveMinutes(who, day, m)));
+    res.json({ ok: true, minutes: Object.values(byDay).reduce((n, m) => n + Object.keys(m).length, 0) });
   } catch (e) {
     next(e);
   }
@@ -5081,6 +5141,162 @@ app.get('/api/internal/team-progress', async (req, res, next) => {
       }
     }));
     res.json({ days, people });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* --------------------------- Time spent (internal) -------------------------- */
+// The reading side of /api/activity/beat, for Sentinel. Both endpoints answer over an inclusive
+// day range [from, to] in ACTIVITY_TZ — Sentinel picks Today / This week / 30 days and sends the
+// DATES, so the two apps can never disagree about where a window starts. `days` is the fallback
+// when no `from` is given (counted back from `to`, default today).
+//
+// Unlike the progress rollups, a person with no minutes is a real ZERO, not an unknown: the
+// absence of activity docs means nothing was recorded, which is the answer. `found:false` is
+// reserved for a read that actually failed.
+const MAX_ACTIVITY_DAYS = 62;
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
+const dayMs = (d) => { const [y, m, dd] = d.split('-').map(Number); return Date.UTC(y, m - 1, dd); };
+const shiftDay = (d, n) => new Date(dayMs(d) + n * 86400000).toISOString().slice(0, 10);
+const dayDiff = (a, b) => Math.round((dayMs(b) - dayMs(a)) / 86400000);
+function activityRange(q) {
+  const today = activityKey(new Date()).day;
+  let to = DAY_RE.test(String(q?.to || '')) ? String(q.to) : today;
+  let from = DAY_RE.test(String(q?.from || '')) ? String(q.from) : '';
+  if (!from) {
+    const days = Math.min(MAX_ACTIVITY_DAYS, Math.max(1, Number(q?.days) || 1));
+    from = shiftDay(to, -(days - 1));
+  }
+  if (from > to) [from, to] = [to, from];
+  if (dayDiff(from, to) + 1 > MAX_ACTIVITY_DAYS) from = shiftDay(to, -(MAX_ACTIVITY_DAYS - 1));
+  const days = [];
+  for (let i = 0; i <= dayDiff(from, to); i++) days.push(shiftDay(from, i));
+  return { from, to, days };
+}
+
+// Which accounts hold one person's minutes. Beats are keyed by the sign-in email, but a
+// break-glass-listed admin who signs in with the shared password lands under DEFAULT_ACCOUNT
+// (currentEmail's password arm) — read both and union by minute. Minute keys de-duplicate, so
+// the union can't double count one person; it CAN attribute the shared account's minutes to
+// every listed admin, which is the same convenience mapping the progress endpoints make.
+function activityAccounts(email) {
+  return isAdminEmail(email) && email !== DEFAULT_ACCOUNT ? [email, DEFAULT_ACCOUNT] : [email];
+}
+async function readActivity(email, days) {
+  const merged = {};
+  for (const acct of activityAccounts(email)) {
+    const got = await getActivityDays(acct, days);
+    for (const [day, m] of Object.entries(got)) Object.assign(merged[day] ||= {}, m);
+  }
+  return merged; // { day: { HHMM: ctx } }
+}
+/** Totals over a { day: { HHMM: ctx } } map: minutes, byProgram ('' = no programme, i.e. the
+ *  Coach frame or an unscoped screen), byView, byDay, and the first/last active minute. */
+function summarizeActivity(byDay) {
+  const out = { minutes: 0, byProgram: {}, byView: {}, byDay: {}, firstAt: null, lastAt: null };
+  for (const day of Object.keys(byDay).sort()) {
+    const m = byDay[day];
+    const keys = Object.keys(m).sort();
+    out.byDay[day] = keys.length;
+    out.minutes += keys.length;
+    for (const hm of keys) {
+      const c = m[hm] || {};
+      const p = c.p || '', v = c.v || 'app';
+      out.byProgram[p] = (out.byProgram[p] || 0) + 1;
+      out.byView[v] = (out.byView[v] || 0) + 1;
+    }
+    if (keys.length) {
+      const first = `${day} ${keys[0].slice(0, 2)}:${keys[0].slice(2)}`;
+      const lastK = keys[keys.length - 1];
+      const last = `${day} ${lastK.slice(0, 2)}:${lastK.slice(2)}`;
+      if (!out.firstAt || first < out.firstAt) out.firstAt = first;
+      if (!out.lastAt || last > out.lastAt) out.lastAt = last;
+    }
+  }
+  return out;
+}
+// Consecutive minutes with the same programme / view / section fold into one SESSION row — the
+// detail Sentinel shows on click ("09:32–09:51 · Linear Algebra › Eigenvalues · quiz · 19 min").
+// A one-minute hole is bridged (a beat that landed a second late), anything wider is a real break.
+const SESSION_GAP = 2;
+const MAX_SESSION_TOPICS = 12;
+function activitySessions(byDay) {
+  const sessions = [];
+  const hhmm = (idx) => `${String(Math.floor(idx / 60)).padStart(2, '0')}:${String(idx % 60).padStart(2, '0')}`;
+  const finish = (s) => ({
+    day: s.day, start: hhmm(s.startIdx), end: hhmm(Math.min(s.endIdx + 1, 24 * 60 - 1)), minutes: s.minutes,
+    program: s.p, view: s.v, track: s.track, course: s.course, lesson: s.lesson, topics: s.topics,
+  });
+  for (const day of Object.keys(byDay).sort()) {
+    const m = byDay[day];
+    let cur = null;
+    for (const hm of Object.keys(m).sort()) {
+      const c = m[hm] || {};
+      const idx = Number(hm.slice(0, 2)) * 60 + Number(hm.slice(2));
+      const same = cur && idx - cur.endIdx <= SESSION_GAP && cur.p === (c.p || '') && cur.v === (c.v || 'app')
+        && cur.track === (c.tr || '') && cur.course === (c.co || '') && cur.lesson === (c.le || '');
+      if (same) {
+        cur.endIdx = idx;
+        cur.minutes += 1;
+        if (c.to && !cur.topics.includes(c.to) && cur.topics.length < MAX_SESSION_TOPICS) cur.topics.push(c.to);
+      } else {
+        if (cur) sessions.push(finish(cur));
+        cur = {
+          day, startIdx: idx, endIdx: idx, minutes: 1, p: c.p || '', v: c.v || 'app',
+          track: c.tr || '', course: c.co || '', lesson: c.le || '', topics: c.to ? [c.to] : [],
+        };
+      }
+    }
+    if (cur) sessions.push(finish(cur));
+  }
+  return sessions;
+}
+const programCards = async () => (await getPrograms()).map((p) => ({
+  id: p.id, name: p.name || p.id, category: p.category || 'career',
+}));
+
+// Internal (HMAC-gated): many people's minutes in the engine over a day range, split by
+// programme and by view. Sentinel maps programmes onto its dimensions (career → Professional,
+// its pinned growth programmes → Philosophical / Spiritual, no programme → Coach).
+app.get('/api/internal/time-spent', async (req, res, next) => {
+  try {
+    if (!verifyInternalSig(req, 'time-spent')) return res.status(401).json({ error: 'bad signature' });
+    const emails = [...new Set(
+      String(req.query?.emails || '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean),
+    )];
+    if (!emails.length) return res.status(400).json({ error: 'emails required' });
+    if (emails.length > MAX_TEAM_EMAILS) {
+      return res.status(400).json({ error: `at most ${MAX_TEAM_EMAILS} emails per call` });
+    }
+    const range = activityRange(req.query);
+    const programs = await programCards();
+    const people = await Promise.all(emails.map(async (email) => {
+      try {
+        return { email, found: true, ...summarizeActivity(await readActivity(email, range.days)) };
+      } catch (e) {
+        return { email, found: false, minutes: null, error: String((e && e.message) || e).slice(0, 160) };
+      }
+    }));
+    res.json({ from: range.from, to: range.to, tz: ACTIVITY_TZ, programs, people });
+  } catch (e) {
+    next(e);
+  }
+});
+
+// Internal (HMAC-gated): ONE person's minutes as session rows — the on-click detail.
+app.get('/api/internal/time-detail', async (req, res, next) => {
+  try {
+    if (!verifyInternalSig(req, 'time-detail')) return res.status(401).json({ error: 'bad signature' });
+    const email = String(req.query?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'email required' });
+    const range = activityRange(req.query);
+    const [programs, byDay] = await Promise.all([programCards(), readActivity(email, range.days)]);
+    res.json({
+      email, from: range.from, to: range.to, tz: ACTIVITY_TZ, programs,
+      ...summarizeActivity(byDay),
+      sessions: activitySessions(byDay),
+    });
   } catch (e) {
     next(e);
   }
