@@ -171,7 +171,7 @@ import {
   reformatQuestions,
   restoreLatexEscapes,
 } from './lib/gemini.js';
-import { growthDetail, holisticProfile, mentorSearch, sentinelUserLookup, workDetail, workDigest } from './lib/sentinel.js';
+import { growthDetail, holisticProfile, mentorSearch, sentinelGuide, sentinelUserLookup, workDetail, workDigest } from './lib/sentinel.js';
 import { runWithUsage, newUsage } from './lib/usage.js';
 import { synthesize, ttsCatalog } from './lib/tts.js';
 import { listOllamaModels } from './lib/ollama.js';
@@ -3147,9 +3147,12 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // ...and their TASK BOARD, scoped by Sentinel to what this person may see. Fetched alongside the
     // profile (not after it — neither depends on the other) so knowing their work costs no extra
     // latency on a path the learner is sitting waiting on. Null-safe, exactly like the profile.
-    const [holistic, work] = await Promise.all([
+    const [holistic, work, sentinelGuideText] = await Promise.all([
       holisticProfile(chatUser),
       workDigest(chatUser),
+      // Sentinel's self-knowledge doc (cached 10 min in lib/sentinel.js) - what lets the
+      // assistant answer 'how do I use Sentinel for X' from ground truth. Null-safe.
+      sentinelGuide(),
     ]);
     // Passages from their imported mentor transcripts, when the turn calls for them — this is what
     // makes "what would Nick say about my plan" / "act as Nick" grounded instead of an impression.
@@ -3174,7 +3177,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, sentinelGuide: sentinelGuideText, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -3233,9 +3236,12 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     // Whole-person context from Sentinel; fetched before streaming starts (null-safe) so a Sentinel
     // outage can never break the SSE stream — it just yields no holistic block.
     // ...and their task board, scoped by Sentinel to what they may see (see the blocking sibling).
-    const [holistic, work] = await Promise.all([
+    const [holistic, work, sentinelGuideText] = await Promise.all([
       holisticProfile(chatUser),
       workDigest(chatUser),
+      // Sentinel's self-knowledge doc (cached 10 min in lib/sentinel.js) - what lets the
+      // assistant answer 'how do I use Sentinel for X' from ground truth. Null-safe.
+      sentinelGuide(),
     ]);
     // Mentor-library grounding + growth-journal bodies + the bodies of any task cards this turn names
     // (see the blocking sibling for all three). Fetched together before streaming starts, and
@@ -3255,7 +3261,7 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, sentinelGuide: sentinelGuideText, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 

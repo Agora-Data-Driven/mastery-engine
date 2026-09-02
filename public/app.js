@@ -531,6 +531,14 @@ const App = (() => {
   // Open the assistant panel and keep it filling the frame (used by ?embed=assistant). The panel is
   // the same widget used everywhere — streaming, voice, pause-&-steer, history all come for free.
   function openAssistantFull() {
+    // Sentinel's frame calls this widget the AI ASSISTANT (renamed from Coach, 2026-09-02) -
+    // retitle the panel header in embed mode only; standalone keeps its Study Assistant name.
+    try {
+      const t = document.querySelector('.assistant-title');
+      const h = document.getElementById('assistantHint');
+      if (t) t.textContent = 'AI Assistant';
+      if (h) h.textContent = 'I know Sentinel, your work and your growth. Ask me anything - or tell me what to do.';
+    } catch (e) { /* header optional */ }
     const panel = $('assistantPanel');
     if (panel) panel.classList.remove('hidden');
     $('assistantFab')?.classList.add('active');

@@ -95,7 +95,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `usage.js` | Text-token + TTS usage/cost tallying per user. |
 | `tts.js` | Google Cloud Text-to-Speech — the **paid** cloud voices for spoken replies (Chirp 3 HD + Gemini Flash TTS). Opt-in; the free browser voice is the default and never reaches the server. See §7. |
 | `googleauth.js` | Google OAuth flow. |
-| `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), and `workDigest`/`workDetail` (their TASK BOARD — see §7). |
+| `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), `workDigest`/`workDetail` (their TASK BOARD — see §7), and **`sentinelGuide`** (Sentinel's HOW-SENTINEL-WORKS.md, cached 10 min — the assistant's Sentinel self-knowledge, injected by `sentinelGuideBlock` in BOTH chat paths). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
 | `_*_test.js` | The **nine** Node unit tests (auth, graph, programs, progress credit, priority, visual, deep, usage, aidiag) — see §6. |
@@ -876,7 +876,11 @@ and none of them is a separate assistant:
 | **Study assistant** | `#assistantPanel` — what the other two are made of |
 
 One route pair, one persona, one `assistantChats` store. **Deleting "the study assistant" would
-delete what Coach renders.** The holistic profile, growth journal, task board and mentor
+delete what Coach renders.** (Sentinel calls the whole thing the **AI Assistant** since 2026-09-02 —
+its FAB/header and this app's embed-mode header both say so; the widget, wire formats
+(`agora-coach-action*`) and store are unchanged. The assistant now also carries SENTINEL ops in
+`assistantActionBlock` — `assistantSentinelOps`, host-frame only — which Sentinel's `app.js`
+executes in the user's session on Approve, and Sentinel self-knowledge via `sentinelGuideBlock`.) The holistic profile, growth journal, task board and mentor
 transcripts ground *every* turn regardless of which door was used.
 
 The two doors are not interchangeable in one direction only, and it is the important one:
