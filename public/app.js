@@ -7353,26 +7353,80 @@ const App = (() => {
   // mic-permission prime (ensureMicPermission) so it works inside the website's cross-origin iframe.
   // Graceful: the button hides itself when the browser has no SpeechRecognition. One live at a time.
   let _dictation = null;
+
+  // One string out of a recognizer's result list — and NOT a plain concatenation.
+  //
+  // 🔴 Desktop Chrome hands back SEGMENTS: each entry is a new stretch of speech, so joining them is
+  // right. Android Chrome and iOS Safari hand back SNAPSHOTS: every new entry repeats the whole
+  // utterance so far ("what", "what are", "what are my", …), and Android re-delivers a final result
+  // it has already sent. Concatenating THOSE is how the Coach's box filled with
+  // "whatwhat arewhat arewhat are my goals…" on a phone (2026-09-05). Both shapes arrive through the
+  // same API with nothing to tell them apart, so each entry is merged by content: an entry that
+  // begins with what is already assembled for the current utterance REPLACES it (a snapshot); an
+  // interim that keeps the first word and is no shorter is a REVISED snapshot and also replaces;
+  // anything else is appended (a segment). A final that merely repeats the tail of what is already
+  // banked is dropped. Used by dictation and by conversation mode — one rule, or they drift.
+  function joinTranscript(results) {
+    let banked = '';   // utterances that have been finalised
+    let current = '';  // the utterance still being recognised, as last seen
+    const words = (s) => s.split(' ');
+    for (let i = 0; i < results.length; i++) {
+      const r = results[i];
+      const t = String((r && r[0] && r[0].transcript) || '').replace(/\s+/g, ' ').trim();
+      if (!t) continue;
+      const lower = t.toLowerCase();
+      const prev = current.toLowerCase();
+      const snapshot = !!prev && (
+        lower.startsWith(prev) ||
+        (!r.isFinal && words(lower)[0] === words(prev)[0] && words(lower).length >= words(prev).length)
+      );
+      current = snapshot ? t : (current ? current + ' ' + t : t);
+      if (r.isFinal) {
+        if (!banked.toLowerCase().endsWith(current.toLowerCase())) banked = banked ? banked + ' ' + current : current;
+        current = '';
+      }
+    }
+    return banked && current ? banked + ' ' + current : (banked || current);
+  }
+
   async function dictateInto(inputId, btn) {
     const input = $(inputId);
     if (!input) return;
     if (!SR) { if (btn) btn.style.display = 'none'; return; }
-    if (_dictation) { try { _dictation.rec.stop(); } catch {} return; }   // toggle off
+    if (_dictation) { _dictation.stopping = true; try { _dictation.rec.stop(); } catch {} return; }   // toggle off
     const ok = await ensureMicPermission();
     if (!ok) return;
     const rec = new SR();
     rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = true;
-    const base = input.value ? input.value.replace(/\s+$/, '') + ' ' : '';
-    _dictation = { rec, btn };
+    let base = input.value ? input.value.replace(/\s+$/, '') + ' ' : '';
+    const d = { rec, btn, stopping: false, fatal: false, heard: false };
+    _dictation = d;
     rec.onstart = () => { if (btn) btn.classList.add('recording'); };
     rec.onresult = (e) => {
       activityTracker.signal();   // the learner is speaking
-      let t = '';
-      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
-      input.value = base + t;
+      d.heard = true;
+      input.value = base + joinTranscript(e.results);
     };
-    rec.onerror = () => {};
-    rec.onend = () => { if (btn) btn.classList.remove('recording'); _dictation = null; input.focus(); };
+    // A permission or device failure would only repeat on a restart; 'no-speech' and 'aborted'
+    // are ordinary ends of a session and are not fatal.
+    rec.onerror = (e) => {
+      if (['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(e && e.error)) d.fatal = true;
+    };
+    rec.onend = () => {
+      // "continuous" is a request, not a promise: Android ends the session at the first pause and
+      // desktop Chrome after about a minute. While the mic is still toggled on and the session that
+      // just ended actually heard something, bank the box as it stands (the learner may have edited
+      // it by hand meanwhile) and listen again. A silent session, a fatal error, or the learner's own
+      // tap on the button ends dictation for real.
+      if (_dictation === d && !d.stopping && !d.fatal && d.heard) {
+        base = input.value.replace(/\s+$/, '') + (input.value.trim() ? ' ' : '');
+        d.heard = false;
+        try { rec.start(); return; } catch {}
+      }
+      if (btn) btn.classList.remove('recording');
+      if (_dictation === d) _dictation = null;
+      input.focus();
+    };
     try { rec.start(); } catch { _dictation = null; if (btn) btn.classList.remove('recording'); }
   }
 
@@ -7880,8 +7934,7 @@ const App = (() => {
     rec.onstart = () => { assistantMicBtn()?.classList.add('recording'); };
     rec.onresult = (e) => {
       activityTracker.signal();   // the learner is speaking
-      let t = '';
-      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      const t = joinTranscript(e.results);   // snapshot-aware — see dictateInto
       finalText = t;
       const said = t.trim();
       // Live barge-in: the instant we're sure it's the user (not echo), cut off whatever's happening.
