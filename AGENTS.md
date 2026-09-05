@@ -1233,6 +1233,25 @@ stops mid-sentence or mid-JSON.
 
 ---
 
+### 🔴 Dictation on a phone filled the box with "whatwhat arewhat are my goals…" (2026-09-05)
+
+**Symptom:** the 🎤 in Sentinel's Coach (this app's assistant in a frame) — and any other mic here —
+produced stuttering, self-repeating text on Android Chrome / iOS Safari while desktop Chrome was fine.
+
+**Cause:** the `onresult` handlers concatenated every entry of `e.results`. Desktop Chrome hands
+back SEGMENTS (each entry is new speech), so that was right there. Mobile browsers hand back
+SNAPSHOTS — every entry repeats the whole utterance so far ("what", "what are", "what are my"…) —
+and Android re-delivers a final result it already sent. Nothing on the event says which shape it is.
+
+**Fix:** `joinTranscript(results)` in [public/app.js](public/app.js) (next to `dictateInto`) merges by
+content — an entry that begins with what is already assembled REPLACES it, an interim that keeps the
+first word and is no shorter is a revised snapshot and also replaces, anything else appends, and a
+final that only repeats the banked tail is dropped. **Every recognizer in this file goes through it**
+(dictation and conversation mode). `dictateInto` also restarts the recognizer on `onend` while the
+mic is still toggled on and the last session heard something — "continuous" is a request Android
+ignores at the first pause and desktop Chrome after ~a minute — and stops for real on a silent
+session, a fatal error (`not-allowed`, `audio-capture`, `network`) or the learner's own tap.
+
 ## 8. Never do this
 
 | ❌ | Why |
@@ -1247,6 +1266,7 @@ stops mid-sentence or mid-JSON.
 | Commit real secrets | Everything comes from Secret Manager via `--set-secrets`. |
 | Deploy without `node --check` | A syntax error crash-loops and silently keeps the old revision live. |
 | Edit lines with NUL bytes using `Edit` | It cannot match. Use a Node script. |
+| Concatenate `SpeechRecognition` results yourself | Mobile browsers deliver cumulative snapshots — "whatwhat arewhat are my…". Use `joinTranscript` — §7. |
 | Put model-authored HTML through `innerHTML` | Opaque-origin iframe only — see §7. |
 | Record `aiChoice(req)` as an artifact's engine | That is the request, not the resolution. Use the `meta` out-param — §7. |
 | Swallow the payload in a JSON-parse `catch` | An unexplainable failure gets re-guessed at forever. Use `parseAiJson` — §7. |
