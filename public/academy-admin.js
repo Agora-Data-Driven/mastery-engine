@@ -128,6 +128,7 @@
     wireIngest();
     wireLibrary();
     wireComposeModes();
+    wireMergedStations();
     wireGoalPlan();
     wireBulk();
     wireBuildModes();
@@ -146,11 +147,11 @@
       t.onclick = () => {
         document.querySelectorAll('.aa-tab').forEach((x) => x.setAttribute('aria-selected', String(x === t)));
         document.querySelectorAll('.aa-panel').forEach((p) => p.classList.toggle('on', p.id === 'p-' + t.dataset.panel));
-        if (t.dataset.panel === 'flags') loadFlags();
-        if (t.dataset.panel === 'generate') loadJobs();
-        if (t.dataset.panel === 'people') loadAssignments();
+        // Two stations each carry two modes now, so opening one loads BOTH its
+        // datasets — the mode switch is instant and never shows an empty table.
+        if (t.dataset.panel === 'generate') { loadJobs(); loadFlags(); }
+        if (t.dataset.panel === 'people') { loadAssignments(); loadTeam(); }
         if (t.dataset.panel === 'roadmaps') loadRoadmaps();
-        if (t.dataset.panel === 'team') loadTeam();
       };
     });
   }
@@ -1090,6 +1091,34 @@
 
   /* Compose's two AI cards, one at a time. The tree above them is the object being
    * edited and stays visible; these are just the two ways to change it. */
+  /* The two merged stations. Questions = build the bank, then fix it; People =
+   * enrol someone, then see how they are doing. Each was two rail entries for what
+   * is one job, which is most of why the rail had seven. */
+  function wireMergedStations() {
+    if ($('qmBuildBtn')) {
+      const set = (m) => {
+        $('qmBuildBtn').setAttribute('aria-selected', String(m === 'build'));
+        $('qmProofBtn').setAttribute('aria-selected', String(m !== 'build'));
+        show($('qmBuild'), m === 'build');
+        show($('qmProof'), m !== 'build');
+      };
+      $('qmBuildBtn').onclick = () => set('build');
+      $('qmProofBtn').onclick = () => { set('proof'); loadFlags(); };
+      set('build');
+    }
+    if ($('pmEnrolBtn')) {
+      const set = (m) => {
+        $('pmEnrolBtn').setAttribute('aria-selected', String(m === 'enrol'));
+        $('pmTeamBtn').setAttribute('aria-selected', String(m !== 'enrol'));
+        show($('pmEnrol'), m === 'enrol');
+        show($('pmTeam'), m !== 'enrol');
+      };
+      $('pmEnrolBtn').onclick = () => set('enrol');
+      $('pmTeamBtn').onclick = () => { set('team'); loadTeam(); };
+      set('enrol');
+    }
+  }
+
   function wireComposeModes() {
     if (!$('cmEditBtn')) return;
     const set = (mode) => {
