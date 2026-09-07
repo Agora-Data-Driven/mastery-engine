@@ -6165,8 +6165,62 @@ app.put('/api/admin/transcripts/:id', requireAdmin, bigJson, async (req, res, ne
       track: req.body?.track,
       course: req.body?.course,
       lesson: req.body?.lesson,
+      folder: req.body?.folder,
     });
     res.json({ ok: true, id: req.params.id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Admin: pull a Watcher video's transcript straight INTO the library, unfiled.
+ *
+ * Watcher is just another way material arrives, so it ends up in the same place as
+ * an upload or a paste — one library, one set of actions on it. Before this it was
+ * a second entry point wired directly into the filing flow, which is what made the
+ * page carry two upload surfaces.
+ */
+app.post('/api/admin/transcripts/from-watcher', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const { client, channel, video } = req.body || {};
+    const v = await watcher.getVideo(client, channel, video);
+    if (!v) return res.status(404).json({ error: 'Video not found in the Watcher archive' });
+    if (!v.transcript) return res.status(400).json({ error: `That video has no transcript yet${v.error ? ` (${v.error})` : ''}` });
+    const id = await addTranscript({
+      program, title: req.body?.title || v.title || 'Untitled', text: v.transcript,
+      source: 'watcher', watcherRef: { client, channel, video, url: v.url },
+      folder: req.body?.folder || '',
+    });
+    res.json({ ok: true, id, title: v.title || 'Untitled', chars: String(v.transcript).length });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Admin: move sources between library FOLDERS, in bulk.
+ *
+ * A folder is organisation only — it never affects what a lesson grounds on, which
+ * is decided by `course`/`lesson` alone. So this is deliberately a separate verb
+ * from filing: moving a source between folders can never change any learner's
+ * questions or any lesson's source text. An empty `folder` moves them back to the
+ * top level.
+ */
+app.post('/api/admin/transcripts/folder', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const folder = String(req.body?.folder || '').trim();
+    const ids = [...new Set((Array.isArray(req.body?.ids) ? req.body.ids : [])
+      .map((s) => String(s || '').trim()).filter(Boolean))].slice(0, 500);
+    if (!ids.length) return res.status(400).json({ error: 'Pick at least one source' });
+    let moved = 0;
+    for (const id of ids) {
+      try { await updateTranscript(id, { folder }); moved += 1; }
+      catch (e) { console.error('folder move failed:', id, e.message); }
+    }
+    res.json({ ok: true, moved, folder });
   } catch (e) {
     next(e);
   }
@@ -6302,6 +6356,19 @@ async function prepareIngest(req) {
   let title = String(req.body?.title || '').trim();
   let watcherRef = null;
   let source = 'paste';
+  // A source that is ALREADY in the library is referenced by id, never re-pasted.
+  // Committing then FILES that doc in place (see /ingest/commit) instead of writing
+  // a second copy of the same material — which is what a paste would do.
+  const transcriptId = String(req.body?.transcriptId || '').trim();
+  if (!text && transcriptId) {
+    const doc = await getTranscriptById(transcriptId);
+    if (!doc) throw Object.assign(new Error('That source is no longer in the library'), { status: 404 });
+    text = String(doc.text || '').trim();
+    if (!text) throw Object.assign(new Error('That source has no text'), { status: 400 });
+    source = doc.source || 'paste';
+    if (!title) title = doc.title || '';
+    watcherRef = doc.watcherRef || null;
+  }
   if (!text && req.body?.watcher) {
     const { client, channel, video } = req.body.watcher;
     const v = await watcher.getVideo(client, channel, video);
@@ -6312,14 +6379,14 @@ async function prepareIngest(req) {
     if (!title) title = v.title;
     watcherRef = { client, channel, video, url: v.url };
   }
-  if (!text) throw Object.assign(new Error('Paste a transcript or pick a Watcher video first'), { status: 400 });
+  if (!text) throw Object.assign(new Error('Pick a source from the library, paste a transcript, or pick a Watcher video first'), { status: 400 });
   const catalog = await getCatalog(req.userEmail, scope);
   const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
-  return { program, programName, catalog, text, title, watcherRef, source };
+  return { program, programName, catalog, text, title, watcherRef, source, transcriptId };
 }
 
 // New-vs-existing is decided HERE, from the live catalog — never trusted from the model.
-function shapeIngestPlan(p, { program, title, source, watcherRef, text, catalog }) {
+function shapeIngestPlan(p, { program, title, source, watcherRef, text, catalog, transcriptId }) {
   const has = (tr, co, le, to) => catalog.some((r) => r.track === tr && r.course === co && r.lesson === le && (to == null || r.topic === to));
   return {
     program,
@@ -6327,6 +6394,9 @@ function shapeIngestPlan(p, { program, title, source, watcherRef, text, catalog 
     summary: p.summary,
     source,
     watcherRef,
+    // Present when the plan was made from a source already in the library — the
+    // commit uses it to file THAT doc rather than write a copy.
+    transcriptId: transcriptId || null,
     chars: text.length,
     text,
     placement: {
@@ -6472,7 +6542,12 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
     const lesson = String(req.body?.lesson || '').trim();
     const topics = [...new Set((Array.isArray(req.body?.topics) ? req.body.topics : [])
       .map((t) => String(t || '').trim()).filter(Boolean))];
-    const text = String(req.body?.text || '').trim();
+    // Text comes from the body (a fresh paste) OR from a source already in the
+    // library, named by id. The id path is the normal one now: the Library is where
+    // material enters, and filing is an ACTION on something already there.
+    const existingId = String(req.body?.transcriptId || '').trim();
+    const existingDoc = existingId ? await getTranscriptById(existingId) : null;
+    const text = String(req.body?.text || '').trim() || String(existingDoc?.text || '').trim();
     if (!track || !course || !lesson) return res.status(400).json({ error: 'Track, course and lesson are all required' });
     if (!text) return res.status(400).json({ error: 'The source material is empty' });
     // Topics are only mandatory when generating: manual placement can just FILE the
@@ -6487,13 +6562,22 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
     await autoSequenceLessons(program, [{ track, course, lesson }], aiChoice(req));
 
     // 2. Attach the transcript at the lesson level, so every chosen topic can draw on it.
-    await addTranscript({
-      program, track, course, lesson,
-      title: req.body?.title || 'Untitled',
-      text,
-      source: req.body?.source || 'paste',
-      watcherRef: req.body?.watcherRef || null,
-    });
+    //    A source already in the library is FILED IN PLACE — it keeps its id, its
+    //    folder and its cached digest, and the library shows it move from Unfiled to
+    //    the lesson. Writing a fresh doc here would leave the original sitting
+    //    unfiled beside a duplicate of itself.
+    if (existingDoc) {
+      await updateTranscript(existingId, { track, course, lesson });
+    } else {
+      await addTranscript({
+        program, track, course, lesson,
+        title: req.body?.title || 'Untitled',
+        text,
+        source: req.body?.source || 'paste',
+        watcherRef: req.body?.watcherRef || null,
+        folder: req.body?.folder || '',
+      });
+    }
 
     // 2b. Reading programs (Subject = personal growth / philosophy) treat this
     // material as a BOOK — lesson = the title, topics = its key points — and get

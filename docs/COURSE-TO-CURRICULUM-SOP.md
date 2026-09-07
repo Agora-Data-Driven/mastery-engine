@@ -65,8 +65,14 @@ Budget: half a day for a 3-course specialization, most of it in step 2. Steps 3�
 ### Step 1 — Harvest the source (no thinking yet)
 
 Upload as you harvest: Academy Admin → **Library** → *Add to the library* takes many files at
-once and files nothing. A source sitting in the library is inert — no scope, no questions, no
-effect on any learner — so there is no cost to loading everything and deciding later.
+once and files nothing. It is the ONE way material enters — files, paste and Watcher pulls all
+land there. A source sitting in the library is inert — no scope, no questions, no effect on any
+learner — so there is no cost to loading everything and deciding later.
+
+Put each course in its own **folder** as you upload (the *Put it in* box applies to everything
+added in that session). Folders are shelving only: they never affect what a lesson grounds on,
+so they are safe to reorganise at any time, and the folder rail is how you find one course's
+material again once the library holds several.
 
 Get one transcript per lecture/video/chapter, exactly as spoken. Routes, in order of preference:
 
@@ -287,7 +293,8 @@ that would have prevented it.
 | Upload unfiled source material | Library → Add to the library · `POST /api/admin/transcripts` with no scope | Inert until filed; `track`/`course`/`lesson` default to `''` |
 | Catalogue a source | `POST /api/admin/transcripts/:id/digest` | Cached on the doc; the corpus planner reads these, never full text |
 | Design a curriculum from sources | `POST /api/admin/sources/plan(/stream)` → `/sources/commit` | Commit also FILES each source onto its lesson; gap topics created empty, never generated |
-| Attach a source | Library → File one source into the curriculum · `POST /api/admin/transcripts` | Lesson grain; existing title is skipped |
+| Attach a source | Library → File a source into the curriculum · `POST /api/admin/ingest/commit` with `transcriptId` | Files that doc IN PLACE — keeps its id, folder and digest |
+| Shelve sources | Library folder rail · `POST /api/admin/transcripts/folder` | Organisation only; never touches grounding |
 | Generate from transcript | `POST /api/admin/genjobs` `{program,track,course,lesson[,topic]}` | Stepper, one topic per call; ADDS, never tops up |
 | Generate from expert knowledge | genjob `grounding:'topic'` · `POST /api/generate` | For gap topics with a brief |
 | Author at the quality ceiling | `content-build/` INSTRUCTIONS → `check-questions.js` → `assemble.cjs --apply` | 6 Q/topic, 8–14 cards/lesson, 1,600–2,600-word doc |

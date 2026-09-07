@@ -470,7 +470,7 @@ deliberately separate flows over the **same** `transcripts` collection:
 | | Curriculum-first (original) | Sources-first (Library) |
 |---|---|---|
 | Order | Build the tree, then attach material to it | Upload material, then design the tree from it |
-| Entry | Compose → *File one source into the curriculum* | **Library** (station 01) |
+| Entry | **Library** → *File a source into the curriculum* | **Library** → *Build a curriculum from these* |
 | AI | `classifyTranscript` — places ONE source in an EXISTING tree | `digestSource` (map) → `planFromSources` (reduce) |
 | Routes | `/api/admin/ingest/plan` → `/commit` | `/api/admin/transcripts/:id/digest`, `/api/admin/sources/plan` → `/commit` |
 | Use it for | The daily loop: watched a video, file it, quiz it | Loading a whole course/book corpus at once |
@@ -494,6 +494,21 @@ Three things about the sources-first flow are load-bearing:
    those rows but keeps them out of the genjob queue, because a strict-transcript job over a
    topic with no transcript only produces errors. Fill them later — see
    [docs/COURSE-TO-CURRICULUM-SOP.md](docs/COURSE-TO-CURRICULUM-SOP.md).
+
+**There is ONE way material enters: the Library.** Uploads, pastes and Watcher pulls all
+land there unfiled (`/api/admin/transcripts`, `/transcripts/from-watcher`); filing and
+designing are then ACTIONS on what is already there. The filing card used to carry its own
+paste box, file picker and Watcher fold-out, which made the page hold two upload surfaces and
+let a paste create a *second* copy of a source the library already had. So `/ingest/plan` and
+`/ingest/commit` now accept a **`transcriptId`**, and when they get one the commit **files
+that doc in place** (`updateTranscript`) instead of writing a new one — the source keeps its
+id, its folder and its cached digest, and simply stops being unfiled.
+
+**Folders are shelving, not filing.** A source's `folder` is free text on the transcript doc,
+derived into a rail from the distinct values in use (no registry, so an empty folder stops
+existing on its own). It is orthogonal to `course`/`lesson`: moving a source between folders
+can never change what a lesson grounds on, which is why `/api/admin/transcripts/folder` is a
+separate verb from filing.
 
 One source may ground several lessons. A transcript doc carries exactly one scope and
 grounding reads by scope, so `/sources/commit` **copies** it to each extra lesson, recording

@@ -565,6 +565,13 @@
                 <button class="btn btn-primary" id="upPick">Choose files…</button>
                 <span id="upFileMsg" class="aa-note">Each file becomes one source, titled from its filename.</span>
               </div>
+              <!-- The folder EVERYTHING added here goes into (files, paste and Watcher alike).
+                   A folder is shelving, not filing: it never affects what a lesson grounds on. -->
+              <div class="aa-row" style="margin:0 0 12px;flex-wrap:wrap;align-items:center">
+                <label class="aa-field-label" for="upFolder" style="margin:0">Put it in</label>
+                <input type="text" id="upFolder" list="upFolderList" autocomplete="off" placeholder="Folder (e.g. “Andrew Ng ML Specialization”) — blank = top level" style="flex:1;min-width:230px" />
+                <datalist id="upFolderList"></datalist>
+              </div>
               <details id="upPasteWrap">
                 <summary style="cursor:pointer;font-weight:700;font-size:13px">Or paste one source</summary>
                 <div style="margin-top:10px">
@@ -576,6 +583,39 @@
                   </div>
                 </div>
               </details>
+              <!-- Watcher is just another way material ARRIVES, so it lands in the library
+                   like an upload or a paste. Nothing is re-scraped. -->
+              <details id="wDetails" class="aa-source">
+                <summary><span class="aa-source-tw">Pull from Watcher</span> <span class="aa-note" style="text-transform:none;letter-spacing:0;font-weight:400">— straight from Atrium's archive</span></summary>
+                <div class="aa-cols" style="margin-top:12px">
+                  <div><div class="aa-field-label">Client</div><div class="aa-list" id="wClients"></div></div>
+                  <div><div class="aa-field-label">Channel</div><div class="aa-list" id="wChannels"></div></div>
+                  <div><div class="aa-field-label">Video (with transcript)</div><div class="aa-list" id="wVideos"></div></div>
+                </div>
+                <div class="aa-row" style="margin-top:10px">
+                  <button class="btn btn-primary" id="wImport" disabled>Use this video</button>
+                  <span id="wMsg" class="aa-note"></span>
+                </div>
+
+                <!-- The OTHER direction: put something into Watcher without leaving this page.
+                     Atrium still does the scraping and owns the archive — we hand it a link, and
+                     the picker above then sees the result like any other watched source. -->
+                <div class="aa-addsrc">
+                  <div class="aa-field-label">Not in Watcher yet? Add it</div>
+                  <div class="aa-row">
+                    <input type="text" id="wAddUrl" style="flex:1;min-width:240px"
+                           placeholder="Paste a YouTube video, a channel, or a blog link…" />
+                    <select id="wAddOp" style="width:auto">
+                      <option value="add_video">This one video / article</option>
+                      <option value="add">Whole YouTube channel</option>
+                      <option value="add_site">Whole website blog</option>
+                    </select>
+                    <button class="btn" id="wAdd" disabled>Add to Watcher</button>
+                  </div>
+                  <div class="aa-row" style="margin-top:8px"><span id="wAddMsg" class="aa-note">Pick a client above first — that's the workspace it gets archived into.</span></div>
+                </div>
+              </details>
+
               <div class="aa-bar"><i id="upBar"></i></div>
               <div id="upStatus" class="aa-note"></div>
             </div>
@@ -593,9 +633,13 @@
                 </div>
                 <input type="search" id="tSearch" placeholder="Search by title, course or lesson…" style="flex:1;min-width:180px" />
               </div>
+              <div class="aa-field-label" style="margin:0 0 6px">Folders</div>
+              <div id="libFolders" class="aa-row" style="margin:0 0 12px;flex-wrap:wrap;gap:6px"></div>
               <div class="aa-row" style="margin:0 0 10px;flex-wrap:wrap;align-items:center">
                 <button class="btn" id="libAll">Select all shown</button>
                 <button class="btn" id="libNone">Clear</button>
+                <input type="text" id="libMoveTo" list="upFolderList" autocomplete="off" placeholder="Move ticked to folder…" style="min-width:200px" />
+                <button class="btn" id="libMove">Move</button>
                 <span id="libSel" class="aa-note">None selected.</span>
               </div>
               <div class="aa-reader">
@@ -655,51 +699,17 @@
                  direction: that one designs a tree from many sources, this one slots one
                  source into a tree that already exists. -->
             <div class="card" style="padding:20px">
-              <h3 style="margin:0 0 4px">File one source into the curriculum</h3>
-              <p class="aa-note" style="margin:0 0 14px">Bring in a transcript — <b>paste</b> it, <b>upload</b> a file, or <b>pull one from Watcher</b>.
-                 Then let <b>AI suggest</b> where it belongs (you'll watch it think) or <b>place it yourself</b>. Filing the transcript and
-                 generating questions are separate steps, so by default nothing is generated.</p>
+              <h3 style="margin:0 0 4px">File a source into the curriculum</h3>
+              <p class="aa-note" style="margin:0 0 14px">Takes the <b>one source you ticked above</b> and slots it into the tree that already exists &mdash;
+                 the single-source mirror of &ldquo;Build a curriculum&rdquo;. Let <b>AI suggest</b> where it belongs (you&rsquo;ll watch it think)
+                 or <b>place it yourself</b>. The source is filed <b>in place</b>: it keeps its id, its folder and its catalogue entry, and simply
+                 stops being unfiled. Filing and generating stay separate steps, so by default nothing is generated.</p>
 
-              <!-- Watcher lives here now, as a fold-out source — nothing is re-scraped. -->
-              <details id="wDetails" class="aa-source">
-                <summary><span class="aa-source-tw">Pull from Watcher</span> <span class="aa-note" style="text-transform:none;letter-spacing:0;font-weight:400">— straight from Atrium's archive</span></summary>
-                <div class="aa-cols" style="margin-top:12px">
-                  <div><div class="aa-field-label">Client</div><div class="aa-list" id="wClients"></div></div>
-                  <div><div class="aa-field-label">Channel</div><div class="aa-list" id="wChannels"></div></div>
-                  <div><div class="aa-field-label">Video (with transcript)</div><div class="aa-list" id="wVideos"></div></div>
-                </div>
-                <div class="aa-row" style="margin-top:10px">
-                  <button class="btn btn-primary" id="wImport" disabled>Use this video</button>
-                  <span id="wMsg" class="aa-note"></span>
-                </div>
 
-                <!-- The OTHER direction: put something into Watcher without leaving this page.
-                     Atrium still does the scraping and owns the archive — we hand it a link, and
-                     the picker above then sees the result like any other watched source. -->
-                <div class="aa-addsrc">
-                  <div class="aa-field-label">Not in Watcher yet? Add it</div>
-                  <div class="aa-row">
-                    <input type="text" id="wAddUrl" style="flex:1;min-width:240px"
-                           placeholder="Paste a YouTube video, a channel, or a blog link…" />
-                    <select id="wAddOp" style="width:auto">
-                      <option value="add_video">This one video / article</option>
-                      <option value="add">Whole YouTube channel</option>
-                      <option value="add_site">Whole website blog</option>
-                    </select>
-                    <button class="btn" id="wAdd" disabled>Add to Watcher</button>
-                  </div>
-                  <div class="aa-row" style="margin-top:8px"><span id="wAddMsg" class="aa-note">Pick a client above first — that's the workspace it gets archived into.</span></div>
-                </div>
-              </details>
-
-              <input type="text" id="iTitle" placeholder="Title (optional — AI fills it in)" style="width:100%;margin:12px 0 10px" />
-              <textarea id="iText" placeholder="Paste a transcript here, upload a file, or pull a Watcher video above…"></textarea>
+              <div id="iPicked" class="aa-note" style="padding:9px 12px;border:1px solid var(--line);border-radius:10px;margin:0">Tick exactly one source in the library above.</div>
               <div class="aa-actions" style="margin-top:12px">
                 <button class="btn btn-ai" id="iPlan">Analyze &amp; place with AI</button>
                 <button class="btn" id="iManual">Place it myself</button>
-                <input type="file" id="iFile" class="aa-file-input" accept=".txt,.vtt,.srt,.md" />
-                <label class="btn aa-file" for="iFile">Choose file…</label>
-                <span id="iFileName" class="aa-note"></span>
                 <span id="iMsg" class="aa-note"></span>
               </div>
               <!-- The model's reasoning streams in the rail's shared thinking panel (#aeThink). -->
