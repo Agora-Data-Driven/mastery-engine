@@ -3,6 +3,7 @@
 > **Read this before touching any file.** It is the operating manual for this repo.
 > If you follow it, you do not need to explore the codebase to make a correct change.
 > Product/feature docs live in [README.md](README.md) and [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md).
+> Loading an online course as the backbone of a subject and growing it with AI: [docs/COURSE-TO-CURRICULUM-SOP.md](docs/COURSE-TO-CURRICULUM-SOP.md).
 > Deep file map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Unit-level maps + cookbooks:
 > [lib/README.md](lib/README.md) · [public/README.md](public/README.md) · [scripts/README.md](scripts/README.md).
 
