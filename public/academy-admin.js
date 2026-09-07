@@ -90,7 +90,7 @@
     watcher: { client: '', channel: '', video: null, title: '' },
     job: null, stop: false,
     ingest: null, stopIngest: false, // the AI auto-file proposal + its run
-    libSel: new Set(), libShown: [], libFilter: 'all', // the Library's ticked sources + what the filter is showing
+    libSel: new Set(), libShown: [], libFilter: 'all', libFolder: null, // the Library's ticked sources, its filed/unfiled filter, and the folder rail (null = all folders)
     sourcePlan: null, stopSources: false, // the corpus plan being reviewed + its run
     goal: null, stopGoal: false, // the "learn a goal" plan + its run
     bulk: null, stopBulk: false, // the "bulk-build lessons" parsed preview + its run
@@ -653,6 +653,38 @@
    * so an unfiled source can never leak into a lesson's grounding by accident. */
   const isUnfiled = (t) => !String(t.course || '').trim() && !String(t.lesson || '').trim();
 
+  /* A source's library FOLDER. Shelving only — orthogonal to `course`/`lesson`, which
+   * is what actually decides grounding. '' means the top level. */
+  const folderOf = (t) => String(t.folder || '').trim();
+
+  /* The folder rail + the datalists that offer existing folder names. Folders are
+   * DERIVED from the sources themselves (distinct values), so there is no folder
+   * registry to keep in sync and an empty folder simply stops existing. */
+  function renderFolderRail() {
+    const el = $('libFolders');
+    if (!el) return;
+    const counts = new Map();
+    for (const t of _transcripts) counts.set(folderOf(t), (counts.get(folderOf(t)) || 0) + 1);
+    const names = [...counts.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const chip = (label, key, n) => {
+      const on = state.libFolder === key;
+      return `<button class="btn${on ? ' btn-primary' : ''}" data-folder="${key === null ? '' : esc(key)}" data-all="${key === null}" style="padding:3px 11px;font-size:12px">${esc(label)} <span style="opacity:.65">${n}</span></button>`;
+    };
+    el.innerHTML = [
+      chip('All', null, _transcripts.length),
+      ...(counts.get('') ? [chip('Top level', '', counts.get(''))] : []),
+      ...names.map((f) => chip(f, f, counts.get(f))),
+    ].join('');
+    el.querySelectorAll('button[data-folder]').forEach((b) => {
+      b.onclick = () => {
+        state.libFolder = b.dataset.all === 'true' ? null : b.dataset.folder;
+        renderTranscriptList();
+      };
+    });
+    const dl = $('upFolderList');
+    if (dl) dl.innerHTML = names.map((f) => `<option value="${esc(f)}"></option>`).join('');
+  }
+
   // The library browser: filterable list on the left, full text on the right, and a
   // tick per row. The ticks drive BOTH library actions (catalogue, and design a
   // curriculum), so selection lives in state and survives re-renders and filtering.
@@ -661,8 +693,10 @@
     const list = _transcripts.filter((t) => {
       if (state.libFilter === 'unfiled' && !isUnfiled(t)) return false;
       if (state.libFilter === 'filed' && isUnfiled(t)) return false;
-      return !term || `${t.title} ${t.course} ${t.lesson}`.toLowerCase().includes(term);
+      if (state.libFolder !== null && folderOf(t) !== state.libFolder) return false;
+      return !term || `${t.title} ${t.course} ${t.lesson} ${folderOf(t)}`.toLowerCase().includes(term);
     });
+    renderFolderRail();
     state.libShown = list.map((t) => t.id);
     const unfiled = _transcripts.filter(isUnfiled).length;
     if ($('tCount')) $('tCount').textContent = `— ${_transcripts.length}${unfiled ? `, ${unfiled} unfiled` : ''}`;
@@ -678,11 +712,12 @@
         : `${esc((t.course || '').split(':')[0])} &rsaquo; ${esc(t.lesson)}`;
       // "Catalogued" = a cached digest exists, which is what the corpus planner reads.
       const cat = t.abstract ? ' &middot; <span style="color:#15803D">catalogued</span>' : '';
+      const fold = folderOf(t) ? ` &middot; 📁 ${esc(folderOf(t))}` : '';
       return `<div style="display:flex;align-items:stretch;border-bottom:1px solid #F0F1F4">` +
         `<label style="display:flex;align-items:center;padding:0 4px 0 9px;cursor:pointer">` +
           `<input type="checkbox" data-lib="${esc(t.id)}" style="width:auto"${state.libSel.has(t.id) ? ' checked' : ''}></label>` +
         `<button data-id="${esc(t.id)}" style="flex:1;border-bottom:0"><b>${esc(t.title)}</b><br>` +
-        `<span style="color:#6B7280;font-size:12px">${where} &middot; ${t.chars || 0} chars &middot; ${esc(t.source)}${cat}</span></button></div>`;
+        `<span style="color:#6B7280;font-size:12px">${where} &middot; ${t.chars || 0} chars &middot; ${esc(t.source)}${cat}${fold}</span></button></div>`;
     }).join('');
     $('tList').querySelectorAll('button[data-id]').forEach((b) => { b.onclick = () => openTranscript(b.dataset.id, b); });
     $('tList').querySelectorAll('input[data-lib]').forEach((c) => {
@@ -698,12 +733,33 @@
    * reports how many of the ticked sources still need cataloguing — the planner
    * degrades to title-only on those rather than failing, so this is a nudge. */
   function renderLibSelection() {
-    const el = $('libSel');
-    if (!el) return;
     const picked = _transcripts.filter((t) => state.libSel.has(t.id));
-    if (!picked.length) { el.textContent = 'None selected.'; return; }
-    const raw = picked.filter((t) => !t.abstract).length;
-    el.innerHTML = `<b>${picked.length}</b> selected${raw ? ` · <span style="color:#B45309">${raw} not catalogued yet</span>` : ' · all catalogued'}`;
+    const el = $('libSel');
+    if (el) {
+      if (!picked.length) el.textContent = 'None selected.';
+      else {
+        const raw = picked.filter((t) => !t.abstract).length;
+        el.innerHTML = `<b>${picked.length}</b> selected${raw ? ` · <span style="color:#B45309">${raw} not catalogued yet</span>` : ' · all catalogued'}`;
+      }
+    }
+    // The filing card acts on exactly ONE source, so it says which one — or why it
+    // can't act yet. Both its buttons re-check this, so the readout is a hint, not a gate.
+    const pk = $('iPicked');
+    if (pk) {
+      if (picked.length === 1) {
+        const t = picked[0];
+        pk.innerHTML = `Filing <b>${esc(t.title)}</b> <span class="aa-note">· ${t.chars || 0} chars${isUnfiled(t) ? '' : ` · currently in ${esc(t.course)} › ${esc(t.lesson)}`}</span>`;
+      } else if (!picked.length) pk.textContent = 'Tick exactly one source in the library above.';
+      else pk.innerHTML = `<span style="color:#B45309">${picked.length} sources ticked — this files ONE. Use “Build a curriculum from these sources” for the whole set.</span>`;
+    }
+  }
+
+  /* The single ticked source, or null. The filing card is deliberately one-at-a-time:
+   * placing a source needs a human decision about where it goes, and the many-source
+   * answer to "where does all this belong" is the corpus planner, not a loop. */
+  function pickedSource() {
+    const picked = _transcripts.filter((t) => state.libSel.has(t.id));
+    return picked.length === 1 ? picked[0] : null;
   }
 
   async function openTranscript(id, btn) {
@@ -809,12 +865,15 @@
       for (const f of files) {
         st.textContent = `Reading ${f.name}… (${done + 1} of ${files.length})`;
         try {
-          const text = await f.text();
+          // .vtt/.srt are accepted, and their cue numbers and timecodes are noise to
+          // every downstream reader (digester, planner, question writer). `stripTiming`
+          // is defined further down but initialised long before this handler can fire.
+          const text = stripTiming(await f.text());
           if (!text.trim()) throw new Error('empty file');
           await api('/api/admin/transcripts', {
             method: 'POST',
             // No track/course/lesson: this lands UNFILED, on purpose.
-            body: { program: state.program, title: f.name.replace(/\.[^.]+$/, ''), text, source: 'upload' },
+            body: { program: state.program, title: f.name.replace(/\.[^.]+$/, ''), text, source: 'upload', folder: $('upFolder').value.trim() },
           });
         } catch (e) { failed += 1; console.error('upload failed', f.name, e.message); }
         done += 1;
@@ -835,7 +894,7 @@
       try {
         await api('/api/admin/transcripts', {
           method: 'POST',
-          body: { program: state.program, title: $('upTitle').value.trim() || 'Untitled', text, source: 'paste' },
+          body: { program: state.program, title: $('upTitle').value.trim() || 'Untitled', text, source: 'paste', folder: $('upFolder').value.trim() },
         });
         $('upText').value = ''; $('upTitle').value = '';
         $('upMsg').innerHTML = '<span class="aa-ok">Added to the library.</span>';
@@ -858,6 +917,21 @@
     // "Select all shown" respects the filter + search, so it is safe on a big library.
     $('libAll').onclick = () => { state.libShown.forEach((id) => state.libSel.add(id)); renderTranscriptList(); };
     $('libNone').onclick = () => { state.libSel.clear(); renderTranscriptList(); };
+    // Re-shelving is safe by construction: it touches `folder` only, never the
+    // course/lesson that decides grounding, so it can't change anyone's questions.
+    $('libMove').onclick = async () => {
+      const ids = [...state.libSel];
+      if (!ids.length) { $('libSel').innerHTML = '<span class="aa-err">Tick some sources first.</span>'; return; }
+      const folder = $('libMoveTo').value.trim();
+      $('libMove').disabled = true;
+      try {
+        const r = await api('/api/admin/transcripts/folder', { method: 'POST', body: { ids, folder } });
+        $('libMoveTo').value = '';
+        await loadTranscripts();
+        $('libSel').innerHTML = `<span class="aa-ok">Moved ${r.moved} to ${folder ? esc(folder) : 'the top level'}.</span>`;
+      } catch (e) { $('libSel').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+      $('libMove').disabled = false;
+    };
 
     /* --- step 1: catalogue (the MAP half) ---
      * One source per request, looped here. A 40-source corpus in one call would be a
@@ -1034,19 +1108,24 @@
     if ($('tSearch')) $('tSearch').oninput = renderTranscriptList;
     loadWatcherClients();
     wireWatcherAdd();
-    // "Use this video": hand the selection to the auto-file box above. The heavy
-    // transcript text is only fetched server-side when Analyze runs, so nothing
-    // large rides through the browser here.
-    $('wImport').onclick = () => {
+    // "Use this video": pull it INTO the library, unfiled, like any other source.
+    // The transcript is fetched and stored server-side, so nothing large rides
+    // through the browser. What you do with it next is a separate choice.
+    $('wImport').onclick = async () => {
       const w = state.watcher;
       if (!w.video) return;
-      $('iText').value = '';
-      if (!$('iTitle').value) $('iTitle').value = w.title || '';
-      state.ingest = { source: 'watcher', watcher: { client: w.client, channel: w.channel, video: w.video }, watcherTitle: w.title };
-      $('wMsg').innerHTML = `<span class="aa-ok">Loaded “${esc(w.title || 'video')}”. Press “Analyze &amp; place with AI” below.</span>`;
-      $('iMsg').textContent = 'Watcher video ready — press Analyze & place.';
-      if ($('wDetails')) $('wDetails').open = false; // collapse the fold-out; the pick is now staged
-      $('iPlan').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('wImport').disabled = true;
+      $('wMsg').textContent = 'Pulling the transcript into the library…';
+      try {
+        const r = await api('/api/admin/transcripts/from-watcher', {
+          method: 'POST',
+          body: { program: state.program, client: w.client, channel: w.channel, video: w.video, title: w.title, folder: $('upFolder').value.trim() },
+        });
+        $('wMsg').innerHTML = `<span class="aa-ok">Added “${esc(r.title)}” to the library (${r.chars} chars), unfiled.</span>`;
+        if ($('wDetails')) $('wDetails').open = false;
+        await loadTranscripts();
+      } catch (e) { $('wMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+      $('wImport').disabled = false;
     };
   }
 
@@ -1143,15 +1222,17 @@
         } else if (!added.transcript) {
           msg(`<span class="aa-err">Saved to Watcher, but no text came back${added.error ? ` (${esc(added.error)})` : ''}.</span>`);
         } else {
-          $('iText').value = '';
-          if (!$('iTitle').value) $('iTitle').value = added.title || '';
-          state.ingest = {
-            source: 'watcher',
-            watcher: { client, channel: added.channel, video: added.video_id },
-            watcherTitle: added.title,
-          };
-          msg(`<span class="aa-ok">Added “${esc(added.title || 'it')}” to Watcher (${added.words} words) and staged it below.</span>`);
-          $('iMsg').textContent = 'Watcher item ready — press Analyze & place.';
+          // Straight into the library, so a pasted link becomes a source in one step.
+          try {
+            const r = await api('/api/admin/transcripts/from-watcher', {
+              method: 'POST',
+              body: { program: state.program, client, channel: added.channel, video: added.video_id, title: added.title, folder: $('upFolder').value.trim() },
+            });
+            msg(`<span class="aa-ok">Added “${esc(added.title || 'it')}” to Watcher (${added.words} words) and into the library, unfiled.</span>`);
+            if (r) await loadTranscripts();
+          } catch (e) {
+            msg(`<span class="aa-err">Saved to Watcher, but adding it to the library failed: ${esc(e.message)}</span>`);
+          }
         }
         await reshow(client, added.channel);
         return;
@@ -1276,19 +1357,21 @@
   // admin to assign Track/Course/Lesson themselves (datalists still offer existing
   // names) and add topics — or none, to just file the transcript.
   function openManualPlacement() {
-    const text = $('iText').value.trim();
-    if (!text) {
-      $('iMsg').innerHTML = '<span class="aa-err">Paste a transcript (or load a file) to place it yourself. To pull a Watcher video’s transcript, use “Analyze &amp; place with AI”.</span>';
+    const pick = pickedSource();
+    if (!pick) {
+      $('iMsg').innerHTML = '<span class="aa-err">Tick exactly one source in the library above to place it yourself.</span>';
       return;
     }
+    // No `text`: commit resolves it from the id, and filing MOVES that doc rather
+    // than writing a second copy of material the library already holds.
     state.ingest = {
-      program: state.program, text, title: $('iTitle').value.trim(),
-      source: 'paste', watcherRef: null, manual: true, topicRows: [],
+      program: state.program, transcriptId: pick.id, title: pick.title,
+      chars: pick.chars || 0, manual: true, topicRows: [],
     };
     $('iTrack').value = ''; $('iCourse').value = ''; $('iLesson').value = '';
     $('iTrackNew').innerHTML = ''; $('iCourseNew').innerHTML = ''; $('iLessonNew').innerHTML = '';
     populateIngestLists();
-    $('iSummary').innerHTML = `Manual placement · choose where this goes below. <span class="aa-note">· ${text.length} chars</span>`;
+    $('iSummary').innerHTML = `Manual placement of <b>${esc(pick.title)}</b> · choose where this goes below. <span class="aa-note">· ${pick.chars || 0} chars</span>`;
     setIngestTopicsLabel(true);
     show($('iPullTopics'), true);
     resetGenerateToggle();
@@ -1325,11 +1408,10 @@
   function renderPlan(data) {
     // Everything /commit needs, kept exactly as the AI proposed + the admin approves.
     state.ingest = {
-      program: data.program, text: data.text, title: data.title,
-      source: data.source, watcherRef: data.watcherRef, manual: false,
+      program: data.program, transcriptId: data.transcriptId, title: data.title,
+      manual: false,
       topicRows: (data.topics || []).map((t) => ({ topic: t.topic, isNew: t.isNew, on: true })),
     };
-    $('iTitle').value = data.title || '';
     const pl = data.placement || {};
     $('iTrack').value = pl.track || '';
     $('iCourse').value = pl.course || '';
@@ -1354,36 +1436,21 @@
   }
 
   function wireIngest() {
-    $('iFile').onchange = async () => {
-      const f = $('iFile').files[0];
-      if (!f) return;
-      $('iText').value = stripTiming(await f.text());
-      $('iFileName').textContent = f.name;
-      // Fresh file content supersedes any in-progress plan/manual placement: drop it
-      // and close the review box so its (now stale) state can't be committed.
-      state.ingest = null;
-      show($('iPlanBox'), false);
-      show($('aeThink'), false);
-      $('iMsg').textContent = '';
-      if (!$('iTitle').value) $('iTitle').value = f.name.replace(/\.[^.]+$/, '');
-    };
-    // Typing/pasting into the box means "use this text", not the Watcher pick.
-    $('iText').oninput = () => { if ($('iText').value.trim() && state.ingest && state.ingest.source === 'watcher') state.ingest = null; };
-
     // "Place it myself": skip the AI call, open the review box for manual assignment.
     $('iManual').onclick = openManualPlacement;
     $('iPullTopics').onclick = autoloadLessonTopics;
 
     $('iPlan').onclick = async () => {
-      const text = $('iText').value.trim();
-      const watcher = (!text && state.ingest && state.ingest.watcher) ? state.ingest.watcher : null;
-      if (!text && !watcher) { $('iMsg').innerHTML = '<span class="aa-err">Paste a transcript, upload a file, or pull a Watcher video first.</span>'; return; }
+      const pick = pickedSource();
+      if (!pick) { $('iMsg').innerHTML = '<span class="aa-err">Tick exactly one source in the library above.</span>'; return; }
       $('iPlan').disabled = true;
       $('iMsg').textContent = 'Reading the material and finding where it fits…';
       const panel = thinkPanel('aeThink'); panel.start();
       try {
+        // Only the ID travels: the server reads the text it already stored, so a
+        // 40k-character transcript never makes a round trip through the browser.
         const data = await streamSSE('/api/admin/ingest/plan/stream', {
-          program: state.program, title: $('iTitle').value, ...(text ? { text } : { watcher }), ...engineBody(),
+          program: state.program, transcriptId: pick.id, ...engineBody(),
         }, { onThinking: panel.thinking, onContent: panel.content });
         panel.done('Placement ready');
         renderPlan(data);
@@ -1436,17 +1503,14 @@
       $('iCommit').disabled = true;
       state.stopIngest = false;
       $('iCommitMsg').textContent = generate ? 'Filing the material, then generating…' : 'Filing the transcript and curriculum…';
-      // Watcher picks carry server-fetched text (the box is empty); paste/manual use the
-      // live textarea so any edits made after opening the review box are honoured.
-      const text = state.ingest.source === 'watcher' ? state.ingest.text : ($('iText').value.trim() || state.ingest.text);
       try {
         const { job, generated, bookDeck } = await api('/api/admin/ingest/commit', {
           method: 'POST',
           body: {
             program: state.ingest.program || state.program,
             track, course, lesson,
-            topics, text, title: $('iTitle').value,
-            source: state.ingest.source, watcherRef: state.ingest.watcherRef,
+            // The source is already stored; naming it by id files THAT doc in place.
+            topics, transcriptId: state.ingest.transcriptId,
             generate,
             targetPerTopic: Number($('iCount').value) || 6,
             ...engineBody(),
@@ -1466,7 +1530,8 @@
         }
         show($('iPlanBox'), false);
         show($('aeThink'), false);
-        $('iText').value = ''; $('iTitle').value = ''; $('iFileName').textContent = ''; state.ingest = null;
+        state.ingest = null;
+        state.libSel.clear();
         resetGenerateToggle();
         await loadCatalog();
         await loadTranscripts();
