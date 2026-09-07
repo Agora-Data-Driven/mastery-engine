@@ -64,6 +64,10 @@ Budget: half a day for a 3-course specialization, most of it in step 2. Steps 3�
 
 ### Step 1 — Harvest the source (no thinking yet)
 
+Upload as you harvest: Academy Admin → **Library** → *Add to the library* takes many files at
+once and files nothing. A source sitting in the library is inert — no scope, no questions, no
+effect on any learner — so there is no cost to loading everything and deciding later.
+
 Get one transcript per lecture/video/chapter, exactly as spoken. Routes, in order of preference:
 
 1. **Atrium Watcher** — if the course is on YouTube, add the channel/playlist; Academy Admin →
@@ -77,8 +81,19 @@ file anything yet. The batch of raw transcripts is the input to step 2.
 
 ### Step 2 — Design the skeleton, concept-first (the step that matters)
 
-Do this in a Claude session, not in the in-app editor — the in-app planners are built for
-one-course increments and have mis-planned every multi-hundred-topic reshape (AGENTS.md §5).
+**In-app path (added 2026-09-07 — try this first).** Academy Admin → **Library**: upload the
+whole harvest with *Add to the library* (unfiled, nothing generated), tick the sources, then
+**Catalogue selected** → **Design the curriculum**. That runs `digestSource` over each source
+once, then `planFromSources` over the digests, and returns exactly what this step asks for: a
+concept-shaped tree, a per-lesson source manifest, and a gap list — all editable before
+anything is written. The steer box is where the boundary rules and "merge into the existing
+Machine Learning track" instructions go. Committing files each source onto the lesson it
+grounds, so grounding is live immediately.
+
+Use a Claude session instead when the corpus is very large, when you are reshaping a course
+that already carries learner stats, or when you want the skeleton JSON authored by hand. The
+in-app planners are built for one-course increments and have mis-planned every
+multi-hundred-topic reshape (AGENTS.md §5).
 
 Give the session three things:
 
@@ -269,7 +284,10 @@ that would have prevented it.
 | Create/upsert topics | `POST /api/admin/topics/bulk` · `POST /api/admin/topics` | True upsert, never removes omitted rows |
 | Structural edits | `POST /api/admin/curriculum/edit/stream` (dry) → `/apply` | 10 ops, name-resolved server-side; no `rename_topic` |
 | Bulk move by id | script: `set(doc(id), {course, lesson, order}, {merge:true})` | The ML-restructure recipe; ADC, project `agora-data-driven` |
-| Attach a source | Compose → Analyze & place · `POST /api/admin/transcripts` | Lesson grain; existing title is skipped |
+| Upload unfiled source material | Library → Add to the library · `POST /api/admin/transcripts` with no scope | Inert until filed; `track`/`course`/`lesson` default to `''` |
+| Catalogue a source | `POST /api/admin/transcripts/:id/digest` | Cached on the doc; the corpus planner reads these, never full text |
+| Design a curriculum from sources | `POST /api/admin/sources/plan(/stream)` → `/sources/commit` | Commit also FILES each source onto its lesson; gap topics created empty, never generated |
+| Attach a source | Library → File one source into the curriculum · `POST /api/admin/transcripts` | Lesson grain; existing title is skipped |
 | Generate from transcript | `POST /api/admin/genjobs` `{program,track,course,lesson[,topic]}` | Stepper, one topic per call; ADDS, never tops up |
 | Generate from expert knowledge | genjob `grounding:'topic'` · `POST /api/generate` | For gap topics with a brief |
 | Author at the quality ceiling | `content-build/` INSTRUCTIONS → `check-questions.js` → `assemble.cjs --apply` | 6 Q/topic, 8–14 cards/lesson, 1,600–2,600-word doc |

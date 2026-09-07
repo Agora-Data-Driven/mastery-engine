@@ -88,6 +88,7 @@ import {
   getTranscriptById,
   deleteTranscript,
   updateTranscript,
+  setTranscriptDigest,
   createGenJob,
   getGenJob,
   listGenJobs,
@@ -158,6 +159,8 @@ import {
   generateTopicLinks,
   generateTopicOrder,
   classifyTranscript,
+  digestSource,
+  planFromSources,
   planCurriculum,
   planCurriculumEdit,
   planRoadmap,
@@ -6169,6 +6172,31 @@ app.put('/api/admin/transcripts/:id', requireAdmin, bigJson, async (req, res, ne
   }
 });
 
+/**
+ * Admin: read ONE source and cache what it teaches (abstract + concepts) on its doc.
+ *
+ * The map half of the corpus flow. Deliberately one source per request — a 40-source
+ * corpus digested in a single call would be one long POST that Cloud Run throttles
+ * and a closed tab would lose whole; the client loops this the same way it steps a
+ * generation job, so a stopped run keeps every source it already catalogued.
+ * Idempotent: re-digesting overwrites, so a re-uploaded or edited source is refreshed
+ * by calling it again. `force` re-reads a source that already has a digest.
+ */
+app.post('/api/admin/transcripts/:id/digest', requireAdmin, rateLimitAI, async (req, res, next) => {
+  try {
+    const t = await getTranscriptById(req.params.id);
+    if (!t) return res.status(404).json({ error: 'Not found' });
+    if (t.digestedAt && req.body?.force !== true) {
+      return res.json({ ok: true, cached: true, id: t.id, abstract: t.abstract || '', concepts: t.concepts || [] });
+    }
+    const digest = await digestSource({ title: t.title, text: t.text }, aiFromBody(req));
+    await setTranscriptDigest(t.id, digest);
+    res.json({ ok: true, cached: false, id: t.id, ...digest });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* --------------------------- Watcher import (Atrium) ------------------------ */
 // Admin: browse Atrium's Watcher archive and pull a video's transcript across.
 // The three GETs are read-only bucket reads; a missing grant surfaces as a clean
@@ -6503,6 +6531,227 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
       topics: topics.map((topic) => ({ topic, track, course, lesson })),
     });
     res.json({ ok: true, generated: true, job: publicJob(job), bookDeck });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/* ------------------ corpus planner (sources -> curriculum) ----------------- */
+/*
+ * The OTHER direction through this room. The original flow is curriculum-first:
+ * build a tree, then attach sources to it (`/ingest/*`). This one is sources-first:
+ * upload raw material with no curriculum at all, then select some of it and let the
+ * curriculum be DESIGNED from what the sources actually teach.
+ *
+ * Three steps, mirroring /ingest and /goal: plan (pure, no writes) -> review in the
+ * client -> commit (writes). New-vs-existing is decided HERE against the live
+ * catalog, never trusted from the model, and the model references sources only by
+ * index into the list we hand it, so it cannot attach a lesson to a transcript the
+ * admin did not select.
+ */
+
+/** Gather the selected sources + baseline for the corpus planner, or throw a
+ *  status-tagged Error. Shared by the JSON and streaming plan endpoints. */
+async function prepareSourcePlan(req) {
+  const scope = await requestScope(req);
+  const program = req.body?.program || scope.program;
+  const ids = [...new Set((Array.isArray(req.body?.sourceIds) ? req.body.sourceIds : [])
+    .map((s) => String(s || '').trim()).filter(Boolean))].slice(0, 60);
+  if (!ids.length) throw Object.assign(new Error('Pick at least one source to build from'), { status: 400 });
+
+  const docs = (await Promise.all(ids.map((id) => getTranscriptById(id)))).filter(Boolean);
+  if (!docs.length) throw Object.assign(new Error('None of those sources could be read'), { status: 404 });
+
+  // The planner designs from DIGESTS, never full text (lib/gemini.js says why). A
+  // source that was never digested still gets included, described by its title
+  // alone — degraded but never blocking, and the client offers to digest first.
+  const undigested = docs.filter((d) => !d.abstract).length;
+  const sources = docs.map((d) => ({ id: d.id, title: d.title, abstract: d.abstract || '', concepts: d.concepts || [] }));
+  const catalog = await getCatalog(req.userEmail, scope);
+  const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
+  return { program, programName, catalog, sources, undigested, guidance: String(req.body?.guidance || '').trim() };
+}
+
+/** New-vs-existing decided HERE from the live catalog, never from the model.
+ *  Also resolves the model's source INDICES back to real transcript ids. */
+function shapeSourcePlan(plan, { program, catalog, sources }) {
+  const has = (co, le, to) => catalog.some((r) => r.track === plan.track && r.course === co
+    && (le == null || r.lesson === le) && (to == null || r.topic === to));
+  const byIndex = (i) => sources[i];
+  // Gap topics are keyed by course+lesson so they can be folded into the lesson
+  // they belong to — they are part of the design, not a separate list to act on.
+  const gapsFor = (co, le) => (plan.gaps || []).filter((g) => g.course === co && g.lesson === le);
+
+  return {
+    program,
+    track: plan.track,
+    summary: plan.summary,
+    trackIsNew: !catalog.some((r) => r.track === plan.track),
+    sources: sources.map((s) => ({ id: s.id, title: s.title })),
+    courses: plan.courses.map((c) => ({
+      course: c.course,
+      courseIsNew: !has(c.course),
+      lessons: c.lessons.map((l) => {
+        const gaps = gapsFor(c.course, l.lesson);
+        return {
+          lesson: l.lesson,
+          rationale: l.rationale,
+          lessonIsNew: !has(c.course, l.lesson),
+          // A source the model pointed at, resolved to a real selected transcript.
+          sources: l.sources.map(byIndex).filter(Boolean).map((s) => ({ id: s.id, title: s.title })),
+          topics: [
+            ...l.topics.map((t) => ({ topic: t, isNew: !has(c.course, l.lesson, t), isGap: false, why: '' })),
+            // Gap topics carry no source: they are the subject's missing pieces,
+            // created empty so they can be filled later (see the SOP). They are
+            // deliberately EXCLUDED from generation at commit — a strict-transcript
+            // job over a topic with no transcript just fails.
+            ...gaps.filter((g) => !l.topics.includes(g.topic))
+              .map((g) => ({ topic: g.topic, isNew: !has(c.course, l.lesson, g.topic), isGap: true, why: g.why })),
+          ],
+        };
+      }),
+    })),
+  };
+}
+
+app.post('/api/admin/sources/plan', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const ctx = await prepareSourcePlan(req);
+    const plan = await planFromSources(
+      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance },
+      aiFromBody(req),
+    );
+    res.json({ ...shapeSourcePlan(plan, ctx), undigested: ctx.undigested });
+  } catch (e) {
+    if (e.status) return res.status(e.status).json({ error: e.message });
+    next(e);
+  }
+});
+
+// Streaming sibling: the design reasoning streams live while it works.
+app.post('/api/admin/sources/plan/stream', requireAdmin, bigJson, async (req, res) => {
+  let started = false;
+  try {
+    const ctx = await prepareSourcePlan(req);
+    sseInit(res); started = true;
+    const plan = await planFromSources(
+      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance },
+      aiFromBody(req),
+      (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
+    );
+    sseSend(res, 'result', { ...shapeSourcePlan(plan, ctx), undigested: ctx.undigested });
+    sseSend(res, 'done', {});
+    res.end();
+  } catch (e) {
+    if (started) { try { sseSend(res, 'error', { error: e.message || 'AI request failed' }); res.end(); } catch { /* closed */ } }
+    else res.status(e.status || 500).json({ error: e.message || 'AI request failed' });
+  }
+});
+
+/**
+ * Admin: materialise an approved corpus plan.
+ *
+ * Upserts every topic row, FILES each selected source onto the lesson it grounds,
+ * and optionally queues ONE generation job across every course in the plan (the
+ * queue entries carry their own track/course/lesson, so a single job spans them).
+ *
+ * 🔴 Filing the source is the step that makes this worth doing. Once a transcript
+ * carries a real {course, lesson}, every existing grounding path picks it up for
+ * free — study guides (`getScopeTranscripts`), strict-transcript generation, the
+ * assistant's source text. An unfiled source is inert by design; a filed one is
+ * the lesson's authoritative material.
+ *
+ * A source that grounds SEVERAL lessons is COPIED to each extra one, because a
+ * transcript doc carries exactly one scope and grounding reads by scope. The copy
+ * records `copyOf` so the duplicates are traceable. This is rare and deliberate —
+ * the alternative (file it once) silently leaves the other lessons ungrounded.
+ */
+app.post('/api/admin/sources/commit', requireAdmin, bigJson, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const track = String(req.body?.track || '').trim();
+    if (!track) return res.status(400).json({ error: 'The plan needs a track' });
+
+    const courses = (Array.isArray(req.body?.courses) ? req.body.courses : [])
+      .map((c) => ({
+        course: String(c?.course || '').trim(),
+        lessons: (Array.isArray(c?.lessons) ? c.lessons : []).map((l) => ({
+          lesson: String(l?.lesson || '').trim(),
+          sourceIds: [...new Set((Array.isArray(l?.sourceIds) ? l.sourceIds : []).map((s) => String(s || '').trim()).filter(Boolean))],
+          // Gap topics arrive flagged so they are created but never generated over.
+          topics: (Array.isArray(l?.topics) ? l.topics : [])
+            .map((t) => (typeof t === 'string' ? { topic: t, isGap: false } : { topic: String(t?.topic || '').trim(), isGap: t?.isGap === true }))
+            .filter((t) => t.topic),
+        })).filter((l) => l.lesson && l.topics.length),
+      }))
+      .filter((c) => c.course && c.lessons.length);
+    if (!courses.length) return res.status(400).json({ error: 'Pick at least one lesson with topics' });
+
+    // 1. Every topic row, across every course in the plan.
+    const rows = [];
+    for (const c of courses) {
+      for (const l of c.lessons) {
+        for (const t of l.topics) rows.push({ program, track, course: c.course, lesson: l.lesson, topic: t.topic });
+      }
+    }
+    await upsertTopics(rows);
+    await placeNewTopicsInOrder(program);
+    const lessonScopes = courses.flatMap((c) => c.lessons.map((l) => ({ track, course: c.course, lesson: l.lesson })));
+    await autoSequenceLessons(program, lessonScopes, aiChoice(req));
+
+    // 2. File the sources. First lesson to claim a source MOVES it; any further
+    //    lesson gets a copy, so each lesson's grounding reads back its own text.
+    const claimed = new Map();   // transcript id -> the scope that already owns it
+    let filed = 0; let copied = 0;
+    for (const c of courses) {
+      for (const l of c.lessons) {
+        for (const id of l.sourceIds) {
+          const doc = await getTranscriptById(id);
+          if (!doc) continue;
+          if (!claimed.has(id)) {
+            await updateTranscript(id, { track, course: c.course, lesson: l.lesson });
+            claimed.set(id, `${c.course} > ${l.lesson}`);
+            filed += 1;
+          } else {
+            await addTranscript({
+              program, track, course: c.course, lesson: l.lesson,
+              title: doc.title, text: doc.text, source: doc.source || 'paste',
+              watcherRef: doc.watcherRef || null, copyOf: id,
+            });
+            copied += 1;
+          }
+        }
+      }
+    }
+
+    // 3. Generation is OPT-IN, and never covers gap topics — they have no source,
+    //    so a strict-transcript job over them would only produce errors.
+    if (req.body?.generate !== true) {
+      return res.json({ ok: true, generated: false, topics: rows.length, filed, copied });
+    }
+    const queue = [];
+    for (const c of courses) {
+      for (const l of c.lessons) {
+        for (const t of l.topics) {
+          if (!t.isGap) queue.push({ topic: t.topic, track, course: c.course, lesson: l.lesson });
+        }
+      }
+    }
+    if (!queue.length) {
+      return res.json({ ok: true, generated: false, topics: rows.length, filed, copied, note: 'Every topic is a gap — nothing to generate from yet.' });
+    }
+    const job = await createGenJob({
+      program,
+      scope: { track },
+      targetPerTopic: Math.min(25, Math.max(1, parseInt(req.body?.targetPerTopic, 10) || 6)),
+      provider: req.body?.provider || 'deepseek',
+      model: req.body?.model || null,
+      thinking: req.body?.thinking !== false,
+      instructions: req.body?.instructions || '',
+      topics: queue,
+    });
+    res.json({ ok: true, generated: true, topics: rows.length, filed, copied, job: publicJob(job) });
   } catch (e) {
     next(e);
   }
