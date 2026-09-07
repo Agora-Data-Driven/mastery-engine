@@ -477,31 +477,36 @@
 
       <div class="aa-runlabel">Running order</div>
       <nav class="aa-tabs" role="tablist" aria-label="Admin stations">
-        <button class="aa-tab" role="tab" data-panel="curriculum" aria-selected="true">
+        <button class="aa-tab" role="tab" data-panel="sources" aria-selected="true">
           <span class="no">01</span>
-          <span class="lbl"><span class="nm">Compose</span><span class="ds">Curriculum &amp; sources</span></span>
+          <span class="lbl"><span class="nm">Library</span><span class="ds">Raw source material</span></span>
+          <span class="ct" id="railSources"></span>
+        </button>
+        <button class="aa-tab" role="tab" data-panel="curriculum" aria-selected="false">
+          <span class="no">02</span>
+          <span class="lbl"><span class="nm">Compose</span><span class="ds">The curriculum tree</span></span>
           <span class="ct" id="railTopics"></span>
         </button>
         <button class="aa-tab" role="tab" data-panel="generate" aria-selected="false">
-          <span class="no">02</span>
+          <span class="no">03</span>
           <span class="lbl"><span class="nm">Set</span><span class="ds">Generate questions</span></span>
         </button>
         <button class="aa-tab" role="tab" data-panel="flags" aria-selected="false">
-          <span class="no">03</span>
+          <span class="no">04</span>
           <span class="lbl"><span class="nm">Proof</span><span class="ds">Flagged questions</span></span>
           <span class="ct ct-amber" id="railFlags"></span>
         </button>
         <button class="aa-tab" role="tab" data-panel="people" aria-selected="false">
-          <span class="no">04</span>
+          <span class="no">05</span>
           <span class="lbl"><span class="nm">Distribute</span><span class="ds">People &amp; enrolment</span></span>
         </button>
         <button class="aa-tab" role="tab" data-panel="roadmaps" aria-selected="false">
-          <span class="no">05</span>
+          <span class="no">06</span>
           <span class="lbl"><span class="nm">Chart</span><span class="ds">Roadmaps</span></span>
           <span class="ct" id="railRoadmaps"></span>
         </button>
         <button class="aa-tab" role="tab" data-panel="team" aria-selected="false">
-          <span class="no">06</span>
+          <span class="no">07</span>
           <span class="lbl"><span class="nm">Team</span><span class="ds">Progress, spend &amp; access</span></span>
           <span class="ct" id="railTeam"></span>
         </button>
@@ -542,81 +547,115 @@
 
         <div id="main" class="hidden">
           <!-- ------------------------------ Curriculum ------------------------------ -->
-          <section class="aa-panel on" id="p-curriculum">
-            <!-- Interactive curriculum editor -->
+          <!-- ------------------------------- Library -------------------------------- -->
+          <!-- Sources-FIRST authoring. The other direction through this room: raw material
+               lands here with NO curriculum attached and NO questions generated — it is just
+               a database. Later you select some of it and the curriculum is DESIGNED from what
+               those sources actually teach (/api/admin/sources/*). An unfiled source is inert:
+               getScopeTranscripts filters on a real course/lesson, so nothing here can leak
+               into a lesson's grounding until something files it. -->
+          <section class="aa-panel on" id="p-sources">
             <div class="card" style="padding:20px">
-              <h3 style="margin:0 0 4px">Curriculum <span class="aa-note" id="curCount"></span> <span class="aa-note" id="curDnDMsg" style="margin-left:6px"></span></h3>
-              <p class="aa-note">Add a course, lesson or sub-lesson below, or use each lesson's <b>+ topic</b> / remove a sub-lesson with <b>✕</b>. Drag the <b>⠿</b> handle to move or reorder.</p>
-              <div class="aa-row" style="margin:14px 0;flex-wrap:wrap">
-                <input type="text" id="nTrack" placeholder="Track" style="width:150px" />
-                <input type="text" id="nCourse" placeholder="Course" style="width:190px" />
-                <input type="text" id="nLesson" placeholder="Lesson" style="width:170px" />
-                <input type="text" id="nTopic" placeholder="Sub-lesson (topic)" style="width:180px" />
-                <button class="btn btn-primary" id="nAdd">Add</button>
-                <span id="nMsg" class="aa-note"></span>
+              <h3 style="margin:0 0 4px">Add to the library</h3>
+              <p class="aa-note" style="margin:0 0 14px">Drop in raw material — <b>nothing is filed and nothing is generated</b>.
+                 Sources sit here until you either build a curriculum from them or file one into the tree below.
+                 Upload many files at once, or paste one.</p>
+              <div class="aa-row" style="margin:0 0 12px;flex-wrap:wrap">
+                <input type="file" id="upFiles" class="aa-file-input" accept=".txt,.vtt,.srt,.md,.json" multiple />
+                <button class="btn btn-primary" id="upPick">Choose files…</button>
+                <span id="upFileMsg" class="aa-note">Each file becomes one source, titled from its filename.</span>
               </div>
-              <div id="curTree" style="border:1px solid var(--line);border-radius:10px;max-height:440px;overflow:auto;padding:6px 4px">Loading…</div>
-              <details style="margin-top:12px">
-                <summary style="cursor:pointer;font-weight:700;font-size:13px">Or paste a full outline</summary>
-                <p class="aa-note" style="margin-top:8px">One topic per line, as <code>Track &gt; Course &gt; Lesson &gt; Topic</code>. Preview first.</p>
-                <textarea id="outline" placeholder="Paid Media > Meta Ads > Unit 1: Campaign Setup > Campaign Objectives"></textarea>
-                <div class="aa-row" style="margin-top:10px">
-                  <button class="btn" id="previewBtn">Preview</button>
-                  <button class="btn btn-primary" id="commitBtn" disabled>Commit</button>
-                  <span id="curMsg" class="aa-note"></span>
+              <details id="upPasteWrap">
+                <summary style="cursor:pointer;font-weight:700;font-size:13px">Or paste one source</summary>
+                <div style="margin-top:10px">
+                  <input type="text" id="upTitle" placeholder="Title (e.g. “Andrew Ng · C1W2 · Gradient descent”)" style="width:100%;margin-bottom:8px" />
+                  <textarea id="upText" placeholder="Paste the transcript, chapter or notes here…" style="min-height:110px"></textarea>
+                  <div class="aa-row" style="margin-top:10px">
+                    <button class="btn btn-primary" id="upAdd">Add to library</button>
+                    <span id="upMsg" class="aa-note"></span>
+                  </div>
                 </div>
-                <div class="aa-out hidden" id="curOut"></div>
               </details>
+              <div class="aa-bar"><i id="upBar"></i></div>
+              <div id="upStatus" class="aa-note"></div>
             </div>
 
-            <!-- ═══════════════ Edit with AI (conversational curriculum editor) ═══════════════ -->
-            <!-- Talk to the model to reshape the tree above: merge overlapping lessons, move /
-                 rename / delete, resequence. It PROPOSES a concrete set of changes (its reasoning
-                 streams in the rail); you review each one, then Apply. Nothing is written until you
-                 do, and every move keeps learner progress + banked questions (ids are preserved). -->
-            <div class="card" style="padding:20px">
-              <h3 style="margin:0 0 4px">Edit with AI</h3>
-              <p class="aa-note" style="margin:0 0 14px">Tell the editor how to reshape the curriculum above — <b>merge</b> overlapping lessons,
-                 <b>move</b>, <b>rename</b>, <b>delete</b> or <b>resequence</b>. It proposes concrete changes (watch it think in the rail);
-                 you review them, then <b>Apply</b>. Nothing changes until you apply, and merges/moves/renames keep learner progress &amp; banked questions.</p>
-
-              <div id="caLog" class="ca-log" aria-live="polite"></div>
-
-              <div class="ca-chips" id="caChips">
-                <button class="ca-chip" type="button">Merge lessons that overlap and drop the duplicates</button>
-                <button class="ca-chip" type="button">Resequence this program so prerequisites come first</button>
-                <button class="ca-chip" type="button">Suggest how to tidy up this curriculum</button>
-              </div>
-
-              <div class="ca-input">
-                <textarea id="caMsg" rows="2" placeholder="e.g. Merge the Calculus and Calculus for ML lessons and get rid of the overlapping topics"></textarea>
-                <div class="aa-actions" style="margin-top:10px">
-                  <button class="btn btn-ai" id="caSend">Ask the editor</button>
-                  <button class="btn hidden" id="caReset">Start over</button>
-                  <span id="caMsgOut" class="aa-note"></span>
+            <!-- The library itself: every source in the program, filed or not. Selection here
+                 drives BOTH actions below — digesting and designing a curriculum. -->
+            <div class="card" style="padding:20px;margin-top:14px">
+              <h3 style="margin:0 0 4px">The library <span class="aa-note" id="tCount"></span></h3>
+              <p class="aa-note">Every source loaded for this program. Tick the ones you want to build from; click a title to read it.</p>
+              <div class="aa-row" style="margin:12px 0 10px;flex-wrap:wrap;align-items:center">
+                <div class="aa-seg" role="tablist" aria-label="Filter sources">
+                  <button class="aa-seg-btn" id="lfAll" role="tab" aria-selected="true">All</button>
+                  <button class="aa-seg-btn" id="lfUnfiled" role="tab" aria-selected="false">Unfiled</button>
+                  <button class="aa-seg-btn" id="lfFiled" role="tab" aria-selected="false">Filed</button>
                 </div>
+                <input type="search" id="tSearch" placeholder="Search by title, course or lesson…" style="flex:1;min-width:180px" />
               </div>
-
-              <!-- Proposed changes — revealed once the model returns a plan. Each op is one
-                   reviewable line; unresolved ones are flagged and never applied. -->
-              <div id="caPlan" class="hidden aa-review" style="margin-top:16px">
-                <div class="aa-field-label" style="text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)">Proposed changes <span class="aa-note" id="caPlanCount"></span></div>
-                <div class="aa-note" id="caSummary" style="margin:2px 0 12px"></div>
-                <div id="caOps" class="ca-ops"></div>
-                <div class="aa-actions" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line2)">
-                  <button class="btn btn-primary" id="caApply">Apply changes</button>
-                  <button class="btn" id="caDiscard">Discard</button>
-                  <span id="caApplyMsg" class="aa-note"></span>
-                </div>
+              <div class="aa-row" style="margin:0 0 10px;flex-wrap:wrap;align-items:center">
+                <button class="btn" id="libAll">Select all shown</button>
+                <button class="btn" id="libNone">Clear</button>
+                <span id="libSel" class="aa-note">None selected.</span>
+              </div>
+              <div class="aa-reader">
+                <div class="aa-list" id="tList" style="max-height:540px">Loading…</div>
+                <div class="aa-out" id="tView" style="max-height:540px;min-height:200px">Select a source on the left to read it.</div>
               </div>
             </div>
 
-            <!-- ═══════════════ Add something new (paste / upload / Watcher) ═══════════════ -->
-            <!-- One box for bringing raw material in: paste it, upload a file, or pull it from
-                 Atrium's Watcher archive. Then let AI place it (its thinking streams below) OR
-                 place it yourself; both paths share the same review + "attach (+ optional generate)". -->
+            <!-- ═══════════════ Build a curriculum FROM the selected sources ═══════════════ -->
+            <!-- Two AI steps, deliberately separate. "Catalogue" digests each source once
+                 (cached on the doc forever); "Design" reads only those digests — a corpus is
+                 far past any single prompt, so the planner never sees full text. -->
+            <div class="card" style="padding:20px;margin-top:14px">
+              <h3 style="margin:0 0 6px">Build a curriculum from these sources</h3>
+              <p class="aa-note" style="margin:0 0 12px">The tree gets designed from what the sources <b>teach</b>, not from how they were packaged —
+                 so lessons are concepts, never “Week 3”. Sources are catalogued once (cached), then the design reads the catalogue.
+                 It also proposes <b>gaps</b>: what the subject needs that your sources don't cover.</p>
+              <textarea id="spGuidance" placeholder="Optional steer — e.g. “this is Andrew Ng's ML specialization; merge it into the existing Machine Learning track” or “keep statistics separate from ML”" style="min-height:60px"></textarea>
+              <div class="aa-row" style="margin-top:10px;flex-wrap:wrap">
+                <button class="btn" id="spDigest">1 · Catalogue selected</button>
+                <button class="btn btn-ai" id="spPlan">2 · Design the curriculum</button>
+                <button class="btn hidden" id="spStop">Stop</button>
+                <span id="spMsg" class="aa-note"></span>
+              </div>
+              <div class="aa-bar"><i id="spBar"></i></div>
+              <div id="spStatus" class="aa-note"></div>
+
+              <!-- Review before anything is written: every course/lesson/topic is editable,
+                   "new" badges are decided server-side against the live catalog, and gap
+                   topics are marked because they are created EMPTY and never generated over. -->
+              <div id="spPlanBox" class="hidden aa-review" style="margin-top:16px">
+                <div class="aa-note" id="spSummary" style="margin-bottom:10px"></div>
+                <div style="margin-bottom:10px">
+                  <div class="aa-field-label">Track <span id="spTrackNew"></span></div>
+                  <input type="text" id="spTrack" list="spTrackList" autocomplete="off" style="width:100%" /><datalist id="spTrackList"></datalist>
+                </div>
+                <div id="spCourses" style="margin:6px 0 10px"></div>
+                <div class="aa-row" style="flex-wrap:wrap;align-items:center">
+                  <label style="display:flex;gap:6px;align-items:center;font-size:13px">
+                    <input type="checkbox" id="spGenerate" style="width:auto" /> Also generate questions now
+                  </label>
+                  <span id="spGenOpts" class="hidden" style="display:flex;gap:8px;align-items:center">
+                    <span class="aa-note">per topic</span>
+                    <input type="number" id="spCount" value="6" min="1" max="25" style="width:70px" />
+                  </span>
+                </div>
+                <div class="aa-row" style="margin-top:10px">
+                  <button class="btn btn-primary" id="spCommit">Create this curriculum</button>
+                  <button class="btn" id="spDiscard">Discard</button>
+                  <span id="spCommitMsg" class="aa-note"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Moved here from Compose: filing ONE source into the EXISTING tree.
+                 The mirror of "Build a curriculum from these" above - same room, opposite
+                 direction: that one designs a tree from many sources, this one slots one
+                 source into a tree that already exists. -->
             <div class="card" style="padding:20px">
-              <h3 style="margin:0 0 4px">Add something new</h3>
+              <h3 style="margin:0 0 4px">File one source into the curriculum</h3>
               <p class="aa-note" style="margin:0 0 14px">Bring in a transcript — <b>paste</b> it, <b>upload</b> a file, or <b>pull one from Watcher</b>.
                  Then let <b>AI suggest</b> where it belongs (you'll watch it think) or <b>place it yourself</b>. Filing the transcript and
                  generating questions are separate steps, so by default nothing is generated.</p>
@@ -697,7 +736,95 @@
                 <div id="iStatus" class="aa-note"></div>
               </div>
             </div>
+          </section>
 
+          <section class="aa-panel" id="p-curriculum">
+            <!-- Interactive curriculum editor -->
+            <div class="card" style="padding:20px">
+              <h3 style="margin:0 0 4px">Curriculum <span class="aa-note" id="curCount"></span> <span class="aa-note" id="curDnDMsg" style="margin-left:6px"></span></h3>
+              <p class="aa-note">Add a course, lesson or sub-lesson below, or use each lesson's <b>+ topic</b> / remove a sub-lesson with <b>✕</b>. Drag the <b>⠿</b> handle to move or reorder.</p>
+              <div class="aa-row" style="margin:14px 0;flex-wrap:wrap">
+                <input type="text" id="nTrack" placeholder="Track" style="width:150px" />
+                <input type="text" id="nCourse" placeholder="Course" style="width:190px" />
+                <input type="text" id="nLesson" placeholder="Lesson" style="width:170px" />
+                <input type="text" id="nTopic" placeholder="Sub-lesson (topic)" style="width:180px" />
+                <button class="btn btn-primary" id="nAdd">Add</button>
+                <span id="nMsg" class="aa-note"></span>
+              </div>
+              <div id="curTree" style="border:1px solid var(--line);border-radius:10px;max-height:440px;overflow:auto;padding:6px 4px">Loading…</div>
+              <details style="margin-top:12px">
+                <summary style="cursor:pointer;font-weight:700;font-size:13px">Or paste a full outline</summary>
+                <p class="aa-note" style="margin-top:8px">One topic per line, as <code>Track &gt; Course &gt; Lesson &gt; Topic</code>. Preview first.</p>
+                <textarea id="outline" placeholder="Paid Media > Meta Ads > Unit 1: Campaign Setup > Campaign Objectives"></textarea>
+                <div class="aa-row" style="margin-top:10px">
+                  <button class="btn" id="previewBtn">Preview</button>
+                  <button class="btn btn-primary" id="commitBtn" disabled>Commit</button>
+                  <span id="curMsg" class="aa-note"></span>
+                </div>
+                <div class="aa-out hidden" id="curOut"></div>
+              </details>
+            </div>
+
+            <!-- ═══════════════ Edit with AI (conversational curriculum editor) ═══════════════ -->
+
+            <!-- The tree above is the thing being edited and stays put; these are the two
+                 AI ways to change it, one at a time. Before this switcher the panel stacked
+                 five full-height cards and you scrolled past the ones you were not using. -->
+            <div class="aa-row" style="margin:16px 0 0">
+              <div class="aa-seg" role="tablist" aria-label="Compose mode">
+                <button class="aa-seg-btn" id="cmEditBtn" role="tab" aria-selected="true">Edit with AI</button>
+                <button class="aa-seg-btn" id="cmBuildBtn" role="tab" aria-selected="false">Build with AI</button>
+              </div>
+            </div>
+            <div id="cmEdit">
+            <!-- Talk to the model to reshape the tree above: merge overlapping lessons, move /
+                 rename / delete, resequence. It PROPOSES a concrete set of changes (its reasoning
+                 streams in the rail); you review each one, then Apply. Nothing is written until you
+                 do, and every move keeps learner progress + banked questions (ids are preserved). -->
+            <div class="card" style="padding:20px">
+              <h3 style="margin:0 0 4px">Edit with AI</h3>
+              <p class="aa-note" style="margin:0 0 14px">Tell the editor how to reshape the curriculum above — <b>merge</b> overlapping lessons,
+                 <b>move</b>, <b>rename</b>, <b>delete</b> or <b>resequence</b>. It proposes concrete changes (watch it think in the rail);
+                 you review them, then <b>Apply</b>. Nothing changes until you apply, and merges/moves/renames keep learner progress &amp; banked questions.</p>
+
+              <div id="caLog" class="ca-log" aria-live="polite"></div>
+
+              <div class="ca-chips" id="caChips">
+                <button class="ca-chip" type="button">Merge lessons that overlap and drop the duplicates</button>
+                <button class="ca-chip" type="button">Resequence this program so prerequisites come first</button>
+                <button class="ca-chip" type="button">Suggest how to tidy up this curriculum</button>
+              </div>
+
+              <div class="ca-input">
+                <textarea id="caMsg" rows="2" placeholder="e.g. Merge the Calculus and Calculus for ML lessons and get rid of the overlapping topics"></textarea>
+                <div class="aa-actions" style="margin-top:10px">
+                  <button class="btn btn-ai" id="caSend">Ask the editor</button>
+                  <button class="btn hidden" id="caReset">Start over</button>
+                  <span id="caMsgOut" class="aa-note"></span>
+                </div>
+              </div>
+
+              <!-- Proposed changes — revealed once the model returns a plan. Each op is one
+                   reviewable line; unresolved ones are flagged and never applied. -->
+              <div id="caPlan" class="hidden aa-review" style="margin-top:16px">
+                <div class="aa-field-label" style="text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)">Proposed changes <span class="aa-note" id="caPlanCount"></span></div>
+                <div class="aa-note" id="caSummary" style="margin:2px 0 12px"></div>
+                <div id="caOps" class="ca-ops"></div>
+                <div class="aa-actions" style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line2)">
+                  <button class="btn btn-primary" id="caApply">Apply changes</button>
+                  <button class="btn" id="caDiscard">Discard</button>
+                  <span id="caApplyMsg" class="aa-note"></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- ═══════════════ Add something new (paste / upload / Watcher) ═══════════════ -->
+            <!-- One box for bringing raw material in: paste it, upload a file, or pull it from
+                 Atrium's Watcher archive. Then let AI place it (its thinking streams below) OR
+                 place it yourself; both paths share the same review + "attach (+ optional generate)". -->
+
+            </div>
+            <div id="cmBuild" class="hidden">
             <!-- ═══════════════ Build with AI (goal → module, or outline → lessons) ═══════════════ -->
             <!-- Merges "Learn a goal" and "Bulk-build lessons" into one box with two modes. Both
                  write whole lessons (brief + questions + flashcards); the engine + thinking come
@@ -788,16 +915,8 @@ Machine Learning &gt; Supervised Learning &gt; Trees &gt; Decision trees" style=
                 <div id="blStatus" class="aa-note"></div>
               </div>
             </div>
-
-            <div class="card" style="padding:20px;margin-top:14px">
-              <h3 style="margin:0 0 6px">Source transcripts <span class="aa-note" id="tCount"></span></h3>
-              <p class="aa-note">Every transcript loaded for this program. Click one to read its full text.</p>
-              <input type="search" id="tSearch" placeholder="Search by title, course or lesson…" style="width:100%;margin-bottom:10px" />
-              <div class="aa-reader">
-                <div class="aa-list" id="tList" style="max-height:540px">Loading…</div>
-                <div class="aa-out" id="tView" style="max-height:540px;min-height:200px">Select a transcript on the left to read it.</div>
-              </div>
             </div>
+
           </section>
 
           <!-- ------------------------------- Generate ------------------------------- -->

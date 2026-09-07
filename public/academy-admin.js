@@ -90,6 +90,8 @@
     watcher: { client: '', channel: '', video: null, title: '' },
     job: null, stop: false,
     ingest: null, stopIngest: false, // the AI auto-file proposal + its run
+    libSel: new Set(), libShown: [], libFilter: 'all', // the Library's ticked sources + what the filter is showing
+    sourcePlan: null, stopSources: false, // the corpus plan being reviewed + its run
     goal: null, stopGoal: false, // the "learn a goal" plan + its run
     bulk: null, stopBulk: false, // the "bulk-build lessons" parsed preview + its run
     assignments: [], // the People tab's who's-assigned-to-what table
@@ -124,6 +126,8 @@
     wireCurriculumAI();
     wireTranscripts();
     wireIngest();
+    wireLibrary();
+    wireComposeModes();
     wireGoalPlan();
     wireBulk();
     wireBuildModes();
@@ -643,18 +647,63 @@
       `<label style="display:flex;gap:8px;align-items:center;padding:6px 11px;border-bottom:1px solid #F0F1F4;cursor:pointer"><input type="checkbox" data-tid="${esc(t.id)}" style="width:auto"><span><b>${esc(t.title)}</b> <span style="color:#6B7280;font-size:12px">&middot; ${esc(t.course || '—')} &rsaquo; ${esc(t.lesson || '—')} &middot; ${t.chars || 0} chars</span></span></label>`).join('');
   }
 
-  // Watcher-style browser: a filterable list on the left, full text on the right.
+  /* A source is UNFILED when it carries no course/lesson — raw material in the
+   * library that no lesson grounds on yet. That is the whole point of the
+   * sources-first flow, and it is also exactly what `getScopeTranscripts` skips,
+   * so an unfiled source can never leak into a lesson's grounding by accident. */
+  const isUnfiled = (t) => !String(t.course || '').trim() && !String(t.lesson || '').trim();
+
+  // The library browser: filterable list on the left, full text on the right, and a
+  // tick per row. The ticks drive BOTH library actions (catalogue, and design a
+  // curriculum), so selection lives in state and survives re-renders and filtering.
   function renderTranscriptList() {
     const term = (($('tSearch') && $('tSearch').value) || '').toLowerCase();
-    const list = _transcripts.filter((t) => !term
-      || `${t.title} ${t.course} ${t.lesson}`.toLowerCase().includes(term));
-    if ($('tCount')) $('tCount').textContent = `— ${_transcripts.length}`;
-    if (!list.length) { $('tList').innerHTML = '<div class="aa-note" style="padding:10px">Nothing attached yet.</div>'; return; }
-    $('tList').innerHTML = list.map((t) =>
-      `<button data-id="${esc(t.id)}"><b>${esc(t.title)}</b><br>` +
-      `<span style="color:#6B7280;font-size:12px">${esc((t.course || '').split(':')[0])} &rsaquo; ${esc(t.lesson)} &middot; ${t.chars || 0} chars &middot; ${esc(t.source)}</span></button>`
-    ).join('');
-    $('tList').querySelectorAll('button').forEach((b) => { b.onclick = () => openTranscript(b.dataset.id, b); });
+    const list = _transcripts.filter((t) => {
+      if (state.libFilter === 'unfiled' && !isUnfiled(t)) return false;
+      if (state.libFilter === 'filed' && isUnfiled(t)) return false;
+      return !term || `${t.title} ${t.course} ${t.lesson}`.toLowerCase().includes(term);
+    });
+    state.libShown = list.map((t) => t.id);
+    const unfiled = _transcripts.filter(isUnfiled).length;
+    if ($('tCount')) $('tCount').textContent = `— ${_transcripts.length}${unfiled ? `, ${unfiled} unfiled` : ''}`;
+    const rs = $('railSources'); if (rs) rs.textContent = String(_transcripts.length);
+    if (!list.length) {
+      $('tList').innerHTML = `<div class="aa-note" style="padding:10px">${_transcripts.length ? 'Nothing matches that filter.' : 'The library is empty — add some source material above.'}</div>`;
+      renderLibSelection();
+      return;
+    }
+    $('tList').innerHTML = list.map((t) => {
+      const where = isUnfiled(t)
+        ? '<span style="color:#B45309">Unfiled</span>'
+        : `${esc((t.course || '').split(':')[0])} &rsaquo; ${esc(t.lesson)}`;
+      // "Catalogued" = a cached digest exists, which is what the corpus planner reads.
+      const cat = t.abstract ? ' &middot; <span style="color:#15803D">catalogued</span>' : '';
+      return `<div style="display:flex;align-items:stretch;border-bottom:1px solid #F0F1F4">` +
+        `<label style="display:flex;align-items:center;padding:0 4px 0 9px;cursor:pointer">` +
+          `<input type="checkbox" data-lib="${esc(t.id)}" style="width:auto"${state.libSel.has(t.id) ? ' checked' : ''}></label>` +
+        `<button data-id="${esc(t.id)}" style="flex:1;border-bottom:0"><b>${esc(t.title)}</b><br>` +
+        `<span style="color:#6B7280;font-size:12px">${where} &middot; ${t.chars || 0} chars &middot; ${esc(t.source)}${cat}</span></button></div>`;
+    }).join('');
+    $('tList').querySelectorAll('button[data-id]').forEach((b) => { b.onclick = () => openTranscript(b.dataset.id, b); });
+    $('tList').querySelectorAll('input[data-lib]').forEach((c) => {
+      c.onchange = () => {
+        if (c.checked) state.libSel.add(c.dataset.lib); else state.libSel.delete(c.dataset.lib);
+        renderLibSelection();
+      };
+    });
+    renderLibSelection();
+  }
+
+  /* One line of truth about what is ticked. Both library actions read it, and it
+   * reports how many of the ticked sources still need cataloguing — the planner
+   * degrades to title-only on those rather than failing, so this is a nudge. */
+  function renderLibSelection() {
+    const el = $('libSel');
+    if (!el) return;
+    const picked = _transcripts.filter((t) => state.libSel.has(t.id));
+    if (!picked.length) { el.textContent = 'None selected.'; return; }
+    const raw = picked.filter((t) => !t.abstract).length;
+    el.innerHTML = `<b>${picked.length}</b> selected${raw ? ` · <span style="color:#B45309">${raw} not catalogued yet</span>` : ' · all catalogued'}`;
   }
 
   async function openTranscript(id, btn) {
@@ -733,6 +782,252 @@
         await loadTranscripts();
       } catch (e) { $('teMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; $('teDelete').disabled = false; }
     };
+  }
+
+  /* ------------------------------ the Library ------------------------------ */
+  /*
+   * Sources-FIRST authoring, the mirror of the curriculum-first flow above.
+   *
+   * Upload raw material with NO scope and NO generation (it is just a database),
+   * then select some of it and have the curriculum DESIGNED from what those
+   * sources teach. Three server steps: digest each source once (cached on the doc
+   * forever), design the tree from those digests, commit — which also FILES each
+   * source onto the lesson it grounds, so every existing grounding path picks it
+   * up for free. See docs/COURSE-TO-CURRICULUM-SOP.md for why the tree must not
+   * mirror the sources' own order.
+   */
+  function wireLibrary() {
+    if (!$('upFiles')) return;
+
+    /* --- adding raw material (unfiled by construction: no track/course/lesson) --- */
+    $('upPick').onclick = () => $('upFiles').click();
+    $('upFiles').onchange = async () => {
+      const files = [...($('upFiles').files || [])];
+      if (!files.length) return;
+      const bar = $('upBar'); const st = $('upStatus');
+      let done = 0; let failed = 0;
+      for (const f of files) {
+        st.textContent = `Reading ${f.name}… (${done + 1} of ${files.length})`;
+        try {
+          const text = await f.text();
+          if (!text.trim()) throw new Error('empty file');
+          await api('/api/admin/transcripts', {
+            method: 'POST',
+            // No track/course/lesson: this lands UNFILED, on purpose.
+            body: { program: state.program, title: f.name.replace(/\.[^.]+$/, ''), text, source: 'upload' },
+          });
+        } catch (e) { failed += 1; console.error('upload failed', f.name, e.message); }
+        done += 1;
+        bar.style.width = `${Math.round((done / files.length) * 100)}%`;
+      }
+      $('upFiles').value = '';
+      st.innerHTML = failed
+        ? `<span class="aa-err">Added ${done - failed} of ${files.length}; ${failed} failed (see console).</span>`
+        : `<span class="aa-ok">Added ${done} source${done === 1 ? '' : 's'} to the library — unfiled, nothing generated.</span>`;
+      bar.style.width = '0%';
+      await loadTranscripts();
+    };
+
+    $('upAdd').onclick = async () => {
+      const text = $('upText').value.trim();
+      if (!text) { $('upMsg').innerHTML = '<span class="aa-err">Paste something first.</span>'; return; }
+      $('upAdd').disabled = true; $('upMsg').textContent = 'Adding…';
+      try {
+        await api('/api/admin/transcripts', {
+          method: 'POST',
+          body: { program: state.program, title: $('upTitle').value.trim() || 'Untitled', text, source: 'paste' },
+        });
+        $('upText').value = ''; $('upTitle').value = '';
+        $('upMsg').innerHTML = '<span class="aa-ok">Added to the library.</span>';
+        await loadTranscripts();
+      } catch (e) { $('upMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+      $('upAdd').disabled = false;
+    };
+
+    /* --- filtering + selection --- */
+    const setFilter = (f) => {
+      state.libFilter = f;
+      $('lfAll').setAttribute('aria-selected', String(f === 'all'));
+      $('lfUnfiled').setAttribute('aria-selected', String(f === 'unfiled'));
+      $('lfFiled').setAttribute('aria-selected', String(f === 'filed'));
+      renderTranscriptList();
+    };
+    $('lfAll').onclick = () => setFilter('all');
+    $('lfUnfiled').onclick = () => setFilter('unfiled');
+    $('lfFiled').onclick = () => setFilter('filed');
+    // "Select all shown" respects the filter + search, so it is safe on a big library.
+    $('libAll').onclick = () => { state.libShown.forEach((id) => state.libSel.add(id)); renderTranscriptList(); };
+    $('libNone').onclick = () => { state.libSel.clear(); renderTranscriptList(); };
+
+    /* --- step 1: catalogue (the MAP half) ---
+     * One source per request, looped here. A 40-source corpus in one call would be a
+     * single long POST that Cloud Run throttles and a closed tab would lose whole;
+     * stepping it means a stopped run keeps every source it already catalogued. The
+     * server skips anything already digested, so re-running is cheap and idempotent. */
+    $('spDigest').onclick = async () => {
+      const ids = [...state.libSel];
+      if (!ids.length) { $('spMsg').innerHTML = '<span class="aa-err">Tick some sources first.</span>'; return; }
+      state.stopSources = false;
+      $('spDigest').disabled = true; show($('spStop'), true);
+      let done = 0; let failed = 0; let cached = 0;
+      for (const id of ids) {
+        if (state.stopSources) break;
+        $('spStatus').textContent = `Cataloguing ${done + 1} of ${ids.length}…`;
+        try {
+          const r = await api(`/api/admin/transcripts/${encodeURIComponent(id)}/digest`, { method: 'POST', body: { ...engineBody() } });
+          if (r.cached) cached += 1;
+        } catch (e) { failed += 1; console.error('digest failed', id, e.message); }
+        done += 1;
+        $('spBar').style.width = `${Math.round((done / ids.length) * 100)}%`;
+      }
+      $('spBar').style.width = '0%';
+      $('spStatus').innerHTML = failed
+        ? `<span class="aa-err">Catalogued ${done - failed} of ${done}; ${failed} failed.</span>`
+        : `<span class="aa-ok">Catalogued ${done} source${done === 1 ? '' : 's'}${cached ? ` (${cached} already done)` : ''}.</span>`;
+      $('spDigest').disabled = false; show($('spStop'), false);
+      await loadTranscripts();
+    };
+
+    $('spStop').onclick = () => { state.stopSources = true; $('spStatus').textContent = 'Stopping…'; };
+
+    /* --- step 2: design (the REDUCE half) --- */
+    $('spPlan').onclick = async () => {
+      const ids = [...state.libSel];
+      if (!ids.length) { $('spMsg').innerHTML = '<span class="aa-err">Tick some sources first.</span>'; return; }
+      $('spPlan').disabled = true; $('spMsg').textContent = 'Designing…';
+      show($('spPlanBox'), false);
+      const panel = thinkPanel('aeThink'); panel.start();
+      try {
+        const plan = await streamSSE('/api/admin/sources/plan/stream', {
+          program: state.program, sourceIds: ids, guidance: $('spGuidance').value.trim(), ...engineBody(),
+        }, { onThinking: panel.thinking, onContent: panel.content });
+        panel.done('Design ready');
+        state.sourcePlan = plan;
+        renderSourcePlan(plan);
+        $('spMsg').innerHTML = plan.undigested
+          ? `<span class="aa-err">${plan.undigested} source${plan.undigested === 1 ? ' was' : 's were'} not catalogued — designed from titles alone. Catalogue and re-design for a better tree.</span>`
+          : '';
+      } catch (e) {
+        panel.fail('Failed');
+        $('spMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+      }
+      $('spPlan').disabled = false;
+    };
+
+    $('spDiscard').onclick = () => {
+      state.sourcePlan = null; show($('spPlanBox'), false); show($('aeThink'), false); $('spMsg').textContent = '';
+    };
+    $('spGenerate').onchange = () => show($('spGenOpts'), $('spGenerate').checked);
+    $('spCommit').onclick = commitSourcePlan;
+  }
+
+  /* The review table. Every name is editable before anything is written, "new"
+   * badges came from the server against the live catalog, and GAP topics are shown
+   * distinctly because they are created EMPTY and deliberately excluded from
+   * generation — they have no source to generate from. */
+  function renderSourcePlan(plan) {
+    const cat = state.catalog || [];
+    const opts = (vals) => [...new Set(vals)].filter(Boolean).sort().map((v) => `<option value="${esc(v)}"></option>`).join('');
+    $('spTrack').value = plan.track || '';
+    $('spTrackList').innerHTML = opts(cat.map((r) => r.track));
+    $('spTrackNew').innerHTML = badge(plan.trackIsNew);
+    $('spSummary').textContent = plan.summary || '';
+
+    $('spCourses').innerHTML = plan.courses.map((c, ci) => {
+      const lessons = c.lessons.map((l, li) => {
+        const topics = l.topics.map((t, ti) => `
+          <label style="display:flex;gap:9px;align-items:center;padding:5px 8px;border-radius:8px">
+            <input type="checkbox" data-tk="${ci}.${li}.${ti}" style="width:auto" checked>
+            <span>${esc(t.topic)}
+              ${t.isNew ? badge(true) : ''}
+              ${t.isGap ? `<span class="aa-badge-new" style="color:#B45309" title="${esc(t.why || 'Not covered by your sources')}">gap &mdash; no source</span>` : ''}
+            </span>
+          </label>`).join('');
+        const srcs = l.sources.length
+          ? l.sources.map((s) => esc(s.title)).join(' · ')
+          : '<i>no source — these topics get created empty</i>';
+        return `
+          <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0">
+            <div style="font-weight:700;font-size:13px">${esc(l.lesson)} ${l.lessonIsNew ? badge(true) : ''}</div>
+            ${l.rationale ? `<div class="aa-note" style="margin:2px 0 6px">${esc(l.rationale)}</div>` : ''}
+            <div class="aa-note" style="margin:0 0 6px">Sources: ${srcs}</div>
+            <div class="aa-topics">${topics}</div>
+          </div>`;
+      }).join('');
+      return `
+        <div style="margin:0 0 14px">
+          <div class="aa-field-label" style="text-transform:none;letter-spacing:0;font-size:14px;color:var(--text)">
+            ${esc(c.course)} ${c.courseIsNew ? badge(true) : ''}
+          </div>
+          ${lessons}
+        </div>`;
+    }).join('');
+  }
+
+  async function commitSourcePlan() {
+    const plan = state.sourcePlan;
+    if (!plan) return;
+    const track = $('spTrack').value.trim();
+    if (!track) { $('spCommitMsg').innerHTML = '<span class="aa-err">Name the track.</span>'; return; }
+
+    // Only the ticked topics are written; a lesson whose topics were all unticked
+    // is dropped, and with it any claim on its sources.
+    const on = new Set([...$('spCourses').querySelectorAll('input[data-tk]:checked')].map((c) => c.dataset.tk));
+    const courses = plan.courses.map((c, ci) => ({
+      course: c.course,
+      lessons: c.lessons.map((l, li) => ({
+        lesson: l.lesson,
+        sourceIds: l.sources.map((s) => s.id),
+        topics: l.topics.map((t, ti) => ({ ...t, _k: `${ci}.${li}.${ti}` }))
+          .filter((t) => on.has(t._k))
+          .map((t) => ({ topic: t.topic, isGap: !!t.isGap })),
+      })).filter((l) => l.topics.length),
+    })).filter((c) => c.lessons.length);
+    if (!courses.length) { $('spCommitMsg').innerHTML = '<span class="aa-err">Tick at least one topic.</span>'; return; }
+
+    const generate = $('spGenerate').checked;
+    $('spCommit').disabled = true; state.stopSources = false; show($('spStop'), true);
+    $('spCommitMsg').textContent = 'Creating the curriculum and filing the sources…';
+    try {
+      const res = await api('/api/admin/sources/commit', {
+        method: 'POST',
+        body: {
+          program: state.program, track, courses, generate,
+          targetPerTopic: Number($('spCount').value) || 6, ...engineBody(),
+        },
+      });
+      $('spCommitMsg').innerHTML = `<span class="aa-ok">Created ${res.topics} topics · filed ${res.filed} source${res.filed === 1 ? '' : 's'}${res.copied ? ` (+${res.copied} copies for lessons sharing a source)` : ''}.</span>`;
+      if (res.job) {
+        $('spStatus').textContent = 'Generating questions…';
+        await runSteps(res.job.id, { bar: 'spBar', status: 'spStatus' }, 'stopSources');
+      }
+      if (!state.stopSources) {
+        state.sourcePlan = null; state.libSel.clear();
+        show($('spPlanBox'), false); show($('aeThink'), false);
+        $('spGuidance').value = '';
+      }
+      await loadCatalog();
+      await loadTranscripts();
+    } catch (e) {
+      $('spCommitMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
+    }
+    $('spCommit').disabled = false; show($('spStop'), false);
+  }
+
+  /* Compose's two AI cards, one at a time. The tree above them is the object being
+   * edited and stays visible; these are just the two ways to change it. */
+  function wireComposeModes() {
+    if (!$('cmEditBtn')) return;
+    const set = (mode) => {
+      const edit = mode === 'edit';
+      $('cmEditBtn').setAttribute('aria-selected', String(edit));
+      $('cmBuildBtn').setAttribute('aria-selected', String(!edit));
+      show($('cmEdit'), edit);
+      show($('cmBuild'), !edit);
+    };
+    $('cmEditBtn').onclick = () => set('edit');
+    $('cmBuildBtn').onclick = () => set('build');
+    set('edit');
   }
 
   function wireTranscripts() {

@@ -129,7 +129,8 @@ Rough zones in `server.js`:
 | 3343–3550 | Hint/explain + admin data repair (latexify, fix-formats, merge-math) |
 | 3556–4190 | Programs, enrollment, video lessons, internal SSO endpoints (`verifyInternalSig` `:3724`, `rollupPrograms` `:3767`, `team-progress` `:3842`), team + AI access, topic CRUD |
 | 4199–4540 | **Curriculum edit engine** (`runCurriculumEdits` `:4199`) + AI curriculum editing |
-| 4349–4800 | Transcripts admin, Watcher import (3 read GETs) + **Watcher add/fetch** (2 POSTs, §7), ingest plan/commit |
+| 4349–4800 | Transcripts admin (+ **`/transcripts/:id/digest`** — the corpus MAP step, §5), Watcher import (3 read GETs) + **Watcher add/fetch** (2 POSTs, §7), ingest plan/commit |
+| ~4800–4980 | **Corpus planner** — `prepareSourcePlan` / `shapeSourcePlan` / `/api/admin/sources/plan(/stream)` / `/sources/commit`. Sources-FIRST authoring: design a curriculum FROM uploaded material, then FILE it. §5 |
 | 4772–5100 | Goal planning, bulk lessons, genjobs |
 | 5476–5940 | Roadmaps (`:5476`) + learner shelf (`/api/me/*`, `:5655`) |
 | 5941–6073 | **Flags + question CRUD** (`:5941`): learner flag, admin flag list *with the question body*, question browser (`:5989`), single delete (`:6020`), batch delete, migrations, BigQuery sync |
@@ -460,6 +461,43 @@ There is no router and no build step.
 
 Add the section to the HTML, then wire it in `app.js` near the other view handlers. Reload the
 browser — that's the full loop.
+
+### Source material flows BOTH ways — curriculum-first and sources-first
+
+Added 2026-09-07. There are two directions through the Composing Room, and they are
+deliberately separate flows over the **same** `transcripts` collection:
+
+| | Curriculum-first (original) | Sources-first (Library) |
+|---|---|---|
+| Order | Build the tree, then attach material to it | Upload material, then design the tree from it |
+| Entry | Compose → *File one source into the curriculum* | **Library** (station 01) |
+| AI | `classifyTranscript` — places ONE source in an EXISTING tree | `digestSource` (map) → `planFromSources` (reduce) |
+| Routes | `/api/admin/ingest/plan` → `/commit` | `/api/admin/transcripts/:id/digest`, `/api/admin/sources/plan` → `/commit` |
+| Use it for | The daily loop: watched a video, file it, quiz it | Loading a whole course/book corpus at once |
+
+Three things about the sources-first flow are load-bearing:
+
+1. **An UNFILED transcript is one with no `track`/`course`/`lesson`** — `addTranscript`
+   defaults all three to `''`, so the library needed no migration. It is inert by
+   construction: `getScopeTranscripts` filters on a real course/lesson, so unfiled material
+   can never leak into a lesson's grounding. **Filing it is what activates it** — once a
+   transcript carries a real scope, study guides, strict-transcript generation and the
+   assistant's source text all pick it up for free.
+2. **🔴 The planner reads DIGESTS, never full text.** A 40-source corpus is comfortably 800k
+   characters; `CLASSIFY_TRANSCRIPT_CHARS` caps a *single* source at 9k. So each source is
+   digested once into `{abstract, concepts[]}` cached on its own doc (`setTranscriptDigest`),
+   and the planner designs from those. Feeding raw corpora to `planFromSources` will fail or,
+   worse, silently design from introductions. The client steps the digest one source per
+   request for the same reason genjobs step: Cloud Run throttles CPU between requests.
+3. **Gap topics are created EMPTY and excluded from generation.** `planFromSources` also
+   returns what the *subject* needs that the corpus does not teach; `/sources/commit` creates
+   those rows but keeps them out of the genjob queue, because a strict-transcript job over a
+   topic with no transcript only produces errors. Fill them later — see
+   [docs/COURSE-TO-CURRICULUM-SOP.md](docs/COURSE-TO-CURRICULUM-SOP.md).
+
+One source may ground several lessons. A transcript doc carries exactly one scope and
+grounding reads by scope, so `/sources/commit` **copies** it to each extra lesson, recording
+`copyOf`. Filing it once instead would silently leave the other lessons ungrounded.
 
 ### Change the curriculum (move/rename/merge topics)
 

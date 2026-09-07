@@ -13,7 +13,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Frontend stru
 |---|---|---|
 | [index.html](index.html) | Learner shell (835 lines). Every view is a `<section id="xView" class="hidden">`. | `loginView` `:20` · `setupView` `:70` · `quizView` `:288` · `resultView` `:381` · `statsView` `:400` · `graphView` `:451` · `flashcardView` `:506` |
 | [app.js](app.js) | The entire learner frontend (6.4k lines), one IIFE. | `const App = (() => {` `:2` · `show()`/`hide()` `:4`/`:5` (the whole "router") · embed-mode boot block `:8–33` (`?embed=assistant` URL-only, never persisted) · **NUL line `:598`** · quiz replay (`markOptions` / `paintFeedback` / `showAnswered` / `prevQuestion` / `queueAfterCurrent`) · `toggleCardHighway` · report + admin question editor (`resetReportUI` … `saveQuestionEdit`) |
-| [academy-admin.html](academy-admin.html) / [academy-admin.js](academy-admin.js) | The admin "Composing Room" (2.2k lines JS). **Server-gated**: an explicit route at server.js:5616 302s non-admins ahead of express.static. | station panels; typed-SSE consumers for the planners |
+| [academy-admin.html](academy-admin.html) / [academy-admin.js](academy-admin.js) | The admin "Composing Room" (2.8k lines JS). **Server-gated**: an explicit route in server.js 302s non-admins ahead of express.static. **Seven stations**, station 01 is the **Library** (sources-first authoring, added 2026-09-07). | `wireLibrary` · `renderSourcePlan` · `commitSourcePlan` · `wireComposeModes` · `isUnfiled` · station panels `p-sources` / `p-curriculum` / …; typed-SSE consumers for the planners |
 | [styles.css](styles.css) | All styling. Token-driven: a `:root` light palette, a `:root[data-theme="dark"]` retune of the SAME tokens, then a handful of dark rules for fills that carry white text. | `:root {` `:5` · `:root[data-theme="dark"]` (right after it) · tint families (`--violet-line`, `--amber-soft`, `--green-line`, …) |
 | [theme.js](theme.js) | Light/dark resolution, loaded **synchronously in `<head>`** so `data-theme` lands before first paint. Order: `?theme=` (what Sentinel passes into every iframe) → the learner's own toggle → the OS. Also accepts `{type:"agora-theme"}` from the framing window. | `window.AgoraTheme` · `SESSION`/`LOCAL` keys |
 | [video-lessons.json](video-lessons.json) | Curated resource list served by `/api/video-lessons`, shown in the **Resources** tab (UI label renamed from "Video Lessons" 2026-07-29; mode key `VIDEOS`, ids, and the API path stay canonical). Entries can be any link, not just videos — `agora_dev` links the onboarding presentation. | — |
@@ -85,7 +85,18 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    shelf red), and `overviewHtml()` (the hero, which relabels with the metric). The score
    itself is **not** computed here — the server ships `row.mastery` per catalog row, and the
    client only averages it. See AGENTS.md §3.
-9. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
+9. **Add an admin station** — a station is a `<button class="aa-tab" data-panel="x">` in the
+   rail plus a `<section class="aa-panel" id="p-x">` on the stage. `wireTabs()` switches them
+   generically off `data-panel`, so markup alone is enough; add a line to its `if
+   (t.dataset.panel === 'x') loadX()` only if the panel needs data it doesn't already have.
+   Renumber the `<span class="no">` labels — they are decorative, not derived.
+9b. **Keep a panel from stacking** — the room's space rule: **one object stays visible, the
+   ways to change it swap.** Compose shows the curriculum tree permanently and puts *Edit with
+   AI* / *Build with AI* behind an `.aa-seg` switcher (`wireComposeModes`); Build with AI does
+   the same for goal-vs-outline (`wireBuildModes`); the Library filters with one
+   (`state.libFilter`). Reach for `.aa-seg` before adding a fifth full-height card — that is
+   what made this page scroll for a screen and a half before 2026-09-07.
+10. **Verify → deploy → re-port** — `node --check public\app.js` (syntax only — it parses fine
    as a script), reload locally (`npm run dev`), then
    `gcloud run deploy mastery-engine --source . --region us-central1 --project
    agora-data-driven`; confirm the serving revision changed (AGENTS.md §6); then re-port
