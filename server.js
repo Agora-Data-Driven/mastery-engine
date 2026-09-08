@@ -6694,7 +6694,10 @@ async function prepareSourcePlan(req) {
   const sources = docs.map((d) => ({ id: d.id, title: d.title, abstract: d.abstract || '', concepts: d.concepts || [] }));
   const catalog = await getCatalog(req.userEmail, scope);
   const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
-  return { program, programName, catalog, sources, undigested, guidance: String(req.body?.guidance || '').trim() };
+  // Gap topics are OPT-IN: they are created empty and never generated over, so a
+  // design full of them is mostly a to-do list. Absent flag = no gaps.
+  const wantGaps = req.body?.gaps === true;
+  return { program, programName, catalog, sources, undigested, wantGaps, guidance: String(req.body?.guidance || '').trim() };
 }
 
 /** New-vs-existing decided HERE from the live catalog, never from the model.
@@ -6743,7 +6746,7 @@ app.post('/api/admin/sources/plan', requireAdmin, bigJson, async (req, res, next
   try {
     const ctx = await prepareSourcePlan(req);
     const plan = await planFromSources(
-      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance },
+      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance, wantGaps: ctx.wantGaps },
       aiFromBody(req),
     );
     res.json({ ...shapeSourcePlan(plan, ctx), undigested: ctx.undigested });
@@ -6760,7 +6763,7 @@ app.post('/api/admin/sources/plan/stream', requireAdmin, bigJson, async (req, re
     const ctx = await prepareSourcePlan(req);
     sseInit(res); started = true;
     const plan = await planFromSources(
-      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance },
+      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance, wantGaps: ctx.wantGaps },
       aiFromBody(req),
       (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
     );

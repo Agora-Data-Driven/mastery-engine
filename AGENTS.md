@@ -489,10 +489,13 @@ Three things about the sources-first flow are load-bearing:
    and the planner designs from those. Feeding raw corpora to `planFromSources` will fail or,
    worse, silently design from introductions. The client steps the digest one source per
    request for the same reason genjobs step: Cloud Run throttles CPU between requests.
-3. **Gap topics are created EMPTY and excluded from generation.** `planFromSources` also
-   returns what the *subject* needs that the corpus does not teach; `/sources/commit` creates
-   those rows but keeps them out of the genjob queue, because a strict-transcript job over a
-   topic with no transcript only produces errors. Fill them later — see
+3. **Gap topics are OPT-IN and default OFF** (`gaps: true` on the plan call, the "Suggest
+   gaps" tick in the UI). When asked for, `planFromSources` also returns what the *subject*
+   needs that the corpus does not teach, and `/sources/commit` creates those rows but keeps
+   them out of the genjob queue — a strict-transcript job over a topic with no transcript only
+   produces errors. When NOT asked for, the prompt tells the model to cover only what the
+   sources teach and to cite a source on every lesson, and any `gaps` it emits anyway are
+   dropped here, so the caller's choice always holds. Fill gaps later — see
    [docs/COURSE-TO-CURRICULUM-SOP.md](docs/COURSE-TO-CURRICULUM-SOP.md).
 
 **There is ONE way material enters: the Library.** Uploads, pastes and Watcher pulls all
