@@ -432,11 +432,32 @@
     curStatus('<span class="aa-ok">Done.</span>');
     await loadCatalog();
   }
+  /* Delete a lesson = delete each of its sub-lesson rows, one request each.
+   *
+   * The loop can die PART WAY (a dropped connection surfaces as a bare "Failed to
+   * fetch"), so the refresh has to happen either way — otherwise some rows are gone
+   * on the server while the tree still shows them, and the next click acts on a row
+   * that no longer exists. Report what actually landed rather than just the error. */
   async function delLessonRows(ids) {
+    let done = 0;
+    let err = null;
     try {
-      for (const id of ids) await api('/api/admin/topics/' + encodeURIComponent(id), { method: 'DELETE' });
+      for (const id of ids) {
+        await api('/api/admin/topics/' + encodeURIComponent(id), { method: 'DELETE' });
+        done += 1;
+      }
+    } catch (e) {
+      err = e;
+    } finally {
       await loadCatalog();
-    } catch (e) { alert(e.message); }
+    }
+    if (err) {
+      alert(done
+        ? `Deleted ${done} of ${ids.length} sub-lessons, then stopped: ${err.message}
+
+The tree has been refreshed — try again to remove the rest.`
+        : `Nothing was deleted: ${err.message}`);
+    }
   }
   async function addTopicRow(track, course, lesson, topic) {
     try { await api('/api/admin/topics', { method: 'POST', body: { program: state.program, track, course, lesson, topic } }); await loadCatalog(); }
@@ -658,6 +679,14 @@
    * is what actually decides grounding. '' means the top level. */
   const folderOf = (t) => String(t.folder || '').trim();
 
+  /* Compare like a file manager: digits as NUMBERS, so "2." sorts before "10." and a
+   * library the admin numbered by hand reads back in that order. Firestore hands
+   * these over in document order, which is effectively arbitrary. */
+  const byNatural = (a, b) =>
+    String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
+  const bySourceOrder = (a, b) =>
+    byNatural(folderOf(a), folderOf(b)) || byNatural(a.title, b.title);
+
   /* The folder rail + the datalists that offer existing folder names. Folders are
    * DERIVED from the sources themselves (distinct values), so there is no folder
    * registry to keep in sync and an empty folder simply stops existing. */
@@ -718,6 +747,7 @@
       return !term || `${t.title} ${t.course} ${t.lesson} ${folderOf(t)}`.toLowerCase().includes(term);
     });
     renderFolderRail();
+    list.sort(bySourceOrder);
     state.libShown = list.map((t) => t.id);
     const unfiled = _transcripts.filter(isUnfiled).length;
     if ($('tCount')) $('tCount').textContent = `— ${_transcripts.length}${unfiled ? `, ${unfiled} unfiled` : ''}`;
@@ -812,6 +842,31 @@
     // Keep the admin's choice across reloads where it still exists.
     if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
     renderScopeNote();
+  }
+
+  /* Read sources into their cached digests — the ONE implementation behind both the
+   * Catalogue button and Design's first phase, so they can never drift.
+   *
+   * Deliberately one source per request: a single long call gets CPU-throttled by
+   * Cloud Run and a closed tab would lose the whole run, where stepping keeps every
+   * source it already got through. Already-read sources are skipped unless `force`.
+   * Returns how many were actually sent. */
+  async function readSources(sources, force = false) {
+    const todo = force ? sources : sources.filter((t) => !t.abstract);
+    if (!todo.length) { $('spBar').style.width = '0%'; return 0; }
+    let failed = 0;
+    for (let i = 0; i < todo.length; i += 1) {
+      if (state.stopSources) break;
+      $('spStatus').textContent = `Reading source ${i + 1} of ${todo.length}…`;
+      $('spBar').style.width = `${Math.round((i / todo.length) * 100)}%`;
+      try {
+        await api(`/api/admin/transcripts/${encodeURIComponent(todo[i].id)}/digest`, {
+          method: 'POST', body: { force, ...engineBody() },
+        });
+      } catch (e) { failed += 1; console.error('digest failed', todo[i].id, e.message); }
+    }
+    $('spBar').style.width = '0%';
+    return failed;
   }
 
   /* The sources the current "design from" choice resolves to. */
@@ -1052,41 +1107,12 @@
       $('libMove').disabled = false;
     };
 
-    /* Split one oversized source into the lessons it contains.
-     *
-     * This is the answer to "can I just upload the whole module as one file?" — yes,
-     * then press this. It matters because every reader downstream is bounded (digest
-     * 24k, classify 9k, generation 12k per lesson), so an unsplit module would
-     * catalogue from its opening third and ground every one of its lessons on the
-     * same first 12k. The parent is kept, so nothing is destroyed if the cut is wrong. */
-    $('libSplit').onclick = async () => {
-      const pick = pickedSource();
-      if (!pick) { $('libSel').innerHTML = '<span class="aa-err">Tick exactly one source to split.</span>'; return; }
-      $('libSplit').disabled = true;
-      $('libStatus').textContent = `Looking for lesson boundaries in “${pick.title}”…`;
-      try {
-        const r = await api(`/api/admin/transcripts/${encodeURIComponent(pick.id)}/split`, { method: 'POST', body: { ...engineBody() } });
-        await loadTranscripts();
-        if (!r.split) {
-          $('libStatus').innerHTML = `<span class="aa-note">${esc(r.note || 'No lesson boundaries found.')}</span>`;
-        } else {
-          state.libSel.clear();
-          renderTranscriptList();
-          $('libStatus').innerHTML = `<span class="aa-ok">Split into ${r.sections} sources in folder “${esc(r.folder)}”. `
-            + `The original is kept — <a href="#" id="libDropOrig" data-id="${esc(pick.id)}">delete it</a> once the parts look right.</span>`;
-          const del = $('libDropOrig');
-          if (del) del.onclick = async (ev) => {
-            ev.preventDefault();
-            try {
-              await api('/api/admin/transcripts/' + encodeURIComponent(del.dataset.id), { method: 'DELETE' });
-              await loadTranscripts();
-              $('libStatus').innerHTML = '<span class="aa-ok">Original removed — only the split parts remain.</span>';
-            } catch (e) { $('libStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
-          };
-        }
-      } catch (e) { $('libStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
-      $('libSplit').disabled = false;
-    };
+    /* NOTE: the "Split into lessons" button was removed 2026-09-07 at Ian's request —
+     * uploading one source per sub-lesson is the normal path, so cutting an oversized
+     * file was a step he did not need. The SERVER side is deliberately intact:
+     * POST /api/admin/transcripts/:id/split, splitSource + cutAtAnchors in
+     * lib/gemini.js, and lib/_split_test.js. Restoring it is one button in the
+     * library toolbar plus a handler calling that route. */
 
     /* --- designing a curriculum from library sources ---
      *
@@ -1100,36 +1126,21 @@
       const picked = scopeSources();
       if (!picked.length) { $('spMsg').innerHTML = '<span class="aa-err">That folder has no sources in it.</span>'; return; }
       const reread = $('spReread').checked;
-      const todo = reread ? picked : picked.filter((t) => !t.abstract);
-
       state.stopSources = false;
       $('spPlan').disabled = true;
       show($('spStop'), true);
       $('spMsg').textContent = '';
       show($('spPlanBox'), false);
 
-      // Phase 1 - read anything not already read. One source per request: a long
-      // single call gets CPU-throttled by Cloud Run and a closed tab would lose the
-      // lot, where stepping keeps every source it already got through.
-      let failed = 0;
-      for (let i = 0; i < todo.length; i += 1) {
-        if (state.stopSources) break;
-        $('spStatus').textContent = `Reading source ${i + 1} of ${todo.length}…`;
-        $('spBar').style.width = `${Math.round((i / todo.length) * 100)}%`;
-        try {
-          await api(`/api/admin/transcripts/${encodeURIComponent(todo[i].id)}/digest`, {
-            method: 'POST', body: { force: reread, ...engineBody() },
-          });
-        } catch (e) { failed += 1; console.error('digest failed', todo[i].id, e.message); }
-      }
-      $('spBar').style.width = '0%';
+      // Phase 1 - read anything not already read.
+      const failed = await readSources(picked, reread);
       if (state.stopSources) {
         $('spStatus').innerHTML = '<span class="aa-note">Stopped. What was read is saved — press Design again to carry on.</span>';
         $('spPlan').disabled = false; show($('spStop'), false);
         await loadTranscripts();
         return;
       }
-      if (todo.length) await loadTranscripts();
+      await loadTranscripts();
 
       // Phase 2 - design from the digests.
       $('spStatus').textContent = '';
@@ -1157,6 +1168,20 @@
     };
 
     $('spStop').onclick = () => { state.stopSources = true; $('spStatus').textContent = 'Stopping…'; };
+
+    /* Catalogue on its own. Design calls the same routine for anything it finds
+     * unread, so this changes WHEN the reading happens, never whether it happens. */
+    $('spDigest').onclick = async () => {
+      const picked = scopeSources();
+      if (!picked.length) { $('spMsg').innerHTML = '<span class="aa-err">That selection has no sources in it.</span>'; return; }
+      $('spDigest').disabled = true; show($('spStop'), true); state.stopSources = false;
+      const n = await readSources(picked, $('spReread').checked);
+      $('spDigest').disabled = false; show($('spStop'), false);
+      await loadTranscripts();
+      $('spStatus').innerHTML = state.stopSources
+        ? '<span class="aa-note">Stopped — what was read is saved.</span>'
+        : `<span class="aa-ok">Catalogued ${picked.length} source${picked.length === 1 ? '' : 's'}${n ? '' : ' (all were already read)'}.</span>`;
+    };
 
     $('spDiscard').onclick = () => {
       state.sourcePlan = null; show($('spPlanBox'), false); show($('aeThink'), false); $('spMsg').textContent = '';
