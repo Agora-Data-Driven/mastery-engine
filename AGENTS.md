@@ -99,7 +99,7 @@ A deploy takes ~3–5 min (Cloud Build). Deploying does **not** require Node or 
 | `sentinel.js` | Sentinel bridge: people list, user lookup, the holistic digest, mentor search, `growthDetail` (growth-journal bodies — see §7), `workDigest`/`workDetail` (their TASK BOARD — see §7), and **`sentinelGuide`** (Sentinel's HOW-SENTINEL-WORKS.md, cached 10 min — the assistant's Sentinel self-knowledge, injected by `sentinelGuideBlock` in BOTH chat paths). |
 | `bigquery.js` `csv.js` `migrate.js` | Import/analytics side-paths. |
 | `watcher.js` | Atrium's Watcher archive. **Asymmetric on purpose** — reads are bucket reads; `addSource`/`fetchBodies` write through Atrium's HMAC bridge (§7). |
-| `_*_test.js` | The **nine** Node unit tests (auth, graph, programs, progress credit, priority, visual, deep, usage, aidiag) — see §6. |
+| `_*_test.js` | The Node unit tests (auth, graph, programs, progress credit, priority, visual, deep, usage, aidiag, split, gendupe) — see §6. |
 
 ### Finding a route fast
 
@@ -640,6 +640,7 @@ node lib\_deep_test.js               # deep mode's answer-key / declared-gap inv
 node lib\_usage_test.js              # AI/TTS usage accounting + cost estimates
 node lib\_aidiag_test.js             # AI-failure classifier + the reply salvage (§7)
 node lib\_split_test.js              # where an oversized source is CUT into lessons (§5)
+node lib\_gendupe_test.js            # question de-duplication + per-program audience (§7)
                                      # _graph_test also covers the curriculum spine's order (§3)
 
 # 3. Boot it and hit a route
@@ -1407,6 +1408,62 @@ stops mid-sentence or mid-JSON.
 
 ---
 
+### 🔴 Generated questions repeat across a lesson's sub-lessons (fixed 2026-09-08)
+
+**Symptom:** a lesson's topics all ask the same thing. Measured on the RAG bank before
+the fix: one worked example appeared in **all five topics** of "Keyword Search: TF-IDF";
+"The Retriever and Information Retrieval" had 18 questions covering 6 ideas; four
+different precision/recall calculations all answered "60%".
+
+**Cause — three things compounding, and the third is the one that matters.** Generation
+runs per TOPIC ([lib/genjobs.js](lib/genjobs.js) `stepGenJob`), but a transcript is filed
+per LESSON, so `getTranscripts({…, topic})` finds nothing topic-specific and falls back to
+the lesson's material: every topic is handed the identical source and told GROUNDING IS
+ABSOLUTE. And `existing` was `getQuestionsForTopics([topic])` — **that one topic** — as was
+the `dedupeKey` set. Five siblings mining one narrative, each blind to the other four.
+
+**Fix, in four parts. The prompt-side two are what actually prevent it:**
+
+| Part | Where |
+|---|---|
+| `siblingTopicsBlock` names the sibling sub-lessons as *covered separately, do not test* | [lib/gemini.js](lib/gemini.js) |
+| The avoid-list spans the whole LESSON (own topic first), cap 60 → 80 | `avoidBlock` |
+| `isNearDuplicate` — content-word Jaccard ≥ **0.6** over question + answer | [lib/genjobs.js](lib/genjobs.js) |
+| `getLessonTopicNames` — equality-only, so no composite index and no catalog read | [lib/firestore.js](lib/firestore.js) |
+
+🔴 **The overlap check is a backstop, not the fix.** `dedupeKey` only ever caught a verbatim
+re-emission; the collisions were REWORDINGS (same proposition, different company; same
+worked example, different numbers), which is why the bank looked deduped and wasn't. 0.6 is
+deliberately high — below ~0.5 genuinely different questions on one narrow topic collide,
+because they share its vocabulary by necessity. Dropped candidates are counted onto
+`progress.duplicatesDropped` so a bad run is visible rather than just short.
+
+**`/api/generate` had the same blindness plus no dedupe at all** — it banked whatever came
+back, so a re-run re-added questions the learner already had, and its 4-way `mapWithConcurrency`
+fan-out meant four topics generated in one request could not see each other. It now reads the
+whole selection's bank once (one query, not N) and shares one key/overlap set across the
+concurrent calls, mutated *before* the `await addQuestion`.
+
+### 🔴 The Academy's question prompts were hardcoded to "a working digital marketer"
+
+Fixed 2026-09-08, same pass. All three Academy generators opened *"building an assessment
+for a working digital marketer"* and illustrated their rules with ad campaigns — correct when
+the Academy WAS the marketing bank, and quietly wrong from the moment it also hosted
+`ai_engineering` (its Data Engineering and Information Retrieval tracks) and the
+`retrieval_augmented_generation_rag` program. Every one of those questions was
+authored for a marketer, which is why so many open "A digital marketer searches a content
+library…".
+
+Audience is a property of the PROGRAM, so it lives in `audienceFor(programId, stored)`
+([lib/programs.js](lib/programs.js) — pure, IO-free, tested). A program doc's own `audience`
+field wins if set, then a per-program map, then a neutral fallback that names no profession.
+`stepGenJob` resolves it from `job.program`, so **no createGenJob call site changed**.
+
+🔴 **Keep the shared rules subject-neutral.** The illustrative examples inside them are
+in-context few-shot whether you meant them that way or not: a rule that says *"not 'what does
+the source recommend for frequency control?' but 'when running an omnipresent content
+campaign…'"* pulls every scenario toward marketing no matter what the audience line says.
+
 ### 🔴 Dictation on a phone filled the box with "whatwhat arewhat are my goals…" (2026-09-05)
 
 **Symptom:** the 🎤 in Sentinel's Coach (this app's assistant in a frame) — and any other mic here —
@@ -1440,6 +1497,9 @@ session, a fatal error (`not-allowed`, `audio-capture`, `network`) or the learne
 | Commit real secrets | Everything comes from Secret Manager via `--set-secrets`. |
 | Deploy without `node --check` | A syntax error crash-loops and silently keeps the old revision live. |
 | Edit lines with NUL bytes using `Edit` | It cannot match. Use a Node script. |
+| Ground a lesson's topics on one transcript with no sibling context | Every topic mines the same passage — `siblingTopicsBlock` + a lesson-wide avoid list — §7. |
+| Hardcode WHO a question is for into a prompt | Audience is a property of the program: `audienceFor` — §7. |
+| Bank generated questions without a dedupe gate | `dedupeKey` **and** `isNearDuplicate`; the real collisions are rewordings — §7. |
 | Concatenate `SpeechRecognition` results yourself | Mobile browsers deliver cumulative snapshots — "whatwhat arewhat are my…". Use `joinTranscript` — §7. |
 | Put model-authored HTML through `innerHTML` | Opaque-origin iframe only — see §7. |
 | Record `aiChoice(req)` as an artifact's engine | That is the request, not the resolution. Use the `meta` out-param — §7. |
