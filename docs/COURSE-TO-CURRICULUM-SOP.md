@@ -157,8 +157,12 @@ Two supported paths; both upsert on stable ids and never remove rows you omit:
   🔴 There is no `rename_topic` op — a topic rename is a `move_topic` to the same lesson under
   the new name only if you accept a new id; otherwise keep the name.
 
-Then `POST /api/admin/sequence-topics` (or leave `placeNewTopicsInOrder` to do it on ingest)
-so the tree reads in study order rather than alphabetically.
+The skeleton's own order IS the curriculum order — `orderNewCurriculum` stores the courses
+and lessons in the order you upsert them, so paste the outline in teaching order. Then
+`POST /api/admin/sequence-topics` for the sub-lesson grain inside each lesson. If a tree
+still reads alphabetically (anything built before those ranks were stored), repair it with
+Academy Admin → Curriculum → **Sequence order**
+(`POST /api/admin/sequence-curriculum?refresh=1`).
 
 ### Step 4 — Attach the sources (mass, part 1)
 
@@ -308,6 +312,7 @@ that would have prevented it.
 | Author at the quality ceiling | `content-build/` INSTRUCTIONS → `check-questions.js` → `assemble.cjs --apply` | 6 Q/topic, 8–14 cards/lesson, 1,600–2,600-word doc |
 | Delete questions | `DELETE /api/admin/questions/:id` · `POST /api/admin/questions/delete-batch {batchTag}` | Both go through `deleteQuestionById` (qCount stays right); never delete a question doc in Firestore directly |
 | Prereq graph | `POST /api/admin/build-graph?program=&max=600[&refresh=1]` | Hand-authored edges survive refresh |
-| Sequence | `POST /api/admin/sequence-topics` | Or rely on ingest's auto-sequence |
+| Sequence sub-lessons | `POST /api/admin/sequence-topics` | Or rely on ingest's auto-sequence |
+| Sequence courses + lessons | `POST /api/admin/sequence-curriculum[?track=&refresh=1]` | Repair only — creation paths store the order they designed |
 | Roadmap card | `POST /api/admin/roadmaps` (one track-level stage) → `/assign` | |
 | Rollback a build | delete by `batchTag`, reset `questionCount`, delete the batch's transcripts | Scope to one `program` |

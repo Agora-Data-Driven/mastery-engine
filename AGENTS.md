@@ -154,7 +154,46 @@ program  →  track  →  course  →  lesson  →  topic
 (data_science | digital_marketing | …)
 ```
 
-A `topics` doc is one leaf. It carries `{ program, track, course, lesson, topic, order, qCount }`.
+A `topics` doc is one leaf. It carries
+`{ program, track, course, lesson, topic, order, lessonOrder, courseOrder, qCount }`.
+
+### Curriculum order is THREE numbers, one per grain
+
+Courses and lessons are not documents — they are fields on topic rows — so their
+position is denormalised onto every row of the group:
+
+| Field | Ranks | Written by |
+|---|---|---|
+| `courseOrder` | the row's COURSE within its track | `placeNewTopicsInOrder`, `reorder_courses`, the sequence sweep |
+| `lessonOrder` | the row's LESSON within its course | the same, plus the tree's drag-and-drop |
+| `order` | the row's TOPIC within its lesson | `sequenceLessonGroup` / `/api/admin/sequence-topics` |
+
+A group's rank is the **MIN** over its rows, so a row that missed a write can never
+drag its group backwards. Sorting climbs a ladder at each grain: stored rank → the
+hand-curated `COURSE_ORDER`/`LESSON_ORDER` (`lib/graph.js`, mirrored in
+`public/app.js`) → the legacy `min(topic.order)` signal → natural name.
+
+🔴 **Keep the three separate.** Course and lesson order used to be INFERRED from
+`min(topic.order)`, and that is what made every freshly designed track read
+alphabetically: each AI sequencing pass numbers a lesson's topics **0-based**, so
+after one pass every lesson in a course tied at 0 and the sort fell straight through
+to the name. Shipped that way on the RAG track (2026-09-08).
+`lib/_graph_test.js` asserts the spine follows the stored ranks and that 0-based
+topic order no longer flattens lesson order.
+
+**The designed order is persisted, not re-derived.** Every creation path already
+knows the sequence it means — `planFromSources` emits courses and lessons
+prerequisites-first, a pasted outline is in the author's own order — and it used to
+be thrown away. Each now calls `orderNewCurriculum(program, lessons)`, which turns
+that list into `curriculumHints` and appends the new units in that order.
+`POST /api/admin/sequence-curriculum` (Academy Admin → Curriculum → **Sequence
+order**) is the AI **repair** sweep for a tree that landed wrong; `?refresh=1`
+re-sequences every track, without it only tracks holding an unranked unit.
+
+⚠️ **Backfilling an old program must not reshuffle it.** `placeNewTopicsInOrder`
+ranks unplaced groups by the legacy `min(topic.order)` FIRST, then the caller's
+hint, then the curated lists, then the name — so the first content added to a
+program built before these fields existed stamps the order it already displays.
 
 ### ⚠️ The single most important rule in this repo
 
@@ -543,24 +582,28 @@ One source may ground several lessons. A transcript doc carries exactly one scop
 grounding reads by scope, so `/sources/commit` **copies** it to each extra lesson, recording
 `copyOf`. Filing it once instead would silently leave the other lessons ungrounded.
 
-### The editor can reorder COURSES, and course order is min(topic.order)
+### Reordering any grain writes ONE field
 
-Added 2026-09-07. `reorder_courses` was the one grain the AI curriculum editor could not
-touch, so "put RAG Overview before Information Retrieval" had to be refused. Course order is
-not a stored field — app.js's `byCourseName` sorts by **min(topic.order) across the track**
-— so reordering courses means renumbering the whole track (`renumberTrack`) in one
-continuous run.
+`reorder_courses` / `reorder_lessons` / `reorder_topics` (and the tree's drag-and-drop)
+each stamp a 0-based sequence onto a single field — `courseOrder`, `lessonOrder`, `order`
+respectively — via `stampOrder` in `runCurriculumEdits` and
+`POST /api/admin/topics/reorder`, which merges only the fields it was sent.
 
-🔴 That also fixed a latent bug: `renumberCourse` used to restart at 0, so reordering a
-course's LESSONS silently dragged that course to the front of its track. It now starts at the
-course's current lowest order.
+That is the whole benefit of storing the three grains separately (§3). While course
+order was `min(topic.order)`, reordering courses meant renumbering **every topic in
+the track** in one continuous run (`renumberTrack`), reordering a course's lessons had
+to start from that course's current lowest order or it silently dragged the course to
+the front of its track, and a single off-by-one resequenced everything below it. All
+of that is gone: the grains cannot interfere.
 
-There is no unit test for this (the helpers close over `runCurriculumEdits`' working copy).
-Four properties are what make it correct — check them by hand after touching either helper:
-1. After `reorder_courses`, min(topic.order) per course reproduces the requested sequence.
-2. Each course keeps its own lesson order, and each lesson its own topic order.
-3. Orders stay a contiguous run with no duplicates — ties make course order arbitrary.
-4. `reorder_lessons` does NOT change which course comes first.
+Two rules survive from that design, one grain down:
+
+- **A unit MOVED between parents gets a fresh rank at the end of its new parent.**
+  `move_lesson` and `move_topic` recompute one; inheriting the old number collides
+  with whatever already holds that rank in the target, and a tie falls back to the
+  alphabet. The drag-and-drop editor stamps the whole target parent for the same reason.
+- **The curated `COURSE_ORDER`/`LESSON_ORDER` lists are a FALLBACK, not the rule** —
+  a stored rank outranks them. That is why the backfill consults them (§3).
 
 ### Change the curriculum (move/rename/merge topics)
 
@@ -597,6 +640,7 @@ node lib\_deep_test.js               # deep mode's answer-key / declared-gap inv
 node lib\_usage_test.js              # AI/TTS usage accounting + cost estimates
 node lib\_aidiag_test.js             # AI-failure classifier + the reply salvage (§7)
 node lib\_split_test.js              # where an oversized source is CUT into lessons (§5)
+                                     # _graph_test also covers the curriculum spine's order (§3)
 
 # 3. Boot it and hit a route
 npm run dev
@@ -697,6 +741,32 @@ Cards banked from 2026-08-07 store `program` on the doc. Older ones don't, so `p
 falls back to one equality query on the card's topic row — deliberately not `getCatalog`, which
 is ~540 docs and this runs per card view. `program` is **not** part of `flashcardScopeId`; adding
 it there would orphan every deck already banked.
+
+**2026-09-08 — the same trap caught the GEN scope selects.** The claim above that "`/generate`
+never noticed" was only half true: the flashcard path sends `program`, but the **Generate
+Questions** cascade (`selection()` in [public/app.js](public/app.js)) sent only
+track/course/lesson/topic. Those selects are filled from `GET /api/catalog`, which for an
+UNPINNED learner is `engineCatalog()` — **the shelf, which spans programs**. So picking a RAG
+track while enrolment resolved to `data_science` scoped the request to the wrong curriculum and
+answered **400 "No topics in scope"** for a selection the learner had just picked off their own
+dropdown. Two halves to the fix, and both matter:
+
+- `selection()` now carries `selectionProgram()` — the program of the deepest matching catalog
+  row. A pinned tab still wins, because `api()` puts `?program=<pin>` on the URL and
+  `requestScope` prefers the query over the body.
+- `selectionScope(req, scope, sel, bank)` (`server.js`, above `/api/catalog`) is the server-side
+  net for old/cached clients: when the resolved scope contains **none** of the selected rows, it
+  adopts the program of those rows **as found on this learner's own shelf** (`engineCatalog`) —
+  never wider than what is already on their screen, and skipped entirely for a pinned session.
+  `/api/generate` runs its scope through it, which also decides the `program` the new questions
+  are **banked** under. `engineCatalog(email, bank)` takes the already-read catalog so this
+  costs no second ~540-doc read.
+- The GEN **"Base on transcripts"** picker had the same split brain — it listed the enrolment
+  program's sources next to another program's track. It now passes `?program=` and reloads on a
+  track change; `GET /api/transcripts` honours it via `shelfVouchedScope()` (same rule: the
+  learner's own shelf must contain that program).
+
+Anything else that reads a scope out of those dropdowns inherits the trap — send the program.
 
 > A client-side fix (send `program` with the card id) is NOT sufficient, and that is the whole
 > reason this lives on the server: in the Mastery deck `fc.scope` is `null` by design, because
