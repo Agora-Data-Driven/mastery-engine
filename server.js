@@ -2942,6 +2942,88 @@ function deepScopeFrom(context = {}) {
  * NEVER throws: every source degrades to a declared gap, because a deep turn that 500s is strictly
  * worse than a deep turn that says "I couldn't open your notes".
  */
+/**
+ * What section is on screen, resolved to REAL catalog rows and the program they live in.
+ *
+ * Extracted so deep mode and source grounding cannot drift apart: the shelf-vs-program
+ * rule below is subtle, was already the site of one silent bug, and two copies of it is
+ * how that bug comes back on only one of the two paths.
+ *
+ * @returns {Promise<{scope, rows, program}|null>} null when nothing on screen resolves.
+ */
+async function onScreenScope(req, context) {
+  const scope = deepScopeFrom(context);
+  if (!scope) return null;
+  const email = req.userEmail;
+  const programScope = await requestScope(req);
+  const match = (catalog) => (Array.isArray(scope.topics)
+    ? catalog.filter((r) => scope.topics.includes(r.topic))
+    : scopeCatalog(catalog, scope));
+
+  // The section on screen is matched against their SHELF, which spans programs - never
+  // against one program's catalog. This once read `getCatalog(email, requestScope(req))`,
+  // a scoping bug of exactly the `cardScope` shape one level up: the assistant's POST
+  // carries no `program`, so requestScope falls back to the learner's FIRST enrolled
+  // program while the screen behind it is engineCatalog's cross-program shelf. On the live
+  // shelf 285 of 808 topics sat in a second program, so every deep turn on that half
+  // matched zero rows - with the bank sitting right there.
+  //
+  // A PINNED session is the exception and wins: Sentinel's Philosophical/Spiritual tabs
+  // are one program for the whole session, and that program may not be on the shelf at
+  // all. The program scope is also the fallback for anyone with no shelf built yet.
+  let rows = [];
+  if (!pinnedProgram(req, programScope)) rows = match(await engineCatalog(email));
+  if (!rows.length) rows = match(await getCatalog(email, programScope));
+  if (!rows.length) return null;
+
+  // The program comes from the rows we MATCHED, never from the request - they are what is
+  // on screen. A `topics` scope can straddle two programs, so take the majority.
+  const tally = new Map();
+  for (const r of rows) tally.set(programOf(r), (tally.get(programOf(r)) || 0) + 1);
+  const program = [...tally.entries()].sort((a, b) => b[1] - a[1])[0][0];
+  return { scope, rows, program };
+}
+
+/**
+ * The SOURCE MATERIAL behind the section on screen - the actual transcripts filed in the
+ * Library, so an answer can rest on the learner's own course rather than the model's
+ * general knowledge, and can name which document it came from.
+ *
+ * Deliberately separate from deep mode: deep carries the ANSWER KEY and is the wrong thing
+ * to leave switched on while studying, but wanting answers grounded in your own material
+ * is not. Budgeted and fail-soft, like every other grounding source.
+ */
+async function sourceGroundingFor(req, context) {
+  const NL = String.fromCharCode(10);
+  const SEP = NL + NL;
+  const hit = await onScreenScope(req, context);
+  if (!hit) return null;
+  const { scope, program } = hit;
+  // Transcripts key off a real course+lesson tuple, so the `topics` fallback (the
+  // recently-practised list) has no scope to fetch against.
+  if (Array.isArray(scope.topics) || !scope.course || isAll(scope.course)) return null;
+  const docs = await getScopeTranscripts({
+    program,
+    course: scope.course,
+    lesson: (scope.lesson && !isAll(scope.lesson)) ? scope.lesson : undefined,
+  });
+  if (!docs.length) return null;
+  const used = [];
+  let text = '';
+  for (const d of docs) {
+    const body = String(d.text || '').trim();
+    if (!body || text.length + body.length > GUIDE_SOURCE_BUDGET) continue;
+    text += (text ? SEP : '') + '--- ' + (d.title || 'Untitled') + NL + body;
+    used.push(d.title || 'Untitled');
+  }
+  if (!used.length) return null;
+  return {
+    label: [scope.course, scope.lesson].filter((v) => v && !isAll(v)).join(' > '),
+    titles: used,
+    text,
+  };
+}
+
 async function deepGroundingFor(req, context) {
   const scope = deepScopeFrom(context);
   if (!scope) return { gaps: ['nothing on screen names a section'] };
@@ -3174,6 +3256,11 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     const deepHits = req.body?.deep
       ? await deepGroundingFor(req, context).catch(() => ({ gaps: ['deep context could not be loaded'] }))
       : null;
+    // Sources chip: ground the answer in the actual filed transcripts for the section on
+    // screen, and require a citation. Independent of deep mode, which carries the answer key.
+    const sourceHits = req.body?.sources
+      ? await sourceGroundingFor(req, context).catch(() => null)
+      : null;
     // The host (Sentinel's Coach) can let the assistant PROPOSE profile edits for the user to approve.
     const actions = !!req.body?.actions;
     // True only when this app is embedded in someone else's frame (Sentinel's Coach) — that's
@@ -3181,7 +3268,7 @@ app.post('/api/assistant/chat', requireAuth, rateLimitAI, async (req, res, next)
     // (park/restore a Mastery Engine section) apply same-origin regardless and don't need this.
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
-    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, sentinelGuide: sentinelGuideText, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
+    const out = await generateAssistantChat({ context, history, message, conversational, search, catalog, transcripts, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, sourceHits, actions, hostFrame, sentinelGuide: sentinelGuideText, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments));
 
     const messages = [...history, { role: 'user', text: message }, { role: 'assistant', text: out.reply }];
     const saved = await saveAssistantChat(chatUser, existing ? conversationId : '', messages);
@@ -3261,11 +3348,16 @@ app.post('/api/assistant/chat/stream', requireAuth, rateLimitAI, async (req, res
     const deepHits = req.body?.deep
       ? await deepGroundingFor(req, context).catch(() => ({ gaps: ['deep context could not be loaded'] }))
       : null;
+    // Sources chip: ground the answer in the actual filed transcripts for the section on
+    // screen, and require a citation. Independent of deep mode, which carries the answer key.
+    const sourceHits = req.body?.sources
+      ? await sourceGroundingFor(req, context).catch(() => null)
+      : null;
     const actions = !!req.body?.actions;
     const hostFrame = !!req.body?.hostFrame;
     const attachments = Array.isArray(req.body?.attachments) ? req.body.attachments : [];
     const out = await streamAssistantChat(
-      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, actions, hostFrame, sentinelGuide: sentinelGuideText, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
+      { context, history: baseHistory, message, steer, catalog, transcripts, search, coach, progress, holistic, mentorHits, growthHits, work, workHits, deepHits, sourceHits, actions, hostFrame, sentinelGuide: sentinelGuideText, attachments, admin: isAdmin(req) }, aiForFiles(aiChoice(req), attachments),
       (t, kind) => { if (!clientGone) sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }); },
     );
 
@@ -5815,12 +5907,42 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
       .reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
     return names.sort((a, b) => { const oa = minOrder(a); const ob = minOrder(b); return oa !== ob ? oa - ob : numCmp(a, b); });
   };
+  // Distinct course names of a track in current study order (MIN topic order, then name)
+  // - the same rule app.js's byCourseName uses, so this reads the tree as the learner sees it.
+  const orderedCourseNames = (track) => {
+    const rows = rowsIn(track);
+    const names = [...new Set(rows.map((r) => r.course))].filter(Boolean);
+    const minOrder = (co) => rows.filter((r) => r.course === co)
+      .reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
+    return names.sort((a, b) => { const oa = minOrder(a); const ob = minOrder(b); return oa !== ob ? oa - ob : numCmp(a, b); });
+  };
+
   // Renumber a whole course, block by block, in `lessonOrder`, keeping each lesson's
   // internal topic order. Returns [{id,order}] and updates the working copy.
+  //
+  // Numbering starts at the course's CURRENT lowest order, not at 0. Course order is
+  // min(topic.order) across the track (app.js `byCourseName`), so restarting at 0 would
+  // silently drag the course to the front of its track every time its lessons were
+  // reordered - changing something the admin never asked to change.
   const renumberCourse = (track, course, lessonOrder) => {
-    const items = []; let ord = 0;
+    const base = rowsIn(track, course)
+      .reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
+    const items = []; let ord = Number.isFinite(base) ? base : 0;
     for (const le of lessonOrder) {
       for (const r of rowsIn(track, course, le).sort(cmpTopic)) { r.order = ord; items.push({ id: r.id, order: ord }); ord += 1; }
+    }
+    return items;
+  };
+
+  // Renumber a whole TRACK so its courses fall in `courseOrder`, each course keeping its
+  // own lesson and topic sequence. One continuous run of orders across the track, which is
+  // what makes min(topic.order) per course reproduce exactly this sequence.
+  const renumberTrack = (track, courseOrder) => {
+    const items = []; let ord = 0;
+    for (const co of courseOrder) {
+      for (const le of orderedLessonNames(rowsIn(track, co))) {
+        for (const r of rowsIn(track, co, le).sort(cmpTopic)) { r.order = ord; items.push({ id: r.id, order: ord }); ord += 1; }
+      }
     }
     return items;
   };
@@ -5961,6 +6083,26 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
           cat.push({ id: slug(track, course, lesson, topic), track, course, lesson, topic, order: null });
           if (!dryRun) doAdd([{ program, track, course, lesson, topic }]);
           description = `Add sub-lesson “${topic}” to “${lesson}” (course “${course}”)`;
+          break;
+        }
+        // Course order within a track. The one grain the editor could not touch, so a
+        // perfectly reasonable "put RAG Overview before Information Retrieval" had to be
+        // refused and done by hand.
+        case 'reorder_courses': {
+          const track = clean(raw.track) || (rowsIn().length ? rowsIn()[0].track : '');
+          const current = orderedCourseNames(track);
+          if (!current.length) throw new Error(`No track named “${clean(raw.track)}”`);
+          const existing = new Map(current.map((c) => [key(c), c]));
+          const want = (Array.isArray(raw.order) ? raw.order : []).map(clean).filter(Boolean);
+          const seq = []; const used = new Set();
+          for (const w of want) { const a = existing.get(key(w)); if (a && !used.has(key(a))) { seq.push(a); used.add(key(a)); } }
+          // Courses the model left out keep their existing relative order, at the end - the
+          // same forgiving rule reorder_lessons uses, so a partial list is safe.
+          for (const c of current) if (!used.has(key(c))) seq.push(c);
+          if (seq.length < 2) throw new Error('Name at least two courses to reorder');
+          const items = renumberTrack(track, seq);
+          if (!dryRun) doReorder(items);
+          description = `Reorder courses in “${track}”: ${seq.join(' → ')}`;
           break;
         }
         case 'reorder_lessons': {

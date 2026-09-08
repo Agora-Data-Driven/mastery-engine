@@ -543,6 +543,25 @@ One source may ground several lessons. A transcript doc carries exactly one scop
 grounding reads by scope, so `/sources/commit` **copies** it to each extra lesson, recording
 `copyOf`. Filing it once instead would silently leave the other lessons ungrounded.
 
+### The editor can reorder COURSES, and course order is min(topic.order)
+
+Added 2026-09-07. `reorder_courses` was the one grain the AI curriculum editor could not
+touch, so "put RAG Overview before Information Retrieval" had to be refused. Course order is
+not a stored field — app.js's `byCourseName` sorts by **min(topic.order) across the track**
+— so reordering courses means renumbering the whole track (`renumberTrack`) in one
+continuous run.
+
+🔴 That also fixed a latent bug: `renumberCourse` used to restart at 0, so reordering a
+course's LESSONS silently dragged that course to the front of its track. It now starts at the
+course's current lowest order.
+
+There is no unit test for this (the helpers close over `runCurriculumEdits`' working copy).
+Four properties are what make it correct — check them by hand after touching either helper:
+1. After `reorder_courses`, min(topic.order) per course reproduces the requested sequence.
+2. Each course keeps its own lesson order, and each lesson its own topic order.
+3. Orders stay a contiguous run with no duplicates — ties make course order arbitrary.
+4. `reorder_lessons` does NOT change which course comes first.
+
 ### Change the curriculum (move/rename/merge topics)
 
 Use the ops engine, not raw Firestore writes: `runCurriculumEdits()`
