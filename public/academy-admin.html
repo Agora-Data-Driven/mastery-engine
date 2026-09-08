@@ -495,12 +495,12 @@
       <nav class="aa-tabs" role="tablist" aria-label="Admin stations">
         <button class="aa-tab" role="tab" data-panel="sources" aria-selected="true">
           <span class="no">01</span>
-          <span class="lbl"><span class="nm">Library</span><span class="ds">Raw source material</span></span>
+          <span class="lbl"><span class="nm">Library</span><span class="ds">All your source material</span></span>
           <span class="ct" id="railSources"></span>
         </button>
         <button class="aa-tab" role="tab" data-panel="curriculum" aria-selected="false">
           <span class="no">02</span>
-          <span class="lbl"><span class="nm">Compose</span><span class="ds">The curriculum tree</span></span>
+          <span class="lbl"><span class="nm">Curriculum</span><span class="ds">Design &amp; edit the tree</span></span>
           <span class="ct" id="railTopics"></span>
         </button>
         <button class="aa-tab" role="tab" data-panel="generate" aria-selected="false">
@@ -563,11 +563,14 @@
                getScopeTranscripts filters on a real course/lesson, so nothing here can leak
                into a lesson's grounding until something files it. -->
           <section class="aa-panel on aa-drop" id="p-sources">
+            <!-- ONE Library. The sources and the ways to add them are the same object, so they
+                 share a card: entry points first (files, folder, paste, Watcher), then the folder
+                 rail, then what is actually in there. Designing a curriculum FROM this material is
+                 a different job and lives in the Curriculum station. -->
             <div class="card" style="padding:20px">
-              <h3 style="margin:0 0 4px">Add to the library</h3>
-              <p class="aa-note" style="margin:0 0 14px">Drop in raw material — <b>nothing is filed and nothing is generated</b>.
-                 Sources sit here until you either build a curriculum from them or file one into the tree below.
-                 Upload many files at once, or paste one.</p>
+              <h3 style="margin:0 0 4px">Library <span class="aa-note" id="tCount"></span></h3>
+              <p class="aa-note" style="margin:0 0 14px">Every source in this program. Adding material here <b>files nothing and generates nothing</b> —
+                 it sits in the library until you build a curriculum from it. Drop files anywhere on this panel, or use the buttons below.</p>
               <div class="aa-row" style="margin:0 0 12px;flex-wrap:wrap">
                 <input type="file" id="upFiles" class="aa-file-input" accept=".txt,.vtt,.srt,.md,.json" multiple />
                 <button class="btn btn-primary" id="upPick">Choose files…</button>
@@ -626,13 +629,9 @@
 
               <div class="aa-bar"><i id="upBar"></i></div>
               <div id="upStatus" class="aa-note"></div>
-            </div>
 
-            <!-- The library itself: every source in the program, filed or not. Selection here
-                 drives BOTH actions below — digesting and designing a curriculum. -->
-            <div class="card" style="padding:20px;margin-top:14px">
-              <h3 style="margin:0 0 4px">The library <span class="aa-note" id="tCount"></span></h3>
-              <p class="aa-note">Every source loaded for this program. Tick the ones you want to build from; click a title to read it.</p>
+              <hr style="border:0;border-top:1px solid var(--line);margin:18px 0 14px" />
+
               <div class="aa-row" style="margin:12px 0 10px;flex-wrap:wrap;align-items:center">
                 <div class="aa-seg" role="tablist" aria-label="Filter sources">
                   <button class="aa-seg-btn" id="lfAll" role="tab" aria-selected="true">All</button>
@@ -651,55 +650,10 @@
                 <button class="btn" id="libSplit" title="One file holding a whole module? Cut it into its lessons so each is grounded on its own text.">Split into lessons</button>
                 <span id="libSel" class="aa-note">None selected.</span>
               </div>
+              <div id="libStatus" class="aa-note" style="margin:0 0 8px"></div>
               <div class="aa-reader">
                 <div class="aa-list" id="tList" style="max-height:540px">Loading…</div>
                 <div class="aa-out" id="tView" style="max-height:540px;min-height:200px">Select a source on the left to read it.</div>
-              </div>
-            </div>
-
-            <!-- ═══════════════ Build a curriculum FROM the selected sources ═══════════════ -->
-            <!-- Two AI steps, deliberately separate. "Catalogue" digests each source once
-                 (cached on the doc forever); "Design" reads only those digests — a corpus is
-                 far past any single prompt, so the planner never sees full text. -->
-            <div class="card" style="padding:20px;margin-top:14px">
-              <h3 style="margin:0 0 6px">Build a curriculum from these sources</h3>
-              <p class="aa-note" style="margin:0 0 12px">The tree gets designed from what the sources <b>teach</b>, not from how they were packaged —
-                 so lessons are concepts, never “Week 3”. Sources are catalogued once (cached), then the design reads the catalogue.
-                 It also proposes <b>gaps</b>: what the subject needs that your sources don't cover.</p>
-              <textarea id="spGuidance" placeholder="Optional steer — e.g. “this is Andrew Ng's ML specialization; merge it into the existing Machine Learning track” or “keep statistics separate from ML”" style="min-height:60px"></textarea>
-              <div class="aa-row" style="margin-top:10px;flex-wrap:wrap">
-                <button class="btn" id="spDigest">1 · Catalogue selected</button>
-                <button class="btn btn-ai" id="spPlan">2 · Design the curriculum</button>
-                <button class="btn hidden" id="spStop">Stop</button>
-                <span id="spMsg" class="aa-note"></span>
-              </div>
-              <div class="aa-bar"><i id="spBar"></i></div>
-              <div id="spStatus" class="aa-note"></div>
-
-              <!-- Review before anything is written: every course/lesson/topic is editable,
-                   "new" badges are decided server-side against the live catalog, and gap
-                   topics are marked because they are created EMPTY and never generated over. -->
-              <div id="spPlanBox" class="hidden aa-review" style="margin-top:16px">
-                <div class="aa-note" id="spSummary" style="margin-bottom:10px"></div>
-                <div style="margin-bottom:10px">
-                  <div class="aa-field-label">Track <span id="spTrackNew"></span></div>
-                  <input type="text" id="spTrack" list="spTrackList" autocomplete="off" style="width:100%" /><datalist id="spTrackList"></datalist>
-                </div>
-                <div id="spCourses" style="margin:6px 0 10px"></div>
-                <div class="aa-row" style="flex-wrap:wrap;align-items:center">
-                  <label style="display:flex;gap:6px;align-items:center;font-size:13px">
-                    <input type="checkbox" id="spGenerate" style="width:auto" /> Also generate questions now
-                  </label>
-                  <span id="spGenOpts" class="hidden" style="display:flex;gap:8px;align-items:center">
-                    <span class="aa-note">per topic</span>
-                    <input type="number" id="spCount" value="6" min="1" max="25" style="width:70px" />
-                  </span>
-                </div>
-                <div class="aa-row" style="margin-top:10px">
-                  <button class="btn btn-primary" id="spCommit">Create this curriculum</button>
-                  <button class="btn" id="spDiscard">Discard</button>
-                  <span id="spCommitMsg" class="aa-note"></span>
-                </div>
               </div>
             </div>
 
@@ -786,16 +740,73 @@
 
             <!-- ═══════════════ Edit with AI (conversational curriculum editor) ═══════════════ -->
 
-            <!-- The tree above is the thing being edited and stays put; these are the two
-                 AI ways to change it, one at a time. Before this switcher the panel stacked
-                 five full-height cards and you scrolled past the ones you were not using. -->
+            <!-- The tree above is the object being edited and stays put; these are the three
+                 ways to change it, one at a time: design a fresh one from library sources, have
+                 AI build one from a goal or an outline, or reshape what is already there. -->
             <div class="aa-row" style="margin:16px 0 0">
-              <div class="aa-seg" role="tablist" aria-label="Compose mode">
-                <button class="aa-seg-btn" id="cmEditBtn" role="tab" aria-selected="true">Edit with AI</button>
+              <div class="aa-seg" role="tablist" aria-label="How to change the curriculum">
+                <button class="aa-seg-btn" id="cmSrcBtn" role="tab" aria-selected="true">From my sources</button>
                 <button class="aa-seg-btn" id="cmBuildBtn" role="tab" aria-selected="false">Build with AI</button>
+                <button class="aa-seg-btn" id="cmEditBtn" role="tab" aria-selected="false">Edit with AI</button>
               </div>
             </div>
-            <div id="cmEdit">
+            <div id="cmSrc">
+            <!-- ═══════════════ Design a curriculum FROM library sources ═══════════════ -->
+            <!-- ONE button. Reading the sources (the per-source digest the planner designs
+                 from) used to be a separate numbered step, which made an implementation
+                 detail into a thing you had to know about — "what is Catalogue selected?"
+                 was the tell. It now runs as phase 1 of designing, skipping anything already
+                 read, and only the count is surfaced so the wait is explained. -->
+            <div class="card" style="padding:20px;margin-top:14px">
+              <h3 style="margin:0 0 6px">Design a curriculum from my sources</h3>
+              <p class="aa-note" style="margin:0 0 12px">Pick a <b>folder</b> — one module per folder is the tidy way — and the tree gets designed from what
+                 those sources <b>teach</b>, not from how they were packaged, so lessons are concepts and never “Week 3”.
+                 It also proposes <b>gaps</b>: what the subject needs that your sources don't cover.</p>
+              <div class="aa-row" style="margin:0 0 10px;flex-wrap:wrap;align-items:center">
+                <label class="aa-field-label" for="spScope" style="margin:0">Design from</label>
+                <select id="spScope" style="min-width:280px"></select>
+                <span id="spScopeNote" class="aa-note"></span>
+              </div>
+              <textarea id="spGuidance" placeholder="Optional steer — e.g. “this is Andrew Ng's ML specialization; merge it into the existing Machine Learning track” or “keep statistics separate from ML”" style="min-height:60px"></textarea>
+              <div class="aa-row" style="margin-top:10px;flex-wrap:wrap">
+                <button class="btn btn-ai" id="spPlan">Design the curriculum</button>
+                <button class="btn hidden" id="spStop">Stop</button>
+                <label style="display:flex;gap:6px;align-items:center;font-size:13px" title="Sources are read once and the result cached. Tick this if you edited a source and want it read again.">
+                  <input type="checkbox" id="spReread" style="width:auto" /> Re-read sources
+                </label>
+                <span id="spMsg" class="aa-note"></span>
+              </div>
+              <div class="aa-bar"><i id="spBar"></i></div>
+              <div id="spStatus" class="aa-note"></div>
+
+              <!-- Review before anything is written: every course/lesson/topic is editable,
+                   "new" badges are decided server-side against the live catalog, and gap
+                   topics are marked because they are created EMPTY and never generated over. -->
+              <div id="spPlanBox" class="hidden aa-review" style="margin-top:16px">
+                <div class="aa-note" id="spSummary" style="margin-bottom:10px"></div>
+                <div style="margin-bottom:10px">
+                  <div class="aa-field-label">Track <span id="spTrackNew"></span></div>
+                  <input type="text" id="spTrack" list="spTrackList" autocomplete="off" style="width:100%" /><datalist id="spTrackList"></datalist>
+                </div>
+                <div id="spCourses" style="margin:6px 0 10px"></div>
+                <div class="aa-row" style="flex-wrap:wrap;align-items:center">
+                  <label style="display:flex;gap:6px;align-items:center;font-size:13px">
+                    <input type="checkbox" id="spGenerate" style="width:auto" /> Also generate questions now
+                  </label>
+                  <span id="spGenOpts" class="hidden" style="display:flex;gap:8px;align-items:center">
+                    <span class="aa-note">per topic</span>
+                    <input type="number" id="spCount" value="6" min="1" max="25" style="width:70px" />
+                  </span>
+                </div>
+                <div class="aa-row" style="margin-top:10px">
+                  <button class="btn btn-primary" id="spCommit">Create this curriculum</button>
+                  <button class="btn" id="spDiscard">Discard</button>
+                  <span id="spCommitMsg" class="aa-note"></span>
+                </div>
+              </div>
+            </div>
+            </div>
+            <div id="cmEdit" class="hidden">
             <!-- Talk to the model to reshape the tree above: merge overlapping lessons, move /
                  rename / delete, resequence. It PROPOSES a concrete set of changes (its reasoning
                  streams in the rail); you review each one, then Apply. Nothing is written until you

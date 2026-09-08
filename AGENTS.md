@@ -504,6 +504,16 @@ let a paste create a *second* copy of a source the library already had. So `/ing
 that doc in place** (`updateTranscript`) instead of writing a new one — the source keeps its
 id, its folder and its cached digest, and simply stops being unfiled.
 
+**One object per station.** The Library owns the SOURCES (add, folder, split, browse, and file
+one into the tree); the Curriculum station owns the TREE (design from sources, build from a
+goal or outline, edit with AI). The corpus designer began life in the Library and that was
+wrong — it produces a curriculum, so it belongs where the curriculum is. Its selection unit is
+a **folder**, not a tick-list: one module per folder, then "design from that folder".
+
+**Reading the sources is phase 1 of designing, not a step.** `digestSource` runs inside the
+Design action over anything not yet read, skipping what is cached. It used to be a numbered
+button, which turned an implementation detail into something the admin had to understand.
+
 **🔴 A source must be about LESSON-SIZED, and the reason is arithmetic.** Every reader is
 bounded: `digestSource` 24k chars, `classifyTranscript` 9k, `sourceFor` 12k **per lesson**
 ([lib/genjobs.js](lib/genjobs.js)), `scopeSourceText` 24k. So one file holding a whole module
@@ -536,7 +546,8 @@ Use the ops engine, not raw Firestore writes: `runCurriculumEdits()`
 ([server.js:4001](server.js#L4001)) → `moveTopics()`. It preserves doc ids, and therefore
 questions and learner stats.
 
-Admin UI: Academy Admin → Compose → Curriculum ("Edit with AI").
+Admin UI: Academy Admin → **Curriculum** → "Edit with AI" (one of that station's three modes,
+beside "From my sources" and "Build with AI").
 
 > The in-app AI editor has historically mis-planned large restructures (placeholder junk,
 > partial applies). For a big multi-hundred-topic reorganisation, a one-off script doing

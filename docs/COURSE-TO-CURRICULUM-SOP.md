@@ -83,7 +83,7 @@ into lessons** — that cuts it at its own lesson boundaries and gives you the s
 Routes for getting the text, in order of preference:
 
 1. **Atrium Watcher** — if the course is on YouTube, add the channel/playlist; Academy Admin →
-   Compose can then "pick a Watcher video" straight into the ingest box.
+   the Library's **Pull from Watcher** fold-out drops it straight into the library, unfiled.
 2. **Paste** — Coursera/DeepLearning.AI expose transcripts per video; copy them.
 3. **PDF/notes** — your own notes count as a source (the Linear Algebra re-gel came from a
    capstone PDF, and it was the best skeleton of the three).
@@ -95,7 +95,8 @@ file anything yet. The batch of raw transcripts is the input to step 2.
 
 **In-app path (added 2026-09-07 — try this first).** Academy Admin → **Library**: upload the
 whole harvest with *Add to the library* (unfiled, nothing generated), tick the sources, then
-**Catalogue selected** → **Design the curriculum**. That runs `digestSource` over each source
+switch to **Curriculum → From my sources**, pick the folder, and press **Design the curriculum**.
+That reads any source it has not read before (`digestSource`, cached per source)
 once, then `planFromSources` over the digests, and returns exactly what this step asks for: a
 concept-shaped tree, a per-lesson source manifest, and a gap list — all editable before
 anything is written. The steer box is where the boundary rules and "merge into the existing
@@ -161,7 +162,7 @@ so the tree reads in study order rather than alphabetically.
 
 ### Step 4 — Attach the sources (mass, part 1)
 
-For each transcript, Academy Admin → Compose → paste → **Analyze & place with AI**. The router
+Tick ONE source in the Library, then **File a source into the curriculum** → **Analyze & place with AI**. The router
 (`classifyTranscript`) proposes a lesson and topic chips with new/existing badges; new-vs-
 existing is decided server-side against the live catalog, never trusted from the model.
 
@@ -225,7 +226,7 @@ This is the part that runs forever, and it should be boring. Four triggers, one 
 
 ### Trigger A — a new source arrives (video, article, paper, another course)
 
-Academy Admin → Compose → paste → **Analyze & place** → check badges → commit with generate.
+Academy Admin → Library → add it → tick it → **File a source into the curriculum** → **Analyze & place** → check badges → commit with generate.
 Ten minutes. Because the tree is concept-shaped, the router almost always lands it in an
 existing lesson and reinforces existing topics; a genuinely new **new** chip is the map growing
 by one node, which is exactly right. The transcript's title carries the source; the topic

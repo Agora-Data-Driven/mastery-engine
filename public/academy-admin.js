@@ -762,6 +762,7 @@
       };
     });
     renderLibSelection();
+    renderScopeOptions();
   }
 
   /* One line of truth about what is ticked. Both library actions read it, and it
@@ -787,6 +788,52 @@
       } else if (!picked.length) pk.textContent = 'Tick exactly one source in the library above.';
       else pk.innerHTML = `<span style="color:#B45309">${picked.length} sources ticked — this files ONE. Use “Build a curriculum from these sources” for the whole set.</span>`;
     }
+  }
+
+  /* ---- the "design from" scope ----
+   *
+   * A folder is the unit, because a folder is how a module arrives: drop one module's
+   * transcripts into one folder, then design from that folder. Ticking forty
+   * checkboxes to say "this module" was the step that made the flow feel manual.
+   * Ticked sources stay available as an option for the subset case. */
+  function renderScopeOptions() {
+    const sel = $('spScope');
+    if (!sel) return;
+    const counts = new Map();
+    for (const t of _transcripts) counts.set(folderOf(t), (counts.get(folderOf(t)) || 0) + 1);
+    const names = [...counts.keys()].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const keep = sel.value;
+    const opts = [];
+    for (const f of names) opts.push(`<option value="f:${esc(f)}">${esc(f)} (${counts.get(f)})</option>`);
+    if (counts.get('')) opts.push(`<option value="top">Top level, no folder (${counts.get('')})</option>`);
+    opts.push(`<option value="unfiled">Everything not yet in the curriculum (${_transcripts.filter(isUnfiled).length})</option>`);
+    opts.push(`<option value="ticked">Just the ticked sources (${state.libSel.size})</option>`);
+    sel.innerHTML = opts.join('');
+    // Keep the admin's choice across reloads where it still exists.
+    if (keep && [...sel.options].some((o) => o.value === keep)) sel.value = keep;
+    renderScopeNote();
+  }
+
+  /* The sources the current "design from" choice resolves to. */
+  function scopeSources() {
+    const v = ($('spScope') && $('spScope').value) || '';
+    if (v === 'ticked') return _transcripts.filter((t) => state.libSel.has(t.id));
+    if (v === 'unfiled') return _transcripts.filter(isUnfiled);
+    if (v === 'top') return _transcripts.filter((t) => !folderOf(t));
+    if (v.startsWith('f:')) return _transcripts.filter((t) => folderOf(t) === v.slice(2));
+    return [];
+  }
+
+  /* Say what the choice covers and how much of it still needs reading, so the wait
+   * that Design is about to impose is visible before it starts. */
+  function renderScopeNote() {
+    const el = $('spScopeNote');
+    if (!el) return;
+    const picked = scopeSources();
+    if (!picked.length) { el.textContent = 'Nothing in this selection.'; return; }
+    const unread = picked.filter((t) => !t.abstract).length;
+    el.innerHTML = `<b>${picked.length}</b> source${picked.length === 1 ? '' : 's'}`
+      + (unread ? ` \u00b7 ${unread} to read first` : ' \u00b7 all already read');
   }
 
   /* The single ticked source, or null. The filing card is deliberately one-at-a-time:
@@ -1016,16 +1063,16 @@
       const pick = pickedSource();
       if (!pick) { $('libSel').innerHTML = '<span class="aa-err">Tick exactly one source to split.</span>'; return; }
       $('libSplit').disabled = true;
-      $('spStatus').textContent = `Looking for lesson boundaries in “${pick.title}”…`;
+      $('libStatus').textContent = `Looking for lesson boundaries in “${pick.title}”…`;
       try {
         const r = await api(`/api/admin/transcripts/${encodeURIComponent(pick.id)}/split`, { method: 'POST', body: { ...engineBody() } });
         await loadTranscripts();
         if (!r.split) {
-          $('spStatus').innerHTML = `<span class="aa-note">${esc(r.note || 'No lesson boundaries found.')}</span>`;
+          $('libStatus').innerHTML = `<span class="aa-note">${esc(r.note || 'No lesson boundaries found.')}</span>`;
         } else {
           state.libSel.clear();
           renderTranscriptList();
-          $('spStatus').innerHTML = `<span class="aa-ok">Split into ${r.sections} sources in folder “${esc(r.folder)}”. `
+          $('libStatus').innerHTML = `<span class="aa-ok">Split into ${r.sections} sources in folder “${esc(r.folder)}”. `
             + `The original is kept — <a href="#" id="libDropOrig" data-id="${esc(pick.id)}">delete it</a> once the parts look right.</span>`;
           const del = $('libDropOrig');
           if (del) del.onclick = async (ev) => {
@@ -1033,68 +1080,83 @@
             try {
               await api('/api/admin/transcripts/' + encodeURIComponent(del.dataset.id), { method: 'DELETE' });
               await loadTranscripts();
-              $('spStatus').innerHTML = '<span class="aa-ok">Original removed — only the split parts remain.</span>';
-            } catch (e) { $('spStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+              $('libStatus').innerHTML = '<span class="aa-ok">Original removed — only the split parts remain.</span>';
+            } catch (e) { $('libStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
           };
         }
-      } catch (e) { $('spStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+      } catch (e) { $('libStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
       $('libSplit').disabled = false;
     };
 
-    /* --- step 1: catalogue (the MAP half) ---
-     * One source per request, looped here. A 40-source corpus in one call would be a
-     * single long POST that Cloud Run throttles and a closed tab would lose whole;
-     * stepping it means a stopped run keeps every source it already catalogued. The
-     * server skips anything already digested, so re-running is cheap and idempotent. */
-    $('spDigest').onclick = async () => {
-      const ids = [...state.libSel];
-      if (!ids.length) { $('spMsg').innerHTML = '<span class="aa-err">Tick some sources first.</span>'; return; }
+    /* --- designing a curriculum from library sources ---
+     *
+     * ONE button. Reading the sources is phase 1 of it, not a step you have to know
+     * about: a source is digested once and cached forever, so this only pays for what
+     * is new. Phase 2 designs from those digests, never from full text - a corpus is
+     * far past any prompt (lib/gemini.js says why). */
+    $('spScope').onchange = renderScopeNote;
+
+    $('spPlan').onclick = async () => {
+      const picked = scopeSources();
+      if (!picked.length) { $('spMsg').innerHTML = '<span class="aa-err">That folder has no sources in it.</span>'; return; }
+      const reread = $('spReread').checked;
+      const todo = reread ? picked : picked.filter((t) => !t.abstract);
+
       state.stopSources = false;
-      $('spDigest').disabled = true; show($('spStop'), true);
-      let done = 0; let failed = 0; let cached = 0;
-      for (const id of ids) {
+      $('spPlan').disabled = true;
+      show($('spStop'), true);
+      $('spMsg').textContent = '';
+      show($('spPlanBox'), false);
+
+      // Phase 1 - read anything not already read. One source per request: a long
+      // single call gets CPU-throttled by Cloud Run and a closed tab would lose the
+      // lot, where stepping keeps every source it already got through.
+      let failed = 0;
+      for (let i = 0; i < todo.length; i += 1) {
         if (state.stopSources) break;
-        $('spStatus').textContent = `Cataloguing ${done + 1} of ${ids.length}…`;
+        $('spStatus').textContent = `Reading source ${i + 1} of ${todo.length}…`;
+        $('spBar').style.width = `${Math.round((i / todo.length) * 100)}%`;
         try {
-          const r = await api(`/api/admin/transcripts/${encodeURIComponent(id)}/digest`, { method: 'POST', body: { ...engineBody() } });
-          if (r.cached) cached += 1;
-        } catch (e) { failed += 1; console.error('digest failed', id, e.message); }
-        done += 1;
-        $('spBar').style.width = `${Math.round((done / ids.length) * 100)}%`;
+          await api(`/api/admin/transcripts/${encodeURIComponent(todo[i].id)}/digest`, {
+            method: 'POST', body: { force: reread, ...engineBody() },
+          });
+        } catch (e) { failed += 1; console.error('digest failed', todo[i].id, e.message); }
       }
       $('spBar').style.width = '0%';
-      $('spStatus').innerHTML = failed
-        ? `<span class="aa-err">Catalogued ${done - failed} of ${done}; ${failed} failed.</span>`
-        : `<span class="aa-ok">Catalogued ${done} source${done === 1 ? '' : 's'}${cached ? ` (${cached} already done)` : ''}.</span>`;
-      $('spDigest').disabled = false; show($('spStop'), false);
-      await loadTranscripts();
-    };
+      if (state.stopSources) {
+        $('spStatus').innerHTML = '<span class="aa-note">Stopped. What was read is saved — press Design again to carry on.</span>';
+        $('spPlan').disabled = false; show($('spStop'), false);
+        await loadTranscripts();
+        return;
+      }
+      if (todo.length) await loadTranscripts();
 
-    $('spStop').onclick = () => { state.stopSources = true; $('spStatus').textContent = 'Stopping…'; };
-
-    /* --- step 2: design (the REDUCE half) --- */
-    $('spPlan').onclick = async () => {
-      const ids = [...state.libSel];
-      if (!ids.length) { $('spMsg').innerHTML = '<span class="aa-err">Tick some sources first.</span>'; return; }
-      $('spPlan').disabled = true; $('spMsg').textContent = 'Designing…';
-      show($('spPlanBox'), false);
+      // Phase 2 - design from the digests.
+      $('spStatus').textContent = '';
+      $('spMsg').textContent = `Designing from ${picked.length} source${picked.length === 1 ? '' : 's'}…`;
       const panel = thinkPanel('aeThink'); panel.start();
       try {
         const plan = await streamSSE('/api/admin/sources/plan/stream', {
-          program: state.program, sourceIds: ids, guidance: $('spGuidance').value.trim(), ...engineBody(),
+          program: state.program,
+          sourceIds: picked.map((t) => t.id),
+          guidance: $('spGuidance').value.trim(),
+          ...engineBody(),
         }, { onThinking: panel.thinking, onContent: panel.content });
         panel.done('Design ready');
         state.sourcePlan = plan;
         renderSourcePlan(plan);
-        $('spMsg').innerHTML = plan.undigested
-          ? `<span class="aa-err">${plan.undigested} source${plan.undigested === 1 ? ' was' : 's were'} not catalogued — designed from titles alone. Catalogue and re-design for a better tree.</span>`
+        $('spMsg').innerHTML = failed
+          ? `<span class="aa-err">${failed} source${failed === 1 ? '' : 's'} could not be read and were designed from their titles alone.</span>`
           : '';
       } catch (e) {
         panel.fail('Failed');
         $('spMsg').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`;
       }
       $('spPlan').disabled = false;
+      show($('spStop'), false);
     };
+
+    $('spStop').onclick = () => { state.stopSources = true; $('spStatus').textContent = 'Stopping…'; };
 
     $('spDiscard').onclick = () => {
       state.sourcePlan = null; show($('spPlanBox'), false); show($('aeThink'), false); $('spMsg').textContent = '';
@@ -1226,18 +1288,22 @@
     }
   }
 
+  /* The three ways to change the curriculum, one at a time. The tree above them stays
+   * visible throughout - it is the object being edited, they are just the tools. */
   function wireComposeModes() {
-    if (!$('cmEditBtn')) return;
+    if (!$('cmSrcBtn')) return;
+    const panes = { src: ['cmSrcBtn', 'cmSrc'], build: ['cmBuildBtn', 'cmBuild'], edit: ['cmEditBtn', 'cmEdit'] };
     const set = (mode) => {
-      const edit = mode === 'edit';
-      $('cmEditBtn').setAttribute('aria-selected', String(edit));
-      $('cmBuildBtn').setAttribute('aria-selected', String(!edit));
-      show($('cmEdit'), edit);
-      show($('cmBuild'), !edit);
+      for (const [key, [btn, pane]] of Object.entries(panes)) {
+        $(btn).setAttribute('aria-selected', String(key === mode));
+        show($(pane), key === mode);
+      }
+      // The scope picker counts what is in the library, which may have changed while
+      // the admin was in another mode.
+      if (mode === 'src') renderScopeOptions();
     };
-    $('cmEditBtn').onclick = () => set('edit');
-    $('cmBuildBtn').onclick = () => set('build');
-    set('edit');
+    for (const [key, [btn]] of Object.entries(panes)) $(btn).onclick = () => set(key);
+    set('src');
   }
 
   function wireTranscripts() {
