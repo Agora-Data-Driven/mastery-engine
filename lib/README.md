@@ -11,7 +11,7 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
 
 | File | What it is | Greppable anchors |
 |---|---|---|
-| [firestore.js](firestore.js) | **All database IO** (1.9k lines). Every read/write goes through here. | `COL` `:33` · `LEGACY_OWNER` `:48` · `statsCol()`/`logCol()` `:56`/`:65` · `slug()` `:72` · `moveTopics()` `:227` · `flashcardScopeId()` `:1232` · `studyGuideId()` `:1329` · `tupleKey()` `:1789` (**NUL lines 1788+1790**) · `buildTopicIdIndex()` `:1814` · `logResults()` `:1838` |
+| [firestore.js](firestore.js) | **All database IO** (1.9k lines). Every read/write goes through here. | `COL` `:34` · `LEGACY_OWNER` `:50` · `statsCol()`/`logCol()` `:58`/`:67` · `slug()` `:74` · `moveTopics()` `:279` · `renameTopics()` `:329` · `flashcardScopeId()` `:1743` · `studyGuideId()` `:1866` · `tupleKey()` `:2511` (**NUL lines 2510+2512**) · `buildTopicIdIndex()` `:2536` · `logResults()` `:2560` |
 | [gemini.js](gemini.js) | **All AI prompts + provider dispatch** (3.3k lines). Misleading name — fronts every provider. | HOW-IT-WORKS injection `:29` · `META_QUESTION_RE` `:35` · `clampToPolicy()` `:119` (the HARD per-user AI-allowlist gate) · `complete()` `:132` · `completeStream()` `:148` · `parseLooseJson()` `:242` · `restoreLatexEscapes()` `:314` |
 | [auth.js](auth.js) | 4 sign-in paths, identity resolvers, guards. | `verifyAgSso()` `:139` · `currentEmail()` `:182` · `effectiveUser()` `:260` · `conversationUser()` `:280` · `requireAuth` `:302` · `requireAdmin` `:309` |
 | [priority.js](priority.js) | The **two** scoring formulas. Pure, IO-free. | `computePriority()` (what to study next) · `computeMastery()` (depth: evidence + freshness — three load-bearing properties, see AGENTS.md §3) · `retentionFactor()` · `deriveStats()` |
@@ -77,12 +77,15 @@ Operating rules + repo-wide gotchas: [../AGENTS.md](../AGENTS.md). Deep API refe
    data goes through `statsCol()`/`logCol()`; never branch on `LEGACY_OWNER` yourself, never
    key anything by `slug(fields)` (use `buildTopicIdIndex()`).
 6. **Change the curriculum** — `runCurriculumEdits()` (server.js:4001) → `moveTopics()`
-   (firestore.js:227). Preserves doc ids, and therefore questions + learner stats. Never raw
-   Firestore writes for moves/renames.
-7. **Edit a NUL line** (firestore.js:1788/:1790, `tupleKey`) — Node script only:
+   (firestore.js:227) to RE-FILE, `renameTopics()` (firestore.js:302) to RENAME a sub-lesson.
+   Both preserve doc ids, and therefore learner stats. `renameTopics` additionally re-keys the
+   four things keyed by the NAME — banked questions, deck cards, a topic deck's `scopeId`, a
+   topic guide's doc id — which `moveTopics` does not: renaming through it empties the
+   sub-lesson silently. Never raw Firestore writes for moves/renames. See AGENTS.md §3.
+7. **Edit a NUL line** (firestore.js:2510/:2512, `tupleKey`) — Node script only:
    `fs.readFileSync` → `s.replace('… …', '…')` → `fs.writeFileSync`. `Edit` cannot match
    these lines; never open-and-rewrite the file.
-8. **Verify → deploy → re-port** — `node --check` every edited file; run the nine tests
+8. **Verify → deploy → re-port** — `node --check` every edited file; run the twelve tests
    (`node lib\_auth_test.js` `_graph_test.js` `_programs_test.js` `_progress_credit_test.js`
    `_priority_test.js` `_visual_test.js` `_deep_test.js` `_usage_test.js` `_aidiag_test.js`);
    then `gcloud run deploy mastery-engine --source . --region us-central1 --project

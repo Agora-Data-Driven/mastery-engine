@@ -211,6 +211,37 @@ reads from another; the learner finishes a quiz and sees no progress. This exact
 fixed twice. Use `buildTopicIdIndex()` ([firestore.js:1814](lib/firestore.js#L1814)) to map
 rows → real doc ids.
 
+### 🔴 Renaming a SUB-LESSON is not a field write — use `renameTopics`
+
+The doc id is the identity, but the sub-lesson's **name** is still the key of four other
+things, and none of them live on the topic doc:
+
+| Keyed by the name | Where |
+|---|---|
+| the banked questions | `questions.topic` — `getQuestionsForTopics` matches on name |
+| a deck's cards | `flashcards.topic` (and `concept`, on a book's point cards) |
+| a TOPIC-level deck | `flashcards.scopeId` — `flashcardScopeId` embeds the name |
+| a TOPIC-level study guide | the `studyGuides` **doc id** — `studyGuideId` embeds it |
+
+So `moveTopics(ids, { topic })` is **not** a rename: it would keep the learner's progress and
+silently empty the sub-lesson — quiz finds no questions, deck disappears, guide regenerates
+from nothing. [`renameTopics()`](lib/firestore.js) re-keys all four and keeps the id; the
+admin door is `POST /api/admin/topics/rename`, and the AI curriculum editor's op is
+`rename_topic`. `graphLinks` and per-user `topicStats` are keyed by id and need nothing.
+
+⚠️ **Questions are the one ambiguous case.** A question doc carries only `{topic, program}`, so
+two sub-lessons of one program that share a name share ONE pool and nothing can say which half
+belongs where. `renameTopics` refuses to guess: it leaves those questions alone and reports the
+name in `ambiguous`, unless the caller passes the exact `questionIds` that follow the row.
+(Philosophy hit this — "Attention spotlight and zooming" was a key point of *both* Chatter and
+Shift — and the two halves split cleanly by `batchTag`, one generation run per book. See
+[scripts/rename-philosophy-points.mjs](scripts/rename-philosophy-points.mjs).)
+
+Historical `quizLog` rows keep the name they were logged under, deliberately — the same
+already-documented gap a re-filing opens, so a rename reads velocity slightly LOW for the
+current window and heals as the window rolls. Live credit is unaffected: `logResults` resolves
+the doc id through `catalogIdIndex()`.
+
 ### Per-user data lives in two shapes
 
 There is a **legacy owner** (`LEGACY_OWNER`, [firestore.js:48](lib/firestore.js#L48), default
@@ -608,8 +639,12 @@ Two rules survive from that design, one grain down:
 ### Change the curriculum (move/rename/merge topics)
 
 Use the ops engine, not raw Firestore writes: `runCurriculumEdits()`
-([server.js:4001](server.js#L4001)) → `moveTopics()`. It preserves doc ids, and therefore
-questions and learner stats.
+([server.js:4001](server.js#L4001)) → `moveTopics()` / `renameTopics()`. It preserves doc ids,
+and therefore questions and learner stats.
+
+🔴 **Re-filing and renaming are different writes.** `moveTopics` changes track/course/lesson;
+a SUB-LESSON's name is also the key of its questions, cards and guide, so renaming one goes
+through `renameTopics` (op `rename_topic`, route `POST /api/admin/topics/rename`) — see §3.
 
 Admin UI: Academy Admin → **Curriculum** → "Edit with AI" (one of that station's three modes,
 beside "From my sources" and "Build with AI").
@@ -629,7 +664,7 @@ There is **no test runner and no linter configured**. `npm test` does not exist.
 node --check server.js
 Get-ChildItem lib\*.js | ForEach-Object { node --check $_.FullName }
 
-# 2. The ten real unit tests (pure logic, no cloud needed — all print "PASS")
+# 2. The twelve real unit tests (pure logic, no cloud needed — all print "PASS")
 node lib\_auth_test.js
 node lib\_graph_test.js              # warm-up / readiness graph logic
 node lib\_programs_test.js
@@ -641,6 +676,7 @@ node lib\_usage_test.js              # AI/TTS usage accounting + cost estimates
 node lib\_aidiag_test.js             # AI-failure classifier + the reply salvage (§7)
 node lib\_split_test.js              # where an oversized source is CUT into lessons (§5)
 node lib\_gendupe_test.js            # question de-duplication + per-program audience (§7)
+node lib\_naming_test.js             # the sub-lesson naming rule, concept vs reading (§3)
                                      # _graph_test also covers the curriculum spine's order (§3)
 
 # 3. Boot it and hit a route
@@ -667,15 +703,17 @@ Each of these cost real hours. Symptom → cause → fix.
 
 ### 🔴 `Edit` fails to match a string that's clearly in the file
 
-**Cause:** three files contain **literal NUL (0x00) bytes** used as map-key separators. `Read`
+**Cause:** two files contain **literal NUL (0x00) bytes** used as map-key separators. `Read`
 renders them as spaces, so the string you copy back is not the string on disk. Grep reports the
 file as binary.
 
 | File | Line | Content |
 |---|---|---|
-| [public/app.js](public/app.js) | 598 | `` lo(le, `${r.course}<NUL>${r.lesson}`, r.order); `` |
-| [server.js](server.js) | 4159 | `` const key = `${r.track}<NUL>${r.course}<NUL>${r.lesson}`; `` |
-| [lib/firestore.js](lib/firestore.js) | 2163, 2165 | `tupleKey()` — joins with `<NUL>` (the comment above it contains one too) |
+| [server.js](server.js) | 4847 | `` const key = `${r.track}<NUL>${r.course}<NUL>${r.lesson}`; `` |
+| [lib/firestore.js](lib/firestore.js) | 2510, 2512 | `tupleKey()` — joins with `<NUL>` (the comment above it contains one too) |
+
+(`public/app.js` no longer holds one — its lesson grouping was rewritten. Re-measure with the
+snippet below rather than trusting this table.)
 
 Line numbers here drift with every change — re-measure before trusting them:
 ```js
@@ -1443,6 +1481,37 @@ back, so a re-run re-added questions the learner already had, and its 4-way `map
 fan-out meant four topics generated in one request could not see each other. It now reads the
 whole selection's bank once (one query, not N) and shares one key/overlap set across the
 concurrent calls, mutated *before* the `await addQuestion`.
+
+### 🔴 A reading program's sub-lessons must be CLAIMS, not labels (fixed 2026-09-08)
+
+**Symptom:** the Philosophy program's book decks taught nothing on the front. The title card
+asks the reader to name and explain every key point from memory, and the list it showed was
+*"1. Myth of innate talent · 2. Experience versus improvement · 3. Limits of IQ as a
+predictor…"* — six labels that only mean something to someone who has already learnt the
+book. Same on every point card, where the name IS the whole front.
+
+**Cause:** every planner asked for *"a short noun phrase"*, which is the right ask for a
+CONCEPT program and the wrong one for a READING program. "Frequency capping" is the standard
+name of a thing that exists and is what a practitioner would search for; turning it into a
+sentence would assert one claim about a topic that has many. But a book's sub-lesson is one of
+its **key points**, and a key point is an argument: *"Innate talent is a myth: the future stars
+showed no early edge"* carries the insight, *"Myth of innate talent"* only points at it.
+
+**Fix:** `topicNameRule(reading)` in [lib/gemini.js](lib/gemini.js) — one constant per kind,
+interpolated by every planner that names a sub-lesson (`classifyTranscript`, `digestSource`,
+`planFromSources`, `planCurriculum`, `planCurriculumEdit`). `reading` comes from
+`isReadingProgram(program)` in [server.js](server.js) — category `'growth'`, the **same switch**
+that puts a lesson into book-deck shape, so a program cannot get book cards and concept names.
+Every caller that omits the flag keeps the concept rule byte-for-byte, so no career program
+moved. [`lib/_naming_test.js`](lib/_naming_test.js) asserts both rules and that no planner
+still hardcodes one.
+
+The 28 sub-lessons that shipped before this were rewritten by
+[scripts/rename-philosophy-points.mjs](scripts/rename-philosophy-points.mjs) (a dry run by
+default; the names it applies are in `scripts/philosophy-points.json`).
+
+🔴 **Do not "improve" this by making every program's names sentences.** The split is the point,
+and it is the same category flag the deck shape already uses.
 
 ### 🔴 The Academy's question prompts were hardcoded to "a working digital marketer"
 

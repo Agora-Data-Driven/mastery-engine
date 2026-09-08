@@ -550,6 +550,7 @@ The tree has been refreshed — try again to remove the rest.`
 
   const CA_OP_LABEL = {
     merge_lessons: 'Merge lessons', rename_lesson: 'Rename lesson', rename_course: 'Rename course',
+    rename_topic: 'Rename sub-lesson',
     move_lesson: 'Move lesson', move_topic: 'Move sub-lesson', delete_topic: 'Delete sub-lesson',
     delete_lesson: 'Delete lesson', add_topic: 'Add sub-lesson',
     reorder_lessons: 'Reorder lessons', reorder_topics: 'Reorder sub-lessons',

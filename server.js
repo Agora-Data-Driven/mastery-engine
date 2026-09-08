@@ -67,6 +67,7 @@ import {
   setTopicOrders,
   ORDER_FIELDS,
   moveTopics,
+  renameTopics,
   addUsage,
   getUsage,
   stampActiveMinutes,
@@ -5936,6 +5937,38 @@ app.post('/api/admin/topics/move', requireAdmin, async (req, res, next) => {
 });
 
 /**
+ * Admin: RENAME sub-lessons in place. The doc id is kept (so per-user stats and
+ * the prereq graph survive), and `renameTopics` re-keys the collateral that is
+ * keyed by NAME instead — banked questions, deck cards, a topic-level deck's
+ * scopeId, a topic-level study guide's doc id. Renaming by hand through
+ * `topics/move` is NOT equivalent: that writes only track/course/lesson, so the
+ * sub-lesson would keep its progress and lose its questions.
+ *
+ * Body: { items:[{ id, topic, questionIds? }] }. `questionIds` exists for the one
+ * case name-matching cannot decide — two sub-lessons of one program that share a
+ * name share one question pool; without it those questions are left where they
+ * are and reported back in `ambiguous`.
+ *
+ * Default JSON parser, like its `topics/move` and `topics/reorder` siblings: the body is
+ * names and ids, and `bigJson` is not declared until the transcript routes far below.
+ */
+app.post('/api/admin/topics/rename', requireAdmin, async (req, res, next) => {
+  try {
+    const items = (Array.isArray(req.body?.items) ? req.body.items : [])
+      .map((it) => ({
+        id: String(it?.id || '').trim(),
+        topic: String(it?.topic || '').trim(),
+        ...(Array.isArray(it?.questionIds) ? { questionIds: it.questionIds } : {}),
+      }))
+      .filter((it) => it.id && it.topic);
+    if (!items.length) return res.status(400).json({ error: 'Nothing to rename' });
+    res.json({ ok: true, ...(await renameTopics(items)) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
  * Admin: persist a new curriculum position on a set of topic rows (the drag-and-drop
  * editor). Body: { items:[{id, order?, lessonOrder?, courseOrder?}] } — one grain per
  * field, so reordering lessons writes only `lessonOrder` and leaves every lesson's
@@ -6061,6 +6094,7 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
   // enough to describe; the working copy is mutated immediately regardless.
   const writes = [];
   const doMove = (ids, to) => writes.push(() => moveTopics(ids, to));
+  const doRename = (items) => writes.push(() => renameTopics(items));
   const doDelete = (ids) => writes.push(async () => { for (const id of ids) await deleteTopic(id); });
   const doReorder = (items) => { if (items.length) writes.push(() => setTopicOrders(items)); };
   const doAdd = (rows) => writes.push(() => upsertTopics(rows));
@@ -6096,6 +6130,26 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
           rows.forEach((r) => { r.lesson = newName; });
           if (!dryRun) doMove(ids, { lesson: newName });
           description = `Rename lesson “${lessonName}” → “${newName}” (${ids.length} sub-lesson${ids.length === 1 ? '' : 's'})`;
+          break;
+        }
+        // Renaming a SUB-LESSON is not the same shape as renaming a lesson or a
+        // course: those move only the row's fields, while a sub-lesson's NAME is
+        // also the key of its banked questions, its deck cards and its guide.
+        // `renameTopics` re-keys all of them; `moveTopics` would strand them.
+        case 'rename_topic': {
+          const track = resolveTrack(raw.track, raw.course);
+          const rows = rowsIn(track, raw.course, raw.lesson, raw.topic);
+          if (!rows.length) throw new Error(`No sub-lesson “${clean(raw.topic)}” in “${clean(raw.lesson)}”`);
+          const newName = clean(raw.newName);
+          if (!newName) throw new Error('rename_topic needs a newName');
+          const r = rows[0];
+          const topicName = r.topic;
+          if (key(newName) !== key(topicName) && rowsIn(track, r.course, r.lesson, newName).length) {
+            throw new Error(`“${newName}” is already a sub-lesson of “${r.lesson}”`);
+          }
+          r.topic = newName;
+          if (!dryRun) doRename([{ id: r.id, topic: newName }]);
+          description = `Rename sub-lesson “${topicName}” → “${newName}”`;
           break;
         }
         case 'move_lesson': {
@@ -6291,7 +6345,7 @@ app.post('/api/admin/curriculum/edit/stream', requireAdmin, async (req, res) => 
     const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
     sseInit(res); started = true;
     const plan = await planCurriculumEdit(
-      { message, history, catalog, programName },
+      { message, history, catalog, programName, reading: await isReadingProgram(program) },
       aiFromBody(req),
       (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
     );
@@ -6550,7 +6604,10 @@ app.post('/api/admin/transcripts/:id/digest', requireAdmin, rateLimitAI, async (
     if (t.digestedAt && req.body?.force !== true) {
       return res.json({ ok: true, cached: true, id: t.id, abstract: t.abstract || '', concepts: t.concepts || [] });
     }
-    const digest = await digestSource({ title: t.title, text: t.text }, aiFromBody(req));
+    const digest = await digestSource(
+      { title: t.title, text: t.text, reading: await isReadingProgram(t.program) },
+      aiFromBody(req),
+    );
     await setTranscriptDigest(t.id, digest);
     res.json({ ok: true, cached: false, id: t.id, ...digest });
   } catch (e) {
@@ -6689,7 +6746,7 @@ async function prepareIngest(req) {
   if (!text) throw Object.assign(new Error('Pick a source from the library, paste a transcript, or pick a Watcher video first'), { status: 400 });
   const catalog = await getCatalog(req.userEmail, scope);
   const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
-  return { program, programName, catalog, text, title, watcherRef, source, transcriptId };
+  return { program, programName, reading: await isReadingProgram(program), catalog, text, title, watcherRef, source, transcriptId };
 }
 
 // New-vs-existing is decided HERE, from the live catalog — never trusted from the model.
@@ -6719,7 +6776,10 @@ function shapeIngestPlan(p, { program, title, source, watcherRef, text, catalog,
 app.post('/api/admin/ingest/plan', requireAdmin, bigJson, async (req, res, next) => {
   try {
     const ctx = await prepareIngest(req);
-    const p = await classifyTranscript({ transcript: ctx.text, catalog: ctx.catalog, programName: ctx.programName }, aiFromBody(req));
+    const p = await classifyTranscript(
+      { transcript: ctx.text, catalog: ctx.catalog, programName: ctx.programName, reading: ctx.reading },
+      aiFromBody(req),
+    );
     res.json(shapeIngestPlan(p, ctx));
   } catch (e) {
     if (e.status) return res.status(e.status).json({ error: e.message });
@@ -6735,7 +6795,7 @@ app.post('/api/admin/ingest/plan/stream', requireAdmin, bigJson, async (req, res
     const ctx = await prepareIngest(req);
     sseInit(res); started = true;
     const p = await classifyTranscript(
-      { transcript: ctx.text, catalog: ctx.catalog, programName: ctx.programName },
+      { transcript: ctx.text, catalog: ctx.catalog, programName: ctx.programName, reading: ctx.reading },
       aiFromBody(req),
       (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
     );
@@ -7126,7 +7186,10 @@ async function prepareSourcePlan(req) {
   // Gap topics are OPT-IN: they are created empty and never generated over, so a
   // design full of them is mostly a to-do list. Absent flag = no gaps.
   const wantGaps = req.body?.gaps === true;
-  return { program, programName, catalog, sources, undigested, wantGaps, guidance: String(req.body?.guidance || '').trim() };
+  return {
+    program, programName, reading: await isReadingProgram(program),
+    catalog, sources, undigested, wantGaps, guidance: String(req.body?.guidance || '').trim(),
+  };
 }
 
 /** New-vs-existing decided HERE from the live catalog, never from the model.
@@ -7175,7 +7238,10 @@ app.post('/api/admin/sources/plan', requireAdmin, bigJson, async (req, res, next
   try {
     const ctx = await prepareSourcePlan(req);
     const plan = await planFromSources(
-      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance, wantGaps: ctx.wantGaps },
+      {
+        sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName,
+        guidance: ctx.guidance, wantGaps: ctx.wantGaps, reading: ctx.reading,
+      },
       aiFromBody(req),
     );
     res.json({ ...shapeSourcePlan(plan, ctx), undigested: ctx.undigested });
@@ -7192,7 +7258,10 @@ app.post('/api/admin/sources/plan/stream', requireAdmin, bigJson, async (req, re
     const ctx = await prepareSourcePlan(req);
     sseInit(res); started = true;
     const plan = await planFromSources(
-      { sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName, guidance: ctx.guidance, wantGaps: ctx.wantGaps },
+      {
+        sources: ctx.sources, catalog: ctx.catalog, programName: ctx.programName,
+        guidance: ctx.guidance, wantGaps: ctx.wantGaps, reading: ctx.reading,
+      },
       aiFromBody(req),
       (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
     );
@@ -7354,7 +7423,7 @@ async function prepareGoal(req) {
   const catalog = await getCatalog(req.userEmail, scope);
   const { known, learning } = masteryDigest(catalog);
   const programName = (await getPrograms()).find((p) => p.id === program)?.name || program;
-  return { program, programName, catalog, goal, reference, known, learning };
+  return { program, programName, reading: await isReadingProgram(program), catalog, goal, reference, known, learning };
 }
 
 // New-vs-existing decided HERE from the live catalog, never from the model.
@@ -7383,7 +7452,10 @@ app.post('/api/admin/goal/plan', requireAdmin, bigJson, async (req, res, next) =
   try {
     const ctx = await prepareGoal(req);
     const plan = await planCurriculum(
-      { goal: ctx.goal, known: ctx.known, learning: ctx.learning, catalog: ctx.catalog, programName: ctx.programName, reference: ctx.reference },
+      {
+        goal: ctx.goal, known: ctx.known, learning: ctx.learning, catalog: ctx.catalog,
+        programName: ctx.programName, reference: ctx.reference, reading: ctx.reading,
+      },
       aiFromBody(req),
     );
     res.json(shapeGoalPlan(plan, ctx));
@@ -7401,7 +7473,10 @@ app.post('/api/admin/goal/plan/stream', requireAdmin, bigJson, async (req, res) 
     const ctx = await prepareGoal(req);
     sseInit(res); started = true;
     const plan = await planCurriculum(
-      { goal: ctx.goal, known: ctx.known, learning: ctx.learning, catalog: ctx.catalog, programName: ctx.programName, reference: ctx.reference },
+      {
+        goal: ctx.goal, known: ctx.known, learning: ctx.learning, catalog: ctx.catalog,
+        programName: ctx.programName, reference: ctx.reference, reading: ctx.reading,
+      },
       aiFromBody(req),
       (t, kind) => sseSend(res, kind === 'thinking' ? 'thinking' : 'content', { text: t }),
     );
