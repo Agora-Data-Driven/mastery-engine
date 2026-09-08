@@ -1276,7 +1276,10 @@ The tree has been refreshed — try again to remove the rest.`
       $('spCommitMsg').innerHTML = `<span class="aa-ok">Created ${res.topics} topics · filed ${res.filed} source${res.filed === 1 ? '' : 's'}${res.copied ? ` (+${res.copied} copies for lessons sharing a source)` : ''}.</span>`;
       if (res.job) {
         $('spStatus').textContent = 'Generating questions…';
-        await runSteps(res.job.id, { bar: 'spBar', status: 'spStatus' }, 'stopSources');
+        // `out` matters: without it runSteps swallows job.errors, and a topic whose
+        // lesson ended up with no source fails SILENTLY - you would get a curriculum
+        // with quietly missing questions and no hint why.
+        await runSteps(res.job.id, { bar: 'spBar', status: 'spStatus', out: 'spOut' }, 'stopSources');
       }
       if (!state.stopSources) {
         state.sourcePlan = null; state.libSel.clear();
