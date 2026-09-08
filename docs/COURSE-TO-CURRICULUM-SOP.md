@@ -74,7 +74,13 @@ added in that session). Folders are shelving only: they never affect what a less
 so they are safe to reorganise at any time, and the folder rail is how you find one course's
 material again once the library holds several.
 
-Get one transcript per lecture/video/chapter, exactly as spoken. Routes, in order of preference:
+**One source per lecture/video/chapter — not one per module.** Drop all forty files in at once;
+that is one drag. Concatenating a module into a single file looks tidier and grounds worse:
+the catalogue would read only its first 24k characters and every lesson it grounds would draw
+questions from the same first 12k. If you already have one big file, add it and press **Split
+into lessons** — that cuts it at its own lesson boundaries and gives you the same result.
+
+Routes for getting the text, in order of preference:
 
 1. **Atrium Watcher** — if the course is on YouTube, add the channel/playlist; Academy Admin →
    Compose can then "pick a Watcher video" straight into the ingest box.
@@ -294,7 +300,8 @@ that would have prevented it.
 | Catalogue a source | `POST /api/admin/transcripts/:id/digest` | Cached on the doc; the corpus planner reads these, never full text |
 | Design a curriculum from sources | `POST /api/admin/sources/plan(/stream)` → `/sources/commit` | Commit also FILES each source onto its lesson; gap topics created empty, never generated |
 | Attach a source | Library → File a source into the curriculum · `POST /api/admin/ingest/commit` with `transcriptId` | Files that doc IN PLACE — keeps its id, folder and digest |
-| Shelve sources | Library folder rail · `POST /api/admin/transcripts/folder` | Organisation only; never touches grounding |
+| Shelve sources | Library folder rail (drag rows onto a chip) · `POST /api/admin/transcripts/folder` | Organisation only; never touches grounding |
+| Split an oversized source | Library → Split into lessons · `POST /api/admin/transcripts/:id/split` | Parent kept + marked `splitInto`; delete it yourself once the parts look right |
 | Generate from transcript | `POST /api/admin/genjobs` `{program,track,course,lesson[,topic]}` | Stepper, one topic per call; ADDS, never tops up |
 | Generate from expert knowledge | genjob `grounding:'topic'` · `POST /api/generate` | For gap topics with a brief |
 | Author at the quality ceiling | `content-build/` INSTRUCTIONS → `check-questions.js` → `assemble.cjs --apply` | 6 Q/topic, 8–14 cards/lesson, 1,600–2,600-word doc |

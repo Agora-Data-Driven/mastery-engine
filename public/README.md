@@ -97,6 +97,13 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    the same for goal-vs-outline (`wireBuildModes`); the Library filters with one
    (`state.libFilter`). Reach for `.aa-seg` before adding a fifth full-height card — that is
    what made this page scroll for a screen and a half before 2026-09-07.
+9b2. **Drag is always additive.** The Library takes OS file drops anywhere on the panel and
+   lets you drag rows onto a folder chip, but **every one of those actions also has a button**
+   (Choose files…, Move). A drag is hard to discover, impossible on touch and awkward with a
+   screen reader, so it is the shortcut, never the only route. Two details are load-bearing:
+   the drop highlight is **refcounted** across `dragenter`/`dragleave` (they fire per child
+   element, so a toggle flickers off as the pointer crosses a card), and a row drag carries the
+   whole **ticked** set when the dragged row is one of them — tick five, drag one, move five.
 9c. **A mode is not a station.** The rail went 7 → 5 on 2026-09-07 by merging the pairs that
    were one job split in two: *Set*+*Proof* → **Questions** (build the bank, then fix it) and
    *Distribute*+*Team* → **People** (enrol someone, then see how they are doing). Opening

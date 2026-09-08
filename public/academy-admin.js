@@ -90,7 +90,7 @@
     watcher: { client: '', channel: '', video: null, title: '' },
     job: null, stop: false,
     ingest: null, stopIngest: false, // the AI auto-file proposal + its run
-    libSel: new Set(), libShown: [], libFilter: 'all', libFolder: null, // the Library's ticked sources, its filed/unfiled filter, and the folder rail (null = all folders)
+    libSel: new Set(), libShown: [], libFilter: 'all', libFolder: null, libDrag: null, // the Library's ticked sources, its filed/unfiled filter, and the folder rail (null = all folders)
     sourcePlan: null, stopSources: false, // the corpus plan being reviewed + its run
     goal: null, stopGoal: false, // the "learn a goal" plan + its run
     bulk: null, stopBulk: false, // the "bulk-build lessons" parsed preview + its run
@@ -677,10 +677,30 @@
       ...names.map((f) => chip(f, f, counts.get(f))),
     ].join('');
     el.querySelectorAll('button[data-folder]').forEach((b) => {
+      b.classList.add('fold-chip');
       b.onclick = () => {
         state.libFolder = b.dataset.all === 'true' ? null : b.dataset.folder;
         renderTranscriptList();
       };
+      // "All" is a view, not a folder, so it is the one chip you cannot drop onto.
+      if (b.dataset.all === 'true') return;
+      b.addEventListener('dragover', (e) => {
+        if (!state.libDrag) return;
+        e.preventDefault(); e.dataTransfer.dropEffect = 'move'; b.classList.add('drop-over');
+      });
+      b.addEventListener('dragleave', () => b.classList.remove('drop-over'));
+      b.addEventListener('drop', async (e) => {
+        b.classList.remove('drop-over');
+        const ids = state.libDrag;
+        if (!ids || !ids.length) return;
+        e.preventDefault(); e.stopPropagation();
+        state.libDrag = null;
+        try {
+          const r = await api('/api/admin/transcripts/folder', { method: 'POST', body: { ids, folder: b.dataset.folder } });
+          await loadTranscripts();
+          $('libSel').innerHTML = `<span class="aa-ok">Moved ${r.moved} to ${b.dataset.folder ? esc(b.dataset.folder) : 'the top level'}.</span>`;
+        } catch (err) { $('libSel').innerHTML = `<span class="aa-err">${esc(err.message)}</span>`; }
+      });
     });
     const dl = $('upFolderList');
     if (dl) dl.innerHTML = names.map((f) => `<option value="${esc(f)}"></option>`).join('');
@@ -714,13 +734,27 @@
       // "Catalogued" = a cached digest exists, which is what the corpus planner reads.
       const cat = t.abstract ? ' &middot; <span style="color:#15803D">catalogued</span>' : '';
       const fold = folderOf(t) ? ` &middot; 📁 ${esc(folderOf(t))}` : '';
-      return `<div style="display:flex;align-items:stretch;border-bottom:1px solid #F0F1F4">` +
+      const sp = t.splitInto ? ` &middot; <span style="color:#B45309">split into ${t.splitInto}</span>` : '';
+      return `<div class="lib-row" draggable="true" data-row="${esc(t.id)}" style="display:flex;align-items:stretch;border-bottom:1px solid #F0F1F4">` +
         `<label style="display:flex;align-items:center;padding:0 4px 0 9px;cursor:pointer">` +
           `<input type="checkbox" data-lib="${esc(t.id)}" style="width:auto"${state.libSel.has(t.id) ? ' checked' : ''}></label>` +
         `<button data-id="${esc(t.id)}" style="flex:1;border-bottom:0"><b>${esc(t.title)}</b><br>` +
-        `<span style="color:#6B7280;font-size:12px">${where} &middot; ${t.chars || 0} chars &middot; ${esc(t.source)}${cat}${fold}</span></button></div>`;
+        `<span style="color:#6B7280;font-size:12px">${where} &middot; ${t.chars || 0} chars &middot; ${esc(t.source)}${cat}${fold}${sp}</span></button></div>`;
     }).join('');
     $('tList').querySelectorAll('button[data-id]').forEach((b) => { b.onclick = () => openTranscript(b.dataset.id, b); });
+    // Dragging a row carries the whole TICKED set when the dragged row is one of
+    // them, so "tick five, drag one" moves all five - the desktop behaviour.
+    $('tList').querySelectorAll('.lib-row').forEach((row) => {
+      row.addEventListener('dragstart', (e) => {
+        const id = row.dataset.row;
+        state.libDrag = state.libSel.has(id) ? [...state.libSel] : [id];
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        // Some payload is required or Firefox cancels the drag immediately.
+        e.dataTransfer.setData('text/plain', state.libDrag.join(','));
+      });
+      row.addEventListener('dragend', () => { row.classList.remove('dragging'); state.libDrag = null; });
+    });
     $('tList').querySelectorAll('input[data-lib]').forEach((c) => {
       c.onchange = () => {
         if (c.checked) state.libSel.add(c.dataset.lib); else state.libSel.delete(c.dataset.lib);
@@ -860,33 +894,70 @@
     $('upPick').onclick = () => $('upFiles').click();
     $('upFiles').onchange = async () => {
       const files = [...($('upFiles').files || [])];
-      if (!files.length) return;
-      const bar = $('upBar'); const st = $('upStatus');
-      let done = 0; let failed = 0;
-      for (const f of files) {
-        st.textContent = `Reading ${f.name}… (${done + 1} of ${files.length})`;
-        try {
-          // .vtt/.srt are accepted, and their cue numbers and timecodes are noise to
-          // every downstream reader (digester, planner, question writer). `stripTiming`
-          // is defined further down but initialised long before this handler can fire.
-          const text = stripTiming(await f.text());
-          if (!text.trim()) throw new Error('empty file');
-          await api('/api/admin/transcripts', {
-            method: 'POST',
-            // No track/course/lesson: this lands UNFILED, on purpose.
-            body: { program: state.program, title: f.name.replace(/\.[^.]+$/, ''), text, source: 'upload', folder: $('upFolder').value.trim() },
-          });
-        } catch (e) { failed += 1; console.error('upload failed', f.name, e.message); }
-        done += 1;
-        bar.style.width = `${Math.round((done / files.length) * 100)}%`;
-      }
       $('upFiles').value = '';
-      st.innerHTML = failed
-        ? `<span class="aa-err">Added ${done - failed} of ${files.length}; ${failed} failed (see console).</span>`
-        : `<span class="aa-ok">Added ${done} source${done === 1 ? '' : 's'} to the library — unfiled, nothing generated.</span>`;
-      bar.style.width = '0%';
-      await loadTranscripts();
+      await addFilesToLibrary(files);
     };
+
+    /* Drop OS files anywhere on the Library panel. `dragenter`/`dragleave` fire for
+     * every child element, so the highlight is refcounted rather than toggled -
+     * decrementing on each leave is what stops it flickering off as the pointer
+     * crosses a card boundary mid-drag. */
+    const panel = $('p-sources');
+    if (panel) {
+      let depth = 0;
+      const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+      panel.addEventListener('dragenter', (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault(); depth += 1; panel.classList.add('over');
+      });
+      panel.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+      panel.addEventListener('dragleave', (e) => {
+        if (!hasFiles(e)) return;
+        depth = Math.max(0, depth - 1);
+        if (!depth) panel.classList.remove('over');
+      });
+      panel.addEventListener('drop', async (e) => {
+        if (!hasFiles(e)) return;
+        e.preventDefault(); depth = 0; panel.classList.remove('over');
+        await addFilesToLibrary([...(e.dataTransfer.files || [])]);
+      });
+    }
+
+    wireLibraryRest();
+  }
+
+  /* One implementation behind the file picker AND the drop zone. Everything lands
+   * UNFILED, into whatever folder the "Put it in" box names. */
+  async function addFilesToLibrary(files) {
+    if (!files || !files.length) return;
+    const bar = $('upBar'); const st = $('upStatus');
+    let done = 0; let failed = 0;
+    for (const f of files) {
+      st.textContent = `Reading ${f.name}… (${done + 1} of ${files.length})`;
+      try {
+        // .vtt/.srt are accepted, and their cue numbers and timecodes are noise to
+        // every downstream reader (digester, planner, question writer).
+        const text = stripTiming(await f.text());
+        if (!text.trim()) throw new Error('empty file');
+        await api('/api/admin/transcripts', {
+          method: 'POST',
+          // No track/course/lesson: this lands UNFILED, on purpose.
+          body: { program: state.program, title: f.name.replace(/\.[^.]+$/, ''), text, source: 'upload', folder: $('upFolder').value.trim() },
+        });
+      } catch (e) { failed += 1; console.error('upload failed', f.name, e.message); }
+      done += 1;
+      bar.style.width = `${Math.round((done / files.length) * 100)}%`;
+    }
+    st.innerHTML = failed
+      ? `<span class="aa-err">Added ${done - failed} of ${files.length}; ${failed} failed (see console).</span>`
+      : `<span class="aa-ok">Added ${done} source${done === 1 ? '' : 's'} to the library — unfiled, nothing generated.</span>`;
+    bar.style.width = '0%';
+    await loadTranscripts();
+  }
+
+  /* The rest of the Library wiring — split out only so the drop-zone setup above
+   * stays readable; called from wireLibrary(). */
+  function wireLibraryRest() {
 
     $('upAdd').onclick = async () => {
       const text = $('upText').value.trim();
@@ -932,6 +1003,42 @@
         $('libSel').innerHTML = `<span class="aa-ok">Moved ${r.moved} to ${folder ? esc(folder) : 'the top level'}.</span>`;
       } catch (e) { $('libSel').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
       $('libMove').disabled = false;
+    };
+
+    /* Split one oversized source into the lessons it contains.
+     *
+     * This is the answer to "can I just upload the whole module as one file?" — yes,
+     * then press this. It matters because every reader downstream is bounded (digest
+     * 24k, classify 9k, generation 12k per lesson), so an unsplit module would
+     * catalogue from its opening third and ground every one of its lessons on the
+     * same first 12k. The parent is kept, so nothing is destroyed if the cut is wrong. */
+    $('libSplit').onclick = async () => {
+      const pick = pickedSource();
+      if (!pick) { $('libSel').innerHTML = '<span class="aa-err">Tick exactly one source to split.</span>'; return; }
+      $('libSplit').disabled = true;
+      $('spStatus').textContent = `Looking for lesson boundaries in “${pick.title}”…`;
+      try {
+        const r = await api(`/api/admin/transcripts/${encodeURIComponent(pick.id)}/split`, { method: 'POST', body: { ...engineBody() } });
+        await loadTranscripts();
+        if (!r.split) {
+          $('spStatus').innerHTML = `<span class="aa-note">${esc(r.note || 'No lesson boundaries found.')}</span>`;
+        } else {
+          state.libSel.clear();
+          renderTranscriptList();
+          $('spStatus').innerHTML = `<span class="aa-ok">Split into ${r.sections} sources in folder “${esc(r.folder)}”. `
+            + `The original is kept — <a href="#" id="libDropOrig" data-id="${esc(pick.id)}">delete it</a> once the parts look right.</span>`;
+          const del = $('libDropOrig');
+          if (del) del.onclick = async (ev) => {
+            ev.preventDefault();
+            try {
+              await api('/api/admin/transcripts/' + encodeURIComponent(del.dataset.id), { method: 'DELETE' });
+              await loadTranscripts();
+              $('spStatus').innerHTML = '<span class="aa-ok">Original removed — only the split parts remain.</span>';
+            } catch (e) { $('spStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+          };
+        }
+      } catch (e) { $('spStatus').innerHTML = `<span class="aa-err">${esc(e.message)}</span>`; }
+      $('libSplit').disabled = false;
     };
 
     /* --- step 1: catalogue (the MAP half) ---
