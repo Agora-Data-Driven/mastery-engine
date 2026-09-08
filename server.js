@@ -160,6 +160,7 @@ import {
   generateTopicOrder,
   classifyTranscript,
   digestSource,
+  splitSource,
   planFromSources,
   planCurriculum,
   planCurriculumEdit,
@@ -6168,6 +6169,46 @@ app.put('/api/admin/transcripts/:id', requireAdmin, bigJson, async (req, res, ne
       folder: req.body?.folder,
     });
     res.json({ ok: true, id: req.params.id });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * Admin: split ONE oversized source into the lessons it is made of.
+ *
+ * Every reader here is bounded — digest 24k, classify 9k, generation 12k per
+ * lesson — so a single file holding a whole module catalogues from its opening
+ * third and then grounds every lesson it touches on the same first 12k. The fix
+ * is grain, not a bigger window: a source should be about lesson-sized.
+ *
+ * Children inherit the parent's folder (or get one named after it) and land
+ * UNFILED like any other source, so the normal Catalogue → Design flow follows.
+ * The parent is KEPT and marked `splitInto`, never deleted — the client offers
+ * that separately, because cutting someone's source material on their behalf and
+ * then destroying the original is not a decision this route should make alone.
+ */
+app.post('/api/admin/transcripts/:id/split', requireAdmin, rateLimitAI, async (req, res, next) => {
+  try {
+    const doc = await getTranscriptById(req.params.id);
+    if (!doc) return res.status(404).json({ error: 'Not found' });
+    const sections = await splitSource({ title: doc.title, text: doc.text }, aiFromBody(req));
+    if (sections.length < 2) {
+      return res.json({ ok: true, split: false, sections: 1, note: 'No lesson boundaries found — left as one source.' });
+    }
+    // Children go in a folder named after the parent when it had none, so a split
+    // never scatters a module's parts across the top level.
+    const folder = String(doc.folder || '').trim() || String(doc.title || 'Split').trim().slice(0, 60);
+    const ids = [];
+    for (const sec of sections) {
+      ids.push(await addTranscript({
+        program: doc.program, title: sec.title, text: sec.text,
+        source: doc.source || 'paste', watcherRef: doc.watcherRef || null, folder,
+        splitFrom: doc.id,
+      }));
+    }
+    await updateTranscript(doc.id, { splitInto: ids.length });
+    res.json({ ok: true, split: true, sections: ids.length, folder, ids });
   } catch (e) {
     next(e);
   }

@@ -504,6 +504,22 @@ let a paste create a *second* copy of a source the library already had. So `/ing
 that doc in place** (`updateTranscript`) instead of writing a new one — the source keeps its
 id, its folder and its cached digest, and simply stops being unfiled.
 
+**🔴 A source must be about LESSON-SIZED, and the reason is arithmetic.** Every reader is
+bounded: `digestSource` 24k chars, `classifyTranscript` 9k, `sourceFor` 12k **per lesson**
+([lib/genjobs.js](lib/genjobs.js)), `scopeSourceText` 24k. So one file holding a whole module
+catalogues from its opening third, and because grounding is scope-based, every lesson that
+source grounds then draws its questions from the same first 12k. `POST
+/api/admin/transcripts/:id/split` exists for exactly this: it finds the lesson boundaries and
+cuts the file into parts, each landing unfiled in a folder named after the parent. The parent
+is KEPT and marked `splitInto`; deleting it is a separate, explicit click.
+
+The cut itself never round-trips the text through a model — the model returns a title plus a
+**verbatim anchor**, and [`cutAtAnchors`](lib/gemini.js) locates each anchor in the original
+and slices there. It matches on a whitespace-normalised copy (models silently re-wrap lines),
+**drops** an anchor it cannot find rather than approximating, and scans forward so cuts
+strictly increase and no text lands in two lessons. [`lib/_split_test.js`](lib/_split_test.js)
+asserts all three — every failure mode here is silent, so run it after any change.
+
 **Folders are shelving, not filing.** A source's `folder` is free text on the transcript doc,
 derived into a rail from the distinct values in use (no registry, so an empty folder stops
 existing on its own). It is orthogonal to `course`/`lesson`: moving a source between folders
@@ -537,7 +553,7 @@ There is **no test runner and no linter configured**. `npm test` does not exist.
 node --check server.js
 Get-ChildItem lib\*.js | ForEach-Object { node --check $_.FullName }
 
-# 2. The nine real unit tests (pure logic, no cloud needed — all print "PASS")
+# 2. The ten real unit tests (pure logic, no cloud needed — all print "PASS")
 node lib\_auth_test.js
 node lib\_graph_test.js              # warm-up / readiness graph logic
 node lib\_programs_test.js
@@ -547,6 +563,7 @@ node lib\_visual_test.js             # visual-guide parsing + the truncation gua
 node lib\_deep_test.js               # deep mode's answer-key / declared-gap invariants (§7)
 node lib\_usage_test.js              # AI/TTS usage accounting + cost estimates
 node lib\_aidiag_test.js             # AI-failure classifier + the reply salvage (§7)
+node lib\_split_test.js              # where an oversized source is CUT into lessons (§5)
 
 # 3. Boot it and hit a route
 npm run dev
