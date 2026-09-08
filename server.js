@@ -116,7 +116,7 @@ import {
   countExplainLogs,
 } from './lib/firestore.js';
 import * as watcher from './lib/watcher.js';
-import { stepGenJob, publicJob } from './lib/genjobs.js';
+import { stepGenJob, publicJob, dedupeKey, contentWords, isNearDuplicate } from './lib/genjobs.js';
 import { computeMastery, computePriority, deriveStats } from './lib/priority.js';
 import { DEFAULT_PROGRAM, filterCatalog, programOf } from './lib/programs.js';
 import {
@@ -1512,16 +1512,35 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
     // Knowledge-graph links (best-effort): each topic's prompt gets the learner's
     // standing on its prerequisites, steering questions toward weak sub-steps.
     const graphLinks = await getGraphLinks().catch(() => []);
+    // The bank for EVERY selected topic, read once. Two reasons this is not the old
+    // per-topic read: it is one query instead of N, and the fan-out below runs four
+    // topics at a time, each of which used to be blind to the other three. A learner
+    // generating over a whole lesson got the same question under several topics.
+    const selectionBank = await getQuestionsForTopics(topics.slice(0, 60), scope);
+    const bankByTopic = new Map();
+    for (const q of selectionBank) {
+      if (!bankByTopic.has(q.topic)) bankByTopic.set(q.topic, []);
+      bankByTopic.get(q.topic).push(q);
+    }
+    // Shared across the concurrent calls, so two topics in one request cannot bank
+    // the same question. Mutated before the await on addQuestion, never after.
+    const bankedKeys = new Set(selectionBank.map((q) => dedupeKey(q.question)));
+    const bankedSets = selectionBank.map((q) => contentWords(`${q.question} ${q.answer || ''}`));
+    let skipped = 0;
     // Fan out across topics (bounded) instead of one serial round-trip each.
     await mapWithConcurrency(topics, 4, async (topic) => {
       try {
-        const [existing, attempts] = await Promise.all([
-          getQuestionsForTopics([topic], scope),
-          getTopicAttempts(req.userEmail, topic),
-        ]);
+        const existing = bankByTopic.get(topic) || [];
+        const attempts = await getTopicAttempts(req.userEmail, topic);
         // A few full Q/A for depth calibration; ALL stems as a de-dup avoid-list.
         const baseline = existing.slice(0, 6).map((q) => ({ q: q.question, a: q.answer }));
-        const stems = existing.map((q) => q.question);
+        // Own topic's stems FIRST, then the rest of the selection's — repeating
+        // yourself is worse than repeating the topic next door, and avoidBlock caps.
+        const stems = [
+          ...existing.map((q) => q.question),
+          ...selectionBank.filter((q) => q.topic !== topic).map((q) => q.question),
+        ];
+        const siblings = topics.filter((t) => t !== topic);
         // Difficulty ramps from THIS learner's history on the topic when set to
         // "auto" (weak/untouched -> core, mastered -> challenge); a manual pick
         // overrides it. Missed questions bias new ones toward closing gaps.
@@ -1531,8 +1550,15 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
           missed: (attempts.questions || []).filter((q) => q.result === 0).map((q) => q.question),
         };
         const prereqs = prereqContext(topic, catalog, graphLinks, { bank });
-        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, performance, difficulty, prereqs, instructions, reference });
+        const generated = await generateQuestions(topic, baseline, count, ai, { existing: stems, siblings, performance, difficulty, prereqs, instructions, reference });
         for (const g of generated) {
+          // This route used to bank whatever came back, so a re-run could re-add a
+          // question the learner already had. Same two gates the genjob stepper uses.
+          const key = dedupeKey(g.question);
+          const blob = `${g.question} ${g.answer || ''}`;
+          if (!key || bankedKeys.has(key) || isNearDuplicate(blob, bankedSets)) { skipped += 1; continue; }
+          bankedKeys.add(key);
+          bankedSets.push(contentWords(blob));
           await addQuestion({ ...g, program: scope.program });
           created++;
         }
@@ -1540,7 +1566,7 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
         errors.push(`${topic}: ${e.message}`);
       }
     });
-    res.json({ ok: true, created, topics: topics.length, errors });
+    res.json({ ok: true, created, skipped, topics: topics.length, errors });
   } catch (e) {
     next(e);
   }
