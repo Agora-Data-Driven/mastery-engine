@@ -139,7 +139,8 @@ Guards: 🔓 public · 👤 `requireAuth` · 🛡 `requireAdmin` · ⏱ `rateLim
 | GET | `/api/graph` | 👤 | Knowledge map nodes + edges |
 | POST | `/api/admin/study-guides/build` | 🛡 | Bulk pre-build (concurrent) |
 | POST | `/api/admin/build-graph` | 🛡 | Recompute prerequisite edges |
-| POST | `/api/admin/sequence-topics` | 🛡 | AI-assign `order` to topics |
+| POST | `/api/admin/sequence-topics` | 🛡 | AI-assign `order` to topics (within a lesson) |
+| POST | `/api/admin/sequence-curriculum` | 🛡 | AI-assign `courseOrder`/`lessonOrder` (`?track=`, `?refresh=1`) |
 
 Guides are cached in `studyGuides`; `?refresh=1` forces regeneration.
 

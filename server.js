@@ -65,6 +65,7 @@ import {
   getGraphLinks,
   saveGraphLinks,
   setTopicOrders,
+  ORDER_FIELDS,
   moveTopics,
   addUsage,
   getUsage,
@@ -127,6 +128,8 @@ import {
   prereqContext,
   computeReadiness,
   WEAK_ACC,
+  COURSE_ORDER,
+  LESSON_ORDER,
 } from './lib/graph.js';
 import { streamAttempts, backfillRows, replaceTopics } from './lib/bigquery.js';
 import {
@@ -158,6 +161,7 @@ import {
   generateFlashcardQuestions,
   generateTopicLinks,
   generateTopicOrder,
+  generateCurriculumOrder,
   classifyTranscript,
   digestSource,
   splitSource,
@@ -853,14 +857,48 @@ function inEngine(row, tracks, included, hidden) {
  * deliberately does NOT use it: it also needs the rows that fell OUT of the engine, to report
  * parked sections.
  */
-async function engineCatalog(email) {
+async function engineCatalog(email, bank = null) {
   if (!email) return [];
   const tracks = (await effectiveShelf(email)) || [];
   const shelf = (await getShelf(email)) || {};
-  const full = await getCatalog(email, null); // whole bank + this user's stats
+  // `bank` lets a caller that has ALREADY read the whole catalog hand it over
+  // rather than pay a second ~540-doc read (see selectionScope).
+  const full = bank || (await getCatalog(email, null)); // whole bank + this user's stats
   // Keep rows whose deepest inclusion (a shelf track, or an individually-added
   // course/lesson/sub-lesson) out-specifies any hidden prefix. See inEngine.
   return full.filter((t) => inEngine(t, tracks, shelf.included || [], shelf.hidden || []));
+}
+
+/**
+ * The scope a Track > Course > Lesson > Topic SELECTION actually lives in.
+ *
+ * The scope dropdowns are filled from /api/catalog, which for an unpinned learner
+ * is their ENGINE SHELF — and a shelf legitimately SPANS PROGRAMS (a RAG track
+ * sitting next to a digital_marketing enrollment). Scoping such a request to the
+ * enrollment program alone matches nothing, which is how "No topics in scope"
+ * came back for a selection the learner had just picked off their own dropdowns
+ * (2026-09-08). So: keep the requested scope when it already contains the
+ * selection, else adopt the program of the selected rows ON THIS LEARNER'S OWN
+ * SHELF — never wider than what they can already see. A pinned tab (?program=)
+ * is one program by definition and is left exactly as resolved.
+ */
+async function selectionScope(req, scope, sel, bank) {
+  if (pinnedProgram(req, scope)) return scope;
+  if (scopeCatalog(filterCatalog(bank, scope), sel).length) return scope;
+  const rows = scopeCatalog(await engineCatalog(optionalUser(req), bank), sel);
+  return rows.length ? { program: programOf(rows[0]), courses: [] } : scope;
+}
+
+/**
+ * Honour a `?program=` this learner's own shelf vouches for. resolveScope refuses
+ * a career program they aren't enrolled in — right for a stray pin, wrong for the
+ * cross-program shelf, whose off-enrollment tracks are already on their screen.
+ */
+async function shelfVouchedScope(email, scope, want) {
+  const p = String(want || '').trim();
+  if (!p || !email || scope.program === p) return scope;
+  const shelf = await engineCatalog(email);
+  return shelf.some((r) => programOf(r) === p) ? { program: p, courses: [] } : scope;
 }
 
 app.get('/api/catalog', async (req, res, next) => {
@@ -892,9 +930,12 @@ app.get('/api/catalog', async (req, res, next) => {
         course: t.course,
         lesson: t.lesson,
         topic: t.topic,
-        // Pedagogical within-lesson study order (admin "Sequence Topics" sweep);
-        // null when not yet sequenced, which sorts to the end / alphabetical.
+        // Curriculum position, one number per grain (see firestore.js setTopicOrders):
+        // this topic within its lesson, its lesson within its course, its course within
+        // its track. null = not yet sequenced, which sorts to the end / alphabetical.
         order: Number.isFinite(t.order) ? t.order : null,
+        lessonOrder: Number.isFinite(t.lessonOrder) ? t.lessonOrder : null,
+        courseOrder: Number.isFinite(t.courseOrder) ? t.courseOrder : null,
         accuracy: t.totalAttempts ? Math.round((t.correctCount / t.totalAttempts) * 100) : null,
         priority: t.priority ?? null,
         totalAttempts: t.totalAttempts ?? 0,
@@ -1439,10 +1480,13 @@ app.post('/api/quiz/log', requireAuth, async (req, res, next) => {
 app.post('/api/generate', requireAuth, async (req, res, next) => {
   try {
     const count = clampCount(req.body?.count);
-    const scope = await requestScope(req);
     // Bank once, then narrow: prereqContext below reads prerequisite stats from
     // the BANK because prereq links cross programs; everything else stays scoped.
     const bank = await getCatalog(req.userEmail, null);
+    // Scope from the SELECTION, not from the enrollment alone — the scope selects
+    // span programs (see selectionScope). This also decides which program the new
+    // questions are BANKED into below, so they land beside the topic they drill.
+    const scope = await selectionScope(req, await requestScope(req), req.body || {}, bank);
     const catalog = filterCatalog(bank, scope);
     const scoped = scopeCatalog(catalog, req.body || {});
     const topics = [...new Set(scoped.map((r) => r.topic))].filter(Boolean);
@@ -1507,7 +1551,9 @@ app.post('/api/generate', requireAuth, async (req, res, next) => {
 // Optional ?course=/?lesson= narrow it to the scope the learner is generating for.
 app.get('/api/transcripts', requireAuth, async (req, res, next) => {
   try {
-    const scope = await requestScope(req);
+    // The picker asks for the program of the track the learner has selected, which
+    // may sit outside their enrollment but inside their shelf — see selectionScope.
+    const scope = await shelfVouchedScope(req.userEmail, await requestScope(req), req.query.program);
     const filter = { program: scope.program };
     if (req.query.course && !isAll(req.query.course)) filter.course = String(req.query.course);
     if (req.query.lesson && !isAll(req.query.lesson)) filter.lesson = String(req.query.lesson);
@@ -4805,6 +4851,50 @@ app.post('/api/admin/sequence-topics', requireAdmin, async (req, res, next) => {
   }
 });
 
+// Admin: AI-sequence the two grains ABOVE the topic — the COURSES within a track
+// and the LESSONS within each course — and persist `courseOrder`/`lessonOrder` per
+// topic doc. The sibling of /sequence-topics; together the two cover the whole tree,
+// so no level has to fall back to alphabetical.
+//
+// Every creation path now persists its own designed order, so this is the REPAIR
+// tool: run it on a track that landed alphabetically (anything built before the
+// order was stored), or after a reshape. `?track=` narrows it to one track,
+// `?refresh=1` re-sequences even tracks whose units already carry a rank —
+// WITHOUT it only tracks holding an unranked course or lesson are touched, so a
+// curriculum someone curated by hand is never quietly reshuffled. Safe to re-run.
+app.post('/api/admin/sequence-curriculum', requireAdmin, async (req, res, next) => {
+  try {
+    const scope = await requestScope(req);
+    const program = req.body?.program || scope.program;
+    const catalog = (await getCatalog(null, { program })).filter((r) => r.topic && r.id);
+    const only = String(req.query.track || '').trim();
+    const refresh = req.query.refresh === '1';
+
+    let tracks = [...new Set(catalog.map((r) => r.track))].filter(Boolean).sort(cmpNatural);
+    if (only) tracks = tracks.filter((t) => t === only);
+    if (!refresh) {
+      const want = new Set(tracks);
+      tracks = tracksNeedingOrder(catalog.filter((r) => want.has(r.track)));
+    }
+
+    const ai = aiChoice(req);
+    const done = [];
+    const failed = [];
+    for (const track of tracks) {
+      try {
+        const n = await sequenceCurriculumTrack(program, track, ai);
+        if (n) done.push(track);
+      } catch (e) {
+        console.error('sequence-curriculum: track failed:', track, e.message);
+        failed.push({ track, error: e.message });
+      }
+    }
+    res.json({ ok: true, sequenced: done.length, tracks: done, failed });
+  } catch (e) {
+    next(e);
+  }
+});
+
 /* ------------------------------- AI tutor --------------------------------- */
 // Public (rate-limited): a hint that does NOT reveal the answer (streamed).
 app.post('/api/hint', rateLimitAI, async (req, res) => {
@@ -5820,15 +5910,21 @@ app.post('/api/admin/topics/move', requireAdmin, async (req, res, next) => {
 });
 
 /**
- * Admin: persist a new study `order` on a set of topics (drag-and-drop reorder of
- * sub-lessons within a lesson, or lessons within a course). Body: { items:[{id,order}] }.
- * The client computes the order numbers; lessons sort by their MIN topic order.
+ * Admin: persist a new curriculum position on a set of topic rows (the drag-and-drop
+ * editor). Body: { items:[{id, order?, lessonOrder?, courseOrder?}] } — one grain per
+ * field, so reordering lessons writes only `lessonOrder` and leaves every lesson's
+ * internal topic order untouched. The client computes the numbers; only the fields it
+ * actually sends are written (merge), so a partial patch is safe.
  */
 app.post('/api/admin/topics/reorder', requireAdmin, async (req, res, next) => {
   try {
     const items = (Array.isArray(req.body?.items) ? req.body.items : [])
-      .map((it) => ({ id: String(it?.id || ''), order: Number(it?.order) }))
-      .filter((it) => it.id && Number.isFinite(it.order));
+      .map((it) => {
+        const out = { id: String(it?.id || '') };
+        for (const f of ORDER_FIELDS) if (it?.[f] != null && Number.isFinite(Number(it[f]))) out[f] = Number(it[f]);
+        return out;
+      })
+      .filter((it) => it.id && ORDER_FIELDS.some((f) => Number.isFinite(it[f])));
     if (!items.length) return res.status(400).json({ error: 'Nothing to reorder' });
     const n = await setTopicOrders(items);
     res.json({ ok: true, n });
@@ -5876,6 +5972,8 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
       id: r.id,
       track: r.track || '', course: r.course || '', lesson: r.lesson || '', topic: r.topic || '',
       order: Number.isFinite(r.order) ? r.order : null,
+      lessonOrder: Number.isFinite(r.lessonOrder) ? r.lessonOrder : null,
+      courseOrder: Number.isFinite(r.courseOrder) ? r.courseOrder : null,
     }));
 
   const rowsIn = (track, course, lesson, topic) => cat.filter((r) =>
@@ -5900,50 +5998,36 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
     throw new Error(`Course “${clean(course)}” exists in more than one track — name the track`);
   };
 
-  // Distinct lesson names of a course in current study order (by MIN topic order, then name).
-  const orderedLessonNames = (rows) => {
-    const names = [...new Set(rows.map((r) => r.lesson))].filter(Boolean);
-    const minOrder = (le) => rows.filter((r) => r.lesson === le)
-      .reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
-    return names.sort((a, b) => { const oa = minOrder(a); const ob = minOrder(b); return oa !== ob ? oa - ob : numCmp(a, b); });
+  // A group's rank is the MIN of its field over its rows (see firestore.js
+  // setTopicOrders); ties fall through to the legacy min(topic.order), then name -
+  // the same ladder app.js's byCourseName/byLessonName climbs, so this reads the tree
+  // exactly as the learner sees it.
+  const minOf = (rows, field) => rows.reduce((m, r) => (Number.isFinite(r[field]) && r[field] < m ? r[field] : m), Infinity);
+  const orderedGroupNames = (rows, pick, field) => {
+    const names = [...new Set(rows.map(pick))].filter(Boolean);
+    const of = new Map(names.map((nm) => [nm, rows.filter((r) => pick(r) === nm)]));
+    return names.sort((a, b) => {
+      const oa = minOf(of.get(a), field), ob = minOf(of.get(b), field);
+      if (oa !== ob) return oa - ob;
+      const ga = minOf(of.get(a), 'order'), gb = minOf(of.get(b), 'order');
+      if (ga !== gb) return ga - gb;
+      return numCmp(a, b);
+    });
   };
-  // Distinct course names of a track in current study order (MIN topic order, then name)
-  // - the same rule app.js's byCourseName uses, so this reads the tree as the learner sees it.
-  const orderedCourseNames = (track) => {
-    const rows = rowsIn(track);
-    const names = [...new Set(rows.map((r) => r.course))].filter(Boolean);
-    const minOrder = (co) => rows.filter((r) => r.course === co)
-      .reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
-    return names.sort((a, b) => { const oa = minOrder(a); const ob = minOrder(b); return oa !== ob ? oa - ob : numCmp(a, b); });
-  };
+  const orderedLessonNames = (rows) => orderedGroupNames(rows, (r) => r.lesson, 'lessonOrder');
+  const orderedCourseNames = (track) => orderedGroupNames(rowsIn(track), (r) => r.course, 'courseOrder');
 
-  // Renumber a whole course, block by block, in `lessonOrder`, keeping each lesson's
-  // internal topic order. Returns [{id,order}] and updates the working copy.
-  //
-  // Numbering starts at the course's CURRENT lowest order, not at 0. Course order is
-  // min(topic.order) across the track (app.js `byCourseName`), so restarting at 0 would
-  // silently drag the course to the front of its track every time its lessons were
-  // reordered - changing something the admin never asked to change.
-  const renumberCourse = (track, course, lessonOrder) => {
-    const base = rowsIn(track, course)
-      .reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
-    const items = []; let ord = Number.isFinite(base) ? base : 0;
-    for (const le of lessonOrder) {
-      for (const r of rowsIn(track, course, le).sort(cmpTopic)) { r.order = ord; items.push({ id: r.id, order: ord }); ord += 1; }
-    }
-    return items;
-  };
-
-  // Renumber a whole TRACK so its courses fall in `courseOrder`, each course keeping its
-  // own lesson and topic sequence. One continuous run of orders across the track, which is
-  // what makes min(topic.order) per course reproduce exactly this sequence.
-  const renumberTrack = (track, courseOrder) => {
-    const items = []; let ord = 0;
-    for (const co of courseOrder) {
-      for (const le of orderedLessonNames(rowsIn(track, co))) {
-        for (const r of rowsIn(track, co, le).sort(cmpTopic)) { r.order = ord; items.push({ id: r.id, order: ord }); ord += 1; }
-      }
-    }
+  // Stamp a sibling sequence onto its rows: `lessonOrder` for lessons in a course,
+  // `courseOrder` for courses in a track. Returns [{id, <field>}] and updates the
+  // working copy. Each grain is independent, so reordering lessons cannot move the
+  // course, and reordering courses cannot disturb a lesson or a topic - the whole
+  // point of storing the three separately (this used to renumber the entire track's
+  // topics, where a single off-by-one silently resequenced everything below it).
+  const stampOrder = (rowsFor, names, field) => {
+    const items = [];
+    names.forEach((name, i) => {
+      for (const r of rowsFor(name)) { r[field] = i; items.push({ id: r.id, [field]: i }); }
+    });
     return items;
   };
 
@@ -5996,8 +6080,12 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
           if (!toCourse) throw new Error('move_lesson needs a toCourse');
           const toTrack = clean(raw.toTrack) || track;
           const lessonName = rows[0].lesson; const fromCourse = rows[0].course; const ids = rows.map((r) => r.id);
-          rows.forEach((r) => { r.track = toTrack; r.course = toCourse; });
-          if (!dryRun) doMove(ids, { track: toTrack, course: toCourse });
+          // Land it at the END of its new course. Its old `lessonOrder` means nothing
+          // there and would collide with whatever lesson already holds that rank.
+          const tailRank = rowsIn(toTrack, toCourse).reduce(
+            (m, r) => (Number.isFinite(r.lessonOrder) && r.lessonOrder > m ? r.lessonOrder : m), -1) + 1;
+          rows.forEach((r) => { r.track = toTrack; r.course = toCourse; r.lessonOrder = tailRank; });
+          if (!dryRun) { doMove(ids, { track: toTrack, course: toCourse }); doReorder(ids.map((id) => ({ id, lessonOrder: tailRank }))); }
           description = `Move lesson “${lessonName}” from “${fromCourse}” → “${toCourse}”${key(toTrack) !== key(track) ? ` (track “${toTrack}”)` : ''} (${ids.length} sub-lesson${ids.length === 1 ? '' : 's'})`;
           break;
         }
@@ -6009,8 +6097,12 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
           if (!toLesson) throw new Error('move_topic needs a toLesson');
           const toCourse = clean(raw.toCourse) || rows[0].course; const r = rows[0];
           const topicName = r.topic; const fromLesson = r.lesson;
-          r.course = toCourse; r.lesson = toLesson;
-          if (!dryRun) doMove([r.id], { course: toCourse, lesson: toLesson });
+          // Same rule as move_lesson one grain down: append, never inherit a rank from
+          // the lesson it came from.
+          const tailOrder = rowsIn(track, toCourse, toLesson).reduce(
+            (m, x) => (Number.isFinite(x.order) && x.order > m ? x.order : m), -1) + 1;
+          r.course = toCourse; r.lesson = toLesson; r.order = tailOrder;
+          if (!dryRun) { doMove([r.id], { course: toCourse, lesson: toLesson }); doReorder([{ id: r.id, order: tailOrder }]); }
           description = `Move sub-lesson “${topicName}” from “${fromLesson}” → “${toLesson}”${key(toCourse) !== key(raw.course) ? ` (course “${toCourse}”)` : ''}`;
           break;
         }
@@ -6080,7 +6172,7 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
             steps.push({ op, ok: true, description: `Sub-lesson “${topic}” already exists in “${lesson}” — skipped`, note, warn: 'already exists' });
             continue;
           }
-          cat.push({ id: slug(track, course, lesson, topic), track, course, lesson, topic, order: null });
+          cat.push({ id: slug(track, course, lesson, topic), track, course, lesson, topic, order: null, lessonOrder: null, courseOrder: null });
           if (!dryRun) doAdd([{ program, track, course, lesson, topic }]);
           description = `Add sub-lesson “${topic}” to “${lesson}” (course “${course}”)`;
           break;
@@ -6100,7 +6192,7 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
           // same forgiving rule reorder_lessons uses, so a partial list is safe.
           for (const c of current) if (!used.has(key(c))) seq.push(c);
           if (seq.length < 2) throw new Error('Name at least two courses to reorder');
-          const items = renumberTrack(track, seq);
+          const items = stampOrder((co) => rowsIn(track, co), seq, 'courseOrder');
           if (!dryRun) doReorder(items);
           description = `Reorder courses in “${track}”: ${seq.join(' → ')}`;
           break;
@@ -6116,7 +6208,7 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
           const seq = []; const used = new Set();
           for (const w of want) { const a = existing.get(key(w)); if (a && !used.has(key(a))) { seq.push(a); used.add(key(a)); } }
           for (const l of current) if (!used.has(key(l))) seq.push(l);
-          const items = renumberCourse(track, raw.course, seq);
+          const items = stampOrder((le) => rowsIn(track, raw.course, le), seq, 'lessonOrder');
           if (!dryRun) doReorder(items);
           description = `Reorder lessons in “${courseName}”: ${seq.join(' → ')}`;
           break;
@@ -6131,9 +6223,9 @@ async function runCurriculumEdits(program, ops, { dryRun = false } = {}) {
           const seq = []; const used = new Set();
           for (const w of want) { const r = byName.get(key(w)); if (r && !used.has(r.id)) { seq.push(r); used.add(r.id); } }
           for (const r of rows.slice().sort(cmpTopic)) if (!used.has(r.id)) seq.push(r);
-          const base = rows.reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
-          const start = Number.isFinite(base) ? base : 0;
-          const items = seq.map((r, i) => { r.order = start + i; return { id: r.id, order: start + i }; });
+          // 0-based: a lesson's position in its course is its own `lessonOrder`, so
+          // renumbering its topics from 0 can no longer move the lesson itself.
+          const items = seq.map((r, i) => { r.order = i; return { id: r.id, order: i }; });
           if (!dryRun) doReorder(items);
           description = `Reorder sub-lessons in “${lessonName}”: ${seq.map((r) => r.topic).join(' → ')}`;
           break;
@@ -6239,12 +6331,18 @@ app.post('/api/admin/topics/bulk', requireAdmin, async (req, res, next) => {
     if (!rows.length) return res.status(400).json({ error: 'Nothing to import', problems });
 
     const report = await upsertTopics(rows);
-    await placeNewTopicsInOrder(program).catch(() => { /* ordering is best-effort */ });
-    // AI-order each touched lesson's sub-lessons so a pasted outline lands pedagogically,
-    // not alphabetically (mirrors the ingest/commit and goal-plan bulk-creation paths).
-    const lessonKeys = [...new Map(
-      rows.map((r) => [JSON.stringify([r.track, r.course, r.lesson]), { track: r.track, course: r.course, lesson: r.lesson }]),
-    ).values()];
+    // The PASTE ORDER is the author's intended curriculum order — courses, lessons and
+    // topics all land in the sequence they were written, not alphabetically.
+    const pasted = [...new Map(rows.map((r) => [
+      JSON.stringify([r.track, r.course, r.lesson]),
+      { track: r.track, course: r.course, lesson: r.lesson, topics: [] },
+    ])).values()];
+    const byLesson = new Map(pasted.map((l) => [JSON.stringify([l.track, l.course, l.lesson]), l]));
+    for (const r of rows) byLesson.get(JSON.stringify([r.track, r.course, r.lesson]))?.topics.push(r.topic);
+    await orderNewCurriculum(program, pasted);
+    // Then AI-order each touched lesson's sub-lessons — a paste is ordered at the lesson
+    // grain but rarely inside one (mirrors the ingest/commit and goal-plan paths).
+    const lessonKeys = pasted.map((l) => ({ track: l.track, course: l.course, lesson: l.lesson }));
     await autoSequenceLessons(program, lessonKeys, aiChoice(req)).catch(() => { /* ordering is best-effort */ });
     res.json({ ok: true, ...report, problems });
   } catch (e) {
@@ -6624,53 +6722,216 @@ app.post('/api/admin/ingest/plan/stream', requireAdmin, bigJson, async (req, res
   }
 });
 
-/**
- * Give freshly-created topics a sensible study `order` so new content lands in
- * place instead of at the very bottom of the tree (every view sorts topics by
- * `order`, and lessons/courses by their MIN topic order — a topic with no order
- * sorts last). We touch ONLY topics that have no order yet, appending them after
- * the highest order already used in their lesson — or, for a brand-new lesson,
- * after the highest order in their course — so a new sub-lesson trails its lesson
- * and a new lesson trails its course, never disturbing an existing sequence (safe
- * for both globally-ordered and per-lesson-ordered programs). Finer pedagogical
- * ordering is still a manual "Sequence Topics" sweep away.
+/* ---------------------- curriculum order (three grains) ---------------------
+ * Courses and lessons are not documents — they are fields on topic rows — so
+ * their position is denormalised onto every row: `courseOrder` (course within
+ * its track), `lessonOrder` (lesson within its course), `order` (topic within
+ * its lesson). A group's rank is the MIN over its rows, so a row that missed a
+ * write can never drag its group backwards. See firestore.js `setTopicOrders`.
  */
-async function placeNewTopicsInOrder(program) {
-  const catalog = (await getCatalog(null, { program })).filter((r) => r.topic && r.id);
-  // Unambiguous tuple keys (no separator char to collide with names).
+const cmpNatural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+/** Min of `field` over `rows` (Infinity when no row carries it). */
+const minRank = (rows, field) => rows.reduce((m, r) => (Number.isFinite(r[field]) && r[field] < m ? r[field] : m), Infinity);
+/* The hand-curated sequences (lib/graph.js) as row->rank lookups. They are the ONLY
+ * order some units have ever had — Mathematics, Programming Foundations and the three
+ * ML courses were sequenced in CODE, never in data — so a backfill must consult them
+ * before falling back to the alphabet, or it stamps "College Algebra before
+ * Trigonometry" over a list written to say the opposite, permanently (a stored rank
+ * now outranks the curated list, which is the point of storing one). */
+const CURATED_COURSE_RANK = new Map(COURSE_ORDER.map((name, i) => [name, i]));
+const curatedCourseRank = (r) => (CURATED_COURSE_RANK.has(r.course) ? CURATED_COURSE_RANK.get(r.course) : Infinity);
+const curatedLessonRank = (r) => {
+  const i = (LESSON_ORDER[r.course] || []).indexOf(r.lesson);
+  return i === -1 ? Infinity : i;
+};
+/** Distinct values of `pick` over `rows`, ranked by min `field`, then by name. */
+function rankedNames(rows, pick, field) {
+  const names = [...new Set(rows.map(pick))].filter(Boolean);
+  const rank = new Map(names.map((nm) => [nm, minRank(rows.filter((r) => pick(r) === nm), field)]));
+  return names.sort((a, b) => (rank.get(a) !== rank.get(b) ? rank.get(a) - rank.get(b) : cmpNatural(a, b)));
+}
+
+/**
+ * Give freshly-created rows a position at every grain, so new content lands in
+ * place instead of at the bottom of the tree in whatever order Firestore handed
+ * the docs over (which is doc-id order — i.e. alphabetical, the bug this fixes).
+ *
+ * We touch ONLY units that have no rank yet, appending them after the highest
+ * rank already used by their siblings: a new sub-lesson trails its lesson, a new
+ * lesson trails its course, a new course trails its track. Existing sequences are
+ * never disturbed.
+ *
+ * `hints` is how the DESIGNED order survives the round trip. Every creation path
+ * knows the sequence it meant — the planner emits lessons prerequisites-first, a
+ * pasted outline is in the author's own order — and that order used to be thrown
+ * away, leaving the tree to fall back on names. Pass `curriculumHints(...)` and
+ * the unplaced units are appended in THAT order instead of alphabetically. With
+ * no hint the fallback is still natural name. Repairing a tree that already
+ * landed wrong is `POST /api/admin/sequence-curriculum` (the AI sweep).
+ */
+async function placeNewTopicsInOrder(program, preread = null, hints = null) {
+  const catalog = preread || (await getCatalog(null, { program })).filter((r) => r.topic && r.id);
+  // Unambiguous tuple keys (JSON — no separator char can collide with a name).
+  const tk = (r) => JSON.stringify([r.track]);
   const ck = (r) => JSON.stringify([r.track, r.course]);
   const lk = (r) => JSON.stringify([r.track, r.course, r.lesson]);
-  const courseMax = new Map();
-  const lessonMax = new Map();
-  const bump = (m, k, v) => { if (!m.has(k) || v > m.get(k)) m.set(k, v); };
+
+  const updates = new Map(); // id -> patch
+  const patch = (id, k, v) => { updates.set(id, { ...(updates.get(id) || { id }), [k]: v }); };
+
+  // Where a hint exists for a group, it decides the order the unplaced groups are
+  // appended in; ties (no hint) fall back to natural name, after the hinted ones.
+  const hintOf = (key) => (hints && hints.has(key) ? hints.get(key) : Infinity);
+
+  // One grain: group `rows` by `groupKey`, rank the groups that already carry
+  // `field`, and append the rest (hint order, then name) after the highest used rank.
+  const placeGrain = (rows, parentKey, groupKey, name, field, curated = null) => {
+    const curatedOf = (r) => (curated ? curated(r) : Infinity);
+    const parents = new Map();
+    for (const r of rows) {
+      const p = parentKey(r);
+      if (!parents.has(p)) parents.set(p, []);
+      parents.get(p).push(r);
+    }
+    for (const kids of parents.values()) {
+      const groups = new Map();
+      for (const r of kids) {
+        const g = groupKey(r);
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(r);
+      }
+      let max = -1;
+      const unplaced = [];
+      for (const g of groups.values()) {
+        const rank = minRank(g, field);
+        if (Number.isFinite(rank)) { if (rank > max) max = rank; } else unplaced.push(g);
+      }
+      // Order the unplaced groups by: the LEGACY global min(topic.order) signal, then
+      // the caller's hint, then the name.
+      //
+      // 🔴 Legacy first is what makes backfilling an OLD program safe. Programs built
+      // before course/lesson ranks existed encode their sequence in one running
+      // `order` across the track; the first time a topic is added to such a program,
+      // this pass ranks every one of its courses and lessons at once, and sorting them
+      // by name would silently reorder a curriculum nobody touched. New units carry no
+      // legacy order (they were only just upserted), so they tie at Infinity and the
+      // hint decides among them — which is the case the hint exists for.
+      const legacy = new Map(unplaced.map((g) => [g, minRank(g, 'order')]));
+      unplaced.sort((a, b) => {
+        const la = legacy.get(a), lb = legacy.get(b);
+        if (la !== lb) return la - lb;
+        const ha = hintOf(groupKey(a[0])), hb = hintOf(groupKey(b[0]));
+        if (ha !== hb) return ha - hb;
+        const ca = curatedOf(a[0]), cb = curatedOf(b[0]);
+        if (ca !== cb) return ca - cb;
+        return cmpNatural(name(a[0]), name(b[0]));
+      });
+      unplaced.forEach((g, i) => g.forEach((r) => patch(r.id, field, max + 1 + i)));
+    }
+  };
+
+  placeGrain(catalog, tk, ck, (r) => r.course, 'courseOrder', curatedCourseRank);
+  placeGrain(catalog, ck, lk, (r) => r.lesson, 'lessonOrder', curatedLessonRank);
+  // Topics are their own grain: each row is its own "group" of one.
+  placeGrain(catalog, lk, (r) => JSON.stringify([r.track, r.course, r.lesson, r.topic]), (r) => r.topic, 'order');
+
+  if (updates.size) await setTopicOrders([...updates.values()]);
+  return updates.size;
+}
+
+/**
+ * Turn a creation path's own lesson list — ALREADY in the order it means, which
+ * is what every planner and every pasted outline gives us — into the hint map
+ * placeNewTopicsInOrder appends unplaced units by. Courses rank by where they
+ * first appear, lessons by their position within their course, topics by their
+ * position within their lesson. Keys match the grain keys above exactly.
+ * `lessons` is [{track, course, lesson, topics:[names]}].
+ */
+function curriculumHints(lessons) {
+  const hints = new Map();
+  const next = new Map(); // parent key -> running index
+  const take = (parent, key) => {
+    if (hints.has(key)) return;
+    const i = next.get(parent) || 0;
+    next.set(parent, i + 1);
+    hints.set(key, i);
+  };
+  for (const l of (lessons || [])) {
+    const track = String(l?.track || '').trim();
+    const course = String(l?.course || '').trim();
+    const lesson = String(l?.lesson || '').trim();
+    if (!track || !course || !lesson) continue;
+    const tKey = JSON.stringify([track]);
+    const cKey = JSON.stringify([track, course]);
+    const lKey = JSON.stringify([track, course, lesson]);
+    take(tKey, cKey);
+    take(cKey, lKey);
+    for (const t of (Array.isArray(l.topics) ? l.topics : [])) {
+      const topic = String(t || '').trim();
+      if (topic) take(lKey, JSON.stringify([track, course, lesson, topic]));
+    }
+  }
+  return hints;
+}
+
+/** Which tracks of `program` still have a course or lesson with no stored rank. */
+function tracksNeedingOrder(catalog) {
+  const bad = new Set();
+  const groups = new Map(); // [track,course(,lesson)] -> rows
+  const push = (m, k, r) => { if (!m.has(k)) m.set(k, []); m.get(k).push(r); };
   for (const r of catalog) {
-    if (!Number.isFinite(r.order)) continue;
-    bump(courseMax, ck(r), r.order);
-    bump(lessonMax, lk(r), r.order);
+    push(groups, JSON.stringify(['c', r.track, r.course]), r);
+    push(groups, JSON.stringify(['l', r.track, r.course, r.lesson]), r);
   }
-  const groups = new Map(); // lessonKey -> [rows with no order yet]
-  for (const r of catalog) {
-    if (Number.isFinite(r.order)) continue;
-    if (!groups.has(lk(r))) groups.set(lk(r), []);
-    groups.get(lk(r)).push(r);
+  for (const [k, rows] of groups) {
+    const field = JSON.parse(k)[0] === 'c' ? 'courseOrder' : 'lessonOrder';
+    if (!Number.isFinite(minRank(rows, field))) bad.add(rows[0].track);
   }
-  const updates = [];
-  for (const rows of groups.values()) {
-    const r0 = rows[0];
-    const base = lessonMax.has(lk(r0)) ? lessonMax.get(lk(r0))
-      : courseMax.has(ck(r0)) ? courseMax.get(ck(r0))
-      : -1;
-    rows.sort((a, b) => String(a.topic).localeCompare(String(b.topic), undefined, { numeric: true, sensitivity: 'base' }));
-    rows.forEach((r, i) => updates.push({ id: r.id, order: base + 1 + i }));
+  return [...bad];
+}
+
+/** AI-sequence ONE track: its courses, and the lessons inside each, then persist
+ *  `courseOrder`/`lessonOrder` on every row. Topic order (`order`) is untouched —
+ *  that grain is sequenceLessonGroup's. Returns the number of rows written. */
+async function sequenceCurriculumTrack(program, track, ai = {}) {
+  const rows = (await getCatalog(null, { program })).filter((r) => r.topic && r.id && r.track === track);
+  if (!rows.length) return 0;
+  const courses = rankedNames(rows, (r) => r.course, 'courseOrder').map((course) => ({
+    course,
+    lessons: rankedNames(rows.filter((r) => r.course === course), (r) => r.lesson, 'lessonOrder'),
+  }));
+  if (courses.length < 2 && (courses[0]?.lessons.length || 0) < 2) return 0; // nothing to sequence
+  const ordered = await generateCurriculumOrder({ track, courses }, ai);
+  const items = [];
+  ordered.forEach((c, ci) => c.lessons.forEach((lesson, li) => {
+    for (const r of rows) {
+      if (r.course === c.course && r.lesson === lesson) items.push({ id: r.id, courseOrder: ci, lessonOrder: li });
+    }
+  }));
+  if (items.length) await setTopicOrders(items);
+  return items.length;
+}
+
+/**
+ * The one call every content-creation path makes after upserting topic rows:
+ * place the new units, in the order the caller designed them. `lessons` is that
+ * path's own [{track, course, lesson, topics}] list — pass it and the design is
+ * preserved; omit it and new units still land after their siblings by name.
+ * Best-effort: an ordering failure never breaks content creation.
+ */
+async function orderNewCurriculum(program, lessons = null) {
+  try {
+    await placeNewTopicsInOrder(program, null, lessons ? curriculumHints(lessons) : null);
+  } catch (e) {
+    console.error('order curriculum failed:', e.message);
   }
-  if (updates.length) await setTopicOrders(updates);
-  return updates.length;
 }
 
 /** AI-sequence ONE lesson's sub-lessons (topics) into study order and persist it.
- *  Orders are 0-based within the lesson, matching the rest of the ordering system
- *  (courses/lessons sort by their MIN topic order, so 0-based keeps lesson/course
- *  placement governed by rank/name, not by a lesson's topic count). `group` is the
+ *  Orders are 0-based within the lesson, which is now simply correct: a lesson's own
+ *  position is its `lessonOrder`, so renumbering its topics cannot move it. (While
+ *  lesson order was min(topic.order), this 0-basing was the bug — it flattened every
+ *  lesson in a course to 0 and the tree fell back to alphabetical.) `group` is the
  *  lesson's catalog rows; `ai` picks the model. */
 async function sequenceLessonGroup(group, ai = {}) {
   const ordered = await generateTopicOrder(
@@ -6740,7 +7001,7 @@ app.post('/api/admin/ingest/commit', requireAdmin, bigJson, async (req, res, nex
     // 1. Ensure the topic rows exist (new ones created, existing ones untouched).
     await upsertTopics(topics.map((topic) => ({ program, track, course, lesson, topic })));
     // Slot the new topics/lesson into study order instead of the bottom of the tree.
-    await placeNewTopicsInOrder(program);
+    await orderNewCurriculum(program, [{ track, course, lesson, topics }]);
     // Then AI-order this lesson's sub-lessons so new topics land pedagogically, not alphabetically.
     await autoSequenceLessons(program, [{ track, course, lesson }], aiChoice(req));
 
@@ -6966,8 +7227,13 @@ app.post('/api/admin/sources/commit', requireAdmin, bigJson, async (req, res, ne
       }
     }
     await upsertTopics(rows);
-    await placeNewTopicsInOrder(program);
-    const lessonScopes = courses.flatMap((c) => c.lessons.map((l) => ({ track, course: c.course, lesson: l.lesson })));
+    // The DESIGN's own order is the curriculum order: the planner emits courses and
+    // lessons prerequisites-first, so persist that instead of letting the tree fall
+    // back to names (which is how the first sources-first tracks landed alphabetical).
+    const lessonScopes = courses.flatMap((c) => c.lessons.map((l) => ({
+      track, course: c.course, lesson: l.lesson, topics: l.topics.map((t) => t.topic),
+    })));
+    await orderNewCurriculum(program, lessonScopes);
     await autoSequenceLessons(program, lessonScopes, aiChoice(req));
 
     // 2. File the sources. First lesson to claim a source MOVES it; any further
@@ -7159,7 +7425,9 @@ app.post('/api/admin/goal/commit', requireAdmin, bigJson, async (req, res, next)
     const flat = [];
     for (const l of lessons) for (const topic of l.topics) flat.push({ program, track: l.track, course: l.course, lesson: l.lesson, topic });
     await upsertTopics(flat);
-    await placeNewTopicsInOrder(program); // slot new lessons/topics into order, not the bottom
+    // The approved plan's own order IS the curriculum order — persist it so the tree
+    // reads as designed instead of falling back to alphabetical names.
+    await orderNewCurriculum(program, lessons);
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
     const ai = aiFromBody(req);
@@ -7264,7 +7532,9 @@ app.post('/api/admin/lessons/bulk-commit', requireAdmin, bigJson, async (req, re
     const flat = [];
     for (const l of lessons) for (const topic of l.topics) flat.push({ program, track: l.track, course: l.course, lesson: l.lesson, topic });
     await upsertTopics(flat);
-    await placeNewTopicsInOrder(program); // slot new lessons/topics into order, not the bottom
+    // The approved plan's own order IS the curriculum order — persist it so the tree
+    // reads as designed instead of falling back to alphabetical names.
+    await orderNewCurriculum(program, lessons);
 
     // 2. Write a brief per lesson (parallel) and attach it — the stored lesson + grounding.
     const ai = aiFromBody(req);

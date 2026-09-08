@@ -791,33 +791,45 @@ const App = (() => {
     'Data Engineering',
   ];
   const TRACK_RANK = new Map(TRACK_ORDER.map((name, i) => [name, i]));
-  // Curriculum sequence, data-driven: the minimum stored `order` within each
-  // track/course/lesson. When topics carry a GLOBAL order (as the digital-marketing
-  // bank does), a group's min order is its curriculum position, so tracks, courses
-  // and lessons all sort into the intended flow. Programs whose topics use a
-  // per-lesson order (e.g. data science, 0-based each lesson) tie at 0 here and
-  // fall through to the existing name-based ordering below — so they're unaffected.
+  // Curriculum sequence, data-driven and per grain. Every topic row carries its
+  // group's rank at EACH level - `courseOrder` (its course within its track),
+  // `lessonOrder` (its lesson within its course) and `order` (the topic within its
+  // lesson) - so each level of the tree sorts on its own number. A group's rank is
+  // the MIN over its rows, so one row that missed a write can never drag its group
+  // backwards. Written by server.js `placeNewTopicsInOrder` / the sequencing sweeps.
+  //
+  // 🔴 Course and lesson order used to be INFERRED from min(topic.order), and that
+  // is exactly what made new tracks read alphabetically: every AI sequencing pass
+  // numbers a lesson's topics 0-based, so every lesson in a course tied at 0 and the
+  // sort fell through to the name. Keep the three grains separate.
+  //
+  // min(order) survives as a TIEBREAK only, for the digital-marketing bank, whose
+  // topics carry one global running order across a track and no group ranks.
   // Memoised on the catalog array identity; rebuilt when the catalog changes.
+  const lessonKey = (course, lesson) => JSON.stringify([course, lesson]);
   let _orderMaps = null, _orderMapsFor = null;
   function orderMaps() {
     if (_orderMaps && _orderMapsFor === state.catalog) return _orderMaps;
-    const tr = new Map(), co = new Map(), le = new Map();
-    const lo = (m, k, v) => { if (!m.has(k) || v < m.get(k)) m.set(k, v); };
+    const co = new Map(), le = new Map();
+    const trOld = new Map(), coOld = new Map(), leOld = new Map();
+    const lo = (m, k, v) => { if (Number.isFinite(v) && (!m.has(k) || v < m.get(k))) m.set(k, v); };
     for (const r of state.catalog) {
-      if (!Number.isFinite(r.order)) continue;
-      lo(tr, r.track, r.order);
-      lo(co, r.course, r.order);
-      lo(le, `${r.course} ${r.lesson}`, r.order);
+      const lk = lessonKey(r.course, r.lesson);
+      lo(co, r.course, r.courseOrder);
+      lo(le, lk, r.lessonOrder);
+      lo(trOld, r.track, r.order);
+      lo(coOld, r.course, r.order);
+      lo(leOld, lk, r.order);
     }
-    _orderMaps = { tr, co, le }; _orderMapsFor = state.catalog;
+    _orderMaps = { co, le, trOld, coOld, leOld }; _orderMapsFor = state.catalog;
     return _orderMaps;
   }
   const _minOrder = (m, k) => (m.has(k) ? m.get(k) : Infinity);
 
-  // Order two track names by curriculum order (min topic order), then the
-  // suggested rank (TRACK_ORDER), then natural name.
+  // Order two track names by the legacy global-order signal (the only one tracks
+  // have), then the suggested rank (TRACK_ORDER), then natural name.
   function byTrackName(a, b) {
-    const m = orderMaps().tr;
+    const m = orderMaps().trOld;
     const oa = _minOrder(m, a), ob = _minOrder(m, b);
     if (oa !== ob) return oa - ob;
     const ra = TRACK_RANK.has(a) ? TRACK_RANK.get(a) : Infinity;
@@ -825,7 +837,8 @@ const App = (() => {
     if (ra !== rb) return ra - rb;
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   }
-  // Order two course names by curriculum order (min topic order), then rank, then name.
+  // Order two course names within a track: stored `courseOrder` first, then the
+  // hand-curated COURSE_ORDER, then the legacy min(topic.order) signal, then name.
   function byCourseName(a, b) {
     const m = orderMaps().co;
     const oa = _minOrder(m, a), ob = _minOrder(m, b);
@@ -833,15 +846,20 @@ const App = (() => {
     const ra = COURSE_RANK.has(a) ? COURSE_RANK.get(a) : Infinity;
     const rb = COURSE_RANK.has(b) ? COURSE_RANK.get(b) : Infinity;
     if (ra !== rb) return ra - rb;
+    const g = orderMaps().coOld;
+    const ga = _minOrder(g, a), gb = _minOrder(g, b);
+    if (ga !== gb) return ga - gb;
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   }
 
   // Recommended lesson sequence for courses whose lessons DON'T carry a leading
   // unit number. Every other course already numbers its lessons ("01 …") so they
-  // sort naturally; the two Machine Learning courses don't, so they'd otherwise
-  // fall back to alphabetical. These are DISPLAY-ONLY: the stored lesson names are
-  // unchanged (quiz/stat routing slugs the raw name), we only re-sequence the rows
-  // and prefix a number in the UI. Edit these lists to re-order.
+  // sort naturally; the three ML courses don't, so with no stored order they'd fall
+  // back to alphabetical. DISPLAY-ONLY: the stored lesson names are unchanged (quiz
+  // and stat routing slug the raw name); we only re-sequence the rows and prefix a
+  // number in the UI. A stored `lessonOrder` OUTRANKS this list — it is the fallback
+  // for a course nobody has sequenced. KEEP IN SYNC with LESSON_ORDER in lib/graph.js,
+  // which server.js's order backfill reads for exactly this reason.
   const LESSON_ORDER = {
     'Machine Learning Specialization': [
       'Supervised Machine Learning',
@@ -869,32 +887,43 @@ const App = (() => {
     const i = order.indexOf(lesson);
     return i === -1 ? Infinity : i;
   }
-  // Order two lesson names within a course: the recommended rank (an explicit,
-  // human-curated LESSON_ORDER entry) wins first, THEN curriculum order (min topic
-  // order), then natural name. Curated beats inferred because a lesson's topics are
-  // numbered independently per lesson in several programs (0-based each), so a
-  // lesson's min topic order is not a reliable cross-lesson signal — it can look
-  // "distinct" by accident (leftover numbering from creation/import time) without
-  // reflecting real pedagogical position. Courses with no LESSON_ORDER entry are
-  // unaffected: lessonRank ties at Infinity for both sides and falls through.
+  // Order two lesson names within a course: the STORED `lessonOrder` first (the
+  // curriculum's own sequence, written when it was designed and editable by drag or
+  // by the sequencing sweep), then the hand-curated LESSON_ORDER, then the legacy
+  // min(topic.order) signal, then natural name.
+  //
+  // Stored beats curated now that there IS a reliable stored signal. It didn't used
+  // to be: this compare read min(topic.order), which every 0-based topic sequencing
+  // pass flattened to 0 for every lesson in the course — so "inferred" was noise and
+  // the curated list had to win. Courses with neither are unaffected; both sides tie
+  // at Infinity and fall through to the name.
   function byLessonName(course, a, b) {
+    const m = orderMaps().le;
+    const oa = _minOrder(m, lessonKey(course, a)), ob = _minOrder(m, lessonKey(course, b));
+    if (oa !== ob) return oa - ob;
     const ra = lessonRank(course, a), rb = lessonRank(course, b);
     if (ra !== rb) return ra - rb;
-    const m = orderMaps().le;
-    const oa = _minOrder(m, `${course} ${a}`), ob = _minOrder(m, `${course} ${b}`);
-    if (oa !== ob) return oa - ob;
+    const g = orderMaps().leOld;
+    const ga = _minOrder(g, lessonKey(course, a)), gb = _minOrder(g, lessonKey(course, b));
+    if (ga !== gb) return ga - gb;
     return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
   }
   // Distinct lesson names of a course, in recommended order.
   function orderedLessons(course, lessons) {
     return [...new Set(lessons)].filter(Boolean).sort((a, b) => byLessonName(course, a, b));
   }
-  // Cosmetic label: prefix a 2-digit recommended-order number for lessons in
-  // LESSON_ORDER (whose stored names lack their own unit number). Never mutates
-  // the raw name used for routing.
+  // Cosmetic label: prefix a 2-digit number for lessons in a curated LESSON_ORDER
+  // course (whose stored names lack their own unit number). Never mutates the raw
+  // name used for routing.
+  //
+  // The number is the lesson's ACTUAL displayed position, not its LESSON_ORDER
+  // index: a stored `lessonOrder` (from a drag or a sequencing sweep) now outranks
+  // the curated list, so numbering off the list would print "03" above "02".
   function lessonLabel(course, lesson) {
-    const r = lessonRank(course, lesson);
-    return r === Infinity ? lesson : `${String(r + 1).padStart(2, '0')} ${lesson}`;
+    if (lessonRank(course, lesson) === Infinity) return lesson;
+    const ls = orderedLessons(course, state.catalog.filter((r) => r.course === course).map((r) => r.lesson));
+    const i = ls.indexOf(lesson);
+    return i === -1 ? lesson : `${String(i + 1).padStart(2, '0')} ${lesson}`;
   }
 
   function uniqSorted(arr) {
@@ -946,6 +975,24 @@ const App = (() => {
     }
   }
 
+  /**
+   * The program the current cascade selection belongs to. The selects are built
+   * from the learner's engine shelf, which SPANS PROGRAMS — so the request has to
+   * name its curriculum or the server scopes it to the enrollment program and
+   * finds nothing ("No topics in scope"). Deepest match wins, so a track name
+   * shared by two programs still resolves once a course/lesson is picked.
+   */
+  function selectionProgram() {
+    const t = $('trackSel').value, c = $('courseSel').value;
+    const l = $('lessonSel').value, tp = $('topicSel').value;
+    if (isAllVal(t)) return '';
+    const row = (state.catalog || []).find((r) => r.track === t
+      && (isAllVal(c) || r.course === c)
+      && (isAllVal(l) || r.lesson === l)
+      && (isAllVal(tp) || r.topic === tp));
+    return (row && row.program) || '';
+  }
+
   function selection() {
     return {
       track: $('trackSel').value,
@@ -953,6 +1000,9 @@ const App = (() => {
       lesson: $('lessonSel').value,
       topic: $('topicSel').value,
       count: $('count').value,
+      // A pinned tab still wins: api() puts ?program=<pin> on the URL and the
+      // server prefers the query over the body.
+      program: selectionProgram(),
     };
   }
 
@@ -1187,17 +1237,23 @@ const App = (() => {
     }
   }
 
-  // Fill the GEN-mode "Base on transcripts" picker with the learner's program
-  // transcripts (best-effort; the picker is optional). Loaded once per entry to
-  // GEN mode. Cached so re-entering doesn't refetch.
-  let _genSourcesLoaded = false;
+  // Fill the GEN-mode "Base on transcripts" picker with the transcripts of the
+  // program the SELECTED track belongs to (best-effort; the picker is optional).
+  // Cached per program, so re-entering GEN mode doesn't refetch but switching to
+  // a track from another curriculum does.
+  let _genSourcesKey = null;
   async function loadGenSources() {
     const box = $('genSources');
-    if (!box || _genSourcesLoaded) return;
+    if (!box) return;
+    // Transcripts are per PROGRAM and the scope selects span programs, so reload
+    // whenever the selected track moves to another curriculum (cached per program).
+    const program = selectionProgram();
+    if (_genSourcesKey === program) return;
+    _genSourcesKey = program;
     box.innerHTML = '<span class="gen-sources-empty">Loading sources…</span>';
     try {
-      const { transcripts } = await api('/api/transcripts');
-      _genSourcesLoaded = true;
+      const { transcripts } = await api('/api/transcripts'
+        + (program ? '?program=' + encodeURIComponent(program) : ''));
       if (!transcripts || !transcripts.length) {
         box.innerHTML = '<span class="gen-sources-empty">No transcripts in your program yet.</span>';
         return;
@@ -1208,6 +1264,7 @@ const App = (() => {
           <span class="gen-source-title">${esc(t.title)}</span>${scopeLabel ? `<span class="gen-source-scope">${esc(scopeLabel)}</span>` : ''}</label>`;
       }).join('');
     } catch (e) {
+      _genSourcesKey = null;   // let the next entry retry
       box.innerHTML = `<span class="gen-sources-empty">Couldn't load sources: ${esc(e.message)}</span>`;
     }
   }
@@ -7227,7 +7284,11 @@ const App = (() => {
 
   // wire cascading selects
   window.addEventListener('DOMContentLoaded', () => {
-    $('trackSel').addEventListener('change', filterCourses);
+    $('trackSel').addEventListener('change', () => {
+      filterCourses();
+      // A new track can be a new program — the sources picker follows it.
+      if (state.mode === 'GEN') loadGenSources();
+    });
     $('courseSel').addEventListener('change', filterLessons);
     $('lessonSel').addEventListener('change', filterTopics);
 

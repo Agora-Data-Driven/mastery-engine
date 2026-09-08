@@ -219,20 +219,30 @@
     const A = Number.isFinite(oa) ? oa : Infinity, B = Number.isFinite(ob) ? ob : Infinity;
     return A !== B ? A - B : _num(na, nb);
   };
-  const _minOrder = (rows) => rows.reduce((m, r) => (Number.isFinite(r.order) && r.order < m ? r.order : m), Infinity);
+  // A group's rank is the MIN of the field over its rows, so one row that missed an
+  // order write can never drag its group backwards. Three independent grains:
+  // `courseOrder` (course in track), `lessonOrder` (lesson in course), `order`
+  // (topic in lesson) - see lib/firestore.js setTopicOrders for why they are separate.
+  const _minRank = (rows, field) => rows.reduce((m, r) => (Number.isFinite(r[field]) && r[field] < m ? r[field] : m), Infinity);
+  const _minOrder = (rows) => _minRank(rows, 'order');
   // Rows of a lesson, in study order.
   function lessonTopics(track, course, lesson) {
     return state.catalog
       .filter((r) => r.track === track && r.course === course && r.lesson === lesson)
       .sort((a, b) => _cmpOrderName(a.order, a.topic, b.order, b.topic));
   }
-  // Distinct child names of a parent, ordered by the group's MIN topic order then name.
-  function orderedGroups(rows, keyOf) {
+  // Distinct child names of a parent, ordered by the group's own stored rank, then
+  // by min(topic.order) (the legacy global-order signal some banks still carry),
+  // then name. `field` is 'courseOrder' for courses, 'lessonOrder' for lessons.
+  function orderedGroups(rows, keyOf, field) {
     const names = [...new Set(rows.map(keyOf))].filter(Boolean);
+    const of = new Map(names.map((nm) => [nm, rows.filter((r) => keyOf(r) === nm)]));
     return names.sort((a, b) => {
-      const oa = _minOrder(rows.filter((r) => keyOf(r) === a));
-      const ob = _minOrder(rows.filter((r) => keyOf(r) === b));
-      return oa !== ob ? oa - ob : _num(a, b);
+      const oa = _minRank(of.get(a), field), ob = _minRank(of.get(b), field);
+      if (oa !== ob) return oa - ob;
+      const ga = _minOrder(of.get(a)), gb = _minOrder(of.get(b));
+      if (ga !== gb) return ga - gb;
+      return _num(a, b);
     });
   }
 
@@ -249,11 +259,11 @@
     for (const track of tracks) {
       const trackRows = state.catalog.filter((r) => r.track === track);
       html += `<div class="cur-track-h">${esc(track)}</div>`;
-      for (const course of orderedGroups(trackRows, (r) => r.course)) {
+      for (const course of orderedGroups(trackRows, (r) => r.course, 'courseOrder')) {
         html += `<div class="cur-course" data-track="${esc(track)}" data-course="${esc(course)}">`;
         html += `<div class="cur-course-h">${esc(course)}</div>`;
         const courseRows = trackRows.filter((r) => r.course === course);
-        for (const lesson of orderedGroups(courseRows, (r) => r.lesson)) {
+        for (const lesson of orderedGroups(courseRows, (r) => r.lesson, 'lessonOrder')) {
           const topics = lessonTopics(track, course, lesson);
           const li = lessonRefs.push({ track, course, lesson, ids: topics.map((r) => r.id) }) - 1;
           html += `<div class="cur-lesson-group" data-track="${esc(track)}" data-course="${esc(course)}" data-lesson="${esc(lesson)}">`;
@@ -365,8 +375,13 @@
   // De-dup an array, preserving first occurrence.
   const _uniq = (a) => a.filter((v, i) => a.indexOf(v) === i);
 
-  // Drop a whole lesson: optionally re-file into a new course, then renumber the target
-  // course into contiguous per-lesson blocks so the lesson lands exactly where dropped.
+  // Drop a whole lesson: optionally re-file into a new course, then rewrite the target
+  // course's `lessonOrder` so the lesson lands exactly where it was dropped.
+  //
+  // This used to renumber every TOPIC in the course into contiguous per-lesson blocks,
+  // because lesson order was inferred from min(topic.order). It no longer is — a
+  // lesson has its own stored rank — so reordering lessons touches only that field and
+  // leaves each lesson's internal topic order completely alone.
   async function dropLesson(drag, t) {
     const toTrack = t.courseEl.dataset.track, toCourse = t.courseEl.dataset.course;
     const sameCourse = drag.track === toTrack && drag.course === toCourse;
@@ -389,23 +404,24 @@
     } else {
       curStatus('Reordering…');
     }
-    // Renumber every topic in the target course, block by block, in the new lesson order.
-    const items = []; const seen = new Set(); let ord = 0;
-    for (const le of lessons) {
+    // Stamp the new lessonOrder on every row of every lesson in the target course.
+    const items = []; const seen = new Set();
+    lessons.forEach((le, i) => {
       const rows = state.catalog
         .filter((r) => r.lesson === le
           && ((r.track === toTrack && r.course === toCourse)
-            || (le === drag.lesson && r.track === drag.track && r.course === drag.course)))
-        .sort((a, b) => _cmpOrderName(a.order, a.topic, b.order, b.topic));
-      for (const r of rows) { if (seen.has(r.id)) continue; seen.add(r.id); items.push({ id: r.id, order: ord++ }); }
-    }
+            || (le === drag.lesson && r.track === drag.track && r.course === drag.course)));
+      for (const r of rows) { if (seen.has(r.id)) continue; seen.add(r.id); items.push({ id: r.id, lessonOrder: i }); }
+    });
     if (items.length) await api('/api/admin/topics/reorder', { method: 'POST', body: { items } });
     curStatus('<span class="aa-ok">Done.</span>');
     await loadCatalog();
   }
 
   // Drop a sub-lesson: optionally re-file into a new lesson, then renumber the target
-  // lesson's topics from its current base order (so its position in the course is kept).
+  // lesson's topics 0-based. Safe now that a lesson's position in its course is its own
+  // stored `lessonOrder` — it used to be min(topic.order), so this had to preserve the
+  // lesson's base offset or renumbering its topics would drag the whole lesson forward.
   async function dropTopic(drag, t) {
     const toTrack = t.groupEl.dataset.track, toCourse = t.groupEl.dataset.course, toLesson = t.groupEl.dataset.lesson;
     const sameLesson = drag.track === toTrack && drag.course === toCourse && drag.lesson === toLesson;
@@ -424,10 +440,7 @@
     } else {
       curStatus('Reordering…');
     }
-    // Keep the lesson's slot in its course: number from its current min order (else 0).
-    const base = _minOrder(lessonTopics(toTrack, toCourse, toLesson));
-    const start = Number.isFinite(base) ? base : 0;
-    const items = ids.map((id, i) => ({ id, order: start + i }));
+    const items = ids.map((id, i) => ({ id, order: i }));
     await api('/api/admin/topics/reorder', { method: 'POST', body: { items } });
     curStatus('<span class="aa-ok">Done.</span>');
     await loadCatalog();
@@ -470,6 +483,26 @@ The tree has been refreshed — try again to remove the rest.`
 
   function wireCurriculum() {
     wireCurriculumDnD();
+    // Repair pass for a tree that landed alphabetically (anything built before the
+    // curriculum's order was stored). ?refresh=1 re-sequences every track in the
+    // program, not just the ones holding an unranked unit — that is what makes it a
+    // repair rather than a top-up, so it asks first.
+    $('curSequence').onclick = async () => {
+      if (!window.confirm("AI-order this program's courses and lessons into the best study sequence? This re-sequences EVERY track in the program and changes the order all learners see. Sub-lesson order inside each lesson is untouched. Safe to re-run.")) return;
+      const btn = $('curSequence');
+      btn.disabled = true; btn.textContent = 'Sequencing…';
+      curStatus('Sequencing…');
+      try {
+        const r = await api('/api/admin/sequence-curriculum?refresh=1', { method: 'POST', body: { program: state.program } });
+        const failed = (r.failed || []).length;
+        curStatus(`<span class="aa-ok">Sequenced ${r.sequenced} track(s).</span>${failed ? ` <span class="aa-err">${failed} failed.</span>` : ''}`);
+        await loadCatalog();
+      } catch (e) {
+        curStatus(`<span class="aa-err">${esc(e.message)}</span>`);
+      } finally {
+        btn.disabled = false; btn.textContent = 'Sequence order';
+      }
+    };
     $('nAdd').onclick = async () => {
       const track = $('nTrack').value.trim(), course = $('nCourse').value.trim(), lesson = $('nLesson').value.trim(), topic = $('nTopic').value.trim();
       if (!track || !course || !lesson || !topic) { $('nMsg').innerHTML = '<span class="aa-err">Fill Track, Course, Lesson and Sub-lesson.</span>'; return; }
