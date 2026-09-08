@@ -1231,6 +1231,14 @@ The tree has been refreshed — try again to remove the rest.`
           ${lessons}
         </div>`;
     }).join('');
+
+    // REVEAL IT. The box starts hidden and is hidden again on discard/commit, so
+    // rendering into it without this paints a finished design into a display:none
+    // div: the run completes, the rail says "Design ready", and the page looks like
+    // nothing happened. Every sibling review box (iPlanBox, gpPlanBox) reveals itself
+    // the same way - whatever RENDERS a plan must also SHOW it.
+    show($('spPlanBox'), true);
+    $('spPlanBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
   async function commitSourcePlan() {

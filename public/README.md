@@ -105,6 +105,15 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    the drop highlight is **refcounted** across `dragenter`/`dragleave` (they fire per child
    element, so a toggle flickers off as the pointer crosses a card), and a row drag carries the
    whole **ticked** set when the dragged row is one of them — tick five, drag one, move five.
+9b3. **🔴 Whatever RENDERS a review panel must also SHOW it.** Every propose-then-apply flow
+   here (`iPlanBox`, `gpPlanBox`, `spPlanBox`) starts `hidden` and is re-hidden on
+   discard/commit, so a renderer that only fills the box paints a finished result into a
+   `display:none` div — the run completes, the rail says "ready", and the page looks like
+   nothing happened. `renderSourcePlan` shipped that way and the corpus designer could never
+   have shown a result. The reveal belongs at the END of the RENDERER, not at the call site,
+   so every path that renders also reveals. To audit: collect `show($('X'), false)` and
+   `show($('X'), true)` pairs and look for an id that is only ever hidden — mind that
+   `show($(variable), cond)` call sites won't match a literal-id grep.
 9c. **A mode is not a station.** The rail went 7 → 5 on 2026-09-07 by merging the pairs that
    were one job split in two: *Set*+*Proof* → **Questions** (build the bank, then fix it) and
    *Distribute*+*Team* → **People** (enrol someone, then see how they are doing). Opening
