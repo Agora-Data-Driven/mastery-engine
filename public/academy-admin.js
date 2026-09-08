@@ -1151,6 +1151,7 @@ The tree has been refreshed — try again to remove the rest.`
           program: state.program,
           sourceIds: picked.map((t) => t.id),
           guidance: $('spGuidance').value.trim(),
+          gaps: $('spGaps').checked,
           ...engineBody(),
         }, { onThinking: panel.thinking, onContent: panel.content });
         panel.done('Design ready');
