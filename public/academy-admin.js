@@ -2575,7 +2575,10 @@ The tree has been refreshed — try again to remove the rest.`
       }
       if (doQ) {
         show($('gStop'), true);
-        $('gStatus').textContent = 'Queueing questions…';
+        // Name the scope and say what is about to happen. "Queueing questions..." on
+        // its own told you nothing about WHAT or HOW MUCH, so a slow first step looked
+        // like a stall rather than a long call that had not returned yet.
+        $('gStatus').textContent = `Working out which sub-lessons to cover in ${[course, lesson, topic].filter(Boolean).join(' › ') || track}…`;
         const { job } = await api('/api/admin/genjobs', {
           method: 'POST',
           body: {
@@ -2589,6 +2592,10 @@ The tree has been refreshed — try again to remove the rest.`
           },
         });
         state.job = job;
+        const n = (job.progress && job.progress.topicsTotal) || 0;
+        $('gStatus').textContent = n
+          ? `${n} sub-lesson${n === 1 ? '' : 's'} queued · ${Number($('gCount').value) || 5} questions each — starting…`
+          : 'Nothing to generate for that scope.';
         await runSteps(job.id);
         await loadJobs();
         show($('gStop'), false);
@@ -2655,6 +2662,33 @@ The tree has been refreshed — try again to remove the rest.`
     }
   }
 
+  /* A live line for the minutes a single generation step can take.
+   *
+   * The stepper only learns anything when a step RETURNS, so between calls the panel
+   * would sit on a stale message - which is exactly what "it looks broken" means. This
+   * names the topic being written (from the job's `next`, captured before the step) and
+   * ticks the seconds, so a slow call is visibly slow rather than apparently dead. */
+  function startStepTicker(els, prevJob) {
+    const started = Date.now();
+    const p = (prevJob && prevJob.progress) || {};
+    const nth = (p.topicsDone || 0) + 1;
+    const total = p.topicsTotal || 0;
+    const topic = prevJob && prevJob.next && prevJob.next.topic;
+    const where = topic
+      ? `Writing questions for “${topic}”`
+      : 'Writing questions';
+    const render = () => {
+      const secs = Math.round((Date.now() - started) / 1000);
+      const clock = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+      const pos = total ? ` — topic ${Math.min(nth, total)} of ${total}` : '';
+      const slow = secs > 90 ? ' · still going, a thinking model can take a few minutes' : '';
+      $(els.status).textContent = `${where}${pos} · ${clock} elapsed${slow}`;
+    };
+    render();
+    const t = setInterval(render, 1000);
+    return { stop() { clearInterval(t); } };
+  }
+
   async function runSteps(id, els = { bar: 'gBar', status: 'gStatus', out: 'gOut' }, stopKey = 'stop') {
     // Baseline for waitOutStep: it must know topicsDone as it was BEFORE the step it is
     // waiting on, and a Resume starts mid-run, so a fresh loop reads it once up front.
@@ -2663,24 +2697,37 @@ The tree has been refreshed — try again to remove the rest.`
     for (;;) {
       if (state[stopKey]) { $(els.status).textContent = 'Stopped. Press Start to resume where it left off.'; return; }
       let job;
+      // A step is ONE AI call and can run for minutes with nothing on the wire. Without
+      // a live line here the panel freezes on whatever it last said, which reads as a
+      // crash - so name the topic being written and tick the elapsed time. `last` is the
+      // job as it stood BEFORE this step, so its `next` is what this step is doing.
+      const ticker = startStepTicker(els, last);
       try {
-        // SSE, not a plain POST: one step is a single thinking-model call that can run
-        // minutes, and a POST sending no bytes that whole time gets cut by whatever sits
-        // in front of Cloud Run. The stream's heartbeat keeps the socket alive.
+        // SSE, not a plain POST: a POST sending no bytes for minutes gets cut by
+        // whatever sits in front of Cloud Run. The stream's heartbeat keeps it alive.
         ({ job } = await streamSSE(`/api/admin/genjobs/${id}/step`, {}));
       } catch (e) {
+        // Stop the ticker FIRST: waitOutStep writes its own "connection dropped, still
+        // waiting" line to the same element, and a ticker still running would paint
+        // over it every second.
+        ticker.stop();
         // fetch reports transport failures as TypeError; anything else is a real error
         // the server sent us in-band, and re-trying it would just fail the same way.
         if (!(e instanceof TypeError)) throw e;
         job = await waitOutStep(id, last, els, stopKey);
         if (!job) { $(els.status).textContent = 'Stopped. Press Start to resume where it left off.'; return; }
+      } finally {
+        ticker.stop();   // idempotent; guarantees it on the success path too
       }
       last = job;
       const p = job.progress || {};
       const pct = p.topicsTotal ? Math.round((p.topicsDone / p.topicsTotal) * 100) : 0;
       $(els.bar).style.width = pct + '%';
-      $(els.status).textContent =
-        `${job.status} — ${p.topicsDone}/${p.topicsTotal} topics · ${p.questionsWritten} questions · $${(p.costUsd || 0).toFixed(4)}`;
+      const money = (p.costUsd || 0) > 0 ? ` · $${(p.costUsd || 0).toFixed(4)}` : '';
+      const doneNow = job.status === 'done' || !job.remaining;
+      $(els.status).textContent = doneNow
+        ? `Finished — ${p.topicsDone} of ${p.topicsTotal} topics, ${p.questionsWritten} questions written${money}`
+        : `${p.topicsDone} of ${p.topicsTotal} topics done · ${p.questionsWritten} questions so far${money}`;
       if (els.out && job.errors && job.errors.length) {
         show($(els.out), true);
         $(els.out).textContent = job.errors.map((e) => `${e.topic}: ${e.error}`).join('\n');
