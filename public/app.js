@@ -5220,6 +5220,7 @@ const App = (() => {
           // rehearsal is the reason to arm it.
           coach: coachOn() || undefined,
           deep: deepOn() || undefined,
+          sources: sourcesOn() || undefined,
           actions: engineActionsEnabled() || undefined,
           hostFrame: inHostFrame() || undefined,
         }),
@@ -5478,6 +5479,7 @@ const App = (() => {
         web: webAccessOn() || undefined,
         coach: coachOn() || undefined,
         deep: deepOn() || undefined,
+        sources: sourcesOn() || undefined,
         actions: engineActionsEnabled() || undefined,
         hostFrame: inHostFrame() || undefined,
         attachments: assistantAttachments.length ? assistantAttachments.map((a) => ({ name: a.name, mimeType: a.mimeType, data: a.data })) : undefined,
@@ -7474,6 +7476,10 @@ const App = (() => {
    * happened to coach mode. The drawer keeps only what needs a dropdown.
    */
   function deepOn() { return localStorage.getItem('assistant.deep') === '1'; }
+  // Sources: answer from the transcripts filed against the section on screen, and cite
+  // them. Independent of deep, which also hands over the ANSWER KEY - you usually want
+  // grounding while studying and the key only when testing yourself.
+  function sourcesOn() { return localStorage.getItem('assistant.sources') === '1'; }
 
   function toggleAsstChip(kind) {
     if (kind === 'coach') {
@@ -7485,6 +7491,8 @@ const App = (() => {
       localStorage.setItem('assistant.web', webAccessOn() ? '0' : '1');
     } else if (kind === 'deep') {
       localStorage.setItem('assistant.deep', deepOn() ? '0' : '1');
+    } else if (kind === 'sources') {
+      localStorage.setItem('assistant.sources', sourcesOn() ? '0' : '1');
     } else if (kind === 'voice') {
       if (!convoSupported()) return;
       localStorage.setItem('assistant.convoMode', convoOn() ? '0' : '1');
@@ -7505,6 +7513,7 @@ const App = (() => {
     paint('asstChipCoach', coachOn(), assistantOnly());
     paint('asstChipWeb', webAccessOn(), false);
     paint('asstChipDeep', deepOn(), false);
+    paint('asstChipSources', sourcesOn(), false);
     paint('asstChipVoice', convoOn(), !convoSupported());
   }
 

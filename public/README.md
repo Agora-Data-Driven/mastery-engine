@@ -55,6 +55,13 @@ Data contract (Firestore doc → lib accessor → app.js consumer): the single t
    ([../lib/gemini.js](../lib/gemini.js)), which is likewise shared by both.
    `scope` rides on **every** view (not just `setup`) because deep mode resolves the section to
    load from it — see 6b.
+6b0. **The chips, and which grounding each one buys.** `deep` loads the section's real
+   question bank *including the answer key* plus the learner's scores; `sources` loads the
+   filed TRANSCRIPTS for that section and demands a citation. They are deliberately separate:
+   you want your own material behind an answer while studying, and the answer key only when
+   testing yourself. Both resolve the on-screen section through the SAME `onScreenScope()`
+   helper in server.js - it holds the shelf-vs-program rule that was once a silent bug, and
+   must never be re-implemented per flag.
 6b. **Add an assistant FLAG** (a new mode like `deep` / `coach` / `web`) — it goes in **three**
    places, and missing one fails silently: the body of `streamAssistantAnswer` (typed), the body
    of `sendAssistantBlocking` (voice), and the route pair in `server.js`. `coach`/`actions`/
